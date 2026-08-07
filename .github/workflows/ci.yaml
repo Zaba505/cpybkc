@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    # A release is a tag push and nothing else. The tag is here so the pipeline
+    # runs on one at all; whether that run publishes anything is the module's
+    # decision, made from the refs at HEAD, not this list and not an `if:` on a
+    # job. Today the answer is always no — the module builds a library, so there
+    # is nothing to publish yet — and that is a fact about which archetype
+    # .dagger/main.go calls rather than about this file.
+    tags:
+      - "v*"
+
+# A pull request only needs an answer about its newest commit. Superseded runs
+# are cancelled so the queue reflects what is actually up for review. Pushes to
+# main keep their runs — main's history is the record.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The floor for every job. A job that needs more says so itself, so that reading
+# one job tells you what that job can reach.
+permissions:
+  contents: read
+
+jobs:
+  # The whole pipeline: fmt, vet, golangci-lint and `go test -race`, as the root
+  # Dagger module defines them and as `dagger call ci` runs them on a
+  # contributor's machine. It is one call and it stays one — a step here that
+  # reran any of those stages would be a second definition of the standard, and
+  # the two would drift. See CONTRIBUTING.md and .dagger/main.go.
+  #
+  # Repo-specific verification lands in this workflow the same way: as another
+  # function on the root module invoked by another `dagger call`, never as raw
+  # Go steps beside it. cpybkc has none yet — the conformance corpus is #66-#68
+  # — but a golden-file or corpus job written with `actions/setup-go` and
+  # `go test` would be a second toolchain, a second set of stage definitions and
+  # a second answer to what this repository checks.
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    permissions:
+      # Reading the source is all the pipeline does. No `packages: write`,
+      # because nothing is pushed; no `id-token: write`, because nothing is
+      # attested — the module produces no artifact to sign. Both grants belong
+      # to the change that gives it one, next to the stage that needs them,
+      # rather than being held here in advance against a job that would not
+      # notice them missing.
+      contents: read
+    steps:
+      # A shallow checkout on purpose. The module excludes .git from the source
+      # directory it checks, because none of fmt, vet, lint or test reads git
+      # metadata, so there is nothing here for the extra history to feed. That
+      # changes with the archetype: a GoApp stamps binaries from the refs at
+      # HEAD and needs real metadata, so `fetch-depth: 0` comes back in the same
+      # change that drops .git from the module's ignore list.
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      # Pinned to the engineVersion the module itself declares, read out of
+      # dagger.json rather than repeated here. The CLI provisions an engine of
+      # its own version, so a number typed into this file could drift from the
+      # module's and leave CI running the pipeline on an engine the module has
+      # never been run against — which is the difference between this repository
+      # and every other one that the module exists to prevent. It is the same
+      # command CONTRIBUTING.md gives contributors, for the same reason.
+      - name: Install the Dagger CLI
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
+              BIN_DIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # No arguments, because the module's source defaults to the repository
+      # root and its lint configuration defaults to the .golangci.yml committed
+      # beside it. This is character-for-character what a contributor runs
+      # before pushing, so there is no arrangement of local commands that passes
+      # while CI fails.
+      - name: Run the pipeline
+        run: dagger call ci
