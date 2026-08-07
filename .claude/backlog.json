@@ -1,0 +1,27 @@
+{
+  "select": {
+    "label": "story",
+    "milestone": null,
+    "limit": 200,
+    "project": {
+      "owner": "Zaba505",
+      "number": 7,
+      "field": "Area",
+      "value": null
+    }
+  },
+  "dependencies": {
+    "style": "native"
+  },
+  "verify": [
+    "dagger call ci"
+  ],
+  "merge": {
+    "label": "auto-merge",
+    "workflow": "auto-merge.yaml"
+  },
+  "review": {
+    "required": true
+  },
+  "worktreeDir": ".claude/worktrees"
+}
