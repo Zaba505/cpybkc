@@ -55,6 +55,12 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 > cobol-go governs what is inside it — so there is no conflict here to resolve.
 > Where the IR appears to disagree with `codec/SPEC.md` about a byte layout,
 > `codec/SPEC.md` wins and the IR has a bug.
+>
+> They do not cover everything between them. `codec/SPEC.md` excludes record
+> formats, descriptor words and line terminators explicitly, as concerning how
+> records are delimited in a file rather than how an item is laid out inside
+> one. Physical framing therefore has no governing source above it, and what
+> the file node carries of it is this document's own (#26).
 
 ### Conformance language
 
@@ -192,6 +198,37 @@ them (#32).
 A record carries no length either, for the same reason: it is the sum of what is
 in it.
 
+### Members never overlap, and `REDEFINES` is resolved away
+
+The sum has a premise: no two members of a group occupy the same byte. A member
+list **MUST NOT** contain two items whose extents overlap (#32).
+
+The premise needs stating because COBOL has a clause for breaking it.
+`REDEFINES` overlays one item on another, and a producer that lists a redefined
+item and its redefiners as members in the order a copybook writes them emits a
+record summing to more than its own length. The descriptor stays internally
+consistent, no consumer can detect the error, and the failure [Ordering and
+width](#ordering-and-width-and-no-offset) calls unrepresentable is
+representable after all.
+
+So `REDEFINES` does not reach the IR. It is not a node kind, not a field on one
+and not a reference: a producer **MUST** resolve it away (#32), and the graph
+carries what is left. Each alternative a discriminator can select becomes its
+own record node with its own containment order, the items those alternatives
+share appear in each, and bytes the chosen alternative does not occupy are slack
+under the rule below. Two layouts overlaying the same bytes are two paths
+through the automaton, which is the shape the IR already has. The alternative
+was a node kind whose only purpose is to be collapsed by every consumer in every
+language before it could compute a single offset.
+
+The cost is duplication, and the IR does not soften it. A dozen record types
+sharing a thirty-item prefix carry that prefix a dozen times, and nothing says
+the copies are copies: a generator wanting to emit one shared header type over a
+dozen independent ones has no reference telling it which fields correspond, and
+[Names](#names) denies it the option of matching on names. Emitting the dozen is
+always correct. Coalescing them is a generator's judgement, and two generators
+may reasonably differ.
+
 ### Slack is a node, not a rule
 
 `codec/SPEC.md` warns that a reader **MUST NOT** assume a record is the simple
@@ -317,10 +354,20 @@ consumer evaluates one knowing no COBOL, and knowing nothing about what the
 strategy that produced it was called in a layout file (#37).
 
 A predicate **MUST** name its target as a field node identifier and **MUST NOT**
-name it as a field name. Where those bytes are follows from [Offsets and
-widths](#offsets-and-widths): the target's position is the sum of the widths
-ahead of it in the record being discriminated, and its extent is the target's
-own width.
+name it as a field name. The record being discriminated is the record its
+transition admits: a producer **MUST** ensure the target is contained in that
+record, at any depth, and **MUST NOT** name a field of any other (#37). Where
+those bytes are then follows from [Offsets and widths](#offsets-and-widths) —
+the target's position is the sum of the widths ahead of it in that record, and
+its extent is the target's own width.
+
+A consumer evaluates a predicate against the bytes at the current read position,
+read as the record that transition would admit, and consumes nothing until a
+transition is taken. Which record the sum is over is therefore settled before
+the predicate is evaluated rather than by it, and a discriminator sitting in the
+middle of a record — behind a prefix its alternatives share, which is how a
+record whose second half is a set of alternatives is usually built — is an
+ordinary layout rather than a special case.
 
 The set is closed for the reason `layout/SPEC.md` gives when it closes the
 strategies that lower into it — a closed set can be checked for overlap and for
@@ -335,10 +382,15 @@ is a breaking change.
 ### When two match, and when none does
 
 Two transitions leaving the same state **MUST NOT** be selected by predicates
-that can both match the same bytes; `resolve` rejects a layout whose
-discriminators overlap (#37). So the question `layout/SPEC.md` defers to this
-document — what happens when two discriminators match — has an answer at the one
-place it is cheap: it does not arise, because such an IR is never produced.
+that can both match the same record; `resolve` rejects a layout whose
+discriminators overlap (#37). The test is whether one input can satisfy both,
+not whether the two read the same bytes: a state offering a transition keyed on
+a record's first field beside one keyed on its tenth is where the narrower
+reading lets a real ambiguity through, and predicates reading different fields
+at different positions overlap just as thoroughly as two reading one. So the
+question `layout/SPEC.md` defers to this document — what happens when two
+discriminators match — has an answer at the one place it is cheap: it does not
+arise, because such an IR is never produced.
 
 A consumer **MAY** therefore stop at the first predicate that matches. The
 evaluation order is normative all the same, so that two consumers handed the
