@@ -1,8 +1,25 @@
-version: "2"
+run:
+  timeout: 5m
 
-# Uses golangci-lint v2's default ("standard") linter set:
-# errcheck, govet, ineffassign, staticcheck, unused.
+# The same five linters this file has always selected — golangci-lint v2's
+# default ("standard") set — written in v1 syntax rather than as `version: "2"`.
+#
+# The Z5Labs standard pipeline pins golangci-lint v1.64.8, and v1 rejects a v2
+# configuration file outright rather than ignoring the parts it does not
+# understand. The root dagger module passes this file to that pipeline so that
+# the configuration committed here is the configuration CI enforces, which only
+# holds while the file is in the dialect the pinned linter reads. Tracked
+# upstream as z5labs/devex#374; restore the v2 form, and the cobol-go wording
+# with it, once the standard pipeline runs golangci-lint v2.
 #
 # Unlike cobol-go, `unused` is left enabled: this repository starts from an
 # empty package tree rather than a pre-seeded set of building-block helpers,
 # so there is nothing legitimately unused to exempt.
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
