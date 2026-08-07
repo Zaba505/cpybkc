@@ -60,7 +60,7 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 > formats, descriptor words and line terminators explicitly, as concerning how
 > records are delimited in a file rather than how an item is laid out inside
 > one. Physical framing therefore has no governing source above it, and what
-> the file node carries of it is this document's own (#26).
+> the file node carries of it is this document's own (#26, #78).
 
 ### Conformance language
 
