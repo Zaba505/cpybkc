@@ -1,0 +1,23 @@
+{
+  "name": "cpybkc",
+  "engineVersion": "v0.21.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "go",
+      "source": "github.com/z5labs/devex/daggerverse/go@78d4f2ec89804325ade1e867b28a927676201f0d",
+      "pin": "78d4f2ec89804325ade1e867b28a927676201f0d"
+    },
+    {
+      "name": "z5labs",
+      "source": "github.com/z5labs/devex/daggerverse/z5labs@78d4f2ec89804325ade1e867b28a927676201f0d",
+      "pin": "78d4f2ec89804325ade1e867b28a927676201f0d"
+    }
+  ],
+  "source": ".dagger",
+  "codegen": {
+    "automaticGitignore": false
+  }
+}
