@@ -134,7 +134,7 @@ pipeline and the lint configuration, applied to the word **MUST**.
 [`cobol-go`](https://github.com/Zaba505/cobol-go) puts `codec/SPEC.md` next to
 package `codec`, and it is the model these specs follow in every other respect.
 It is not followed here because three of the four specify things that are not Go
-packages: a YAML format, a CLI contract for executables that may be shell
+packages: a text file format, a CLI contract for executables that may be shell
 scripts, and an OCI image. Package-adjacency would have conjured an empty
 `container/` package into existence to hold one markdown file, and would have
 scattered four documents that are peers — a reader comparing what the plugin
@@ -142,8 +142,8 @@ contract promises against what the image provides should not have to know the
 package tree to find both.
 
 Each spec gets a directory rather than a bare file because they grow supporting
-material: the layout format's published JSON Schema belongs beside the layout
-spec, not in a second place that has to be kept in step with it.
+material: the layout format's published schema belongs beside the layout spec,
+not in a second place that has to be kept in step with it.
 
 ### Changing a spec
 

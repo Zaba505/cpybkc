@@ -11,6 +11,19 @@ what order they may appear, how to tell one from another, how the file is framed
 on disk, or how any of it is encoded — and every one of those is needed before a
 single byte can be read. The layout format is where an adopter states them.
 
+Nearly all of that is a *relationship*. Which record may follow which, which
+field decides between two of them, which may repeat and which may not: each is a
+statement about how records stand to one another, and together they are a graph
+over the file's records. That graph is the part a copybook has no way to hold
+and the part a generator cannot work without. The flat per-field data beside it
+— a name, a width — a copybook already carries.
+
+Because the format states relationships, it states sizes and stops. An offset is
+the sum of the widths before it; a record's length is the sum of its fields'.
+Writing either down as well would be a second statement of a fact already made,
+kept in step by hand, for the two to disagree about. What is derivable is
+derived — by `resolve`, once, into the IR.
+
 It is the source an adopter writes; the [resolved IR](../ir/SPEC.md) is what it
 becomes. The split is load-bearing: this document owns how a discriminator or a
 sequencing expression is **spelled**, and the IR owns what one **means**. A
@@ -25,29 +38,25 @@ questions belong there; questions about the file around the records belong here.
 
 ### Scope
 
-In scope: the YAML document an adopter writes to describe a data file, as five
+In scope: the document an adopter writes to describe a data file, as five
 separable layers — the encoding profile, physical framing, record definitions,
-discrimination, and sequencing — together with the keys of each layer, the rules
-that make a layout valid or invalid, the diagnostics an invalid one produces,
-and the JSON Schema that machine-checks all of it.
+discrimination, and sequencing — together with what each layer can express, the
+rules that make a layout valid or invalid, the diagnostics an invalid one
+produces, and the machine-readable schema that checks all of it.
 
 Five layers rather than one schema because they vary independently: a shop's
 encoding profile is a property of its mainframe and is the same across every
 file, while framing is a property of the dataset and discrimination is a
 property of the application.
 
+The concrete notation those layers are written in is **not** settled here. What
+a layout has to be able to say is #15's; which syntax says it is #22's, decided
+against [The surface syntax](#the-surface-syntax).
+
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
 ### Governing sources
 
-- **YAML 1.2.2**, *YAML Ain't Markup Language* — normative for the surface
-  syntax, and in particular for what a plain scalar means, which is where a
-  format that carries COBOL names, hex byte values and record counts is most
-  likely to be surprised. <https://yaml.org/spec/1.2.2/>
-- **JSON Schema 2020-12** — normative for the published schema (#23). The
-  dialect is named because a schema's meaning depends on it and consumers have
-  to know which validator to reach for.
-  <https://json-schema.org/draft/2020-12>
 - **z/OS DFSMS record formats** and ***Using Data Sets*** — normative for
   RECFM F/FB/V/VB/VBS/U, for the RDW and BDW that variable and blocked formats
   carry, and for how LRECL and BLKSIZE constrain them. This is the vocabulary
@@ -64,6 +73,11 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   definition binds to, and so for what counts as a resolvable field name.
   <https://github.com/Zaba505/cobol-go/blob/main/SPEC.md>
 
+No source is listed here for the surface syntax, because none has been chosen.
+Whichever notation #22 lands on brings its own grammar with it, and that grammar
+joins this list in the same change — a syntax whose normative definition is left
+unnamed is a syntax every implementation reads slightly differently.
+
 > **Ambiguity:** the IBM documentation describes one implementation of record
 > formats, and files written by GnuCOBOL or Micro Focus on Linux do not always
 > match it — line-delimited "RECFM=V" being the common divergence. Where they
@@ -74,16 +88,27 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 ### Conformance language
 
 **MUST**, **MUST NOT**, **SHOULD** and **MAY** are normative requirements on the
-layout format, on its JSON Schema, and on any implementation reading a layout
-file, interpreted as described in [CONVENTIONS.md](../CONVENTIONS.md).
+layout format, on its published schema, and on any implementation reading a
+layout file, interpreted as described in [CONVENTIONS.md](../CONVENTIONS.md).
 Everything else is descriptive.
 
-## Why YAML, and why a JSON Schema
+## The surface syntax
 
-<!-- #22: adopters hold this metadata already — in DB2 catalogs, in JCL, in a
-     spreadsheet — and will generate layout files from it rather than hand-write
-     them, so the format needs a machine-readable contract to target. #23
-     publishes the schema. -->
+<!-- #22: the notation, and the argument for it. Two requirements bound the
+     choice. First, adopters hold this metadata already — in DB2 catalogs, in
+     JCL, in a spreadsheet — and will generate layout files from it rather than
+     hand-write them, so whatever the notation is needs a machine-readable
+     contract they can target; #23 publishes that schema. Second, the thing
+     being written down is a graph over records (see the Overview), so the
+     notation is judged on how directly it states an edge — a syntax that can
+     only nest forces the graph into key paths and cross-references, and every
+     reader then has to reconstruct it.
+
+     Candidates, neither settled: an S-expression form of tagged nodes and
+     references, as z5labs/dfcad writes its entity graph over z5labs/sexpr-go
+     (https://github.com/z5labs/dfcad, SPEC.md there is the worked example);
+     or YAML with a published JSON Schema. Whichever wins, name its grammar in
+     Governing sources in the same change. -->
 
 ## The encoding profile
 
@@ -152,13 +177,17 @@ a sequencing expression accepts are **not specified here**.
 Reason: they are [`ir/SPEC.md`](../ir/SPEC.md)'s (#16), which is written first
 precisely so that the meanings are settled before the spelling. Splitting the
 other way — syntax owning semantics — would make the IR a transcription of
-whatever YAML happened to be convenient, and would leave a second generator with
-nowhere to look up what it is expected to do.
+whatever notation happened to be convenient, and would leave a second generator
+with nowhere to look up what it is expected to do.
 
 ### Also out of scope
 
 - **Byte-level field representation.** `codec/SPEC.md`'s, cited above. The
   encoding profile declares the axes; what the bytes then are is answered there.
+- **Derived quantities.** An offset, a record length, a total width — anything
+  computable from the sizes and the ordering a layout already states is not
+  something a layout file also carries. The reasoning is in the
+  [Overview](#overview); the computing is `resolve`'s (#32).
 - **Resolution** (#32–#38) — the stage that turns a layout and a copybook into
   IR is an implementation, and its contract is `ir/SPEC.md`.
 - **The `cpybkc.json` project manifest** (#40), which says which generators to
@@ -171,7 +200,7 @@ nowhere to look up what it is expected to do.
 
 | Section | Implemented by |
 |---|---|
-| [Why YAML, and why a JSON Schema](#why-yaml-and-why-a-json-schema) | #23 `layout` |
+| [The surface syntax](#the-surface-syntax) | #22, #23 `layout` |
 | [The encoding profile](#the-encoding-profile) | #25 `layout` |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout` |

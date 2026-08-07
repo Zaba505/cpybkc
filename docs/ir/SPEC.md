@@ -15,8 +15,8 @@ layout file, and never recomputes anything the IR already carries.
 That makes it the keystone of the four specs, and the reason it is written
 first. Fixing what a discriminator or a sequencing expression *means* before the
 [layout format](../layout/SPEC.md) fixes how one is spelled keeps the semantics
-from being back-derived from YAML keys, and keeps every generator from having to
-agree on a second reading of the same file.
+from being back-derived from whatever notation that format lands on, and keeps
+every generator from having to agree on a second reading of the same file.
 
 It is distinct from the [layout format](../layout/SPEC.md), which is the source
 an adopter writes, and from the [plugin contract](../plugin/SPEC.md), which
@@ -70,14 +70,34 @@ IR schema and on every producer and consumer of it, interpreted as described in
 
 <!-- #16: what a resolved layout is made of, top down — file, records, groups,
      elementary fields — and what each descriptor carries. #17 defines the
-     protobuf that expresses it. -->
+     protobuf that expresses it.
+
+     Open, and settled here rather than in #17: whether that structure is a tree
+     of nested messages or a flat set of typed nodes with references between
+     them — the shape RDF takes, minus RDF's untyped triples. The strongly typed
+     form of it in protobuf is one node message whose body is a oneof over the
+     member types, so a consumer switches on a closed set the schema already
+     enumerates rather than on a string. Nesting is easier to read; a node set
+     carries a graph without flattening it, survives a member being added, and
+     is the same shape the layout format is being argued into (see
+     layout/SPEC.md's Overview). protobuf either way — the question is the
+     message shape, not the encoding, and Why protobuf, and why no gRPC below
+     is unaffected. -->
 
 ## Offsets and widths
 
 <!-- #16: the IR carries pre-computed byte offsets and widths for every field,
      and no generator ever recomputes them. Covers SYNCHRONIZED slack (#34) and
      OCCURS DEPENDING ON (#35) as resolved facts rather than as rules a
-     generator applies. Computed by #32. -->
+     generator applies. Computed by #32.
+
+     Weigh keeping the offset at all against carrying only ordering and width,
+     from which it follows. This is where the IR parts company with the layout
+     format, which excludes derived quantities outright: the IR is the resolved
+     artifact and doing the sum once here is the reason generators exist in more
+     than one language. Against that, an offset field is a fact stated twice
+     that a producer can get wrong in a way no consumer can detect. If it stays,
+     say so as a decision with that cost named, not by omission. -->
 
 ## The encoding profile, applied
 

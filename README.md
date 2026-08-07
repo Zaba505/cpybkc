@@ -6,7 +6,7 @@ A modular code generator for files composed COBOL copybook records
 Four interfaces are built against from outside this repository, so each is
 specified rather than merely implemented:
 
-- [The file layout format](docs/layout/SPEC.md) — the YAML an adopter writes to
+- [The file layout format](docs/layout/SPEC.md) — what an adopter writes to
   describe a data file that a copybook alone cannot.
 - [The resolved IR](docs/ir/SPEC.md) — what every generator plugin consumes, in
   any language.
