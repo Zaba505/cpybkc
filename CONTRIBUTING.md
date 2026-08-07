@@ -114,3 +114,62 @@ v2 syntax once the standard pipeline runs v2 — tracked upstream as
 
 If you run `golangci-lint` directly rather than through `dagger call lint`, use
 v1.64.8 or it will reject the config for the mirror-image reason.
+
+## Specs
+
+Four of this project's interfaces are built against from outside it — the file
+layout format, the resolved IR, the plugin CLI contract and the container
+base-image contract — and each is far harder to change than the code behind it.
+Each has a `SPEC.md` under [`docs/`](docs/), linked from
+[README.md](README.md), which is the only list of them.
+
+[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is what those four agree on: the
+conformance language, the section set every spec carries, how sources are cited
+and how requirements are traced back to stories. It is defined there once and
+referenced, never restated — the same argument this file already makes about the
+pipeline and the lint configuration, applied to the word **MUST**.
+
+### Why `docs/` and not beside the code
+
+[`cobol-go`](https://github.com/Zaba505/cobol-go) puts `codec/SPEC.md` next to
+package `codec`, and it is the model these specs follow in every other respect.
+It is not followed here because three of the four specify things that are not Go
+packages: a YAML format, a CLI contract for executables that may be shell
+scripts, and an OCI image. Package-adjacency would have conjured an empty
+`container/` package into existence to hold one markdown file, and would have
+scattered four documents that are peers — a reader comparing what the plugin
+contract promises against what the image provides should not have to know the
+package tree to find both.
+
+Each spec gets a directory rather than a bare file because they grow supporting
+material: the layout format's published JSON Schema belongs beside the layout
+spec, not in a second place that has to be kept in step with it.
+
+### Changing a spec
+
+Read `docs/CONVENTIONS.md` first; it is short, and it is what a reviewer will
+check against. Then:
+
+- Keep the section set. A spec missing `Out of Scope` is a spec that will have
+  the same exclusion proposed to it every six months.
+- Fill a stub heading and its `<!-- -->` brief goes in the same change, along
+  with the *Mapping to Stories* row. A section with prose and its scaffolding
+  comment still above it is a change somebody stopped halfway through.
+- Cite, do not restate. Anything true of COBOL source or of byte-level field
+  layout is `cobol-go`'s to say, and a second copy here is a second thing to be
+  wrong.
+- A new spec is a new row in `README.md`. There is one index; keep it complete.
+
+`dagger call ci` does not read `docs/` — it is fmt, vet, lint and
+`go test -race`, and it will pass on a documentation change without having
+looked at it. Run it anyway, because a change that claims to be docs-only and is
+not should fail in the same place as everything else, but do not mistake it for
+review. What checks a spec is a reader asking whether every link resolves from
+the file it is written in, whether every **MUST** names who it binds, and
+whether anything is restated that could have been cited.
+
+Mechanising the first of those — link resolution and the 80-column wrap — would
+be welcome. It arrives as another function on the root Dagger module, called by
+another `dagger call`, for the reason
+[`.github/workflows/ci.yaml`](.github/workflows/ci.yaml) already gives: raw
+steps beside it would be a second definition of what this repository checks.
