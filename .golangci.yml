@@ -1,0 +1,8 @@
+version: "2"
+
+# Uses golangci-lint v2's default ("standard") linter set:
+# errcheck, govet, ineffassign, staticcheck, unused.
+#
+# Unlike cobol-go, `unused` is left enabled: this repository starts from an
+# empty package tree rather than a pre-seeded set of building-block helpers,
+# so there is nothing legitimately unused to exempt.
