@@ -25,11 +25,12 @@ the plugin spec, and what the thing *is* belongs here.
 In scope: what a resolved file layout contains and what each part of it means —
 field descriptors with their widths, their applied encodings and their place in
 the record's ordering, record structure, compiled discriminators, the compiled
-sequencing automaton, and language-neutral names. Together with the protobuf
-schema that carries all of it, the version field that identifies it, and the
-compatibility policy that governs changing it. And what a consumer does with all
-of it in both directions: the code a generator emits to read a data file, and
-the code it emits to write one.
+sequencing automaton and the values it carries forward between records, and
+language-neutral names. Together with the protobuf schema that carries all of
+it, the version field that identifies it, and the compatibility policy that
+governs changing it. And what a consumer does with all of it in both directions:
+the code a generator emits to read a data file, and the code it emits to write
+one.
 
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
@@ -93,10 +94,12 @@ prints as the record it describes. It loses on the shape of the thing being
 described, because a file is not a tree. Sequencing is a graph with cycles in it
 — that is what makes a file a stream rather than a fixed list. A discriminator
 points at a field in the record it selects. An `OCCURS DEPENDING ON` object may
-sit outside the group it counts, and in real layouts in another record entirely
-(#35). A tree carries each of those as a name path for the consumer to resolve,
-which puts name resolution — and the chance of two generators resolving one
-differently — into every language anyone writes a generator in.
+sit outside the group it counts, and where the count comes from an earlier
+record it is a register the automaton bound rather than a field of the record
+being read (#35, #77). A tree carries each of those as a name path for the
+consumer to resolve, which puts name resolution — and the chance of two
+generators resolving one differently — into every language anyone writes a
+generator in.
 
 The cost is real, and none of it is paid by the producer. A consumer **MUST**
 index the node list by identifier before it can walk anything. The JSON debug
@@ -120,8 +123,11 @@ names, field names, field numbers — is #17's.
 | **field** | An elementary item: its width, its four resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
 | **slack** | A width, and nothing else: bytes that are part of the record and belong to no item. |
 | **predicate** | The identifier of the field it tests, and the test itself, as one member of a closed set. |
-| **state** | Whether the state accepts, and an ordered list of the identifiers of the transitions leaving it. |
-| **transition** | The identifiers of the predicate that selects it, the record it admits, and the state it moves to. |
+| **state** | Whether the state accepts, the identifiers of the guards qualifying that where it is conditional, and an ordered list of the identifiers of the transitions leaving it. |
+| **transition** | The identifiers of the predicate that selects it, the guards that make it eligible, the record it admits, the bindings it applies, and the state it moves to. |
+| **register** | The kind of value it holds — bytes, or an integer — and nothing else. |
+| **binding** | The identifier of the register it writes, and the value written, as one member of a closed set. |
+| **guard** | The identifier of the register it tests, and the test itself, as one member of a closed set. |
 
 ### Identity, ordering and determinism
 
@@ -131,8 +137,9 @@ names, field names, field numbers — is #17's.
   the identifiers and their order inside that promise alongside the contents.
 - An identifier means identity and nothing else. A consumer **MUST NOT** infer
   containment, ordering or position from one.
-- Every reference **MUST** resolve to a node in the same message, of the kind
-  the referring position requires.
+- Every reference **MUST** resolve to a node in the same message, of a kind the
+  referring position admits. Most positions admit exactly one; a repetition's
+  count admits a field or a register (#77).
 - A member list **MUST** be in record order — the order in which the members
   occupy bytes. Ordering is data here, not a convention a consumer restores by
   sorting: [Offsets and widths](#offsets-and-widths) makes it the only statement
@@ -159,10 +166,11 @@ a name. Each is COBOL knowledge. Each is specified somewhere a generator author
 may never have read. Each is a place where two languages' generators diverge
 without either one failing.
 
-Mapping identifiers to nodes, inverting a member list, and adding up the widths
-in front of a field are none of those. They are operations on the message in
-hand, they are identical in every language, and they need no COBOL. The IR
-abolishes the first list, not the second.
+Mapping identifiers to nodes, inverting a member list, adding up the widths in
+front of a field, and holding a value a binding told it to hold are none of
+those. They are operations on the message in hand, they are identical in every
+language, and they need no COBOL. The IR abolishes the first list, not the
+second.
 
 ## Offsets and widths
 
@@ -252,9 +260,30 @@ are measured from the first byte after it.
 ### A variable record is a sum with a variable term
 
 An item that repeats carries its repetition: a constant count, or — for `OCCURS
-DEPENDING ON` — a reference to the field node holding the count, which **MAY**
-be a field of another record (#35). Its extent is the width of one occurrence
-times that count.
+DEPENDING ON` — a reference to the count. Its extent is the width of one
+occurrence times that count.
+
+That reference **MUST** name either a field node contained in the record being
+read, at any depth, or a register node the automaton has bound. It **MUST NOT**
+name a field of another record (#35, #77). The withdrawn form was the honest
+shape of the problem and not a solution to it: naming a field of a record the
+consumer is no longer looking at names bytes it does not have, and no rule about
+references gives those bytes back.
+
+Where the count does come from an earlier record — a header saying how many
+entries a later record's table holds, which is ordinary in production layouts —
+the automaton binds that field into a register as it admits the header, and the
+repetition names the register. Which occurrence governs, in a file holding a
+thousand headers, is then not a question anyone has to answer twice: a register
+holds what the most recent binding put in it, so the count is the one from the
+nearest preceding record that bound it, along the path actually taken. [The
+automaton remembers, in
+registers](#the-automaton-remembers-in-registers) specifies that mechanism.
+
+A consumer **MUST** report a count it cannot decode as a number, or one that is
+negative, as malformed data, and **MUST NOT** read the group as absent instead
+(#35). A count field holding spaces is a real mainframe occurrence, and reading
+it as zero produces a record that parses and is wrong.
 
 Where the count is data-dependent, the sum above is data-dependent with it, and
 that is the whole of the model. A generator emits an addition it performs while
@@ -328,26 +357,209 @@ files one generator reads and another rejects.
 
 The file node names the start state. Each state carries its outgoing
 transitions, in order; each transition names the predicate that selects it, the
-record it admits, and the state to move to. A consumer reads a file by
-evaluating the current state's transitions in the order given, taking the first
-whose predicate matches, emitting the record that transition names, and moving
-to the state it names. Writing one walks the same graph in the same order;
-[Writing a file](#writing-a-file) states the difference.
+record it admits, the state to move to, and — where the automaton has memory —
+the guards that make it eligible and the bindings it applies. A consumer reads a
+file by evaluating the current state's transitions in the order given, skipping
+any whose guards do not all hold, taking the first of the rest whose predicate
+matches, emitting the record that transition names, applying that transition's
+bindings, and moving to the state it names. Writing one walks the same graph in
+the same order; [Writing a file](#writing-a-file) states the difference.
+
+Every transition consumes exactly one record. There is no transition that moves
+without reading, and no way to test something without consuming — which is what
+keeps a generated reader a loop over one record at a time, and is argued for
+under [No epsilon
+transitions](#no-epsilon-transitions-and-what-the-graph-pays-instead).
 
 A transition **MUST** be selected by a predicate and **MUST NOT** be labelled
 with a record name (#36). A record is what a transition *produces*, not what
 chooses it — a consumer cannot know which record it is looking at until a
 predicate has told it.
 
-A state carries whether it accepts. A consumer reaching end of input in a
-non-accepting state **MUST** report the file as truncated rather than returning
-the records it managed to read: an automaton whose accepting states nobody
-checks detects nothing.
+A state carries whether it accepts, and an accepting state **MAY** qualify that
+with guards: it accepts end of input only when all of them hold. A state that
+does not accept **MUST NOT** carry one. A consumer reaching end of input in a
+state that does not accept, or whose acceptance guards do not all hold, **MUST**
+report the file as truncated rather than returning the records it managed to
+read: an automaton whose accepting states nobody checks detects nothing.
+
+Guarded acceptance is what makes the last iteration of a count detectable. A
+state that reads details while a counter is positive would otherwise have to
+accept unconditionally, and would then accept a file stopping three details
+short of what its own header promised.
 
 The automaton is a graph, and a cycle in it is ordinary — a header followed by
 any number of details is a cycle. Ambiguity is not: `resolve` rejects an
 ambiguous grammar when it compiles one (#36), so the automaton reaching a plugin
-is unambiguous and a consumer is entitled to assume it.
+is unambiguous and a consumer is entitled to assume it. Which pairs of
+transitions that test is over, once guards are present, is [When two
+match](#when-two-match-and-when-none-does)'s.
+
+### The automaton remembers, in registers
+
+A file shape this project exists to read: a header carries a flag saying whether
+a later record type appears at all, and a count saying how many of another type
+follow. Both govern records other than the header, both are ordinary, and
+neither is expressible by a graph with no memory. Value-dependent sequencing is
+therefore **in scope**, and this is the mechanism (#76). How an adopter *spells*
+a count that lives in a header is the layout format's (#22, #29); what one means
+is here.
+
+The automaton **MAY** carry values forward in **registers**. A register node
+declares the kind of value it holds and nothing more. A **binding** on a
+transition writes one. A **guard** on a transition reads one and decides whether
+that transition is eligible at all. Nothing else reads or writes a register, and
+no register is derived from anything: every value in one was put there by a
+binding naming the field it came from.
+
+**What a register holds.** A register's kind is one member of a closed set:
+bytes, or an integer. A bytes register holds its source field's bytes as they
+appear in the record, so a guard over one is a byte comparison and needs no
+charset knowledge — the same reason a predicate tests bytes. An integer register
+holds a number, decoded from the source field by that field's own four encoding
+axes, because a count is arithmetic and the field holding one may be zoned,
+packed or binary. A producer **MUST NOT** bind a field whose value does not
+decode to the register's kind, and a consumer **MUST** report a source field it
+cannot decode as that kind as malformed data rather than substituting a zero or
+spaces.
+
+**What a binding writes.** A binding names the register it writes and the value
+written, one member of a closed set: the value of a field node contained in the
+record the transition admits, or the register's own value less one. The second
+member exists to count — a transition that admits one detail and takes one off
+the counter is how a run of *n* records is read without *n* states. A producer
+**MUST NOT** name a field of any other record in a binding, since the record the
+transition admits is the one the consumer has bytes for, and **MUST NOT** put
+two bindings writing one register on a single transition.
+
+Two further restrictions on a binding, each closing a hole that would otherwise
+be a silent wrong answer rather than an error. A binding **MUST NOT** name a
+field that repeats, or one contained in a group that repeats: a binding carries
+no occurrence number, and an unqualified reference to the third of forty entries
+is a value a consumer would have to invent. And a producer **MUST** guard a
+transition taking one off a register so that the register cannot run below zero;
+a consumer reaching one that would **MUST** report it rather than wrapping or
+clamping, since a counter that has gone negative is a `resolve` bug and every
+value read after it is fiction.
+
+Bindings apply when the transition is taken, after the record is admitted, and
+each reads the register file as it stood on entry to the state. So the order of
+one transition's bindings is not significant, and a transition may take one off
+a counter and rebind another register in the same step without the two
+interfering.
+
+**What a guard tests.** A guard names the register it tests and the test itself,
+one member of a closed set of three: the register equals a carried literal, the
+register is one of a carried set of literals, or the register holds an integer
+greater than zero. Guards are evaluated before the record in front of the
+consumer is examined at all, and against the register file as it stands on entry
+to the state, so a guard never reads what its own transition binds. All of a
+transition's guards **MUST** hold for it to be eligible, and their order is
+therefore not significant. A transition carrying none is always eligible, which
+is every transition in a file whose sequencing needs no memory.
+
+A guard over a bytes register carries its literal already padded to the width of
+the value it will be compared against, and a consumer **MUST** compare the whole
+of that value rather than a prefix of it. Padding a literal out to a field's
+width is a COBOL comparison rule, and applying it is the producer's work like
+every other (#37) — a consumer left to decide whether `Y` matches `Y ` is a
+consumer that decides differently in each language.
+
+Three tests, and no fourth. Conjunction is the list, disjunction is a second
+transition leaving the same state, and a state already *is* a disjunction — so
+the set needs neither. Its membership is settled here rather than deferred the
+way the predicate set's is (#22, #28), because a guard reads a value this
+document's own machinery put in a register: there is no layout-side strategy
+list for it to follow and nothing to wait for.
+
+**A register is read only where it has been written.** A producer **MUST**
+ensure that every path from the start state to a guard reading a register, to a
+state whose acceptance guards read one, or to a repetition naming one, passes
+through a binding of that register first (#36, #37). A consumer **MUST** treat a
+read of a register nothing has bound as a malformed descriptor, and **MUST NOT**
+supply a zero, an empty byte string, or the value of any other register: an IR
+that reached a generator with a register read before it was written is a bug in
+`resolve`, and the rule here is the one the [encoding
+profile](#the-encoding-profile-applied) already applies to an unset axis.
+
+**A register has no scope and no history.** There is one register file for the
+whole read, a register holds what the most recent binding put in it, and nothing
+saves or restores one. That is what answers the question a cross-record count
+raises — which of a thousand headers governs (#77): the nearest preceding record
+that bound the register, along the path actually taken.
+
+The cost is that a generated reader is no longer a table walk with nothing
+beside it. It carries a register file, and its loop grows two steps: check
+guards before matching bytes, apply bindings after admitting a record. That is
+still no COBOL and still nothing derived, which is the promise the automaton is
+carried compiled for (#36), but it is more than a `switch` inside a `for`, and a
+plugin author should expect to hold state. What it buys is a graph whose size
+follows the layout instead of the data: a `PIC 9(4)` count is one register and
+one guard, where unrolling it into states is ten thousand of them and everything
+that hangs off each.
+
+What a *writer* does with a bound register — a header count has to match the
+records that follow it — is [A writer evaluates a guard, it never back-fills a
+count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count)'s, and the
+answer there is the one this section predicts: it evaluates, and it fills in
+nothing.
+
+### When a value becomes a state, and when it becomes a register
+
+An adopter can tell which shape a file needs by asking one question: does the
+value govern the record it sits in, or a later one?
+
+A flag deciding what the record *holding* it means becomes a branch, and needs
+no register. Two transitions admit the same header and move to different states,
+each selected by a predicate testing that flag; the dependence on the value has
+become the state the automaton is in, and everything downstream of it is an
+ordinary graph. This is the form that worked before this section existed, and it
+is still the form to prefer: a producer **SHOULD** compile a value tested only
+on the transition admitting the record that holds it as a branch rather than as
+a register, because a register the graph does not need is memory every consumer
+in every language carries for nothing.
+
+A value governing a record *other* than the one it sits in becomes a register. A
+count is always this shape — the header says four, and the fourth detail is four
+records away. A flag gating a record type that is otherwise indistinguishable
+from what would follow without it is this shape. And so is a second flag on one
+header, which a branch cannot reach at all: a transition is selected by one
+predicate testing one field, and there is nowhere to conjoin a second test onto
+it.
+
+Nothing falls between the two. A value in the record being discriminated that
+governs only that record is a branch; anything a later record's presence, count
+or extent depends on is a register; and a value in a record not yet read governs
+nothing, for the reason [A value the automaton has not read
+yet](#a-value-the-automaton-has-not-read-yet) gives.
+
+### No epsilon transitions, and what the graph pays instead
+
+A guarded transition consuming no record — an epsilon — was the obvious
+alternative, and it is deliberately absent. With one, a counted group would
+leave its loop by an epsilon guarded on the counter reaching zero, a conjunction
+would be a chain of them, and conditional acceptance would be an epsilon into an
+accepting state. The graph would be smaller and every transition would carry at
+most one guard.
+
+The cost falls on the consumer, which is the wrong place for it. An epsilon
+turns "evaluate the transitions, take one, consume a record" into "follow
+epsilons until none applies, then evaluate the transitions" — at end of input as
+well, where a consumer would have to walk epsilons before it could decide
+whether the file was truncated. It puts a second control-flow rule into every
+generated reader in every language, and it obliges `resolve` to prove the
+epsilon-only subgraph acyclic before a consumer may assume the walk terminates.
+Sequencing arrives compiled precisely so that a plugin author implements as
+little as possible.
+
+So the graph pays instead. A segment that may be skipped forces the state ahead
+of it to offer a transition for each record that can follow the skip, each
+carrying the guards that say the skipped segments are done: more transitions and
+more guards, all of them emitted by `resolve`, and none of them growing with the
+width of a count. What a state carries follows the number of segments that can
+be skipped past it, never the values in the file. That is the trade this
+document keeps making — cost in the producer, which is one program, over cost in
+the consumers, which are as many programs as there are languages.
 
 ## Discriminator predicates
 
@@ -363,6 +575,19 @@ record, at any depth, and **MUST NOT** name a field of any other (#37). Where
 those bytes are then follows from [Offsets and widths](#offsets-and-widths) —
 the target's position is the sum of the widths ahead of it in that record, and
 its extent is the target's own width.
+
+A predicate and a guard divide the two things a transition can be selected on,
+and neither reaches into the other's half. A predicate **MUST NOT** name a
+register, and a guard **MUST NOT** name a field node (#37). A predicate reads
+the bytes in front of the consumer; a guard reads what the automaton
+[remembers](#the-automaton-remembers-in-registers). Keeping them apart makes
+"guards first, then bytes" a shape rather than a rule, and leaves the overlap
+test below over predicates that all read the same record.
+
+A guard is not the way a predicate stops naming a field, either. Whether the
+predicate set admits a member testing something other than a field's bytes — a
+record's length, where it sits in the stream, nothing at all — is #80's
+question, and this section leaves it exactly where it was.
 
 A consumer evaluates a predicate against the bytes at the current read position,
 read as the record that transition would admit, and consumes nothing until a
@@ -397,8 +622,25 @@ question `layout/SPEC.md` defers to this document — what happens when two
 discriminators match — has an answer at the one place it is cheap: it does not
 arise, because such an IR is never produced.
 
-A consumer **MAY** therefore stop at the first predicate that matches. The
-evaluation order is normative all the same, so that two consumers handed the
+Guards narrow which pairs that rule is about. Two transitions leaving one state
+whose guards cannot hold at the same time are never both eligible, and their
+predicates **MAY** overlap freely — which is what makes a counted run of records
+expressible at all, since the transition reading another detail and the one
+moving past them can be selected by the very same test on the very same bytes,
+and only the counter separates them. For every other pair — both unguarded, or
+guarded compatibly — the rule above stands unchanged and a producer **MUST NOT**
+emit one.
+
+That check stays decidable because of what a guard is not. A flat conjunction of
+three tests over a fixed set of declared registers, with no arithmetic in it
+beyond taking one off a counter and no comparison of one register against
+another, makes "can these two guard lists hold at once" a question about
+literals and zero. [The automaton counts; it does not
+compute](#the-automaton-counts-it-does-not-compute) is where that restriction is
+stated as a restriction.
+
+A consumer **MAY** therefore stop at the first eligible predicate that matches.
+The evaluation order is normative all the same, so that two consumers handed the
 same bytes do the same work in the same order and report the same thing when
 something is wrong with them.
 
@@ -407,6 +649,14 @@ not describe. A consumer **MUST** report that rather than skipping ahead to a
 transition that matches later or falling through to a default. There is no
 default, and a file containing an undescribed record is a file the layout is
 wrong about.
+
+Where a transition's predicate *would* have matched and its guards excluded it,
+a consumer **SHOULD** report that instead, naming the register the guard tested.
+The two failures send an adopter to different places: an undescribed record
+means the layout is missing a record type, while a detail arriving after its
+counter reached zero means the file and its own header disagree about how many
+there are. Both are reported and neither is skipped; only the wording differs,
+and it is the wording that saves a day.
 
 ## Writing a file
 
@@ -436,6 +686,9 @@ have a direction is the automaton and the predicates driving it, because both
 are stated as *tests*, and a test says how to recognise a record rather than how
 to make one. That is what the first two subsections settle. The third settles
 the two places where the bytes a writer emits are not its caller's to choose.
+The fourth does both again for what the automaton remembers, where a guard is a
+test like a predicate is and a count in a register is determined like a count in
+a field (#76, #77).
 
 Byte identity is a stronger claim, and this document does not make it. Bytes no
 item covers are not carried through a read, which [What the descriptor
@@ -450,11 +703,14 @@ A writer begins in the start state the file node names, exactly as a reader
 does. Its caller names a record and supplies the values of that record's items.
 
 A writer **MUST** consider only the transitions leaving the current state that
-admit the record it was asked to write, **MUST** evaluate their predicates in
-the order the state carries them, and **MUST** take the first whose predicate
-matches the bytes it is about to emit. Evaluation order is normative here for
-the reason it is normative for reading: two writers handed the same records do
-the same work in the same order.
+admit the record it was asked to write and whose guards all hold, **MUST**
+evaluate their predicates in the order the state carries them, and **MUST** take
+the first whose predicate matches the bytes it is about to emit. Evaluation
+order is normative here for the reason it is normative for reading: two writers
+handed the same records do the same work in the same order. Guards come first
+here as they come first there, and why they behave identically in both
+directions is [A writer evaluates a guard, it never back-fills a
+count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count)'s.
 
 Narrowing to the transitions that admit the record is not the reader's algorithm
 and has to be one, because the reader's does not run backwards. A reader has a
@@ -485,7 +741,9 @@ where the mistake is made costs one diagnostic; emitting costs a file somebody
 has to read before anyone finds out.
 
 When its caller has no more records, a writer **MUST** report a current state
-that does not accept rather than closing the file. That is the truncation rule
+that does not accept, or whose acceptance guards do not all hold, rather than
+closing the file. A group that promised four details and was given three is
+caught there. That is the truncation rule
 of [The sequencing automaton](#the-sequencing-automaton) from the other side,
 and it is there for the same reason: accepting states nobody checks detect
 nothing, and a writer skipping the check emits the truncated file its reader
@@ -578,9 +836,12 @@ holding its count, and that field's value *is* the number of occurrences: a
 writer **MUST** emit it as the number of occurrences it writes, and **MUST NOT**
 emit a different value its caller left there. No choice among satisfying values
 is being taken away from anybody, and a count disagreeing with what follows it
-is a record the writer's own reader cannot walk. Where the count is a field of
-another record (#35), obtaining it is not the writer's problem but #77's, which
-owns that question for both directions.
+is a record the writer's own reader cannot walk. Where the count is not a field
+of the record at all but a register the automaton bound (#35, #77), it is
+determined too and the direction reverses: the register already holds a value,
+so the occurrences are what has to agree with it. [A writer evaluates a guard,
+it never back-fills a
+count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count) states that.
 
 Slack is determined here, because nothing else determines it. A slack node
 carries a width and no content ([Slack is a node, not a
@@ -601,6 +862,51 @@ away](#members-never-overlap-and-redefines-is-resolved-away)) — so a record re
 and written back is byte-identical only where its items cover every byte of it.
 #51's round-trip criterion is where somebody meets this. It is a limit of what a
 width alone can carry, not a bug in a generator.
+
+### A writer evaluates a guard, it never back-fills a count
+
+A writer carries a register file, exactly as a reader does, and fills it the
+same way: after emitting a record, it applies the transition's bindings by
+reading the values out of the record it has just emitted. A binding needs no
+inverse, because the value it wants is one the caller supplied — a header's
+count field is a field of the header like any other.
+
+So the writing side of a guard is the reading side of one. A writer **MUST**
+evaluate a transition's guards against its own register file before considering
+that transition's predicate, and **MUST NOT** take one whose guards do not all
+hold. Where narrowing to the transitions admitting the requested record leaves
+none eligible, it reports, under the same rule and for the same reason as a
+predicate that does not match: a caller writing a sixth detail after a header
+saying five is told so at the sixth record, and told which register said
+otherwise, rather than handed a file whose reader tells somebody else next week.
+
+What a writer **MUST NOT** do is the thing everybody expects it to: hold the
+records of a group, count them, and go back to fill in the count field of the
+header it already emitted. Every argument [A writer evaluates a predicate, it
+never inverts one](#a-writer-evaluates-a-predicate-it-never-inverts-one) makes
+applies here unchanged — the value is the caller's, overwriting it discards what
+the caller meant, and two languages' writers would choose differently — and two
+more apply only here. Holding a group gives up the streaming property #52
+requires, and it is unbounded in precisely the case a count exists for. And the
+header is gone: a writer that has emitted a record cannot reach back into a
+stream it does not own.
+
+The determination runs the other way in one place, and [What the descriptor
+determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies) is where it is
+named: a repetition whose count is a register. The register holds a value from a
+record already emitted, so a writer **MUST** emit exactly that many occurrences
+of the group, and **MUST** report a caller supplying a different number rather
+than emitting a record its own reader cannot walk. An `OCCURS DEPENDING ON`
+count in the same record is supplied by the writer because the field is sitting
+there to be filled; a count in a register was filled two records ago, and what
+has to agree with it is the data.
+
+The requirement that section places on future members of the predicate set —
+that every one be decidable by a writer from the record it is about to emit and
+its own position in the automaton — the guard set meets already, and not by
+luck. A guard reads nothing but the register file, and the register file is the
+one thing a writer and a reader hold identically at the same point in a file.
 
 ## Versioning and compatibility
 
@@ -636,8 +942,9 @@ Breaking, and requiring the version to advance:
 - Removing a field, or reusing its number for anything else.
 - Changing what an existing field means, including narrowing or widening the
   values it may hold.
-- Adding a node kind, or a member to any other closed set — a predicate kind,
-  for one. An old consumer sees an unset choice where a new one sees a member,
+- Adding a node kind, or a member to any other closed set — a predicate kind, a
+  guard test, a register's value kind, the value a binding may write. An old
+  consumer sees an unset choice where a new one sees a member,
   and generates code for a file it has silently misread. This is the standing
   cost of the flat node set, and it is why the kinds are enumerated before the
   first release instead of after it.
@@ -720,6 +1027,46 @@ is that its output satisfies this document. Writing the algorithm down as well
 would be a second description of the same requirement, drifting from the code at
 the first optimisation, and no third party builds against it.
 
+### The automaton counts; it does not compute
+
+The register machinery is a counter, not a calculator. There is no addition, no
+scaling, no count that is the sum or the product of two fields, no comparison of
+one register against another, and no guard comparing a register to a field of
+the record in front of the consumer. `resolve` **MUST** reject a layout needing
+any of them, and **MUST** name the record and the field involved rather than
+reporting a generic ambiguity (#36, #37) — the pattern #35 already sets with its
+explicit unsupported error.
+
+Reason: two things have to stay true, and each of them fails at the same place.
+Overlap between two transitions has to be decidable, and it is decidable only
+while a guard is a flat conjunction of tests against literals and zero — a
+register compared against a field, or against another register, turns the check
+into "read a file and see". And a consumer has to evaluate the whole of it
+identically in every language one is written in, which is the argument
+`layout/SPEC.md` already makes when it closes discrimination against a general
+expression language. A cross-record equality check — a detail's key matching its
+header's — is a validation rule rather than a sequencing one, and adding it
+later costs a version under [Versioning and
+compatibility](#versioning-and-compatibility). That is a price worth paying over
+guessing at its shape now, and the diagnostic above is what keeps the bill
+visible: a layout that needs one is told so, instead of being told its
+discriminators overlap.
+
+### A value the automaton has not read yet
+
+Sequencing **MUST NOT** depend on a value in a record the consumer has not read.
+A trailer's record count cannot govern how many records precede it, and a
+repetition **MUST NOT** name a register no path binds before it.
+
+Reason: a consumer reads a stream forward, and one that could not decide a
+transition until a later record arrived would have to buffer an unbounded
+stretch of a file whose whole premise is that it does not fit in memory. Nor is
+this a check left to run time: `resolve` proves every read of a register is
+preceded, on every path, by a binding of it (#36), so what would have been a
+surprise halfway through a hundred-million-record file is a layout rejected
+before a byte is read. Checking a trailer's count against the records actually
+read is a generator's own business and nothing the automaton needs to carry.
+
 ### Also out of scope
 
 - **COBOL source syntax and byte-level data representation.** Both are
@@ -736,15 +1083,65 @@ the first optimisation, and no third party builds against it.
 - **The conformance corpus** (#66–#68), which is test infrastructure under
   `testdata/` and documented with the corpus.
 
+## Appendix: A counted run, as nodes
+
+The shape the scope decision was made for, written out: a header carrying a
+detail count and a flag, a run of details the count governs, a summary record
+the flag governs, and any number of such groups in one file. Two registers —
+`count`, an integer; `flag`, bytes. The state names below are this appendix's;
+states carry identifiers and no names.
+
+**`start`** — does not accept.
+
+- On a record whose type code is `H`: admit the header, bind `count` from its
+  `DTL-COUNT` field and `flag` from its `SUM-FLAG` field, move to `group`.
+
+**`group`** — accepts, guarded by `count` equal to zero and `flag` one of `N` or
+a space.
+
+- Guarded by `count` greater than zero. On a record whose type code is `D`:
+  admit the detail, take one off `count`, stay in `group`.
+- Guarded by `count` equal to zero and `flag` equal to `Y`. On a record whose
+  type code is `S`: admit the summary, move to `summarised`.
+- Guarded by `count` equal to zero and `flag` one of `N` or a space. On a record
+  whose type code is `H`: admit the next header, rebind both registers, stay in
+  `group`.
+
+**`summarised`** — accepts.
+
+- On a record whose type code is `H`: admit the next header, rebind both
+  registers, move to `group`.
+
+Four things this detects that a memoryless graph could not, and one it does not:
+
+- **A file ending two details short.** End of input in `group` with `count` at
+  two: the acceptance guards do not hold, so the file is truncated.
+- **A missing summary where the flag says `Y`.** End of input in `group` with
+  the flag guard failing — also truncated, and distinguishable from the file
+  simply running out mid-run.
+- **A sixth detail where the header said five.** In `group` with `count` at
+  zero, the detail transition is ineligible and no other predicate matches. It
+  was a guard on `count` that excluded the transition that would have matched,
+  and that is what the consumer says rather than calling the record undescribed.
+- **A summary where the flag says `N`.** The same failure, on `flag`.
+- **A trailer count disagreeing with the records read.** Not this. Nothing above
+  looks backwards, and nothing needs to; see [A value the automaton has not read
+  yet](#a-value-the-automaton-has-not-read-yet).
+
+No transition here is an epsilon, and none is a special case. Every one consumes
+exactly one record, the guards on the third do what a chain of epsilons would
+have done, and the whole of it stays the same size whether `DTL-COUNT` is a
+`PIC 9(2)` or a `PIC 9(9)`.
+
 ## Appendix: Mapping to Stories
 
 | Section | Implemented by |
 |---|---|
 | [Structure](#structure) | #17 `ir` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77 `ir` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
-| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve` |
+| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77 `ir` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve` |
 | [Writing a file](#writing-a-file) | #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
