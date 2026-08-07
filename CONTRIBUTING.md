@@ -54,12 +54,25 @@ is the one thing this module exists to prevent.
 
 ### After changing the module
 
-`.dagger/dagger.gen.go` and `.dagger/internal/` are generated and not committed.
-Regenerate them after editing `.dagger/main.go` or `dagger.json`:
+`.dagger/dagger.gen.go` and `.dagger/internal/` are generated **and committed**.
+Regenerate them after editing `.dagger/main.go` or `dagger.json`, and commit the
+result alongside the change:
 
 ```sh
 dagger develop
 ```
+
+They are committed rather than ignored because Dagger is moving to requiring
+generated code in the tree by v1.0, and because it means the module builds from
+a checkout alone instead of only after somebody has run `dagger develop`.
+`.dagger/.gitattributes` marks them `linguist-generated`, so they stay collapsed
+in diffs and out of the repository's language statistics.
+
+A pull request whose `.dagger/main.go` or `dagger.json` moved without the
+generated files moving with it is a tree that does not build. Bumping a
+dependency pin counts: `dagger develop` rewrites `.dagger/internal/dagger/` from
+the dependency's schema, so the pin and the generated bindings have to land in
+the same commit.
 
 ## Why the module wraps the Z5Labs standard pipeline
 
