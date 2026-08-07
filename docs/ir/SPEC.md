@@ -27,7 +27,9 @@ field descriptors with their widths, their applied encodings and their place in
 the record's ordering, record structure, compiled discriminators, the compiled
 sequencing automaton, and language-neutral names. Together with the protobuf
 schema that carries all of it, the version field that identifies it, and the
-compatibility policy that governs changing it.
+compatibility policy that governs changing it. And what a consumer does with all
+of it in both directions: the code a generator emits to read a data file, and
+the code it emits to write one.
 
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
@@ -329,7 +331,8 @@ transitions, in order; each transition names the predicate that selects it, the
 record it admits, and the state to move to. A consumer reads a file by
 evaluating the current state's transitions in the order given, taking the first
 whose predicate matches, emitting the record that transition names, and moving
-to the state it names.
+to the state it names. Writing one walks the same graph in the same order;
+[Writing a file](#writing-a-file) states the difference.
 
 A transition **MUST** be selected by a predicate and **MUST NOT** be labelled
 with a record name (#36). A record is what a transition *produces*, not what
@@ -377,7 +380,9 @@ strategies are (#22, #28) and lands in this section in that change, the way the
 layout format's grammar joins its governing sources when its syntax is chosen.
 It is settled before the first release rather than grown afterwards, because
 under [Versioning and compatibility](#versioning-and-compatibility) a new member
-is a breaking change.
+is a breaking change. What may land is bounded from the writing side as well, by
+[A writer evaluates a predicate, it never inverts
+one](#a-writer-evaluates-a-predicate-it-never-inverts-one).
 
 ### When two match, and when none does
 
@@ -402,6 +407,200 @@ not describe. A consumer **MUST** report that rather than skipping ahead to a
 transition that matches later or falling through to a default. There is no
 default, and a file containing an undescribed record is a file the layout is
 wrong about.
+
+## Writing a file
+
+Every section above is written from the reading side — what a consumer does with
+a descriptor when it has bytes and wants records. A generator emitting encode
+methods (#51) and a file-level writer (#52) needs the other direction, and
+whether that direction is inside this document's contract is answered here
+rather than once per generator.
+
+It is inside it. A file written against a descriptor and a file read against one
+are the same file, and a document specifying only one of the two leaves the
+other to be invented in every language a generator is written in — which is the
+failure every section above is arranged to prevent. Whether a generator emits a
+writer at all remains its own decision (#52); what one does when it exists is
+this document's.
+
+*Writer* below means code generated from a descriptor that turns records into a
+file, as *reader* means the code the sections above describe. A file a writer
+produces **MUST** be one that a reader built from the same descriptor reads back
+as the records the writer was given, in the order it was given them.
+
+Most of that is free, because almost nothing the IR carries has a direction.
+Ordering and width give a field's position whether it is being read out of a
+record or laid into one. The four axes govern encoding a value exactly as they
+govern decoding one. A slack node's bytes are bytes on both sides. What does
+have a direction is the automaton and the predicates driving it, because both
+are stated as *tests*, and a test says how to recognise a record rather than how
+to make one. That is what the first two subsections settle. The third settles
+the two places where the bytes a writer emits are not its caller's to choose.
+
+Byte identity is a stronger claim, and this document does not make it. Bytes no
+item covers are not carried through a read, which [What the descriptor
+determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies) takes up; and
+whether a value has exactly one valid encoding is `codec/SPEC.md`'s question
+rather than this one's.
+
+### A writer walks the same automaton
+
+A writer begins in the start state the file node names, exactly as a reader
+does. Its caller names a record and supplies the values of that record's items.
+
+A writer **MUST** consider only the transitions leaving the current state that
+admit the record it was asked to write, **MUST** evaluate their predicates in
+the order the state carries them, and **MUST** take the first whose predicate
+matches the bytes it is about to emit. Evaluation order is normative here for
+the reason it is normative for reading: two writers handed the same records do
+the same work in the same order.
+
+Narrowing to the transitions that admit the record is not the reader's algorithm
+and has to be one, because the reader's does not run backwards. A reader has a
+byte window and can try any predicate against it; a writer has a record, and a
+predicate belonging to a transition admitting some *other* record names a field
+at an offset the record in hand may not even reach. What makes the narrowed walk
+land in the same place anyway is [When two match, and when none
+does](#when-two-match-and-when-none-does): no two transitions leaving a state
+can both match one input, so bytes satisfying the predicate of a transition
+admitting this record satisfy no earlier transition's predicate, and the reader
+arrives at the transition the writer took. That rule is load-bearing on this
+side too, and without it a writer could emit a record its reader routes
+somewhere else.
+
+Two transitions may admit the same record and differ only in the state they move
+to — a header deciding whether a later record type appears at all is written
+that way. A writer needs no rule for that beyond the one above, and for the
+reason reading needs none: a transition is selected by a predicate and never
+labelled with a record name, so the predicates decide there as they decide
+everywhere else.
+
+Where no transition matches, a writer **MUST** report it, and **MUST NOT** emit
+the record anyway or take a transition whose predicate is false. The record does
+not belong at this point in the file with the values it has, and a writer
+emitting it produces a file whose reader reports an undescribed record ([When
+two match, and when none does](#when-two-match-and-when-none-does)). Refusing
+where the mistake is made costs one diagnostic; emitting costs a file somebody
+has to read before anyone finds out.
+
+When its caller has no more records, a writer **MUST** report a current state
+that does not accept rather than closing the file. That is the truncation rule
+of [The sequencing automaton](#the-sequencing-automaton) from the other side,
+and it is there for the same reason: accepting states nobody checks detect
+nothing, and a writer skipping the check emits the truncated file its reader
+complains about one build later.
+
+Framing is the file node's, and a writer emits it — descriptor words, blocking
+and delimiters, as the file node describes them. What those bytes are, and where
+in the walk a writer emits them, is #78's, which settles the same question for
+readers.
+
+### A writer evaluates a predicate, it never inverts one
+
+A writer **MUST** evaluate a transition's predicate against the record it is
+about to emit, and **MUST NOT** derive a value satisfying that predicate and
+store it into the predicate's target. The discriminating value is the caller's;
+a writer checks it and reports it when it is wrong.
+
+The alternative is the shape most people expect, and it was worth taking
+seriously: a writer knowing its transition is selected by *type code equals
+`"D"`* could set the type code itself, and spare its caller a field whose one
+correct value the descriptor already holds. It loses on four counts, and the
+first decides it.
+
+Only an equality test inverts uniquely. A test of the form *not equal*, *in
+range* or *any of* — none of which the set has admitted yet, and any of which it
+plausibly will — is satisfied by many values and singles out none, so a rule
+that the writer supplies the value has no content across most of the set it
+would govern.
+
+Making it hold would mean carrying one, and a canonical satisfying byte string
+beside each predicate is a fact stated twice in the sense [Ordering and width,
+and no offset](#ordering-and-width-and-no-offset) uses — the predicate already
+says which values satisfy it. That duplicate is at least checkable, a consumer
+being able to evaluate the predicate against the value it was handed, which is
+the only reason it was arguable rather than refused by that section outright.
+Carried, it would still have nowhere to go. Its target is a field of the record,
+and the caller supplies that field's value along with every other: a writer
+overwriting it discards data the caller meant, and a writer that does not
+ignores what it was given. A generator could hide the field instead, and then
+its two halves disagree about the record's shape — the reading side surfacing a
+field from the same descriptor that the writing side denies exists.
+
+A rule varying by predicate kind is worse than either. Supplying the value where
+the inverse is unique and checking it where it is not gives one call two
+behaviours, selected by a property of the layout the caller cannot see: setting
+the type code is load-bearing in one file's records and silently discarded in
+another's.
+
+And leaving each generator to derive a value rather than carrying one is the
+divergence this document exists to abolish. Two languages' writers choose
+different bytes for the same records, each file reads back correctly through its
+own reader, nothing is wrong enough to fail, and the conformance corpus (#66) is
+left comparing files that were never given a reason to agree.
+
+The cost lands on the caller and is not softened here. A predicate that does not
+pin its target down gives an application no help choosing a value — *not equal
+to `"H"`* says what the field must not be and leaves the rest of its range open.
+That is a property of the layout rather than of the IR: a discriminator not
+determining a value describes a file whose value is the application's, and this
+document is not the place to invent one on its behalf. A generator **MAY**
+soften it at construction rather than at emission — a constructor pre-filling a
+field where a predicate's inverse is unique is a default the caller can see and
+change, and the bytes emitted are still the ones the caller holds. Ergonomics
+over the contract are the generator's, the way [Names](#names) leaves identifier
+munging to it.
+
+The set's membership lands with the strategies that lower into it (#22, #28),
+and this is the requirement it lands against. Every member **MUST** be decidable
+by a writer against the record it is about to emit, from that record's bytes and
+the writer's own position in the automaton, at the moment it emits it. Weaker
+than invertibility, stricter than nothing, and it is what a writer can actually
+meet.
+
+One shape fails it, and it is worth naming because it is the shape a
+discriminator by position takes: a test for the *last* record in a stream. A
+reader knows a record is the last one when the input ends; a writer does not
+know until its caller says there are no more, which is after that record has
+been written, and buffering until then gives up the streaming property #52
+requires. Whether such a test belongs to the set at all is #80's — whichever way
+that lands, it cannot land as a predicate a writer evaluates.
+
+### What the descriptor determines, a writer supplies
+
+The rule above is narrower than *a writer never fills anything in*. A writer
+supplies a value exactly where the descriptor determines one and refuses where
+it determines a set. The IR determines two.
+
+An `OCCURS DEPENDING ON` count is determined. The repeating item names the field
+holding its count, and that field's value *is* the number of occurrences: a
+writer **MUST** emit it as the number of occurrences it writes, and **MUST NOT**
+emit a different value its caller left there. No choice among satisfying values
+is being taken away from anybody, and a count disagreeing with what follows it
+is a record the writer's own reader cannot walk. Where the count is a field of
+another record (#35), obtaining it is not the writer's problem but #77's, which
+owns that question for both directions.
+
+Slack is determined here, because nothing else determines it. A slack node
+carries a width and no content ([Slack is a node, not a
+rule](#slack-is-a-node-not-a-rule)), and a writer still has to put something in
+those bytes: a writer **MUST** emit them as zero bytes. A character fill is the
+obvious alternative and cannot be specified — charset is per field ([The
+encoding profile, applied](#the-encoding-profile-applied)) and slack is not a
+field, so there is no charset to resolve a space against. Zero is the byte that
+names none. Carrying the fill on the slack node instead would move the same
+invented constant one stage earlier, to where `resolve` has no source for it
+either: neither a copybook nor a layout says what an alignment gap contains.
+
+The cost is where a round trip stops being byte-exact, and it is stated rather
+than left to be discovered. Bytes no item covers do not survive a read — a
+`SYNCHRONIZED` alignment gap, or the tail of a `REDEFINES` alternative that
+resolution turned to slack ([Members never overlap, and `REDEFINES` is resolved
+away](#members-never-overlap-and-redefines-is-resolved-away)) — so a record read
+and written back is byte-identical only where its items cover every byte of it.
+#51's round-trip criterion is where somebody meets this. It is a limit of what a
+width alone can carry, not a bug in a generator.
 
 ## Versioning and compatibility
 
@@ -526,6 +725,11 @@ the first optimisation, and no third party builds against it.
 - **COBOL source syntax and byte-level data representation.** Both are
   `cobol-go`'s, cited above and never restated. The IR names an encoding; what
   the bytes of that encoding are is `codec/SPEC.md`'s answer.
+- **A generated writer's API.** Whether records are written one at a time or in
+  a batch, what type a stream has, and how a caller signals that there are no
+  more records are the generator's (#52). [Writing a file](#writing-a-file)
+  constrains the bytes and the walk, not the call — the same line
+  [Names](#names) draws for identifier munging.
 - **A transport.** protobuf here is a schema language. There is no gRPC service,
   no server, no port and no lifecycle; the descriptor reaches a plugin as a file
   on disk (#39).
@@ -542,6 +746,7 @@ the first optimisation, and no third party builds against it.
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve` |
+| [Writing a file](#writing-a-file) | #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | Emitting the IR | #20, #21 `ir` |
