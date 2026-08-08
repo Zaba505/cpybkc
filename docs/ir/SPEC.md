@@ -68,6 +68,12 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)
   is what this document does with the pair, and the Micro Focus sentence is
   cited because the resolution turns on it rather than on a preference (#87).
+  That same Micro Focus page is normative for one thing outside the fork, where
+  the two vendors agree: where the clause's own object may sit. *Data-name-1
+  must have a fixed location, and must not follow an item that contains an
+  OCCURS DEPENDING ON clause* is what [A count is in hand before the extent it
+  decides](#a-count-is-in-hand-before-the-extent-it-decides) leans on when it
+  refuses a count no compiler would place (#88).
   <https://www.ibm.com/docs/en/cobol-zos/6.3.0?topic=tables-complex-occurs-depending>
   <https://www.microfocus.com/documentation/reuze/60d/lhpdf40f.htm>
   <https://superbol.eu/gnucobol/manual/chapter14.html>
@@ -517,6 +523,14 @@ one](#a-reference-names-a-field-not-an-occurrence-of-one) states for every
 position that names a field, and it is what keeps the multiplication above a
 multiplication.
 
+Both kinds carry one more restriction, and it is about when the value can be
+read rather than about what it names: a field count lies ahead of the item it
+counts and at a constant position, and a register count was bound by a
+transition taken strictly earlier than the one admitting the record. [A count is
+in hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides) states both and
+argues them (#88).
+
 Where the count does come from an earlier record — a header saying how many
 entries a later record's table holds, which is ordinary in production layouts —
 the automaton binds that field into a register as it admits the header, and the
@@ -779,6 +793,144 @@ offset](#ordering-and-width-and-no-offset) fixes the arithmetic now. What a
 repetition's count reference admits is therefore the two node kinds [Identity,
 ordering and determinism](#identity-ordering-and-determinism) already names and
 no occurrence, and #17 fixes the schema against that (#84).
+
+### A count is in hand before the extent it decides
+
+[A variable record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term) has a premise about time
+rather than about bytes: the count's value is available at the moment the extent
+is needed. That moment is step 4 of the read loop, where the transition has been
+taken and the record admitted ([Where framing is consumed, and where it is
+emitted](#where-framing-is-consumed-and-where-it-is-emitted)). Two shapes
+satisfy every requirement stated so far and cannot be read there, one for each
+kind a count reference admits. Both are settled here (#88).
+
+**A count that is a field lies ahead of what it counts, at a constant
+position.** Where a repetition's count names a field node, that field's last
+byte **MUST** lie ahead of the first byte of the item whose repetition names it,
+in the record's order, and no item ahead of that field **MAY** carry a
+repetition whose count is a reference. `resolve` **MUST** reject a layout
+breaking either half, naming the record, the count field and the repeating item
+rather than reporting a generic reference error (#35).
+
+The first half is what makes the sum terminate. A record whose member list is a
+table followed by the count that sizes it satisfies every requirement above: the
+count is a field of the record being read, it does not repeat, and it is not
+inside a group that repeats. Its position is still the sum of the widths ahead
+of it, that sum includes the table's extent, and the table's extent is one
+occurrence times the count — so decoding the count requires locating it and
+locating it requires decoding it. [Identity, ordering and
+determinism](#identity-ordering-and-determinism) makes *containment* acyclic;
+nothing made the reference graph acyclic where it feeds a position sum. So the
+descriptor stays internally consistent and the record's extent is undefined,
+while every consumer is entitled to assume the sum terminates.
+
+The escape a framed dataset appears to offer is refused. Under
+**descriptor-word** and **segmented** the record's length is in hand by step 3,
+so a consumer could count back from the record's end to a trailing count and
+carry on. That makes the extent follow from the framing, which [The extent
+governs, and framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it) has exactly
+backwards, and it empties the check at step 5 into a comparison of the framing
+against a number derived from it — the tautology [A predicate always names a
+field](#a-predicate-always-names-a-field) names when it refuses a length
+predicate. It would also work on two framings out of four, so one record
+description would be readable on a dataset and unreadable on another, which is a
+fork nobody stated. Under **unframed** and **delimited** there is nothing to
+count back from at all.
+
+The second half asks for more than termination needs, and it is taken for what
+declining it would cost later. A count sitting behind some *other* variable item
+is readable: a walk in record order reaches that item's own count first, so the
+count behind it has a position by the time anything needs one, and the same
+induction covers any depth of nesting. It is also a count no compiler writes.
+Micro Focus states the rule for the `OCCURS` clause flatly — *Data-name-1 must
+have a fixed location, and must not follow an item that contains an OCCURS
+DEPENDING ON clause* — beside the restriction that the object may not occupy a
+position within the table's range, which is the half [A reference names a field,
+not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one) already leans on. So
+the narrower rule turns away no file anybody has.
+
+It is also the answer that can be undone. Relaxing the second half later
+costs no version, because the position sum is the same running sum before and
+after — the escape [Ordering and width, and no
+offset](#ordering-and-width-and-no-offset) names for the occurrence clause,
+available here for the same reason and stated now so that it stays available.
+Imposing it later makes a conforming descriptor stop conforming, which is
+breaking under [Versioning and
+compatibility](#versioning-and-compatibility).
+
+A predicate's target carries the same constant-position restriction and does not
+get it from here. A predicate is evaluated at step 3, before the record is
+identified, so a variable position obliges a consumer to decode a count out of
+bytes it has not decided the meaning of, and [Discriminator
+predicates](#discriminator-predicates) argues it there. A count is read at step
+4 with the record known, so nothing in the read loop forces the restriction on
+it and the two paragraphs above are the whole of its case. The third position
+that names a field — the field a
+[binding](#the-automaton-remembers-in-registers) reads — carries neither
+restriction and needs neither, since a binding applies at step 7 against a
+record whose every position is already a number.
+
+A writer is not the side that fails, which is why this is refused at the layout
+rather than left to be noticed. A writer holds the number of occurrences its
+caller gave it and could lay a trailing count down as readily as a leading one
+([What the descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies)). What it would
+produce is a file its own reader cannot walk, out of a descriptor that says
+nothing is wrong.
+
+None of this reaches a record of a non-sliding file, which carries no count
+reference for either half to bind ([An item after a table slides, and the other
+reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
+
+**A count that is a register was bound by an earlier transition.** A repetition
+naming a register reads the register file as it stood on entry to the state,
+exactly as a guard does: the extent is needed at step 4 and a transition's
+bindings apply at step 7, so nothing a transition reads ever sees what that
+transition writes. A repetition therefore **MUST NOT** name a register unless
+every path from the start state to the transition admitting its record passes
+through a binding of that register on a transition taken strictly earlier. A
+binding on the admitting transition itself does not satisfy that, and [A
+register is read only where it has been
+written](#the-automaton-remembers-in-registers) is worded so that it cannot be
+read as though it did (#36).
+
+The shape being refused is a transition that admits a record, binds a register
+from a field of that record, and admits a record whose own repetition names that
+register. One reading of *passes through a binding first* lets it through, since
+the path does reach a binding. What a consumer does with it is fixed by the step
+order and is not what such a producer meant: on the first admission the register
+holds nothing, and on every later one it holds the previous record's count. The
+first is a malformed descriptor reported against IR whose producer believed it
+conforming; the second is a record read at the wrong length, with nothing in the
+file to disagree.
+
+Nothing is lost by refusing it, because the shape has a spelling already. A
+count that governs the record holding it is a field of that record, and the
+repetition names that field — which is the whole of [A variable record is a sum
+with a variable term](#a-variable-record-is-a-sum-with-a-variable-term)'s first
+case. A register is for the other one, a value governing a record other than the
+one it sits in ([When a value becomes a state, and when it becomes a
+register](#when-a-value-becomes-a-state-and-when-it-becomes-a-register)), and
+routing a count through one back into the record it was read from asks it to
+hold a value before the read that fills it.
+
+What stays admissible is a register bound earlier and rebound by the transition
+that admits the record. A transition that takes one off a counter while
+admitting a record whose table that same counter sizes reads the value the
+counter held on entry to the state, before the subtraction, and every path
+reached a binding of it before this transition was taken. That is not an
+exception carved out for it: it is the sentence guards already carry, applied at
+the one other place a register is read.
+
+Both halves are narrowings, both are breaking after the first release, and
+neither adds a field. A count reference stays the two node kinds [Identity,
+ordering and determinism](#identity-ordering-and-determinism) already names, a
+repetition gains nothing beside the bounds it carries, and #17 fixes the schema
+against what it already had (#88).
 
 ## Physical framing
 
@@ -1148,7 +1300,11 @@ Reading one record, in this order:
    target lies outside the record the framing bounds does not match, and if no
    other matches either, this is a record the layout does not describe.
 4. Take the transition and admit the record. Its extent is known now, because
-   which record it is is known now.
+   which record it is is known now. Where that extent depends on a count, the
+   count is a field lying ahead of the item it sizes or a register an earlier
+   transition bound, and never anything this transition's own bindings write —
+   those apply at step 7, below ([A count is in hand before the extent it
+   decides](#a-count-is-in-hand-before-the-extent-it-decides)).
 5. Check the framing against that extent, as [The extent governs, and framing is
    checked against
    it](#the-extent-governs-and-framing-is-checked-against-it) requires.
@@ -1393,7 +1549,11 @@ Bindings apply when the transition is taken, after the record is admitted, and
 each reads the register file as it stood on entry to the state. So the order of
 one transition's bindings is not significant, and a transition may take one off
 a counter and rebind another register in the same step without the two
-interfering.
+interfering. They are also the last thing a transition does — step 7 of the read
+loop — so nothing that transition reads sees what it writes: not its guards,
+evaluated at step 3, and not the extent of the record it admits, computed at
+step 4 ([A count is in hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides)).
 
 **What a guard tests.** A guard names the register it tests and the test itself,
 one member of a closed set of three: the register equals a carried literal, the
@@ -1419,14 +1579,24 @@ way the predicate set's is (#22, #28), because a guard reads a value this
 document's own machinery put in a register: there is no layout-side strategy
 list for it to follow and nothing to wait for.
 
-**A register is read only where it has been written.** A producer **MUST**
-ensure that every path from the start state to a guard reading a register, to a
-state whose acceptance guards read one, or to a repetition naming one, passes
-through a binding of that register first (#36, #37). A consumer **MUST** treat a
-read of a register nothing has bound as a malformed descriptor, and **MUST NOT**
-supply a zero, an empty byte string, or the value of any other register: an IR
-that reached a generator with a register read before it was written is a bug in
-`resolve`, and the rule here is the one the [encoding
+**A register is read only where it has been written.** A register is read in
+three places, and every one of them reads the register file as it stood on entry
+to the state: a guard on a transition, the acceptance guards of a state, and the
+count of a repetition in the record a transition admits. A producer **MUST**
+ensure that every path from the start state to a state whose acceptance guards
+read a register, and every path to a transition that carries a guard reading one
+or admits a record whose repetition names one, passes through a binding of that
+register on a transition taken **strictly earlier** than the reading one (#36,
+#37, #88). A transition that binds a register it also reads does not satisfy
+that for itself, whichever of the two reads it makes: its bindings apply at step
+7 of the read loop and both reads happen before then, so what it would read is
+the value the binding was about to replace, or nothing at all where no earlier
+transition bound one ([A count is in hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides)). A consumer **MUST**
+treat a read of a register nothing has bound as a malformed descriptor, and
+**MUST NOT** supply a zero, an empty byte string, or the value of any other
+register: an IR that reached a generator with a register read before it was
+written is a bug in `resolve`, and the rule here is the one the [encoding
 profile](#the-encoding-profile-applied) already applies to an unset axis.
 
 **A register has no scope and no history.** There is one register file for the
@@ -1528,12 +1698,18 @@ group that repeats, under the rule [A reference names a field, not an occurrence
 of one](#a-reference-names-a-field-not-an-occurrence-of-one) states for every
 position naming a field (#37, #84).
 
-A predicate's target carries a second restriction the other two positions do
-not: its position **MUST** be constant within the record its transition would
-admit. No item ahead of it **MAY** carry a repetition whose count is a
-reference, and `resolve` **MUST** reject a layout whose discriminator sits
-behind one, naming the record, the target and the variable item in front of it
-(#37, #84).
+A predicate's target carries a second restriction: its position **MUST** be
+constant within the record its transition would admit. No item ahead of it
+**MAY** carry a repetition whose count is a reference, and `resolve` **MUST**
+reject a layout whose discriminator sits behind one, naming the record, the
+target and the variable item in front of it (#37, #84).
+
+An `OCCURS DEPENDING ON` count carries the same restriction and reaches it by
+another road, since a count is read after its record has been admitted and the
+read loop does not force one on it ([A count is in hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides), #88). The field a
+binding reads carries neither. What follows is the predicate's own reason, and
+it is the read loop's order.
 
 This is what makes the read loop's order safe rather than merely stated. A
 predicate is evaluated before its record is admitted, against bytes read as the
@@ -2124,12 +2300,15 @@ The determination runs the other way in one place, and [What the descriptor
 determines, a writer
 supplies](#what-the-descriptor-determines-a-writer-supplies) is where it is
 named: a repetition whose count is a register. The register holds a value from a
-record already emitted, so a writer **MUST** emit exactly that many occurrences
-of the group, and **MUST** report a caller supplying a different number rather
-than emitting a record its own reader cannot walk. An `OCCURS DEPENDING ON`
-count in the same record is supplied by the writer because the field is sitting
-there to be filled; a count in a register was filled two records ago, and what
-has to agree with it is the data.
+record already emitted — bound by a transition taken strictly earlier and read
+as it stood on entry to the state, exactly as a reader reads it ([A count is in
+hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides)) — so a writer
+**MUST** emit exactly that many occurrences of the group, and **MUST** report a
+caller supplying a different number rather than emitting a record its own reader
+cannot walk. An `OCCURS DEPENDING ON` count in the same record is supplied by
+the writer because the field is sitting there to be filled; a count in a
+register was filled two records ago, and what has to agree with it is the data.
 
 The requirement that section places on future members of the predicate set —
 that every one be decidable by a writer from the record it is about to emit and
@@ -2479,16 +2658,21 @@ names a field](#a-predicate-always-names-a-field) states its limit.
 
 Sequencing **MUST NOT** depend on a value in a record the consumer has not read.
 A trailer's record count cannot govern how many records precede it, and a
-repetition **MUST NOT** name a register no path binds before it.
+repetition **MUST NOT** name a register unless every path binds it on a
+transition taken strictly earlier than the one admitting the record the
+repetition is in. A binding on that admitting transition is not one, since the
+extent is needed before that binding applies ([A count is in hand before the
+extent it decides](#a-count-is-in-hand-before-the-extent-it-decides), #88).
 
 Reason: a consumer reads a stream forward, and one that could not decide a
 transition until a later record arrived would have to buffer an unbounded
 stretch of a file whose whole premise is that it does not fit in memory. Nor is
 this a check left to run time: `resolve` proves every read of a register is
-preceded, on every path, by a binding of it (#36), so what would have been a
-surprise halfway through a hundred-million-record file is a layout rejected
-before a byte is read. Checking a trailer's count against the records actually
-read is a generator's own business and nothing the automaton needs to carry.
+preceded, on every path, by a binding on an earlier transition (#36), so what
+would have been a surprise halfway through a hundred-million-record file is a
+layout rejected before a byte is read. Checking a trailer's count against the
+records actually read is a generator's own business and nothing the automaton
+needs to carry.
 
 ### Also out of scope
 
@@ -2587,13 +2771,13 @@ records offer them.
 | Section | Implemented by |
 |---|---|
 | [Structure](#structure) | #17, #80 `ir` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87 `ir` |
-| [Physical framing](#physical-framing) | #78, #92 `ir`, #26 `layout`, #52 `gen-go` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88 `ir` |
+| [Physical framing](#physical-framing) | #78, #88, #92 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
-| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84 `ir` |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84 `ir` |
-| [Writing a file](#writing-a-file) | #79, #80, #82 `ir`, #51, #52 `gen-go` |
+| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88 `ir` |
+| [Writing a file](#writing-a-file) | #79, #80, #82, #88 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | Emitting the IR | #20, #21 `ir` |
