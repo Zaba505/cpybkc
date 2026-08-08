@@ -106,11 +106,25 @@ Everything else is descriptive.
      only nest forces the graph into key paths and cross-references, and every
      reader then has to reconstruct it.
 
-     Candidates, neither settled: an S-expression form of tagged nodes and
-     references, as z5labs/dfcad writes its entity graph over z5labs/sexpr-go
-     (https://github.com/z5labs/dfcad, SPEC.md there is the worked example);
-     or YAML with a published JSON Schema. Whichever wins, name its grammar in
-     Governing sources in the same change. -->
+     The second requirement excludes a family before the candidates are
+     weighed. A tree-shaped key/value serialization — YAML, JSON, TOML —
+     states containment directly and every other edge as a name resolved
+     somewhere else, which is the reconstruction above. ir/SPEC.md's A node
+     set, not a tree refused nesting on the resolved side for that reason
+     (#16), and a source notation that nests would put the flattening between
+     the layout and the IR rather than removing it. The section argues that
+     exclusion rather than assuming it; none of the three returns as a
+     candidate.
+
+     Candidates, none preferred, each of which states an edge as an edge: an
+     S-expression form of tagged nodes and references, as z5labs/dfcad writes
+     its entity graph over z5labs/sexpr-go (https://github.com/z5labs/dfcad,
+     SPEC.md there is the worked example); an RDF serialization such as
+     Turtle, whose machine-readable contract is a shape language — SHACL or
+     ShEx — and whose open-world reading is what has to be argued against the
+     closed sets this document is built on; or another notation meeting both
+     requirements. Whichever wins, name its grammar in Governing sources in
+     the same change. -->
 
 ## The encoding profile
 
