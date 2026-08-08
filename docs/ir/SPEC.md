@@ -425,7 +425,10 @@ kind of thing. A `SYNCHRONIZED` alignment gap holds nothing anybody wrote: COBOL
 says nowhere what is in one, and nothing downstream reads it. The bytes a
 record's items do not reach in a fixed-length dataset ([Four framings, and none
 of them is a RECFM](#four-framings-and-none-of-them-is-a-recfm)) hold whatever
-the program that wrote the file left there, which on these files is spaces. And
+the program that wrote the file left there, which on these files is spaces —
+a run this section can size and pair to a node only because that record type's
+extent is a constant ([A variable record does not fit a fixed-length
+dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset), #92). And
 the tail of a `REDEFINES` alternative holds *another alternative's data*
 ([Members never overlap, and `REDEFINES` is resolved
 away](#members-never-overlap-and-redefines-is-resolved-away)) — laid down by a
@@ -535,19 +538,26 @@ occurrences (#35, #87). The bounds are carried for that check and for nothing
 else: no other position in this document reads them, and a producer **MUST**
 emit the copybook's own `OCCURS integer-1 TO integer-2` rather than bounds a
 layout would prefer. Without them the check does not exist, because there is
-nothing in a record to make it against — a count that decodes to a plausible
-wrong number is a read that runs past the record's own bytes under **unframed**
-and into whatever the next record holds, which is the one framing that has
-nothing to catch it with ([The extent governs, and framing is checked against
-it](#the-extent-governs-and-framing-is-checked-against-it)). The bounds are
-data the copybook already states and the only thing in reach that bounds a
-number decoded out of a file.
+nothing in a record to make it against, and the framing does not disagree with a
+count the copybook forbids: a descriptor word stating the length that count
+implies, or a delimiter standing where it ends, agrees with the extent exactly,
+so the check in [The extent governs, and framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it) passes on a record
+the copybook says cannot exist — which is what a file written against a later
+version of that copybook looks like. The bounds are data the copybook already
+states and the only thing in reach that bounds a number decoded out of a file.
 
 Where the count is data-dependent, the sum above is data-dependent with it, and
 that is the whole of the model. A generator emits an addition it performs while
 reading rather than a constant it was handed. A carried offset could not have
 described this without a second, different mechanism for every field following a
 variable group; ordering and width describe it with none.
+
+Not every file may hold such a record all the same, and what decides is the
+framing rather than anything here: a dataset whose own stride is fixed requires
+a record type's extent to be a constant, which is [A variable record does not
+fit a fixed-length
+dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset)'s (#92).
 
 ### An item after a table slides, and the other reading is a fixed table
 
@@ -642,9 +652,12 @@ Two consequences fall out where a reader may go looking for them. A record of a
 non-sliding file has a constant extent, so it meets the requirement a
 fixed-length dataset places on its record types ([Four framings, and none of
 them is a RECFM](#four-framings-and-none-of-them-is-a-recfm)) exactly as a
-record with no table does; whether a *sliding* record may sit on such a dataset
-at all is #92's, and this is why that question is about half the fork rather
-than all of it. And a non-sliding record carries no repetition whose count is a
+record with no table does; a *sliding* record may not sit on such a dataset at
+all, which is [A variable record does not fit a fixed-length
+dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset)'s, and is why
+that question was about half this fork rather than all of it (#92). The reading
+this section records is the escape there, wherever a table has nothing behind
+it. And a non-sliding record carries no repetition whose count is a
 reference, so a discriminator **MAY** name a target behind its table, which
 [Discriminator predicates](#discriminator-predicates) forbids only where
 something ahead of the target is variable.
@@ -828,13 +841,19 @@ ordinary here, because what blocking is on the mainframe is not what arrives on
 a filesystem. [Block descriptor words in the
 stream](#block-descriptor-words-in-the-stream) is where that is argued.
 
-**unframed** does not require every record type to have the same extent. The
+**unframed** does not require two record types to have the same extent. The
 read below works whether or not they agree, so a rule demanding it would forbid
 only files that read correctly. What a fixed-length dataset *does* require is
 that its record types account for all of LRECL, since the next record starts at
 that fixed distance regardless: a record type whose items stop at 72 bytes of an
 80-byte record carries the remaining 8 as slack, and a layout in which it does
 not describes a file whose reader misaligns after the first record (#26, #34).
+One class of record type cannot meet that requirement at all, and it is refused
+here rather than left to be found: a record type whose extent moves with a count
+has no single number of bytes to pad, which is [A variable record does not fit a
+fixed-length dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset)
+(#92).
+
 Those 8 bytes are then bytes no item covers, and what becomes of them is [Slack
 survives a read](#slack-survives-a-read)'s: a record read from such a file
 carries them and a writer puts them back, so a job that reads this file and
@@ -843,6 +862,141 @@ its caller built rather than read has nothing to put back and gets zero bytes,
 which is common enough on a fixed-length dataset to be worth stating where the
 padding is introduced: an adopter who wants those 8 to hold spaces declares a
 trailing item and supplies it, rather than leaving them to slack (#82).
+
+### A variable record does not fit a fixed-length dataset
+
+A descriptor whose file node's framing is **unframed** **MUST NOT** carry a
+record type whose extent is data-dependent: no item of such a record type
+**MAY** carry a repetition whose count is a reference, at any depth. `resolve`
+**MUST** reject a layout that puts one on a fixed-length dataset, naming the
+record and the repeating item rather than reporting a generic framing error
+(#26, #35). Where the count comes from makes no difference — a register the
+automaton bound moves a record's extent exactly as a field of the record does
+([The automaton remembers, in
+registers](#the-automaton-remembers-in-registers)) — and neither does where the
+table sits, which decides only what the diagnostic says.
+
+**unframed** is what RECFM F and FB resolve to and nothing else does, so this is
+a rule about a dataset rather than about a framing's bytes. It is keyed on the
+framing all the same, because it holds whatever LRECL a layout states and
+whether or not it states one. On that dataset the next record begins a fixed
+distance on whatever the record was, which turns *account for all of LRECL* into
+a requirement that a record type's extent *be* LRECL. A record type of
+constant extent meets it by carrying the difference as slack. One whose extent
+is a fixed part plus a table plus a pad meets it at one count and misses it at
+every other: behind four bytes of fixed items, a table of eight-byte entries in
+an eighty-byte record leaves 36 bytes for the pad at five entries and 52 at
+three, and a slack node carries one width ([Slack is a node, not a
+rule](#slack-is-a-node-not-a-rule)). No number is both.
+
+The read side breaks first, and it breaks on a file nobody wrote wrongly. Take
+that record with its pad set to 36, so that a five-entry record is eighty bytes,
+and a file whose first record holds three entries and whose second holds five. A
+consumer takes the first record's end from its extent ([The extent governs, and
+framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it)) and advances 64,
+while the file advanced 80. **unframed** has nothing to check that against: it
+is the framing that same section describes as the one where nothing in the file
+disagrees with anything. So every record after the first is read at the wrong
+offset, in silence, which is the failure [Physical framing](#physical-framing)
+exists to prevent.
+
+Letting the pad take up the difference is the other answer, and it is a
+mechanism rather than a relaxation: a slack node whose width is LRECL less the
+extent of the record admitted. Both halves of it are refused already, and either
+alone decides it. The width would be data-dependent, which is the wall [An item
+after a table slides, and the other reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)
+hits from the other side and over the same run of bytes — a slack node carries a
+width, and [Slack survives a read](#slack-survives-a-read) pairs one run to one
+node by position, so a run whose length is not a number is a second retention
+channel beside slack's in every consumer in every language. And LRECL would have
+to sit on the file node, which [Lengths the file node does not
+carry](#lengths-the-file-node-does-not-carry) refuses as a fact stated twice
+that a consumer could do nothing with a disagreement about. Under this mechanism
+it would not be a duplicate but a governor: the file node's number would decide
+how many bytes a writer emits, the extent would stop being the only statement of
+a record's length, and a consumer ignoring the new field would write short
+records rather than ignore something it did not need.
+
+The two directions do not cost the same afterwards, and that is what decides the
+timing. Imposing the rule after the first release makes a descriptor that
+conformed stop conforming, and a layout an adopter had already written stop
+resolving. Widening it later asks nothing of an adopter and something of a
+generator, and the something is small: the arithmetic a variable extent needs is
+the arithmetic [A variable record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term) already requires under
+the other three framings, so what a wider rule would take away is a generator's
+licence to treat **unframed** as the framing whose extent can be computed once.
+That may cost a version of its own, and it costs it where the bill is a
+generator's to pay rather than every adopter's. If a spelling ever resolves to
+**unframed** with no LRECL behind it — records packed back to back with nothing
+between them — that is the change it would arrive in, to the mapping [Four
+framings, and none of them is a
+RECFM](#four-framings-and-none-of-them-is-a-recfm) carries (#92).
+
+What an adopter does instead depends on where the table sits, and so does the
+diagnostic: `resolve` **MUST** tell the two shapes below apart in what it
+reports, rather than calling both of them a variable record (#26, #35).
+
+**A table with nothing behind it** is rescued by the fork [An item after a table
+slides, and the other reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)
+records. Where no item follows the table — not in its own group, and not in any
+group that contains it — the two readings put every item the count reaches at
+the same offset, and differ only over the bytes past it, which are a pad under
+one reading and unfilled occurrences under the other and the same bytes under
+both. Stating the non-sliding reading resolves the table to a fixed one of the
+copybook's declared maximum with the count field an ordinary field beside it,
+and the record then has a constant extent that accounts for LRECL like any
+other, provided LRECL reaches the table's full allocation; where it does not,
+the ordinary LRECL check fires and says so. The diagnostic **MUST** name that
+reading as the description that fits the same bytes. What the rescue costs is
+stated where it is described — the copybook's bound stops being checkable, and
+the entries past the count are values rather than retained bytes — and the
+reading is one statement about a file rather than one per record (#27), so it
+reaches a layout whose tables are all this shape and not one record of a layout
+where they are not.
+
+**A table with items behind it** has no rescue, because the two readings really
+do put those items in different places and the file was written under one of
+them. The diagnostic **MUST** name the item behind the table that moves with the
+count, since that item is the whole of what makes the record undescribable.
+Stating the other reading is not a way around the rejection, and nothing here
+could make it one: a layout claiming a file does not slide when the compiler
+that wrote it did is wrong at every item behind the table, on a fixed-length
+dataset and everywhere else, which is the failure the fork was recorded to end.
+What is left to the adopter is a record type per count value — a copybook apiece
+with a constant repetition and a constant pad, told apart by a predicate on the
+count field, which [Discriminator predicates](#discriminator-predicates) admits
+wherever nothing variable stands in front of it. That is unrolling, and it is
+bounded where the unrolling [The automaton remembers, in
+registers](#the-automaton-remembers-in-registers) refuses by name is not: a
+repetition declares a minimum and a maximum, so what it costs is a record type
+per count the copybook allows rather than per value a `PIC` clause can hold. It
+is still a copybook per count, and a five-hundred-entry table makes it absurd.
+`resolve` does not do that unrolling on the adopter's behalf, and the reason is
+not that it could not: a record type is what a generator turns into a type its
+caller names, and inventing one per count value out of a copybook that declares
+one record hands every generator in every language a set of record types the
+adopter never wrote.
+
+Three things this leaves alone. A data-dependent extent is ordinary under the
+other three framings, where a record occupies its own extent and the framing
+disagrees when it does not — a table whose length depends on a count is what a
+variable-length dataset is for, and that is where most of them are. A record of
+a non-sliding file has a constant extent and sits on a fixed-length dataset like
+a record with no table in it ([An item after a table slides, and the other
+reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
+And two record *types* whose extents differ from one another are still not
+forbidden by the framing, which is what [Four framings, and none of them is a
+RECFM](#four-framings-and-none-of-them-is-a-recfm) says of it: what a record
+type may not do is differ from itself.
+
+Nothing is added to the schema for any of it. The rule says which descriptors
+may exist rather than what a node carries, so #17 fixes the schema against the
+same node shapes it would have fixed it against anyway (#17, #92).
 
 ### The extent governs, and framing is checked against it
 
@@ -1045,9 +1199,13 @@ fact a second time in the sense [Ordering and width, and no
 offset](#ordering-and-width-and-no-offset) uses, with the additional property
 that a consumer could do nothing with a disagreement — the extent governs, so a
 conflicting length is a value a consumer has to ignore, and a value a consumer
-has to ignore is not worth carrying. Checking a dataset's declared LRECL against
-the widths a copybook implies is real work all the same, and it is `resolve`'s,
-done while a layout is being read and before an IR exists (#26).
+has to ignore is not worth carrying. A length carried so that a writer could pad
+a variable record out to it is a different proposal, and it is refused where
+that record is ([A variable record does not fit a fixed-length
+dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset), #92). Checking
+a dataset's declared LRECL against the widths a copybook implies is real work
+all the same, and it is `resolve`'s, done while a layout is being read and
+before an IR exists (#26).
 
 **No block size.** The stream the IR describes carries no block descriptor words
 ([Block descriptor words in the
@@ -1385,9 +1543,9 @@ whose position depends on a count obliges a consumer to decode that count out of
 bytes it has not identified. Two failures follow, and neither is detectable. The
 bytes may be another record type's, decoding to a number that sends the read far
 past this record: step 3 bounds that only "where the framing has already stated
-this record's length", and under **unframed** the framing states nothing, so
-nothing bounds it at all. Or the bytes may not decode, and [A variable record is
-a sum with a variable
+this record's length", and under **delimited** the framing has stated nothing by
+then, so nothing bounds it at all. Or the bytes may not decode, and [A variable
+record is a sum with a variable
 term](#a-variable-record-is-a-sum-with-a-variable-term) requires a consumer to
 report that as malformed data — so one consumer condemns a well-formed file
 while another treats the predicate as not matching and reads it correctly. A
@@ -2430,7 +2588,7 @@ records offer them.
 |---|---|
 | [Structure](#structure) | #17, #80 `ir` |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87 `ir` |
-| [Physical framing](#physical-framing) | #78 `ir`, #26 `layout`, #52 `gen-go` |
+| [Physical framing](#physical-framing) | #78, #92 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84 `ir` |

@@ -125,12 +125,23 @@ Everything else is descriptive.
      resolved record widths rather than carries through. What each spelling
      resolves to is settled by ir/SPEC.md's Physical framing (#78): four
      framings, a delimiter as literal bytes rather than a named character, and
-     a placement of terminator, separator or optional terminator. Three shapes
+     a placement of terminator, separator or optional terminator. Four shapes
      are rejected there instead of modelled here, and each needs a diagnostic
-     saying which — RECFM=U, a stream still carrying block descriptor words,
-     and a delimited record that stops before its extent. Carriage control is a
-     leading item in the copybook rather than a setting, for the same reason.
-     Modelled by #26. -->
+     saying which — RECFM=U, a stream still carrying block descriptor words, a
+     delimited record that stops before its extent, and a record type whose
+     extent moves with an OCCURS DEPENDING ON count on a fixed-length dataset.
+
+     The last of those is what the LRECL validation turns into. The check is
+     per record type — its extent against LRECL, the difference reaching the IR
+     as slack — and a record type whose extent is not a number has nothing to
+     check, which ir/SPEC.md's A variable record does not fit a fixed-length
+     dataset (#92) rejects rather than pads. That diagnostic names the record
+     and the repeating item, and says which of two shapes it has: a table with
+     nothing behind it describes the same bytes if the layout states the
+     non-sliding reading instead (#27), and a table with items behind it does
+     not describe them under either reading. Carriage control is a leading item
+     in the copybook rather than a setting, for the same reason. Modelled by
+     #26. -->
 
 ## Record definitions
 
