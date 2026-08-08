@@ -256,11 +256,19 @@ and not a reference: a producer **MUST** resolve it away (#32), and the graph
 carries what is left. Each alternative a discriminator can select becomes its
 own record node with its own containment order, the items those alternatives
 share appear in each, and bytes the chosen alternative does not occupy are slack
-under the rule below. Those bytes are not padding: in a file written by a
-program that used another variant they hold that variant's data, which is why
-[Slack survives a read](#slack-survives-a-read) has a consumer keep them rather
-than fill them. Two layouts overlaying the same bytes are two paths through the
-automaton, which is the shape the IR already has. The alternative was a node
+under the rule below. That last needs saying as a requirement rather than as an
+observation, because splitting the alternatives is what discards the storage the
+copybook gave them jointly: a producer **MUST** emit, in each alternative's
+record node, a slack node covering every byte of the redefined item's storage
+that the alternative's own items do not occupy (#32, #34). Left declarative it
+would be circular — a record's extent is the sum of its items *and* its slack,
+so an alternative emitted without one has no byte that no item occupies, and
+satisfies the rule below by having nothing to satisfy it about. Those bytes are
+not padding: in a file written by a program that used another variant they hold
+that variant's data, which is why [Slack survives a
+read](#slack-survives-a-read) has a consumer keep them rather than fill them.
+Two layouts overlaying the same bytes are two paths through the automaton, which
+is the shape the IR already has. The alternative was a node
 kind whose only purpose is to be collapsed by every consumer in every language
 before it could compute a single offset.
 
@@ -281,7 +289,13 @@ warning is about a record described by a copybook. It does not apply to a record
 described by the IR, and this is why.
 
 Any byte of a record that no item occupies **MUST** appear in the containment
-order as a slack node carrying its width (#34). Alignment then stops being a
+order as a slack node carrying its width, and a producer **MUST** emit one node
+per maximal run of such bytes, so that two runs of different origin that abut
+are one node and not two (#34). The second half costs nothing today and stops
+costing something later: [Slack survives a
+read](#slack-survives-a-read) makes a record carry one run of bytes per slack
+node, so how a producer divides a run of eight into nodes would otherwise decide
+the shape of every record a generator emits. Alignment then stops being a
 rule a generator applies and becomes bytes a generator already has, and the sum
 above is literally true with `SYNCHRONIZED` present. A generator **MUST NOT**
 implement an alignment rule, because there is nothing left for one to do.
@@ -304,16 +318,39 @@ the node, rather than in [Writing a file](#writing-a-file), where a reader's
 author has no reason to look (#82).
 
 A consumer **MUST** retain the bytes of every slack node of a record it reads,
-alongside the values of that record's items, and a writer **MUST** emit exactly
-those bytes for that slack node. Retention is per occurrence, as an item's value
-is: a slack node inside a group that repeats stands for one run of bytes in each
-occurrence rather than one run in the record. A writer **MUST** emit a slack
-node's width exactly, and **MUST** report a retained run of any other length
-rather than truncating or padding it to fit.
+alongside the values of that record's items. What it retains **MUST** be those
+bytes as they stood when the record was read, and **MUST** stay those bytes for
+as long as the record can be handed to a writer: a consumer **MUST NOT** retain
+them as a view of input it may overwrite, and **MUST NOT** re-read them from the
+input when a writer asks. Retention is per occurrence, as an item's value is: a
+slack node inside a group that repeats stands for one run of bytes in each
+occurrence rather than one run in the record.
 
-Where a record carries no retained bytes for a slack node — one its caller built
-rather than read, or an occurrence its caller added to a record it did read — a
-writer fills them, and [What the descriptor determines, a writer
+The lifetime is normative because the alternative conforms to everything else. A
+streaming reader over a reused buffer that keeps a window onto it satisfies a
+rule saying only *what* to retain, and then every record it hands a writer
+carries the *next* record's slack — an error no width check and no framing check
+can see, on a file that reads back as the records that were written.
+
+A writer pairs runs to nodes and occurrences by position: it **MUST** emit, for
+the *k*th occurrence of a slack node, the *k*th run the record carries for that
+node, and **MUST** emit the node's width exactly. A run of any other length is
+an error a writer **MUST** report rather than truncate or pad to fit — and a run
+of no bytes is one of those rather than an absent one, so a consumer **MUST**
+keep an absent run and an empty one distinguishable wherever it carries a
+record. Runs beyond a record's occurrences are discarded.
+
+Position is what ties a run to its place, and nothing else does: a slack node
+has no name, and the IR gives a caller no offset to recognise one by. So the
+pairing is stated rather than left to follow from the retention rule, which
+fixes only how many runs there are. A caller that reorders, removes or inserts
+occurrences moves values and does not move runs with them, and two generators
+left to decide that for themselves emit different files from one descriptor and
+one set of caller operations.
+
+Where a record carries no run for a slack node, or has more occurrences of one
+than it carries runs, a writer fills what is left over, and [What the descriptor
+determines, a writer
 supplies](#what-the-descriptor-determines-a-writer-supplies) says with what.
 Those bytes were never in a file, so there is nothing there to keep.
 
@@ -327,6 +364,19 @@ question about the call ([Also out of scope](#also-out-of-scope)) — a generato
 understand, and one that hides them entirely satisfies this section. What no
 generator **MAY** do is make surfacing them the mechanism by which they survive.
 A caller obliged to copy a field across is a caller that forgets.
+
+What retention protects is a record that reaches a writer as the record a reader
+produced. A caller that builds a *new* record out of a read one's values hands a
+writer a record carrying nothing, and its slack is filled like any constructed
+record's. That is the ordinary shape of a job that transforms rather than edits,
+and it includes the one case this section would most like to have: converting a
+record from one `REDEFINES` alternative to another is building a record, and a
+program doing exactly that is what laid the sibling's payload down in the first
+place. So the loss described below is not abolished, only moved to where a job
+is making a new record rather than editing one — and it is not softened here. An
+adopter whose job builds declares the bytes it means to keep as an item and
+supplies them, which is the same answer [Four framings, and none of them is a
+RECFM](#four-framings-and-none-of-them-is-a-recfm) gives for a fixed-length pad.
 
 **What is in those bytes.** Three things produce slack and they are not the same
 kind of thing. A `SYNCHRONIZED` alignment gap holds nothing anybody wrote: COBOL
@@ -371,13 +421,13 @@ The member would not be free, either. It is a closed set, so a producer of slack
 nobody anticipated is breaking to admit afterwards — and the question was posed
 as a fork between two producers when the fixed-length pad, which is neither,
 turns out to be the common one. Nor is attribution as crisp as three names make
-it sound. Two runs of slack that abut are one run of bytes in the file, and
-nothing in this document distinguishes one slack node of eight bytes from two of
-five and three; a kind would make that distinction load-bearing for the
-first time, and a `REDEFINES` alternative shorter than its sibling and followed
-by an aligned item puts exactly those two runs next to each other. A producer
-coalescing them would be dropping something, and one that did not would be
-emitting more nodes than the record has runs of bytes.
+it sound. A producer emits one slack node per maximal run of uncovered bytes
+([Slack is a node, not a rule](#slack-is-a-node-not-a-rule)), and a `REDEFINES`
+alternative shorter than its sibling and followed by an aligned item puts a tail
+and an alignment gap into a single run of them. A kind would have to split that
+node by cause, against the rule that made it one node, and a consumer would then
+hold two runs of bytes where the file has one — bought for a distinction nothing
+reads.
 
 Retaining the record's whole bytes instead — every byte, covered by an item or
 not — was the other alternative, and it fails the test this document keeps
@@ -387,12 +437,16 @@ for those bytes and needs a rule saying which wins. Retaining exactly the bytes
 no item covers leaves every byte of a record with one source.
 
 The cost is memory, it lands on every consumer in every language, and it is not
-softened here. A reader holds a copy of bytes most callers will never look at —
-eight in every record of an eighty-byte fixed-length file is a tenth of it — and
-a copy rather than a window onto the input, since a streaming reader reuses the
-buffer it read into. It is charged on the reading side because there is nowhere
-else to charge it: a writer holding a record and a descriptor knows how many
-bytes no item covers and cannot know what was in them.
+softened here. A reader holds bytes most callers will never look at — eight in
+every record of an eighty-byte fixed-length file — and it holds them per
+occurrence where a slack node sits inside a table, so an alignment gap in a
+five-hundred-entry table is five hundred runs and not one. What that costs turns
+on a representation this document leaves to the generator, and its two ends are
+far apart: a run held inline in a fixed-width field of the record costs
+nothing a reader was not already paying, and one allocated per run per record
+costs an allocation per run per record. It is charged on the reading side
+because there is nowhere else to charge it: a writer holding a record and a
+descriptor knows how many bytes no item covers and cannot know what was in them.
 
 ### A variable record is a sum with a variable term
 
@@ -672,9 +726,9 @@ has no file-level charset for one to inherit from — deliberately, since a reco
 whose fields disagree about charset is the ordinary case here. [What the
 descriptor determines, a writer
 supplies](#what-the-descriptor-determines-a-writer-supplies) hits the same wall
-from the other side when it fills slack with zero rather than with a space. The
-difference is that slack could take the byte that names nothing, and a delimiter
-cannot: it is the byte the file actually holds.
+from the other side when it fills a constructed record's slack with zero rather
+than with a space. The difference is that slack could take the byte that names
+nothing, and a delimiter cannot: it is the byte the file actually holds.
 
 Naming a character would not have picked one byte even with a charset to resolve
 it against. A mainframe line-delimited file ends its records with `0x15` or with
@@ -1267,11 +1321,23 @@ The fourth does both again for what the automaton remembers, where a guard is a
 test like a predicate is and a count in a register is determined like a count in
 a field (#76, #77).
 
-Byte identity is a stronger claim, and one thing stands between this document
-and it. Bytes no item covers do survive a read ([Slack survives a
+Byte identity is a stronger claim, and this document makes it of a record and
+not of a file. Bytes no item covers do survive a read ([Slack survives a
 read](#slack-survives-a-read)), so a record read and written back unchanged is
 byte-identical wherever encoding a value reproduces the bytes it was decoded
-from — and whether it does is `codec/SPEC.md`'s question rather than this one's.
+from — `codec/SPEC.md`'s question rather than this one's — and wherever every
+item of it has a value a generator can use, which [Ordering and width, and no
+offset](#ordering-and-width-and-no-offset) says is not every item: a
+numeric-edited or `POINTER` item carries a width here and no value, so a writer
+has no more source for its bytes than it had for slack, and this document has
+not given it one.
+
+A *file* is not byte-identical, and two of its own rules are why. Under
+**optional terminator** a writer emits a final delimiter the input may not have
+carried, and under **segmented** it lays a record into as few segments as the
+largest allows whatever the input did ([Where framing is consumed, and where it
+is emitted](#where-framing-is-consumed-and-where-it-is-emitted)). Both are
+deliberate, and neither is slack's.
 
 ### A writer walks the same automaton
 
@@ -1433,10 +1499,11 @@ that names none. Carrying the fill on the slack node instead would move the same
 invented constant one stage earlier, to where `resolve` has no source for it
 either: neither a copybook nor a layout says what an alignment gap contains.
 
-The invention is confined to bytes that were never in a file, which is what
-keeps #51's round-trip criterion — decode then encode reproduces the original
-bytes — true of a record carrying slack rather than only of one whose items
-cover every byte. A caller that wants a constructed record's slack to hold
+The invention is confined to bytes that were never in a file, so slack is no
+longer what stands between a record carrying it and #51's round-trip criterion —
+decode then encode reproduces the original bytes. What still stands there is
+named in [Writing a file](#writing-a-file)'s preamble, and none of it is
+slack's. A caller that wants a constructed record's slack to hold
 something other than zero declares a trailing item and supplies it, as [Four
 framings, and none of them is a
 RECFM](#four-framings-and-none-of-them-is-a-recfm) says for the fixed-length
