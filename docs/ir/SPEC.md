@@ -73,7 +73,16 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   must have a fixed location, and must not follow an item that contains an
   OCCURS DEPENDING ON clause* is what [A count is in hand before the extent it
   decides](#a-count-is-in-hand-before-the-extent-it-decides) leans on when it
-  refuses a count no compiler would place (#88).
+  refuses a count no compiler would place (#88). The IBM page is normative for
+  one more thing the fork does not touch: a record may carry more than one
+  variable-length table, an entry containing the clause followed by a
+  non-subordinate entry containing another. Neither vendor restricts how many
+  such entries may name one object — both restrict where the object sits — and
+  that silence is what [One count may size two tables, and a writer refuses to
+  choose](#one-count-may-size-two-tables-and-a-writer-refuses-to-choose) reads
+  as permission. GnuCOBOL carries complex `OCCURS DEPENDING ON` as a dialect
+  option rather than as a default, so the shape is IBM's before it is anybody
+  else's (#89).
   <https://www.ibm.com/docs/en/cobol-zos/6.3.0?topic=tables-complex-occurs-depending>
   <https://www.microfocus.com/documentation/reuze/60d/lhpdf40f.htm>
   <https://superbol.eu/gnucobol/manual/chapter14.html>
@@ -531,6 +540,13 @@ in hand before the extent it
 decides](#a-count-is-in-hand-before-the-extent-it-decides) states both and
 argues them (#88).
 
+Neither kind is one-to-one. Two repeating items of one record **MAY** name the
+same count, and a consumer decodes it once and sizes both of them from that one
+value — so reading is where the sharing is invisible, and what it costs falls
+on a writer. Both halves are [One count may size two tables, and a writer
+refuses to
+choose](#one-count-may-size-two-tables-and-a-writer-refuses-to-choose)'s (#89).
+
 Where the count does come from an earlier record — a header saying how many
 entries a later record's table holds, which is ordinary in production layouts —
 the automaton binds that field into a register as it admits the header, and the
@@ -931,6 +947,120 @@ neither adds a field. A count reference stays the two node kinds [Identity,
 ordering and determinism](#identity-ordering-and-determinism) already names, a
 repetition gains nothing beside the bounds it carries, and #17 fixes the schema
 against what it already had (#88).
+
+### One count may size two tables, and a writer refuses to choose
+
+Nothing above makes a count reference one-to-one. Two repeating items of one
+record **MAY** name the same count, and so **MAY** any number of them: a
+reference is a reference, and the field it names does not become the property of
+the first item that named it (#89).
+
+The shape is not an exotic one. It is the plainest record with two variable
+tables in it, because two tables under separate counts oblige a record to carry
+both count fields ahead of both tables — a count may not sit behind a variable
+item ([A count is in hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides)), and Micro Focus
+states as much of the clause's own object, *data-name-1 must have a fixed
+location, and must not follow an item that contains an OCCURS DEPENDING ON
+clause*. One count ahead of two tables satisfies that with nothing arranged. The
+pair is IBM's documented complex `OCCURS DEPENDING ON` either way, an entry
+carrying the clause followed by a non-subordinate entry carrying another, and
+neither vendor says how many entries may name one object. They say where the
+object may sit, and one object named twice sits in one place.
+
+Reading never notices. A consumer decodes the field once and sizes both tables
+from that one value — two multiplications against one number where it expected
+one against each of two — and the tables need not share a width per occurrence,
+need not be adjacent, and need not declare the same bounds. Nothing above gains
+a clause for it: [A variable record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term)'s sum is the same sum
+with one of its terms read twice, and every consumer walking such a file walks
+it identically.
+
+The declared bounds are the one place the second reference is not simply a
+second multiplication. Each repetition carries its own minimum and maximum and
+both bind the one value, so a consumer **MUST** check the decoded count against
+every repetition naming it and the range a record can actually carry is the
+overlap of the declared ones rather than either. That is the existing check run
+per repetition rather than a new one, and it is what carrying the bounds on the
+repetition rather than beside the count buys.
+
+Where the declared ranges do not overlap at all, no value sizes both tables, and
+`resolve` **MUST** reject such a layout, naming the record, the count and both
+repeating items rather than reporting a generic reference error (#35, #89). The
+rejection turns away no file a consumer could have read: every record of such a
+descriptor is malformed data under the check above, so what is refused is a
+copybook whose two `OCCURS integer-1 TO integer-2` clauses cannot both hold, and
+the alternative is that diagnostic once per record for the life of the file. The
+check is over repetitions of one record, which is the whole of what it can be. A
+count that is a register falls under it where two repetitions of one record name
+that register, and under nothing where they sit in different records — the
+register is free to hold a different value at each of those.
+
+The writing side is where sharing costs something, and it is the only side.
+[What the descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies) makes an `OCCURS
+DEPENDING ON` count the writer's to emit rather than its caller's — the field's
+value *is* the number of occurrences — so two repetitions naming one field
+determine that field twice. Where the caller's numbers agree they determine it
+to one value and there is nothing to settle. Where they disagree there is no
+value the record can carry: the first table's number sizes the second wrong and
+slides every item behind it ([An item after a table slides, and the other
+reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)),
+the second's does the same to the first, and either way a writer that picks
+emits a file its own reader mis-walks out of a descriptor saying nothing is
+wrong. So it reports instead, and the requirement is stated where the
+requirements on writers are.
+
+A count that is a register shares without any of that, and the asymmetry is
+worth stating rather than leaving to be re-derived. Nothing determines a
+register from occurrences: it holds what a transition bound out of a record
+already emitted, and the occurrences are what has to agree with it ([A writer
+evaluates a guard, it never back-fills a
+count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count)). Two
+repetitions naming one register are two comparisons against a value neither of
+them sets, which is that requirement made twice and not a new one. The conflict
+belongs to determination, and only a field count is determined.
+
+Sharing is also not confined to two items side by side, which is why the
+writer's comparison is stated over every repetition naming the count and not
+over a pair. A table inside a group that itself repeats on the same count is
+admissible — the count occurs once in the record, so [A reference names a field,
+not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one) admits it, and every
+occurrence of the outer group is the same width because one value sizes all of
+them. The numbers that have to agree are then one for the outer group and one
+per occurrence of it, and a writer comparing two of them emits a record whose
+third occurrence is short.
+
+Refusing the shape at `resolve` was the other answer, and it is the direction
+this document ordinarily prefers: narrowing what a descriptor may say is
+breaking after the first release and widening it is free, so a rejection made
+now can be lifted later at no version, which is the argument [A count is in hand
+before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides) took a narrowing on.
+The other half of that argument decides here, and it decides the other way. The
+narrowing there turned away a count no compiler writes; this one would turn away
+a record IBM documents and an adopter has. A rejection that is cheap to lift is
+still, until it is lifted, a file nobody can read.
+
+A `resolve` rejection is a statement about the descriptor, besides, and the
+descriptor is not what is in doubt. A file written under a shared count is read
+identically by every consumer, at every record, in both directions — no fork, no
+guess, and nothing in the file to disagree with. What can be wrong is one
+caller's data on one call, which is where [Writing a file](#writing-a-file)
+already puts every wrongness of that shape: a predicate the record does not
+satisfy, a guard the register file contradicts, a number of occurrences outside
+the declared bounds. Each is reported where the mistake is made, and none of
+them is a reason to refuse a layout.
+
+Nothing is added to carry the answer on either side of it. A count reference
+stays the two node kinds [Identity, ordering and
+determinism](#identity-ordering-and-determinism) already names, `resolve` checks
+bounds it already holds, and a writer compares numbers of occurrences it already
+has in hand — so #17 fixes the schema against what it had, and #51 and #52 gain
+a diagnostic rather than a field (#89).
 
 ## Physical framing
 
@@ -2235,6 +2365,21 @@ so the occurrences are what has to agree with it. [A writer evaluates a guard,
 it never back-fills a
 count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count) states that.
 
+More than one repeating item of a record **MAY** name that one field, and then
+it is determined more than once ([One count may size two tables, and a writer
+refuses to
+choose](#one-count-may-size-two-tables-and-a-writer-refuses-to-choose)). A
+writer **MUST** report a caller supplying different numbers of occurrences for
+two repetitions naming one count, and **MUST NOT** emit the record with either
+number as the count. The comparison is over every repetition naming that field
+rather than over a pair, because a table inside a group repeating on the same
+count contributes one number per occurrence of that group. Picking is the shape
+being refused rather than an ergonomic loss: one of the two tables is then sized
+by a number that was never about it, every item behind that table slides with
+it, and the record the writer's own reader recovers is not the record its caller
+handed over. Reporting it names the record, the count and the repetitions whose
+numbers disagree, on the call that made the mistake (#89).
+
 Either way a writer **MUST** report a caller supplying a number of occurrences
 outside the repetition's declared minimum and maximum, rather than emitting a
 count its own reader is required to call malformed data ([A variable record is a
@@ -2771,13 +2916,13 @@ records offer them.
 | Section | Implemented by |
 |---|---|
 | [Structure](#structure) | #17, #80 `ir` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88 `ir` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89 `ir` |
 | [Physical framing](#physical-framing) | #78, #88, #92 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88 `ir` |
-| [Writing a file](#writing-a-file) | #79, #80, #82, #88 `ir`, #51, #52 `gen-go` |
+| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | Emitting the IR | #20, #21 `ir` |
