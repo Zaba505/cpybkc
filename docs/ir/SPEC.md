@@ -188,6 +188,7 @@ names, field names, field numbers — is #17's.
 | **file** | The dataset's framing, as one member of the closed set in [Physical framing](#physical-framing) together with whatever that member carries. Plus the identifier of the automaton's start state. Exactly one node of this kind exists, and it is the root. |
 | **record** | The identifier of the item that is the record's top level, and the record's names. |
 | **group** | An ordered list of the identifiers of its members, its names, and its repetition. |
+| **variant** | An ordered list of its **arms**, each naming the predicate that selects it and the group or field that is its body. Every arm covers the same bytes, so the list is an order of evaluation rather than of position. |
 | **field** | An elementary item: its width, its four resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
 | **slack** | A width, and nothing else: bytes that are part of the record and belong to no item. |
 | **predicate** | The identifier of the field it tests, and the test itself, as one member of a closed set. |
@@ -207,18 +208,22 @@ names, field names, field numbers — is #17's.
   containment, ordering or position from one.
 - Every reference **MUST**, where it is present, resolve to a node in the same
   message, of a kind the referring position admits. Most positions admit exactly
-  one; a repetition's count admits a field or a register (#77). One position
-  admits no reference at all — a transition's predicate ([A transition may carry
-  no predicate](#a-transition-may-carry-no-predicate)) — and an absent reference
+  one; a repetition's count admits a field or a register (#77), and an arm's
+  body admits a group or a field (#90). One position admits no reference at all
+  — a transition's predicate ([A transition may carry no
+  predicate](#a-transition-may-carry-no-predicate)) — and an absent reference
   **MUST** be distinguishable from every identifier a node may carry, so that a
   consumer never reads one as the other (#80).
 - A member list **MUST** be in record order — the order in which the members
   occupy bytes. Ordering is data here, not a convention a consumer restores by
   sorting: [Offsets and widths](#offsets-and-widths) makes it the only statement
-  of where anything is.
-- Containment **MUST** be acyclic, and an item **MUST** be a member of exactly
-  one group. Transitions are under no such rule — a cycle there is a file that
-  repeats a record, which is most files.
+  of where anything is. A variant's arms are the one ordered list that is not a
+  member list: they are alternatives over one run of bytes, so their order is an
+  evaluation order and says nothing about position ([A variant is chosen once
+  per occurrence](#a-variant-is-chosen-once-per-occurrence), #90).
+- Containment **MUST** be acyclic, and an item **MUST** be named by exactly one
+  member list or by exactly one arm. Transitions are under no such rule — a
+  cycle there is a file that repeats a record, which is most files.
 - Containment is stated once, downward. A consumer needing a parent — to
   qualify a name, say — inverts the member lists while it indexes. Carrying the
   upward reference too would be one fact written twice, which is the rule the
@@ -337,6 +342,160 @@ dozen independent ones has no reference telling it which fields correspond, and
 always correct. Coalescing them is a generator's judgement, and two generators
 may reasonably differ.
 
+That resolution is per *record*, and there is one place it does not reach. An
+alternative becomes a record node because a record is what a transition selects;
+where the redefined item is contained, at any depth, in a group that repeats,
+the alternative is selected once per *occurrence* instead, and there is no
+record node per occurrence for it to become. So a producer **MUST** resolve a
+redefine away into record nodes exactly where the redefined item is not
+contained in a group that repeats, and **MUST** emit a variant node where it is
+([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence), #32, #90). One clause
+with two resolutions needs its line drawn somewhere, and it is drawn at the
+question the clause itself cannot answer: whether the choice is made once for a
+record or once for each entry of a table.
+
+The paragraph above still holds where it is read strictly. The clause reaches no
+node either way — a variant carries alternatives over one run of bytes and not a
+redefined item beside its redefiners, so nothing in the IR says which of them a
+copybook wrote first, and there is still no `REDEFINES` for a consumer to
+resolve. What a variant carries is the alternation, in the one place splitting
+it into records cannot express it.
+
+### A variant is chosen once per occurrence
+
+A **variant** node stands where a copybook overlays alternatives on one run of
+bytes inside a table. It carries an ordered list of **arms**, each naming the
+predicate that selects it and the group or field that is its body. Every arm
+begins at the variant's first byte, so the list is an order of evaluation and
+not of position; the variant itself is one item of the list containing it, in
+record order like any other (#90).
+
+A consumer walking an occurrence and reaching a variant evaluates the arms'
+predicates and takes the one that matches, and the occurrence then holds that
+arm's items and none of the others' — the bytes the others describe are in the
+record all the same, and belong to whichever arm was selected (#90).
+
+An arm is a pair of references and not a node of its own. Nothing points at one,
+so it needs no identity, and a kind for it would be a thirteenth a consumer
+switches over in order to reach two identifiers. A repetition is already carried
+that way — on the group or field it belongs to rather than as a node — and for
+the same reason ([The node kinds](#the-node-kinds)).
+
+A variant **MUST** be contained, at any depth, in a group that repeats, and a
+producer **MUST NOT** emit one anywhere else. That is the whole of what the kind
+is for: outside a table an alternative is chosen once per record and becomes a
+record node, which is the resolution above, and this kind exists only for the
+choice that resolution cannot make.
+
+Confining it there is worth more than tidiness, and the saving is that no new
+prohibition is needed in the three rules that name a field. A field inside an
+arm is a field inside a group that repeats, so an `OCCURS DEPENDING ON` count, a
+binding's source and a transition's own predicate already cannot reach one ([A
+reference names a field, not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one)) — and they are
+forbidden there for the reason that governs here too, which is that whether such
+a field has bytes at all depends on data the consumer has not read.
+
+**Every arm covers the same bytes, and how many is a constant.** An arm's extent
+**MUST** equal every other arm's of that variant; no item of an arm **MAY**
+carry a repetition whose count is a reference, at any depth; and a producer
+**MUST** emit inside each arm a slack node covering every byte of that extent
+the arm's own items do not occupy, which is the requirement the record-level
+resolution already carries, applied one level down (#32, #34). The variant's
+width is that common extent and is not carried beside it, for the reason a
+group's width is not. `resolve` **MUST** reject a layout whose alternatives
+cannot be made to agree, naming the record, the repeating group, the redefined
+item and the arm whose extent differs rather than reporting a generic width
+error (#32, #35, #90).
+
+That one requirement is doing all the work, and what it buys is that nothing
+else in this document moves. A variant contributes a constant width to the sum
+in [Ordering and width, and no
+offset](#ordering-and-width-and-no-offset), so every item behind it sits where
+it sat. Occurrences of the enclosing group stay equal width, which is the
+property [A reference names a field, not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one) is built on and never
+has to hear about. And a record's extent does not move with the arms chosen
+inside it, so the framing check at step 5 of the read loop compares the number
+it always compared, and a record carrying a variant sits on a fixed-length
+dataset like a record with no table in it ([A variable record does not fit a
+fixed-length dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset)).
+A consumer that wants a record's length and nothing else evaluates no arm at
+all.
+
+**Two arms at least, and a predicate on every one.** A producer **MUST NOT**
+emit a variant carrying fewer than two arms, or an arm carrying no predicate.
+Neither is a narrowing. A redefine every occurrence of which takes one
+alternative resolves to that alternative's items and no variant, the way a
+record-level redefine whose layout names one alternative resolves to one record
+node — the overlay an adopter wrote to read a packed field as bytes is that
+shape, and it reaches the IR as whichever item the layout named. And an arm
+carrying no predicate would match every occurrence, which under the overlap rule
+in [A predicate on an arm reads one
+occurrence](#a-predicate-on-an-arm-reads-one-occurrence) leaves it the only arm,
+which is that same group again.
+
+A variant carries no names and no repetition. The alternation has no name in the
+copybook — the redefined item is the first arm and carries its own — so there is
+none to carry, and what a generator calls the choice is its own work like every
+other identifier ([Names](#names)). It repeats by sitting inside a group that
+repeats, which is the only place it may sit.
+
+**The alternative was enumeration, and the copybook does not bound it.**
+Resolving these alternatives the way the section above resolves the others means
+a record node per combination of arms, and the combinations multiply over the
+occurrences rather than over the redefines: ten entries choosing between two
+alternatives are one thousand and twenty-four record nodes, a five-hundred-entry
+table is a number with no use for a name, and under `OCCURS DEPENDING ON` the
+exponent is not in the copybook at all — it is decoded out of the record being
+read, so `resolve` cannot know how many record nodes to emit. Nor would there be
+anywhere to select one of them from. A transition admits a whole record and a
+consumer takes one transition per record ([The sequencing
+automaton](#the-sequencing-automaton)), so of ten independent choices inside one
+record nine have nowhere to be made, and the predicate that would make them
+names a field inside a repeating group, which the rule above forbids.
+
+So a kind is added, and the sentence the section above used to refuse one is
+worth reading again rather than quietly dropped. What it refused was a node kind
+whose only purpose is to be collapsed by every consumer in every language before
+it could compute a single offset. A variant is collapsible by nobody: the choice
+is in the data, so a consumer implementing it is doing work no producer could
+have done on its behalf. That is the test the sentence was applying, rather than
+a preference for fewer kinds.
+
+**What it costs a consumer** is a second place where a predicate is evaluated,
+and that is charged in every language a generator is written in. Until now
+discrimination happened at one point of the read loop — at a record boundary,
+before anything was admitted. A variant puts it inside the walk of a record
+already admitted, once per occurrence, and [A predicate on an arm reads one
+occurrence](#a-predicate-on-an-arm-reads-one-occurrence) is that evaluation's
+rules. They are deliberately the rules a transition's predicate already carries,
+so what a generator author implements twice is one thing implemented twice
+rather than two things. The generated shape costs something as well, and this
+document does not say what: an occurrence stops being one flat set of items and
+becomes a choice among them, so a language with no sum type spells it as a
+discriminant beside the arms, and which of the two a caller sees is the
+generator's like every other question about the call ([Also out of
+scope](#also-out-of-scope)).
+
+Read-modify-write over such a record keeps its bytes, and gives them up at the
+same place every other record does. Each arm's slack covers what its items do
+not, so an occurrence read and handed back unchanged writes the bytes it was
+read from ([Slack survives a read](#slack-survives-a-read)). A caller that
+switches an occurrence from one arm to another is building an occurrence rather
+than editing one, and the bytes the old arm held are gone — which is the loss
+that section already describes for converting a record from one alternative to
+another, arriving here one level down and no worse.
+
+**Settled now**, because a node kind is breaking after the first release under
+[Versioning and compatibility](#versioning-and-compatibility), and the failure
+is the one that section names: a consumer that has not heard of this kind sees
+an unset choice where a producer wrote an alternation, and generates a reader
+for a record it has silently misread rather than one that refuses. #17 fixes the
+schema against twelve kinds rather than eleven, and against an arm that is a
+pair of references rather than a node of its own (#17, #90).
+
 ### Slack is a node, not a rule
 
 `codec/SPEC.md` warns that a reader **MUST NOT** assume a record is the simple
@@ -356,6 +515,13 @@ the shape of every record a generator emits. Alignment then stops being a
 rule a generator applies and becomes bytes a generator already has, and the sum
 above is literally true with `SYNCHRONIZED` present. A generator **MUST NOT**
 implement an alignment rule, because there is nothing left for one to do.
+
+A run stops at the edge of an arm, whatever abuts it there. An arm's extent is
+the variant's width ([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence)), so uncovered bytes at
+the end of an arm and uncovered bytes behind the variant are two runs and two
+nodes however they meet: one node covering both would belong to neither list,
+and would make one arm wider than its siblings (#34, #90).
 
 Framing bytes are not slack. A descriptor word or a delimiter belongs to the
 dataset rather than to the record's data, and it is described by the file node
@@ -381,7 +547,11 @@ as long as the record can be handed to a writer: a consumer **MUST NOT** retain
 them as a view of input it may overwrite, and **MUST NOT** re-read them from the
 input when a writer asks. Retention is per occurrence, as an item's value is: a
 slack node inside a group that repeats stands for one run of bytes in each
-occurrence rather than one run in the record.
+occurrence rather than one run in the record. A slack node inside an arm stands
+for one run in each occurrence that selected its arm and for none in the others,
+so the *k*th occurrence of such a node is the *k*th occurrence to select its arm
+([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence), #90).
 
 The lifetime is normative because the alternative conforms to everything else. A
 streaming reader over a reused buffer that keeps a window onto it satisfies a
@@ -448,7 +618,9 @@ the tail of a `REDEFINES` alternative holds *another alternative's data*
 ([Members never overlap, and `REDEFINES` is resolved
 away](#members-never-overlap-and-redefines-is-resolved-away)) — laid down by a
 program that used the other variant, on a record the one being read does not
-describe.
+describe. That third one sits inside an arm where the alternatives are inside a
+table, and is the same bytes for the same reason ([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence)).
 
 A rule filling slack with a constant leaves the first alone, which is the one it
 was written for, and destroys the third while rewriting the second. What makes
@@ -715,6 +887,16 @@ record, the field and the enclosing group that repeats rather than reporting a
 generic reference error (#35, #36, #37). #76 settled this for bindings; it is
 the same rule in all three places, and this is the one place it is argued.
 
+A fourth position names a field and is outside all of it, because it carries the
+occurrence the other three lack. The predicate selecting an arm of a variant is
+evaluated inside one occurrence of the group holding it, so its target **MUST**
+be contained in a group that repeats — the very thing forbidden above — and
+nothing is guessed by reading it, since the occurrence in question is the one
+the consumer is walking. What follows refuses a reference that has no occurrence
+to be read in; it is not about the word *repeats*, and [A predicate on an arm
+reads one occurrence](#a-predicate-on-an-arm-reads-one-occurrence) is where the
+fourth position's own rules are (#90).
+
 The shared reason is not that the arithmetic is undefined. [Ordering and width,
 and no offset](#ordering-and-width-and-no-offset) settles what the sum reaches —
 the first occurrence — so a consumer following this document lands somewhere
@@ -741,7 +923,11 @@ not all the same width. Refusing that is what keeps a group's occurrences equal:
 a count is a constant, a field occurring once in the record, or a register, and
 a register holds one value for the whole of a record's read ([The automaton
 remembers, in registers](#the-automaton-remembers-in-registers)) — so every
-occurrence of a group is the same width whatever is nested inside it. The other
+occurrence of a group is the same width whatever is nested inside it. A variant
+nested inside one leaves that alone rather than being an exception to it: its
+arms are of one constant extent, so an occurrence holding a variant is the width
+of an occurrence holding a group ([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence)). The other
 half of the rule, that the count must not itself repeat, does no work here; it
 is carried by the invention reason alone.
 
@@ -1815,6 +2001,14 @@ closed set, it names the field node it tests, and what it tests is bytes — a
 consumer evaluates one knowing no COBOL, and knowing nothing about what the
 strategy that produced it was called in a layout file (#37).
 
+Two things select on bytes, and they share this node kind and this closed set of
+tests: a transition, choosing a record, and an arm of a variant, choosing an
+alternative inside one occurrence of a table ([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence)). Everything down to [A
+predicate on an arm reads one
+occurrence](#a-predicate-on-an-arm-reads-one-occurrence) is about the first, and
+that subsection says which of it the second keeps (#90).
+
 A predicate **MUST** name its target as a field node identifier and **MUST NOT**
 name it as a field name. The record being discriminated is the record its
 transition admits: a producer **MUST** ensure the target is contained in that
@@ -2156,6 +2350,89 @@ counter reached zero means the file and its own header disagree about how many
 there are. Both are reported and neither is skipped; only the wording differs,
 and it is the wording that saves a day.
 
+### A predicate on an arm reads one occurrence
+
+An arm of a variant is selected by a predicate node — the same kind, and the
+same closed set of tests, as the one selecting a transition. What differs is the
+bytes it reads and the rules binding its target, and both differences come from
+where it is evaluated: inside one occurrence of a group, with the record already
+admitted (#90).
+
+Its target **MUST** be contained, at any depth, in the innermost group that
+repeats and contains the variant — the group one occurrence of which the arm is
+being chosen for. It **MUST NOT** be contained in an arm that does not also
+contain the variant, which rules out the variant's own arms and any sibling
+variant's and admits an arm enclosing it, where a copybook redefines a
+redefinition. `resolve` **MUST** reject a layout breaking either half, naming
+the record, the repeating group, the variant and the target rather than
+reporting a generic reference error (#37, #90).
+
+Both halves are about bytes that may not be there, or may not be what they look
+like. A target outside the occurrence has bytes and they are the same bytes for
+every occurrence, so it selects the same arm in all of them — a choice made once
+per record, which is a record node's and not a variant's ([Members never
+overlap, and `REDEFINES` is resolved
+away](#members-never-overlap-and-redefines-is-resolved-away)). A target inside a
+sibling arm has bytes only where that arm was selected, so reading it where it
+was not is reading one alternative's data as another's, which is the failure the
+whole of this document's treatment of `REDEFINES` is arranged around.
+
+Its position is the sum this document already states, run from the first byte of
+the occurrence rather than from the first byte of the record: the widths of
+everything ahead of the target inside that occurrence, added to where the
+occurrence begins. A consumer evaluating an arm is walking that table and is
+already standing there, so this is [Dereferencing is not
+recomputation](#dereferencing-is-not-recomputation)'s second list and not its
+first.
+
+**The rule against naming a field that repeats does not reach this position**,
+and the reason is that rule's own. [A reference names a field, not an occurrence
+of one](#a-reference-names-a-field-not-an-occurrence-of-one) refuses a reference
+that names a field in forty entries while carrying nothing that says which of
+the forty, because reading it as the first is a guess at an intention the
+descriptor cannot express. An arm's predicate expresses it: it is evaluated in
+an occurrence, so the occurrence is the one in hand and there is nothing left to
+guess. What that rule refuses is a reference with no occurrence to be read in.
+
+**Nor does the constant-position restriction**, and that reason is the read
+loop's order. A transition's predicate must sit at a constant position because
+it runs at step 3, before its record is admitted, so a position that moves with
+a count obliges a consumer to decode that count out of bytes it has not yet
+identified. An arm's predicate runs while a record already admitted is being
+walked, and every byte of the occurrence is locatable before any arm is chosen
+because the arms are of one extent. So a target **MAY** sit behind the variant,
+and **MAY** sit behind an item of the occurrence whose own extent moves with a
+count the record carries ahead of it.
+
+An arm carries no guards, and there is nothing for one to do. A guard reads a
+register, a register holds one value for the whole of a record's read ([The
+automaton remembers, in registers](#the-automaton-remembers-in-registers)), and
+a value that is the same in every occurrence selects a record rather than an arm
+— which is what the rule on the target already says, arriving from the other
+side.
+
+**Two arms that can both match are refused; none matching is reported.** Two
+arms of one variant **MUST NOT** be selected by predicates that can both match
+the same occurrence, and `resolve` **MUST** reject a layout whose alternatives
+overlap, naming the record, the repeating group and both arms (#37, #90). That
+is [When two match, and when none does](#when-two-match-and-when-none-does) at
+this scope and for its reasons, so the arms' order decides nothing and a
+consumer **MAY** stop at the first arm that matches. The order is normative all
+the same, so that two consumers do the same work in the same order and report
+the same thing when something is wrong with the bytes.
+
+Where no arm matches, a consumer **MUST** report it, and **MUST NOT** fall
+through to the last arm or leave the occurrence's items unset. There is no
+default arm and a producer cannot write one. What a consumer **MUST** do besides
+is say which of two failures it has, because they send an adopter to different
+places: a record no transition matched is a record type the layout is missing,
+while an occurrence no arm matched is a record the layout does describe carrying
+an entry it does not. An adopter sent to the first for the second spends the day
+on a record type they already have. One whose entries carry a code the
+alternatives do not cover writes an arm for the residue, and whether the closed
+set can spell one is that set's membership question rather than this
+subsection's (#22, #28).
+
 ## Writing a file
 
 Every section above is written from the reading side — what a consumer does with
@@ -2343,6 +2620,19 @@ The requirement binds members, so a transition carrying no predicate has nothing
 to meet it with and meets it — there is no value for a writer to decide about
 ([A transition may carry no
 predicate](#a-transition-may-carry-no-predicate)).
+
+An arm's predicate is evaluated the same way and inverted no more readily, once
+per occurrence. A writer **MUST** evaluate the predicate of the arm its caller
+supplied against the occurrence it is about to emit, **MUST NOT** derive a value
+satisfying it and store it into that predicate's target, and **MUST** report an
+occurrence whose values satisfy no arm's predicate rather than emitting it —
+naming the record, the repeating group and which occurrence it was, since a
+record whose third entry is wrong is not something its reader could tell anybody
+about afterwards. Every argument above carries over unchanged, and the
+member-decidability requirement is met at this scope by the same members meeting
+it at the other. What a writer emits for that occurrence is the arm's items and
+the arm's slack, which come to the variant's width whichever arm it was, so no
+occurrence a writer emits is longer or shorter than another (#90).
 
 ### What the descriptor determines, a writer supplies
 
@@ -2693,6 +2983,13 @@ whose alternatives a guard already separates. That is why the rejection above is
 narrower than this heading: what is refused is the record standing beside
 another at one state, and not the record (#80).
 
+A variant does not rescue this, and it is worth saying because it looks like it
+should. It chooses an alternative inside an occurrence, and only once the record
+has been admitted ([A variant is chosen once per
+occurrence](#a-variant-is-chosen-once-per-occurrence)); what is missing here is
+a target for the transition that would admit the record at all, and no arm is
+evaluated until that transition has been taken (#90).
+
 ### A record told apart only by its length
 
 A record told apart from another only by how long it is is **not describable**,
@@ -2915,14 +3212,14 @@ records offer them.
 
 | Section | Implemented by |
 |---|---|
-| [Structure](#structure) | #17, #80 `ir` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89 `ir` |
+| [Structure](#structure) | #17, #80, #90 `ir` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir` |
 | [Physical framing](#physical-framing) | #78, #88, #92 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88 `ir` |
-| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89 `ir`, #51, #52 `gen-go` |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90 `ir` |
+| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | Emitting the IR | #20, #21 `ir` |
