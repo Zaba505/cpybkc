@@ -289,6 +289,13 @@ shape of the problem and not a solution to it: naming a field of a record the
 consumer is no longer looking at names bytes it does not have, and no rule about
 references gives those bytes back.
 
+That reference **MUST NOT** name a field that repeats, or one contained in a
+group that repeats, either (#35, #84). That is the rule [A reference names a
+field, not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one) states for every
+position that names a field, and it is what keeps the multiplication above a
+multiplication.
+
 Where the count does come from an earlier record — a header saying how many
 entries a later record's table holds, which is ordinary in production layouts —
 the automaton binds that field into a register as it admits the header, and the
@@ -309,6 +316,77 @@ that is the whole of the model. A generator emits an addition it performs while
 reading rather than a constant it was handed. A carried offset could not have
 described this without a second, different mechanism for every field following a
 variable group; ordering and width describe it with none.
+
+### A reference names a field, not an occurrence of one
+
+Three positions in this document name a field node and expect a value out of it:
+a [predicate](#discriminator-predicates)'s target, an `OCCURS DEPENDING ON`
+count, and the field a [binding](#the-automaton-remembers-in-registers) reads. A
+field node carries its own repetition and a group carries its own, so each of
+the three could name a target that repeats, or one sitting inside a group that
+repeats. None of the three carries an occurrence number.
+
+So none of them may name one. A reference in any of those three positions
+**MUST NOT** name a field that repeats, or a field contained at any depth in a
+group that repeats, and `resolve` **MUST** reject such a layout, naming the
+record and the field rather than reporting a generic reference error (#35, #36,
+#37). #76 settled this for bindings; it is the same rule in all three places and
+it is stated once here.
+
+The shared reason is that a lone reference against forty entries is a value a
+consumer would have to invent, and two consumers invent differently: the first
+occurrence, the last, or whichever bytes the offset sum happens to land on.
+COBOL's own qualification does not settle it either. `OF`/`IN` names the group
+an item belongs to, and it is a subscript that picks an occurrence out of a
+table — so a reference resolved the way [Names](#names) requires, by identifier
+and never by name, has nothing to take an occurrence from even where the
+copybook had one.
+
+The count has a second reason, and it decides the shape of everything above it.
+A count that could repeat is a count with one value per occurrence of its
+enclosing group, and then the occurrences of that group are not all the same
+width. "The width of one occurrence times that count" stops being arithmetic and
+becomes a walk over each occurrence in turn, carried out by every consumer in
+every language, and the sum that gives every field its position goes with it.
+Forbidding a repeating count is exactly the rule that keeps that identity true:
+a count is either a field occurring once in the record or a register, and a
+register holds one value for the whole of a record's read ([The automaton
+remembers, in registers](#the-automaton-remembers-in-registers)), so a group's
+occurrences are all the same width whatever is nested inside them.
+
+The predicate has a second reason too, and it is that the target may not be
+there at all. A predicate is evaluated before its record is admitted, against
+bytes read as the record its transition would admit ([Where framing is consumed,
+and where it is
+emitted](#where-framing-is-consumed-and-where-it-is-emitted)). A count of zero
+is not malformed — only a count that is negative or that does not decode is ([A
+variable record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term)) — so a target inside
+such a group has no bytes at all, and the sum of the widths ahead of it lands on
+whatever follows the group instead. That is not an invented occurrence but a
+misread of another item's bytes, on a record that is otherwise well-formed, at
+the one moment the consumer has not yet decided what it is looking at.
+
+The reading that was refused is worth naming, because it is a real one. A count
+sitting beside the table it governs, both inside a group that repeats, means
+"the count in this occurrence governs this occurrence" — which is what a
+copybook writing them that way says, and it needs no occurrence number, only the
+occurrence being read. Admitting it costs the same-width identity above, a
+second coordinate on a reference, and an occurrence path threaded through every
+consumer's walk of every record; and it would still leave the predicate case
+unanswered, since a predicate runs where there is no occurrence being read. An
+adopter whose layout is that shape is told so at the record and the field, which
+is the trade every exclusion here makes: a named refusal over a silent
+misreading.
+
+Settled now rather than left open, because it is not cheaper later in either
+direction. Narrowing what a reference may name after the first release is a
+breaking change, and widening it is one too — an occurrence number is an
+addition a consumer must understand in order to stay correct, which [Versioning
+and compatibility](#versioning-and-compatibility) counts as breaking however
+protobuf would classify it. What a repetition's count reference admits is
+therefore two node kinds and no occurrence, and #17 fixes the schema against
+that (#84).
 
 ## Physical framing
 
@@ -748,13 +826,14 @@ two bindings writing one register on a single transition.
 
 Two further restrictions on a binding, each closing a hole that would otherwise
 be a silent wrong answer rather than an error. A binding **MUST NOT** name a
-field that repeats, or one contained in a group that repeats: a binding carries
-no occurrence number, and an unqualified reference to the third of forty entries
-is a value a consumer would have to invent. And a producer **MUST** guard a
-transition taking one off a register so that the register cannot run below zero;
-a consumer reaching one that would **MUST** report it rather than wrapping or
-clamping, since a counter that has gone negative is a `resolve` bug and every
-value read after it is fiction.
+field that repeats, or one contained in a group that repeats — the rule [A
+reference names a field, not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one) states for every
+position naming a field, and argues there (#76, #84). And a producer **MUST**
+guard a transition taking one off a register so that the register cannot run
+below zero; a consumer reaching one that would **MUST** report it rather than
+wrapping or clamping, since a counter that has gone negative is a `resolve` bug
+and every value read after it is fiction.
 
 Bindings apply when the transition is taken, after the record is admitted, and
 each reads the register file as it stood on entry to the state. So the order of
@@ -889,6 +968,16 @@ record, at any depth, and **MUST NOT** name a field of any other (#37). Where
 those bytes are then follows from [Offsets and widths](#offsets-and-widths) —
 the target's position is the sum of the widths ahead of it in that record, and
 its extent is the target's own width.
+
+The target **MUST NOT** repeat, and **MUST NOT** be contained in a group that
+repeats, under the rule [A reference names a field, not an occurrence of
+one](#a-reference-names-a-field-not-an-occurrence-of-one) states for every
+position naming a field (#37, #84). Nothing is given up by that, because a
+discriminator does not sit in a table. Of the strategies lowering into this set,
+the two that name a field both name one in the prefix a record's alternatives
+share — a type code at a fixed offset, and a type code in a header copybook
+every alternative includes — and neither shape repeats; the three that name no
+field at all are #80's question rather than this one's (#28).
 
 A predicate and a guard divide the two things a transition can be selected on,
 and neither reaches into the other's half. A predicate **MUST NOT** name a
@@ -1520,12 +1609,12 @@ have done, and the whole of it stays the same size whether `DTL-COUNT` is a
 | Section | Implemented by |
 |---|---|
 | [Structure](#structure) | #17 `ir` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77 `ir` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #84 `ir` |
 | [Physical framing](#physical-framing) | #78 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77 `ir` |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve` |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #84 `ir` |
 | [Writing a file](#writing-a-file) | #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
