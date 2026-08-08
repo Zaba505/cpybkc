@@ -80,10 +80,12 @@ unnamed is a syntax every implementation reads slightly differently.
 
 > **Ambiguity:** the IBM documentation describes one implementation of record
 > formats, and files written by GnuCOBOL or Micro Focus on Linux do not always
-> match it — line-delimited "RECFM=V" being the common divergence. Where they
-> differ this document does **not** choose a winner; it records the fork as a
-> setting and states who takes which side, which is the policy `codec/SPEC.md`
-> already applies to the encoding axes.
+> match it — line-delimited "RECFM=V" being the common divergence, and whether
+> an item behind an `OCCURS DEPENDING ON` table slides with the table being the
+> one that moves every byte behind it. Where they differ this document does
+> **not** choose a winner; it records the fork as a setting and states who takes
+> which side, which is the policy `codec/SPEC.md` already applies to the
+> encoding axes.
 
 ### Conformance language
 
@@ -133,7 +135,20 @@ Everything else is descriptive.
 ## Record definitions
 
 <!-- #22: binding a record name to a copybook and an 01-level within it.
-     Includes fully-qualified renames (#30). Modelled by #27. -->
+     Includes fully-qualified renames (#30).
+
+     Also the reading a copybook's OCCURS DEPENDING ON is bound under, in the
+     adopter's own spelling — Micro Focus's ODOSLIDE/NOODOSLIDE and GnuCOBOL's
+     odoslide. One statement for the layout rather than one per record, because
+     it is a property of the compiler that wrote the file rather than of any
+     record in it, and no default, because the two readings put every item
+     behind a table in a different place and nothing in the file disagrees with
+     the wrong one. What it resolves to is settled by ir/SPEC.md's An item after
+     a table slides, and the other reading is a fixed table (#87): the sliding
+     side becomes a repetition whose count is a reference, the other side
+     becomes a fixed table of the copybook's declared maximum with the count
+     field left an ordinary field, and a layout naming a record that carries an
+     OCCURS DEPENDING ON without stating which is rejected. Modelled by #27. -->
 
 ## Discrimination
 
