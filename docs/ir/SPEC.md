@@ -53,6 +53,24 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 - **`cobol-go`'s root `SPEC.md`** — normative for COBOL source syntax, and so
   for the form of the original names the IR carries alongside any override.
   <https://github.com/Zaba505/cobol-go/blob/main/SPEC.md>
+- **IBM Enterprise COBOL for z/OS**, *Complex OCCURS DEPENDING ON*, against
+  **Micro Focus's `OCCURS` clause** under `NOODOSLIDE` and **GnuCOBOL's
+  `odoslide` compiler configuration** — normative for the two places a compiler
+  may put an item that follows a variable-length table, which is the one thing
+  this list is meant to disagree about. IBM's layout is unconditional: the
+  location of an item following an `OCCURS DEPENDING ON` item is affected by
+  the value of that clause's object. Micro Focus makes it a directive, and
+  under `NOODOSLIDE` "all group items containing the table are considered as
+  always having the maximum number of occurrences" and "the position of the
+  data items following the table is not changed"; GnuCOBOL carries the same
+  switch as a dialect option, off by default and implied by `-std=ibm`. [An
+  item after a table slides, and the other reading is a fixed
+  table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)
+  is what this document does with the pair, and the Micro Focus sentence is
+  cited because the resolution turns on it rather than on a preference (#87).
+  <https://www.ibm.com/docs/en/cobol-zos/6.3.0?topic=tables-complex-occurs-depending>
+  <https://www.microfocus.com/documentation/reuze/60d/lhpdf40f.htm>
+  <https://superbol.eu/gnucobol/manual/chapter14.html>
 - **z/OS DFSMS record formats** and ***Using Data Sets*** — normative for the
   record and segment descriptor words two of the framings in [Physical
   framing](#physical-framing) name, and so for the bytes a consumer reads and a
@@ -63,11 +81,18 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   <https://www.ibm.com/docs/en/zos/3.1.0?topic=sets-record-formats>
   <https://www.ibm.com/docs/en/zos/3.1.0?topic=guide-using-data-sets>
 
-> **Ambiguity:** these sources do not overlap — protobuf governs the container,
-> cobol-go governs what is inside a record, DFSMS governs the descriptor words
-> around one — so there is no conflict here to resolve. Where the IR appears to
-> disagree with `codec/SPEC.md` about a byte layout, `codec/SPEC.md` wins and
-> the IR has a bug.
+> **Ambiguity:** four of these sources do not overlap — protobuf governs the
+> container, cobol-go governs what is inside a record, DFSMS governs the
+> descriptor words around one — so there is no conflict between them to
+> resolve. Where the IR appears to disagree with `codec/SPEC.md` about a byte
+> layout, `codec/SPEC.md` wins and the IR has a bug.
+>
+> The fifth entry is a pair that exists to disagree, and it is the only one in
+> this list. IBM's Enterprise COBOL and Micro Focus's `NOODOSLIDE` put an item
+> that follows a variable-length table in two different places, and both write
+> files this project reads. Neither wins: the fork is recorded as a setting an
+> adopter states, and it arrives here resolved rather than carried, in the
+> manner the third paragraph below describes for the other one.
 >
 > They do not cover everything between them. `codec/SPEC.md` excludes record
 > formats, descriptor words and line terminators explicitly, as concerning how
@@ -82,6 +107,16 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 > the line-delimited "RECFM=V" that GnuCOBOL and Micro Focus write — arrives
 > here already resolved. A framing is what a consumer does, so a line-delimited
 > file is the **delimited** framing and nothing in the IR is labelled `V`.
+>
+> The second fork those same vendors carry — whether an item after a
+> variable-length table slides — arrives resolved by the same move, and further:
+> not into a member of a set but into node shapes that were already here. A file
+> written under the reading this document does not take has no variable-length
+> table in it at all, so it resolves to a constant repetition and a field, and
+> nothing in the IR is labelled `ODOSLIDE` ([An item after a table slides, and
+> the other reading is a fixed
+> table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table),
+> #87).
 
 ### Conformance language
 
@@ -205,8 +240,11 @@ offset.
 A field's position within its record is the sum of the widths of everything
 ahead of it in the containment order, measured from the first byte of the
 record's data, counting exactly one occurrence of every group that encloses it
-and repeats. The IR **MUST NOT** carry that sum as a field of its own; a
-consumer computes it (#32).
+and repeats. Where something ahead of it repeats, what enters the sum is that
+item's whole extent, which is the count's and is data-dependent with it ([A
+variable record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term)). The IR **MUST NOT**
+carry that sum as a field of its own; a consumer computes it (#32).
 
 The occurrence that sum lands on is the first, and saying so costs nothing
 today: [A reference names a field, not an occurrence of
@@ -455,8 +493,12 @@ descriptor knows how many bytes no item covers and cannot know what was in them.
 ### A variable record is a sum with a variable term
 
 An item that repeats carries its repetition: a constant count, or — for `OCCURS
-DEPENDING ON` — a reference to the count. Its extent is the width of one
-occurrence times that count.
+DEPENDING ON` — a reference to the count, together with the minimum and maximum
+number of occurrences the copybook declared. Its extent is the width of one
+occurrence times that count, and the item behind it begins at the byte after
+the last occurrence that count states ([An item after a table slides, and the
+other reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
 
 That reference **MUST** name either a field node contained in the record being
 read, at any depth, or a register node the automaton has bound. It **MUST NOT**
@@ -487,11 +529,132 @@ negative, as malformed data, and **MUST NOT** read the group as absent instead
 (#35). A count field holding spaces is a real mainframe occurrence, and reading
 it as zero produces a record that parses and is wrong.
 
+A count below the declared minimum or above the declared maximum is malformed
+data too, and a consumer **MUST** report it rather than reading that many
+occurrences (#35, #87). The bounds are carried for that check and for nothing
+else: no other position in this document reads them, and a producer **MUST**
+emit the copybook's own `OCCURS integer-1 TO integer-2` rather than bounds a
+layout would prefer. Without them the check does not exist, because there is
+nothing in a record to make it against — a count that decodes to a plausible
+wrong number is a read that runs past the record's own bytes under **unframed**
+and into whatever the next record holds, which is the one framing that has
+nothing to catch it with ([The extent governs, and framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it)). The bounds are
+data the copybook already states and the only thing in reach that bounds a
+number decoded out of a file.
+
 Where the count is data-dependent, the sum above is data-dependent with it, and
 that is the whole of the model. A generator emits an addition it performs while
 reading rather than a constant it was handed. A carried offset could not have
 described this without a second, different mechanism for every field following a
 variable group; ordering and width describe it with none.
+
+### An item after a table slides, and the other reading is a fixed table
+
+The sum above has a premise no node carries and every consumer acts on: an item
+following a repeating item begins at the byte after the last occurrence the
+count states. The table **slides**, and the items behind it slide with it. There
+is one reading of this, every conforming file has it, and nothing in the IR says
+which reading a file was written under (#87).
+
+That is IBM Enterprise COBOL's layout and it is unconditional there. It is not
+everyone's. Micro Focus makes it the `ODOSLIDE` directive, and under
+`NOODOSLIDE` the items behind a table keep fixed addresses beginning after the
+space allocated for it at its maximum length, with every group containing the
+table considered as always having the maximum number of occurrences. GnuCOBOL
+carries the same switch as a dialect option, off by default and implied by
+`-std=ibm`. [`layout/SPEC.md`](../layout/SPEC.md) names GnuCOBOL and Micro Focus
+among the producers whose files are in scope, so both sides of that fork are
+files an adopter has, and a consumer reading one as the other is wrong at every
+item behind the table — silently, at every record, and under **unframed** with
+nothing in the file to disagree with it. Choosing by omission was what this
+section found and is what it ends.
+
+Neither vendor is excluded all the same, because the other reading is not a
+second arithmetic. Read what `NOODOSLIDE` lays down and there is no
+variable-length table in it: the occurrences are at their maximum, the items
+behind them are at constant offsets, every group containing the table is its
+maximum width and so is the record. Those are the bytes of a *fixed* table
+beside a field saying how many entries the writing program filled — an ordinary
+copybook shape this document has always described, with a constant repetition
+and a field. So the fork is one the layout format records as a setting and
+`resolve` resolves, exactly as it records a RECFM spelling and resolves a
+framing. A layout that names a record carrying an `OCCURS DEPENDING ON` says
+which reading its file was written under, and `resolve` **MUST** reject one that
+does not, naming the record and the table rather than taking either side by
+default (#27, #35). There is nothing to fall back on: the two readings put every
+item behind the table somewhere different, and nothing in the file disagrees
+with the wrong one. A sliding file's table then resolves to a repetition whose
+count is a reference. A non-sliding file's table resolves to a repetition whose
+count is the constant its copybook declared as the maximum, and the count field
+to a field of the record like any other.
+
+Carrying the reading instead was the obvious alternative, and what decides
+against it is not tidiness but that the second arithmetic needs somewhere to put
+bytes and this document has nowhere. Under it the bytes between the last
+occurrence the count states and the end of the table's allocation are bytes no
+item covers, which is slack ([Slack is a node, not a
+rule](#slack-is-a-node-not-a-rule)) — and a slack node carries a width, while
+that run is the maximum less the count, occurrences wide. Carrying the reading
+therefore means a slack node whose width is data-dependent, or a second
+retention channel beside slack's in every consumer in every language, for a run
+of bytes a constant repetition already describes exactly. That cost is the same
+wherever the member is put, so neither placement escapes it: on the file node it
+is one statement a consumer switches a second arithmetic on, and on the
+repetition it is that plus a descriptor no compiler could have produced — one
+file whose tables slide and whose other tables do not, emitted by a producer
+that is wrong in the way this document keeps refusing, with nothing in the file
+to disagree with it.
+
+Three things are given up with the resolution, and none is softened here.
+
+**The count stops being the descriptor's.** On a non-sliding file the count
+field governs no byte, so nothing in the IR points at it: a consumer hands its
+caller the maximum occurrences and the caller reads the count field to learn how
+many the writing program filled. [What the descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies) then has nothing to
+determine — a writer emits the maximum occurrences, and the count field's value
+is its caller's like any other field's. That is the honest description of the
+bytes rather than a concession. A count that moves nothing is an application's
+fact about a fixed table, and a fixed table with a counter beside it is a
+copybook shape this document has always carried without saying anything about
+the counter.
+
+**The copybook's bound stops being checkable.** The requirement above that a
+count outside its declared minimum and maximum is malformed data has nothing
+left to fire on, since the resolved form holds no count reference. The loss is
+real and it is smaller than on the other side of the fork: a count out of bounds
+misplaces every item behind the table under the sliding reading and misplaces
+nothing here, so the file is still read correctly and what the caller has is a
+number its own program has to distrust.
+
+**The unused occurrences are values, not retained bytes.** Occurrences past the
+count hold whatever the writing program left there, and under this resolution
+they are items with widths and encodings rather than bytes a consumer keeps
+([Slack survives a read](#slack-survives-a-read)). A shop whose unused entries
+hold spaces where a PICTURE says packed decimal has entries that do not decode.
+That is not a failure this reading introduces: it is the standing property of
+every fixed table whose program filled three of five hundred entries, and
+describing the non-sliding table any other way would give one run of bytes two
+descriptions.
+
+Two consequences fall out where a reader may go looking for them. A record of a
+non-sliding file has a constant extent, so it meets the requirement a
+fixed-length dataset places on its record types ([Four framings, and none of
+them is a RECFM](#four-framings-and-none-of-them-is-a-recfm)) exactly as a
+record with no table does; whether a *sliding* record may sit on such a dataset
+at all is #92's, and this is why that question is about half the fork rather
+than all of it. And a non-sliding record carries no repetition whose count is a
+reference, so a discriminator **MAY** name a target behind its table, which
+[Discriminator predicates](#discriminator-predicates) forbids only where
+something ahead of the target is variable.
+
+Settled now rather than later, for the reason its neighbours are. Carrying the
+reading afterwards is an addition a consumer must understand in order to stay
+correct, which [Versioning and
+compatibility](#versioning-and-compatibility) counts as breaking however
+protobuf would classify it — and the declared minimum and maximum are fields on
+a repetition, which #17 fixes the schema against in the same change (#87).
 
 ### A reference names a field, not an occurrence of one
 
@@ -548,13 +711,26 @@ different number of padding bytes in each one, a slack node carries a single
 width, and a generator **MUST NOT** implement an alignment rule to make up the
 difference. The record could not be described at all.
 
+Both halves of that argument are made against the reading [An item after a table
+slides, and the other reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)
+fixes, and they need it: "the width of one occurrence times that count" is the
+sliding layout written as arithmetic, and asserting that every occurrence of a
+group is the same width without saying which layout it is the same width under
+is asserting it of one vendor's files and hoping (#87). The other side of the
+fork never reaches this rule, because a non-sliding table resolves to a
+repetition with no reference in it and a count field beside a fixed table is a
+field.
+
 The predicate has a second reason too, and it is that the target may not be
 there at all. A predicate is evaluated before its record is admitted, against
 bytes read as the record its transition would admit ([Where framing is consumed,
 and where it is
 emitted](#where-framing-is-consumed-and-where-it-is-emitted)). A count of zero
-is not malformed — only a count that is negative or that does not decode is ([A
-variable record is a sum with a variable
+is well-formed wherever the copybook's declared minimum admits one, and a count
+those bounds *do* exclude is no help here either, since every check this
+document makes on a count runs against a record already admitted ([A variable
+record is a sum with a variable
 term](#a-variable-record-is-a-sum-with-a-variable-term)) — so a target inside
 such a group has no bytes at all, and the sum of the widths ahead of it lands on
 whatever follows the group instead. That is not an invented occurrence but a
@@ -1725,6 +1901,18 @@ so the occurrences are what has to agree with it. [A writer evaluates a guard,
 it never back-fills a
 count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count) states that.
 
+Either way a writer **MUST** report a caller supplying a number of occurrences
+outside the repetition's declared minimum and maximum, rather than emitting a
+count its own reader is required to call malformed data ([A variable record is a
+sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term)) — the same trade the
+paragraphs above keep making, one diagnostic where the mistake was made against
+a file somebody has to read first (#87). None of this reaches a record of a
+non-sliding file, which carries no count reference for a writer to determine:
+its table is a fixed one and its count field is its caller's like every other
+field ([An item after a table slides, and the other reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
+
 Slack is determined by the record where the record was read, and here where it
 was not. A writer emits the bytes retained for a slack node ([Slack survives a
 read](#slack-survives-a-read)); where a record carries none, because its caller
@@ -2241,7 +2429,7 @@ records offer them.
 | Section | Implemented by |
 |---|---|
 | [Structure](#structure) | #17, #80 `ir` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84 `ir` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87 `ir` |
 | [Physical framing](#physical-framing) | #78 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
