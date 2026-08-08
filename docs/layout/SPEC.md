@@ -118,8 +118,17 @@ Everything else is descriptive.
 
 ## Physical framing
 
-<!-- #22: RECFM F/FB/V/VB/VBS/U, RDW and BDW, LRECL and BLKSIZE, line
-     delimiters, carriage control. Modelled by #26. -->
+<!-- #22: the RECFM spelling an adopter already has — F, FB, V, VB, VBS — with
+     the LRECL and BLKSIZE beside it, which this layer validates against the
+     resolved record widths rather than carries through. What each spelling
+     resolves to is settled by ir/SPEC.md's Physical framing (#78): four
+     framings, a delimiter as literal bytes rather than a named character, and
+     a placement of terminator, separator or optional terminator. Three shapes
+     are rejected there instead of modelled here, and each needs a diagnostic
+     saying which — RECFM=U, a stream still carrying block descriptor words,
+     and a delimited record that stops before its extent. Carriage control is a
+     leading item in the copybook rather than a setting, for the same reason.
+     Modelled by #26. -->
 
 ## Record definitions
 

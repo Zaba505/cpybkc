@@ -24,13 +24,13 @@ the plugin spec, and what the thing *is* belongs here.
 
 In scope: what a resolved file layout contains and what each part of it means —
 field descriptors with their widths, their applied encodings and their place in
-the record's ordering, record structure, compiled discriminators, the compiled
-sequencing automaton and the values it carries forward between records, and
-language-neutral names. Together with the protobuf schema that carries all of
-it, the version field that identifies it, and the compatibility policy that
-governs changing it. And what a consumer does with all of it in both directions:
-the code a generator emits to read a data file, and the code it emits to write
-one.
+the record's ordering, record structure, the physical framing that separates one
+record from the next, compiled discriminators, the compiled sequencing automaton
+and the values it carries forward between records, and language-neutral names.
+Together with the protobuf schema that carries all of it, the version field that
+identifies it, and the compatibility policy that governs changing it. And what a
+consumer does with all of it in both directions: the code a generator emits to
+read a data file, and the code it emits to write one.
 
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
@@ -53,17 +53,35 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 - **`cobol-go`'s root `SPEC.md`** — normative for COBOL source syntax, and so
   for the form of the original names the IR carries alongside any override.
   <https://github.com/Zaba505/cobol-go/blob/main/SPEC.md>
+- **z/OS DFSMS record formats** and ***Using Data Sets*** — normative for the
+  record and segment descriptor words two of the framings in [Physical
+  framing](#physical-framing) name, and so for the bytes a consumer reads and a
+  writer emits around a record in those datasets. This document names the
+  descriptor word and restates none of its layout.
+  [`layout/SPEC.md`](../layout/SPEC.md) cites the same pair for the RECFM
+  spelling an adopter writes; it is cited here for what those bytes are (#78).
+  <https://www.ibm.com/docs/en/zos/3.1.0?topic=sets-record-formats>
+  <https://www.ibm.com/docs/en/zos/3.1.0?topic=guide-using-data-sets>
 
 > **Ambiguity:** these sources do not overlap — protobuf governs the container,
-> cobol-go governs what is inside it — so there is no conflict here to resolve.
-> Where the IR appears to disagree with `codec/SPEC.md` about a byte layout,
-> `codec/SPEC.md` wins and the IR has a bug.
+> cobol-go governs what is inside a record, DFSMS governs the descriptor words
+> around one — so there is no conflict here to resolve. Where the IR appears to
+> disagree with `codec/SPEC.md` about a byte layout, `codec/SPEC.md` wins and
+> the IR has a bug.
 >
 > They do not cover everything between them. `codec/SPEC.md` excludes record
 > formats, descriptor words and line terminators explicitly, as concerning how
 > records are delimited in a file rather than how an item is laid out inside
-> one. Physical framing therefore has no governing source above it, and what
-> the file node carries of it is this document's own (#26, #78).
+> one. DFSMS fills half of what that leaves; the other half has no source
+> anywhere. Nothing says which byte ends a line-delimited record, which is why
+> the file node carries one as bytes rather than as a name ([A delimiter is
+> bytes, not a character](#a-delimiter-is-bytes-not-a-character)), and the rest
+> of [Physical framing](#physical-framing) is this document's own (#26, #78).
+>
+> The fork `layout/SPEC.md` records as a setting — IBM's record formats against
+> the line-delimited "RECFM=V" that GnuCOBOL and Micro Focus write — arrives
+> here already resolved. A framing is what a consumer does, so a line-delimited
+> file is the **delimited** framing and nothing in the IR is labelled `V`.
 
 ### Conformance language
 
@@ -117,7 +135,7 @@ names, field names, field numbers — is #17's.
 
 | Kind | Carries |
 |---|---|
-| **file** | The physical framing of the dataset: the record format, the record length or maximum length, the block size where one applies, and whether records are preceded by a descriptor word or ended by a delimiter. Plus the identifier of the automaton's start state. Exactly one node of this kind exists, and it is the root. |
+| **file** | The dataset's framing, as one member of the closed set in [Physical framing](#physical-framing) together with whatever that member carries. Plus the identifier of the automaton's start state. Exactly one node of this kind exists, and it is the root. |
 | **record** | The identifier of the item that is the record's top level, and the record's names. |
 | **group** | An ordered list of the identifiers of its members, its names, and its repetition. |
 | **field** | An elementary item: its width, its four resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
@@ -253,9 +271,10 @@ rule a generator applies and becomes bytes a generator already has, and the sum
 above is literally true with `SYNCHRONIZED` present. A generator **MUST NOT**
 implement an alignment rule, because there is nothing left for one to do.
 
-Framing bytes are not slack. A record descriptor word belongs to the dataset,
-not to the record's data, and it is described by the file node; positions here
-are measured from the first byte after it.
+Framing bytes are not slack. A descriptor word or a delimiter belongs to the
+dataset rather than to the record's data, and it is described by the file node
+([Physical framing](#physical-framing)); positions here are measured from the
+first byte of the record's data, whatever stands in front of it.
 
 ### A variable record is a sum with a variable term
 
@@ -290,6 +309,296 @@ that is the whole of the model. A generator emits an addition it performs while
 reading rather than a constant it was handed. A carried offset could not have
 described this without a second, different mechanism for every field following a
 variable group; ordering and width describe it with none.
+
+## Physical framing
+
+A record's items say where its bytes sit relative to each other. Nothing above
+says where the record itself sits. Between one record's last byte and the next
+record's first there may be a descriptor word, a delimiter, or nothing at all,
+and a consumer that assumes the wrong one reads every record after the first at
+the wrong offset.
+
+The file node answers that as the dataset's **framing**: one member of the
+closed set below, together with whatever that member carries. Framing bytes
+belong to the dataset and not to any record. No item covers them, they are not
+slack ([Slack is a node, not a rule](#slack-is-a-node-not-a-rule)), and no
+predicate ever sees one.
+
+This is the one part of the IR with no single source above it. `codec/SPEC.md`
+excludes record formats, descriptor words and line terminators by name; DFSMS
+defines the descriptor words and is cited in [Governing
+sources](#governing-sources) for them; and what ends a line-delimited record is
+defined by nobody, which is the first thing this section has to deal with (#26,
+#78).
+
+### Four framings, and none of them is a RECFM
+
+A file node's framing is one member of this closed set, and adding a member is a
+breaking change under [Versioning and
+compatibility](#versioning-and-compatibility). The set is settled here rather
+than grown afterwards, for the reason the node kinds and the guard tests are.
+
+| Framing | Carries | Where one record's bytes are |
+|---|---|---|
+| **unframed** | nothing | its extent, beginning at the byte after the record before it |
+| **descriptor-word** | nothing | its extent, preceded by a record descriptor word |
+| **segmented** | the largest segment a writer may emit | the concatenation of its segments' data, each segment preceded by a segment descriptor word |
+| **delimited** | the delimiter's bytes and its placement | its extent, with the delimiter around it as the placement says |
+
+*Extent* throughout means the sum of the widths of a record's items and slack in
+containment order — the quantity [Offsets and widths](#offsets-and-widths)
+already defines, and the only statement of a record's length this document
+makes.
+
+The members are framings rather than the RECFM letters an adopter writes in
+JCL, because the reader of this document is a generator author who has never
+seen a DD statement and needs to know what to *do*. Several of those letters
+also say the same thing to a consumer, and one of them says nothing it can act
+on at all. A layout file keeps the adopter's spelling, which is
+[`layout/SPEC.md`](../layout/SPEC.md)'s stated policy for exactly the mirror
+reason, and `resolve` maps it (#26):
+
+| A dataset spelled | resolves to |
+|---|---|
+| RECFM F, FB | **unframed** |
+| RECFM V, VB | **descriptor-word** |
+| RECFM VBS | **segmented** |
+| line sequential, and the line-delimited "RECFM=V" of GnuCOBOL and Micro Focus | **delimited** |
+| RECFM U | nothing; the layout is rejected ([Undefined-length records](#undefined-length-records)) |
+
+Blocking is absent from the right-hand column on purpose: a blocked dataset is
+ordinary here, because what blocking is on the mainframe is not what arrives on
+a filesystem. [Block descriptor words in the
+stream](#block-descriptor-words-in-the-stream) is where that is argued.
+
+**unframed** does not require every record type to have the same extent. The
+read below works whether or not they agree, so a rule demanding it would forbid
+only files that read correctly. What a fixed-length dataset *does* require is
+that its record types account for all of LRECL, since the next record starts at
+that fixed distance regardless: a record type whose items stop at 72 bytes of an
+80-byte record carries the remaining 8 as slack, and a layout in which it does
+not describes a file whose reader misaligns after the first record (#26, #34).
+Those 8 bytes are then bytes a writer fills in rather than bytes its caller
+supplies ([What the descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies)), which is a
+consequence worth knowing before it is met: an adopter who wants them to hold
+spaces declares a trailing item and supplies it, rather than leaving them to
+slack. Whether slack should carry more than a width is #82's, and fixed-length
+padding is the shape that makes that question common rather than rare.
+
+### The extent governs, and framing is checked against it
+
+Two things in a framed file say where a record ends: the record's extent, and
+the framing around it. That is one fact stated twice, and everywhere else this
+document has answered a duplicate by carrying it once. Here it cannot — the
+framing bytes are in the file whether the IR mentions them or not — so what is
+settled instead is which of the two a consumer obeys.
+
+The extent governs. A consumer **MUST** take a record's end from its extent, and
+**MUST NOT** determine it by searching the input for a delimiter, or by
+preferring a descriptor word's length to it (#78). A consumer **MUST** then
+check the framing against the extent and report a disagreement as malformed
+data: a descriptor word whose length is not the extent of the record admitted,
+or a delimiter that is not where the extent ends.
+
+Scanning has to be refused by name, because it is the obvious way to write a
+line-oriented reader and it is wrong on precisely the files this project exists
+for. A `PIC S9(3)V99 COMP-3` field holding `+152.50` is the three bytes
+`15 25 0C`. Both `0x15` and `0x25` are line delimiters on some mainframe code
+page, so a reader scanning for one finds it inside the number and cuts the
+record there — emitting a record that is wrong rather than absent, and failing
+three records later, somewhere the corruption did not happen. A reader counting
+the extent never reads those bytes as anything but the number they are.
+
+Nothing is given up by refusing, because a record's extent is always derivable
+by the time a consumer needs it. It is not derivable *before* the record is
+identified — a state offering three transitions offers three extents — which is
+why the order in [Where framing is consumed, and where it is
+emitted](#where-framing-is-consumed-and-where-it-is-emitted) is normative:
+predicates run first, against bytes at offsets within the record they would
+admit, and the extent follows from the transition taken. Even a variable record
+keeps the extent inside the record's own bytes rather than the framing's ([A
+variable record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term)). So the question of
+whether a consumer **MAY** scan where an extent is derivable has nothing on the
+other side of the "where", and the prohibition above is unconditional.
+
+What the framing buys instead is detection, and the four differ sharply in how
+much they give. A descriptor word or a delimiter that is not where the extent
+says makes a wrong width, a mis-selected transition or a corrupt file an error
+at the record it happened on. **unframed** gives none of that: nothing in the
+file disagrees with anything, and a record read at the wrong offset misaligns
+every record after it in silence. That is a property of the dataset rather than
+a choice made here, and it is why checking a fixed-length dataset's own LRECL
+against the widths a copybook implies is worth doing while a layout is still
+being read (#26).
+
+### A delimiter is bytes, not a character
+
+A **delimited** file node carries the delimiter as literal bytes, and its width
+is how many of them there are. It carries no named character, no code point and
+no line-ending style. A producer **MUST NOT** emit a delimiter of no bytes, and
+a consumer **MUST** compare it to the input as bytes and **MUST NOT** interpret
+either side through a charset (#78).
+
+Those bytes are outside the charset axis for the reason slack is outside it: the
+axis is per field ([The encoding profile,
+applied](#the-encoding-profile-applied)), a delimiter is not a field, and the IR
+has no file-level charset for one to inherit from — deliberately, since a record
+whose fields disagree about charset is the ordinary case here. [What the
+descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies) hits the same wall
+from the other side when it fills slack with zero rather than with a space. The
+difference is that slack could take the byte that names nothing, and a delimiter
+cannot: it is the byte the file actually holds.
+
+Naming a character would not have picked one byte even with a charset to resolve
+it against. A mainframe line-delimited file ends its records with `0x15` or with
+`0x25`, and cp037 and cp1047 — both pages `codec/SPEC.md`'s charset axis
+enumerates — disagree about which of those is LF and which is NL. The same file
+transferred to Linux ends them with `0x0A`, and one that has been through
+Windows with `0x0D 0x0A`. A Go author reaching for the obvious default reaches
+for `0x0A`; a mainframe shop reaching for the obvious default reaches for
+`0x15`; neither is wrong about their own files, and a spec naming a character
+would have made one of them wrong about the other's. Bytes are the resolved form
+of that argument, and they are two bytes wide when the file needs two.
+
+A delimiter is not required to be absent from a record's data, and on these
+files it will not be: `0x15` appears inside any packed field holding a value
+like the one above. That costs nothing, because no consumer looks for it.
+
+### Terminator, separator, and the last record
+
+A **delimited** file node carries the delimiter's **placement** beside its
+bytes, one member of a closed set of three:
+
+- **terminator** — a delimiter follows every record, the last included. A file
+  of *n* records carries *n* of them.
+- **separator** — a delimiter stands between two records. A file of *n* records
+  carries *n*−1, and nothing follows the last record.
+- **optional terminator** — a delimiter follows every record, except that the
+  file **MAY** end after the last record without one.
+
+The distinction is what makes the end of a file checkable. Under **separator** a
+trailing delimiter announces a record that is not there, and a consumer **MUST**
+report it rather than reading the file as complete. Under **terminator** a final
+record with nothing behind it is a file that was cut short, and a consumer
+**MUST** report it as truncated. Neither error is available to a consumer that
+decided the question for itself, which is why it is carried.
+
+**optional terminator** is a member because real files need it, not because the
+question was hard. A shop's extract carries the final delimiter on Tuesday and
+not on Wednesday, out of the same program over the same data; forced to choose,
+an adopter picks whichever they saw first and the reader fails on the other day.
+What the member gives up is stated with it: under it a final record whose bytes
+were cut off is indistinguishable from a final record whose delimiter was never
+written, so the truncation the other two catch at the last record is the one
+this member cannot see. An adopter who can promise consistency is paid for
+promising it, in a diagnostic.
+
+It is not the consumer's judgement given back. Under all three members the file
+node states what the file does and a consumer follows it, so two consumers
+handed one descriptor read identically — and a writer under **optional
+terminator** is not lenient at all, for the reason below.
+
+### Where framing is consumed, and where it is emitted
+
+The read loop in [The sequencing automaton](#the-sequencing-automaton) had no
+step that touched framing, and without one a well-formed file fails. A trailing
+delimiter left unconsumed is input, so a consumer is not at end of input, so it
+evaluates the current state's transitions against a delimiter byte, so no
+predicate matches, so it **MUST** report a record the layout does not describe —
+for a file that is exactly right. The step is therefore normative, and so is
+where it sits.
+
+Reading one record, in this order:
+
+1. A consumer **MUST** test for end of input here, at a record boundary, before
+   evaluating any transition. Reaching it is the case [The sequencing
+   automaton](#the-sequencing-automaton) already governs: the file is complete
+   where the state accepts and its acceptance guards hold, and truncated
+   otherwise.
+2. Consume the framing in front of the record — the descriptor word under
+   **descriptor-word**, every segment descriptor of this record under
+   **segmented**, the delimiter in front of every record other than the first
+   under the **separator** placement. Under **segmented** a consumer **MUST**
+   reassemble the segments' data into one run of bytes before going on, so that
+   every rule in this document reads a record that is contiguous whether or not
+   the file split it.
+3. Evaluate the state's transitions as [The sequencing
+   automaton](#the-sequencing-automaton) says — guards, then predicates, in the
+   order the state carries them — against the record's data beginning here.
+   Where the framing has already stated this record's length, a consumer
+   **MUST NOT** evaluate a predicate against bytes beyond it: a predicate whose
+   target lies outside the record the framing bounds does not match, and if no
+   other matches either, this is a record the layout does not describe.
+4. Take the transition and admit the record. Its extent is known now, because
+   which record it is is known now.
+5. Check the framing against that extent, as [The extent governs, and framing is
+   checked against
+   it](#the-extent-governs-and-framing-is-checked-against-it) requires.
+6. Consume the framing behind the record — the delimiter, under the
+   **terminator** and **optional terminator** placements. Under **optional
+   terminator** the input **MAY** be at its end instead, and a consumer **MUST**
+   take that as the file ending rather than as a record cut short.
+7. Apply the transition's bindings and move to the state it names.
+
+Reaching end of input anywhere from step 2 to step 6 — part-way through a
+record's extent, or with a required delimiter unread — is a truncated file, and
+a consumer **MUST** report it as one. End of input is tested at step 1 and
+nowhere else, which is what keeps a well-formed trailing delimiter away from
+both the truncation rule and the no-match rule: by the time the test runs, the
+delimiter has been consumed as the framing it is.
+
+A writer emits the same bytes at the same points of the same walk ([A writer
+walks the same automaton](#a-writer-walks-the-same-automaton)): the descriptor
+word in front of each record, the delimiter behind each record under both
+terminator placements, and the delimiter in front of each record other than the
+first under **separator**. Emitting a separator in front rather than behind is
+not the same rule restated — a writer does not learn which record is the last
+until its caller stops, and one that waited to find out would be holding a
+record it had already been given, which gives up the streaming property #52
+requires.
+
+Two writer rules follow from there being one file per descriptor. Under
+**optional terminator** a writer **MUST** emit the final delimiter rather than
+choosing whether to, because two writers left to decide produce two different
+files from one descriptor and one set of records — the divergence [A writer
+evaluates a predicate, it never inverts
+one](#a-writer-evaluates-a-predicate-it-never-inverts-one) refuses, in the same
+words. And under **segmented** a writer **MUST** emit each record in as few
+segments as the largest segment allows, and **MUST NOT** emit a segment longer
+than that. The largest segment is the one framing fact a writer needs and cannot
+compute, which is why the file node carries it; a reader has no use for it,
+since every segment states its own length.
+
+### Lengths the file node does not carry
+
+Three quantities a reader of the table above might go looking for are absent,
+each for a reason this document has already made somewhere else.
+
+**No record length, and no maximum record length.** Under **unframed** a
+record's length is its extent, which the record nodes state; under the other
+three the framing states it per record. A length on the file node would be that
+fact a second time in the sense [Ordering and width, and no
+offset](#ordering-and-width-and-no-offset) uses, with the additional property
+that a consumer could do nothing with a disagreement — the extent governs, so a
+conflicting length is a value a consumer has to ignore, and a value a consumer
+has to ignore is not worth carrying. Checking a dataset's declared LRECL against
+the widths a copybook implies is real work all the same, and it is `resolve`'s,
+done while a layout is being read and before an IR exists (#26).
+
+**No block size.** The stream the IR describes carries no block descriptor words
+([Block descriptor words in the
+stream](#block-descriptor-words-in-the-stream)), so there is no block for a size
+to describe.
+
+**No descriptor-word width.** **descriptor-word** and **segmented** name the
+descriptor word DFSMS defines, cited in [Governing
+sources](#governing-sources) and not restated; its width comes with the
+definition. A width carried beside it could hold a number describing no format
+anyone has, and a producer emitting one would be describing a framing this
+document does not specify.
 
 ## The encoding profile, applied
 
@@ -359,11 +668,16 @@ The file node names the start state. Each state carries its outgoing
 transitions, in order; each transition names the predicate that selects it, the
 record it admits, the state to move to, and — where the automaton has memory —
 the guards that make it eligible and the bindings it applies. A consumer reads a
-file by evaluating the current state's transitions in the order given, skipping
-any whose guards do not all hold, taking the first of the rest whose predicate
-matches, emitting the record that transition names, applying that transition's
-bindings, and moving to the state it names. Writing one walks the same graph in
-the same order; [Writing a file](#writing-a-file) states the difference.
+file by consuming the framing in front of a record, evaluating the current
+state's transitions in the order given, skipping any whose guards do not all
+hold, taking the first of the rest whose predicate matches, emitting the record
+that transition names, consuming the framing behind it, applying that
+transition's bindings, and moving to the state it names. [Where framing is
+consumed, and where it is
+emitted](#where-framing-is-consumed-and-where-it-is-emitted) states those two
+steps exactly, and states that end of input is tested at a record boundary and
+nowhere else. Writing one walks the same graph in the same order; [Writing a
+file](#writing-a-file) states the difference.
 
 Every transition consumes exactly one record. There is no transition that moves
 without reading, and no way to test something without consuming — which is what
@@ -749,10 +1063,10 @@ and it is there for the same reason: accepting states nobody checks detect
 nothing, and a writer skipping the check emits the truncated file its reader
 complains about one build later.
 
-Framing is the file node's, and a writer emits it — descriptor words, blocking
-and delimiters, as the file node describes them. What those bytes are, and where
-in the walk a writer emits them, is #78's, which settles the same question for
-readers.
+Framing is the file node's, and a writer emits it as part of this walk rather
+than around it. [Where framing is consumed, and where it is
+emitted](#where-framing-is-consumed-and-where-it-is-emitted) says which bytes go
+where in each direction, and the walk above is what those steps are steps of.
 
 ### A writer evaluates a predicate, it never inverts one
 
@@ -829,7 +1143,10 @@ that lands, it cannot land as a predicate a writer evaluates.
 
 The rule above is narrower than *a writer never fills anything in*. A writer
 supplies a value exactly where the descriptor determines one and refuses where
-it determines a set. The IR determines two.
+it determines a set. Inside a record the IR determines two; the framing bytes
+around one are the file node's and are determined there ([Where framing is
+consumed, and where it is
+emitted](#where-framing-is-consumed-and-where-it-is-emitted)).
 
 An `OCCURS DEPENDING ON` count is determined. The repeating item names the field
 holding its count, and that field's value *is* the number of occurrences: a
@@ -943,7 +1260,8 @@ Breaking, and requiring the version to advance:
 - Changing what an existing field means, including narrowing or widening the
   values it may hold.
 - Adding a node kind, or a member to any other closed set — a predicate kind, a
-  guard test, a register's value kind, the value a binding may write. An old
+  guard test, a register's value kind, the value a binding may write, a framing,
+  a delimiter's placement. An old
   consumer sees an unset choice where a new one sees a member,
   and generates code for a file it has silently misread. This is the standing
   cost of the flat node set, and it is why the kinds are enumerated before the
@@ -1027,6 +1345,65 @@ is that its output satisfies this document. Writing the algorithm down as well
 would be a second description of the same requirement, drifting from the code at
 the first optimisation, and no third party builds against it.
 
+### Undefined-length records
+
+A dataset whose records carry no stated length — RECFM=U — has **no framing**
+here, and `resolve` **MUST** reject a layout declaring one, naming the dataset
+rather than reporting a generic framing error (#26).
+
+Reason: a U-format record's extent is not in the file. It came from the physical
+block the access method read, and a byte stream on a filesystem has lost it. A
+framing member for U would describe a file no conforming consumer could read:
+there would be nothing to check an extent against and nothing to say where the
+next record starts, so the first record whose type was guessed wrong would take
+the rest of the file with it in silence. Where every block of such a dataset is
+in fact the same size, the file is a fixed-length one and the layout says so;
+where they are not, the boundaries have to be put back by whatever writes the
+stream.
+
+### Block descriptor words in the stream
+
+A stream whose records are grouped into blocks, each preceded by a block
+descriptor word, is **not describable**, and `resolve` **MUST** reject a layout
+declaring one, saying that the transfer has to deblock (#26). A blocked
+*dataset* is ordinary — RECFM=VB resolves to **descriptor-word** and RECFM=FB
+to **unframed** — because what blocking is on the mainframe is not what arrives.
+
+Reason: the transfer paths that put a mainframe dataset on a filesystem deblock
+it. What arrives from a transfer that preserves record boundaries is a run of
+records with their descriptor words and no block descriptor words at all, and a
+stream that still has them is a dataset image rather than a record stream.
+Admitting them would put a second level of framing into every generated reader
+in every language and a block size onto the file node for a writer to place them
+by, for a file shape almost none of those readers will be handed. That is the
+trade [No epsilon transitions, and what the graph pays
+instead](#no-epsilon-transitions-and-what-the-graph-pays-instead) makes, with
+the cost landing anywhere other than on the consumers, of which there are as
+many as there are languages. Admitting them later costs a version under
+[Versioning and compatibility](#versioning-and-compatibility), and that is the
+price of being wrong about how these files arrive.
+
+### A record shorter than its extent
+
+A **delimited** file whose records stop early — trailing spaces dropped on the
+way out, as GnuCOBOL's and Micro Focus's line-sequential organisations do — is
+**not describable**. A consumer **MUST** report a delimiter found before the
+record's extent as malformed data, and **MUST NOT** accept the short record by
+filling in the bytes it never reached.
+
+Reason: completing a short record means deciding what those bytes hold, and that
+runs into the wall [A delimiter is bytes, not a
+character](#a-delimiter-is-bytes-not-a-character) describes from the other side.
+The answer would be a space, a space belongs to a charset, and charset is per
+field — so a record cut in the middle of a field, or before a packed one, has no
+answer rather than an awkward one. The fork is real and `layout/SPEC.md`'s
+*Ambiguity* note already names it, so this is a deferral and not a denial: it
+costs a version to admit later, because a consumer ignoring a field that says
+the file is written this way reads the file wrong rather than reading it
+incompletely. The diagnostic above is what keeps that bill visible — an adopter
+whose files are this shape is told so at the first record, rather than finding
+out from a field that is short one Tuesday in March.
+
 ### The automaton counts; it does not compute
 
 The register machinery is a counter, not a calculator. There is no addition, no
@@ -1072,6 +1449,11 @@ read is a generator's own business and nothing the automaton needs to carry.
 - **COBOL source syntax and byte-level data representation.** Both are
   `cobol-go`'s, cited above and never restated. The IR names an encoding; what
   the bytes of that encoding are is `codec/SPEC.md`'s answer.
+- **Carriage control.** An ASA or machine control byte at the front of a record
+  is a byte of the record, and an adopter who has one declares it as a leading
+  item like any other — the extent accounts for it, and every rule in [Physical
+  framing](#physical-framing) applies unchanged. A framing member for it would
+  carry nothing a copybook cannot (#26).
 - **A generated writer's API.** Whether records are written one at a time or in
   a batch, what type a stream has, and how a caller signals that there are no
   more records are the generator's (#52). [Writing a file](#writing-a-file)
@@ -1139,6 +1521,7 @@ have done, and the whole of it stays the same size whether `DTL-COUNT` is a
 |---|---|
 | [Structure](#structure) | #17 `ir` |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77 `ir` |
+| [Physical framing](#physical-framing) | #78 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77 `ir` |
