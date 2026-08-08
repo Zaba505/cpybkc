@@ -155,9 +155,13 @@ names, field names, field numbers — is #17's.
   the identifiers and their order inside that promise alongside the contents.
 - An identifier means identity and nothing else. A consumer **MUST NOT** infer
   containment, ordering or position from one.
-- Every reference **MUST** resolve to a node in the same message, of a kind the
-  referring position admits. Most positions admit exactly one; a repetition's
-  count admits a field or a register (#77).
+- Every reference **MUST**, where it is present, resolve to a node in the same
+  message, of a kind the referring position admits. Most positions admit exactly
+  one; a repetition's count admits a field or a register (#77). One position
+  admits no reference at all — a transition's predicate ([A transition may carry
+  no predicate](#a-transition-may-carry-no-predicate)) — and an absent reference
+  **MUST** be distinguishable from every identifier a node may carry, so that a
+  consumer never reads one as the other (#80).
 - A member list **MUST** be in record order — the order in which the members
   occupy bytes. Ordering is data here, not a convention a consumer restores by
   sorting: [Offsets and widths](#offsets-and-widths) makes it the only statement
@@ -1283,20 +1287,30 @@ a record's end its extent, and the extent follows from the transition taken, so
 a predicate testing the length would have to know which record it is in order to
 know the length that decides which record it is.
 
-The framed half is refused for a second reason, and it is the one that would
-still refuse it if those bytes were a predicate's to read. What a descriptor
-word buys is detection: a wrong width, a mis-selected transition or a corrupt
-file becomes an error at the record it happened on, because the descriptor word
-disagrees with the extent of the record admitted. A predicate selecting on that
-length spends exactly that. The transition it selects admits a record whose
-extent is the length that selected it, so the check at step 5 can no longer
-fail — where a content predicate admits an 80-byte record and reports the
-descriptor word that said 133, a length predicate admits the 133-byte record and
-reports nothing. The descriptor word stops being a value a consumer checks the
-extent against and becomes the value the extent is taken from, which is what
-[The extent governs, and framing is checked against
-it](#the-extent-governs-and-framing-is-checked-against-it) refuses in as many
-words. What that costs an adopter is a file shape this document cannot describe,
+The framed half has a second count against it, and it is worth stating exactly
+rather than grandly, because the obvious version of it is not true. What a
+descriptor word buys is detection at the record it happened on: it disagrees
+with the extent of the record admitted, and a wrong width or a mis-selected
+transition is reported there. A predicate selecting on that length does not
+abolish that check, and the claim that it does is wrong twice over — a length
+naming no transition still matches none, so a corrupt descriptor word is
+reported at step 3 instead of step 5, and a record whose extent varies with an
+`OCCURS DEPENDING ON` count can still disagree with the length that selected it.
+What the check loses is the one case where a descriptor word corrupts from one
+described length into another: there the transition selected admits a record
+whose extent *is* the length that selected it, step 5 is a tautology, and the
+read runs on at the wrong offset to be reported some records later, somewhere
+the corruption did not happen — which is the failure [The extent governs, and
+framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it) names when it refuses
+scanning. That section does not refuse a length predicate in as many words. It
+requires the extent to govern the read, and under a length predicate it still
+would; what changes is that the descriptor word acquires a second job upstream
+of the extent, deciding which record it is, and the check that exists to catch a
+descriptor word that is wrong stops being able to catch the wrong that matters
+most.
+
+What refusing costs an adopter is a file shape this document cannot describe,
 and [A record told apart only by its
 length](#a-record-told-apart-only-by-its-length) states it as an exclusion
 rather than leaving it to be found.
@@ -1304,12 +1318,27 @@ rather than leaving it to be found.
 **Where a record sits in the stream is the automaton's shape, not a test.** The
 first record of a file is the one admitted by a transition leaving the start
 state, and a state is already what the automaton knows about position: the start
-state is entered before any record is read, and where a layout says *first*,
-`resolve` compiles one no transition re-enters (#36). Nothing is added to
-express that. A first record that is also distinguishable by content carries an
-ordinary predicate besides, and one that is not carries none, under the
-subsection below. The *last* record is not available on any terms, and [The last
-record of a stream](#the-last-record-of-a-stream) is why.
+state is entered before any record is read. Where a layout names a record as the
+file's first, `resolve` **MUST** compile a start state that no transition
+re-enters, since a state distinguishes position only while it is entered once
+(#36, #80). Nothing is added to express that. A first record that is also
+distinguishable by content carries an ordinary predicate besides, and one that
+is not carries none, under the subsection below.
+
+What position buys is exactly one thing — which state the automaton is in before
+it reads — and that is enough only where the start state offers one transition,
+or where its alternatives carry predicates. It is never enough to *choose*
+between two content-indistinguishable first records, because no transition
+leaving the start state may carry a guard: a guard reads a register, every
+register must be bound on every path before it is read ([The automaton
+remembers, in registers](#the-automaton-remembers-in-registers)), and no binding
+precedes the first record. So an optional header that says nothing about itself
+is refused like any other pair a state cannot separate. The asymmetry with the
+*last* record is real but smaller than it looks, and it is that a writer knows
+which record it is writing first.
+
+The *last* record is not available on any terms, and [The last record of a
+stream](#the-last-record-of-a-stream) is why.
 
 **Selecting no record content at all is the absence of a predicate**, not a
 member of the set that happens to name nothing. That distinction is not
@@ -1360,19 +1389,45 @@ state carries like every other transition, it is not tried last, and it does not
 catch what the others miss, because where two transitions could both apply the
 layout was rejected before a consumer saw it.
 
-The cost is detection, and it lands where the file has none to give. A state
-offering a transition that carries no predicate admits whatever bytes are in
-front of it as the record that transition names, so the undescribed-record
-diagnostic cannot fire there and a file of the wrong records reads as a file of
-records. Framing still checks what it can: under **descriptor-word**,
-**segmented** and **delimited** a record whose extent is not where the framing
-says is still reported at the record it happened on ([The extent governs, and
+The cost is detection, and it lands where the file has none to give. A state at
+which such a transition is eligible admits whatever bytes are in front of it as
+the record that transition names, so the undescribed-record diagnostic cannot
+fire there and a file of the wrong records reads as a file of records. Framing
+still checks what it can: under **descriptor-word**, **segmented** and
+**delimited** a record whose extent is not where the framing says is still
+reported at the record it happened on ([The extent governs, and
 framing is checked against
 it](#the-extent-governs-and-framing-is-checked-against-it)), and under
 **unframed** nothing is. That is a property of a file whose records carry
 nothing saying what they are, and there is nothing here to invent one from: a
 consumer that cannot tell two records apart by content cannot tell a wrong
 record from a right one either.
+
+The loss is not bounded to the record it happens on, and saying so is worth a
+sentence because the arithmetic hides it. Such a transition **MAY** also carry a
+binding, so a record admitted in error can write a register, and a register
+decides how many records follow it and whether the state accepts. A group two
+records short can therefore be absorbed by reading the next group's header as a
+detail, leaving the counter at zero at end of input and the file reported
+complete — a wrong answer no rule in this document fires on. So a producer
+**SHOULD** carry a predicate on a transition whose record offers a target a
+predicate may name, even where guards alone would select it: a predicate the
+automaton does not need in order to choose is the only detection such a state
+has (#80). The permission above is for the file that has nothing to test, not
+for the descriptor that would rather not test it.
+
+One thing a transition carrying no predicate does not relax is that it consumes
+bytes. A producer **MUST NOT** emit a transition admitting a record whose extent
+is zero, and `resolve` **MUST** reject a layout producing one, naming the
+record. Nothing else forbids an empty group, and before this section a
+predicate's target had to be a field contained in the record its transition
+admits — so every admitted record held at least one field of non-zero width, and
+the requirement is stated here because that is what stopped being true. A
+zero-extent record on a transition that matches everything is a reader that
+emits records forever without advancing its read position, which is the
+unterminating walk [No epsilon
+transitions](#no-epsilon-transitions-and-what-the-graph-pays-instead) refused at
+the front door (#80).
 
 A writer needs no rule of its own. It narrows to the transitions admitting the
 record it was asked to write whose guards hold, and one carrying no predicate
@@ -1438,15 +1493,24 @@ something is wrong with them.
 Where no transition matches, the input is a record the layout does not describe.
 A consumer **MUST** report that rather than skipping ahead to a transition that
 matches later or falling through to a default. There is no default, and a file
-containing an undescribed record is a file the layout is wrong about. A state
-offering a transition that carries no predicate never reaches this, since that
-transition matches whatever is in front of it; what is given up along with the
-diagnostic is stated where that transition is.
+containing an undescribed record is a file the layout is wrong about. A state at
+which a transition carrying no predicate is *eligible* never reaches this, since
+that transition matches whatever is in front of it; what is given up along with
+the diagnostic is stated where that transition is. A state that merely offers
+one reaches it whenever that transition's guards exclude it, which is the case
+the paragraph below is about.
 
-Where a transition's predicate *would* have matched — or where it carries none,
-and so would have matched anything — and its guards excluded it, a consumer
-**SHOULD** report that instead, naming the register the guard tested.
-The two failures send an adopter to different places: an undescribed record
+Where a transition's predicate *would* have matched and its guards excluded it,
+a consumer **SHOULD** report that instead, naming the register the guard tested.
+A transition carrying no predicate is not one of those, and a consumer
+**MUST NOT** report a guard on the strength of one. It would have matched
+anything, so it says nothing about the bytes in hand — reporting it would
+displace the
+undescribed-record diagnostic exactly where that diagnostic is right: a state
+offering a guard-excluded transition that carries no predicate, beside an
+eligible one whose predicate genuinely failed, has a record the layout does not
+describe and a counter that is doing its job (#80). The two failures send an
+adopter to different places: an undescribed record
 means the layout is missing a record type, while a detail arriving after its
 counter reached zero means the file and its own header disagree about how many
 there are. Both are reported and neither is skipped; only the wording differs,
@@ -1513,8 +1577,8 @@ evaluate their predicates in the order the state carries them, and **MUST** take
 the first that carries no predicate or whose predicate matches the bytes it is
 about to emit. Evaluation order is normative here for the reason it is normative
 for reading: two writers handed the same records do the same work in the same
-order. Guards come first
-here as they come first there, and why they behave identically in both
+order. Guards come first here as they come first there, and why they behave
+identically in both
 directions is [A writer evaluates a guard, it never back-fills a
 count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count)'s.
 
@@ -1936,18 +2000,19 @@ discriminators overlap.
 A record every field of which is contained in a group that repeats — a record
 whose whole body is one table — **cannot be discriminated**, and `resolve`
 **MUST** reject a layout in which such a record has to be told apart from
-another record eligible at the same state, naming the record and saying that it
-offers no target a predicate may name (#37, #84, #80).
+another record admitted by a transition whose guards can hold at the same time,
+naming the record and saying that it offers no target a predicate may name
+(#37, #84, #80).
 
-Reason: a transition competing with another has to be selected by a predicate, a
-predicate names a field contained in the record it admits, and [A reference
-names a field, not an occurrence of
+Reason: two transitions that can be eligible at once have to be told apart by a
+predicate, a predicate names a field contained in the record it admits, and [A
+reference names a field, not an occurrence of
 one](#a-reference-names-a-field-not-an-occurrence-of-one) forbids a target
 inside a repeating group. Where the record has no field outside one, those three
 leave nothing to select it with. The rule is not softened for this case, because
-the reason it exists does not weaken: the first entry of a table
-is exactly where a discriminator looks right and reads a value belonging to the
-data rather than to the record's identity. What the adopter does instead is
+the reason it exists does not weaken: the first entry of a table is exactly
+where a discriminator looks right and reads a value belonging to the data rather
+than to the record's identity. What the adopter does instead is
 declare the discriminating bytes as a leading item outside the table, which is
 what [Also out of scope](#also-out-of-scope) already says for a carriage-control
 byte and for the same reason. Where the copybook genuinely cannot be changed,
@@ -1960,26 +2025,57 @@ another at one state, and not the record (#80).
 
 ### A record told apart only by its length
 
-Two transitions leaving one state whose records differ in extent and in nothing
-a field can test are **not distinguishable**, and `resolve` **MUST** reject such
-a layout, naming both records and saying that neither offers a field a predicate
-may name (#28, #37, #80).
+A record told apart from another only by how long it is is **not describable**,
+and `resolve` **MUST** reject a layout whose discriminator for a pair of
+transitions is the records' length, naming both records and saying that
+a predicate tests a field's bytes and a record's length is not one (#28, #37,
+#80).
+
+The rejection is keyed on what the layout asks for, because that is the only
+thing `resolve` can test. Whether two records are *in fact* told apart by some
+field is a property of the adopter's data, not of the copybook and the layout in
+front of it — two records with a byte in common at a constant offset always
+offer a field a predicate may name, and whether its value ever differs is
+answered by the dataset. So a rule keyed on "nothing a field can test" would
+have an antecedent `resolve` could never establish and a diagnostic that was
+false whenever it fired, telling an adopter their records offer no nameable
+field while the copybook in their other window shows several.
+
+Nothing is lost by keying it that way, because a layout that reaches this shape
+without asking for it is already refused: two transitions eligible at one state
+and selected by nothing are two transitions carrying no predicate, which overlap
+and which `resolve` rejects under [When two match, and when none
+does](#when-two-match-and-when-none-does). This entry exists for the wording,
+not for the rejection.
 
 Reason: [A predicate always names a
 field](#a-predicate-always-names-a-field) refuses a length test from both sides
 at once — under **unframed** and **delimited** there is no length in hand to
 test, and under **descriptor-word** and **segmented** the length is a framing
-byte's value, which no predicate sees and which selecting on would spend the
-detection the descriptor word exists to buy. That leaves the pair describable
-only where the records differ somewhere a field reaches, which is the ordinary
-case: a type code, a header copybook every alternative includes, or a field
-whose value differs between them. A field the longer record has and the shorter
-one does not is reachable too under framed formats, since the read loop makes a
-predicate whose target lies outside the record the framing bounds not match —
-but it settles only the longer record's transition, and the shorter one still
-needs a predicate of its own. There is no arm that catches what the others
-missed, for the reason [A transition may carry no
+byte's value, which no predicate sees. That leaves the pair describable only
+where the records differ somewhere a field reaches, which is the ordinary case:
+a type code, a header copybook every alternative includes, or a field whose
+value differs between them. Nothing weaker than that third one will do, and the
+near-miss is worth naming because it looks like it should work: under
+**descriptor-word** and **segmented** a predicate naming a field the longer
+record has and the shorter one does not is not matched by a short record, since
+the read loop makes a predicate whose target lies outside the record the framing
+bounds not match. But it settles only the longer record's transition. The
+shorter one still needs a predicate of its own, and unless that predicate is
+unsatisfiable by any input the longer transition admits, the two overlap on a
+long record and `resolve` rejects the pair anyway. Being unsatisfiable there is
+being a field whose value differs, which is where the sentence started. And
+there is no arm that catches what the others missed, for the reason [A
+transition may carry no
 predicate](#a-transition-may-carry-no-predicate) gives.
+
+Two transitions whose guards cannot hold at the same time are outside all of
+this, as they are outside the overlap rule. A state offering one transition
+guarded on a counter that admits an 80-byte record and another guarded on the
+counter's exhaustion that admits a 133-byte one is not telling them apart by
+length; it is telling them apart by the register, and [A transition may carry no
+predicate](#a-transition-may-carry-no-predicate) admits it whatever the two
+extents are.
 
 Admitting the shape later means a member of a closed set that reads a framing
 byte, which costs a version under [Versioning and
@@ -2000,12 +2096,21 @@ one](#a-writer-evaluates-a-predicate-it-never-inverts-one) already names the
 failure. A reader knows a record is the last one when the input ends; a writer
 does not know until its caller says there are no more, which is after that
 record has been written, and buffering until then gives up the streaming
-property #52 requires. Nor is it only a writer's problem. A reader deciding it
-would have to admit the record before testing for input, and end of input is
-tested at a record boundary and nowhere else ([Where framing is consumed, and
-where it is emitted](#where-framing-is-consumed-and-where-it-is-emitted)) — a
-consumer testing it in the middle of choosing a transition would be choosing for
-one record while looking at the next.
+property #52 requires. The reader is not the reason, and the tempting version of
+the argument — that a reader could not do it either — is only sometimes true. It
+holds where the candidates differ in extent, since a reader would have to know
+which record it is in order to know where to look for the end of the input; but
+where they are the same length, "does the input end after this record" is a
+question about bytes the reader can already locate, and it could answer it. What
+it could not do is agree with a writer, and [Writing a file](#writing-a-file)
+requires that a file written against a descriptor and a file read against one be
+the same file.
+
+What is refused is the distinction, not the file. A run of details ending in a
+detail-shaped trailer is describable as a run of one record type, and reads and
+writes back byte for byte; what the adopter gives up is a name for the last
+record and the structural check that name would have bought. The refusal is
+therefore the same narrowing its neighbours carry, and for the same reason.
 
 What an adopter usually has instead is a trailer that says it is one, which is
 an ordinary predicate, or a count in a header, which is a register and a guard
@@ -2013,9 +2118,16 @@ an ordinary predicate, or a count in a header, which is a register and a guard
 registers](#the-automaton-remembers-in-registers)): a state whose counter has
 reached zero admits the trailer and nothing else, and the file being over is
 caught by guarded acceptance rather than by a test on the trailer's position.
-Only a record that is last by nothing but arriving last is refused, and the
-first record is not refused at all — it is the start state, under [A predicate
-always names a field](#a-predicate-always-names-a-field).
+Neither is available to a file with no header and no distinguishable trailer,
+and that adopter's answer is the paragraph above — the trailer is a record like
+the others, and which one it was is the application's, the way a trailer's count
+is already ([A value the automaton has not read
+yet](#a-value-the-automaton-has-not-read-yet)).
+
+The first record is treated differently, and not arbitrarily: a writer knows
+which record is first, so the asymmetry is the writer's knowledge and not a
+preference. It is narrower than it looks all the same, and [A predicate always
+names a field](#a-predicate-always-names-a-field) states its limit.
 
 ### A value the automaton has not read yet
 
@@ -2102,6 +2214,27 @@ No transition here is an epsilon, and none is a special case. Every one consumes
 exactly one record, the guards on the third do what a chain of epsilons would
 have done, and the whole of it stays the same size whether `DTL-COUNT` is a
 `PIC 9(2)` or a `PIC 9(9)`.
+
+**The same file with no type codes.** Every transition above is selected by one,
+which makes this a poor example of the shape [A transition may carry no
+predicate](#a-transition-may-carry-no-predicate) admits. Take the same file with
+the type code deleted — header and detail the same length, and nothing in either
+saying which it is. `start` keeps its single transition and drops its predicate.
+`group` keeps all three and drops all three predicates, and stays legal, because
+`count` greater than zero, `count` equal to zero with `flag` equal to `Y`, and
+`count` equal to zero with `flag` one of `N` or a space cannot hold in pairs:
+the guards alone select, which is what [When two match, and when none
+does](#when-two-match-and-when-none-does) permits.
+
+What that costs is the third and fourth detections in the list above. A sixth
+detail where the header said five is admitted as the summary or as the next
+header, whichever the flag selects, and nothing is reported — the record and the
+one the layout expected are the same bytes to a consumer with nothing to test.
+The first two survive, because they are end-of-input tests against the
+acceptance guards rather than tests on a record. This is [A transition may carry
+no predicate](#a-transition-may-carry-no-predicate)'s cost paragraph in one
+worked file, and it is why a producer **SHOULD** keep the predicates where the
+records offer them.
 
 ## Appendix: Mapping to Stories
 
