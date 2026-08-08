@@ -952,9 +952,9 @@ automaton has memory — the guards that make it eligible and the bindings it
 applies. A consumer reads a file by consuming the framing in front of a record,
 evaluating the current state's transitions in the order given, skipping any
 whose guards do not all hold, taking the first of the rest that carries no
-predicate or whose predicate matches, emitting the record
-that transition names, consuming the framing behind it, applying that
-transition's bindings, and moving to the state it names. [Where framing is
+predicate or whose predicate matches, emitting the record that transition names,
+consuming the framing behind it, applying that transition's bindings, and moving
+to the state it names. [Where framing is
 consumed, and where it is
 emitted](#where-framing-is-consumed-and-where-it-is-emitted) states those two
 steps exactly, and states that end of input is tested at a record boundary and
@@ -1511,9 +1511,9 @@ A writer **MUST** consider only the transitions leaving the current state that
 admit the record it was asked to write and whose guards all hold, **MUST**
 evaluate their predicates in the order the state carries them, and **MUST** take
 the first that carries no predicate or whose predicate matches the bytes it is
-about to emit. Evaluation
-order is normative here for the reason it is normative for reading: two writers
-handed the same records do the same work in the same order. Guards come first
+about to emit. Evaluation order is normative here for the reason it is normative
+for reading: two writers handed the same records do the same work in the same
+order. Guards come first
 here as they come first there, and why they behave identically in both
 directions is [A writer evaluates a guard, it never back-fills a
 count](#a-writer-evaluates-a-guard-it-never-back-fills-a-count)'s.
@@ -1944,8 +1944,8 @@ predicate names a field contained in the record it admits, and [A reference
 names a field, not an occurrence of
 one](#a-reference-names-a-field-not-an-occurrence-of-one) forbids a target
 inside a repeating group. Where the record has no field outside one, those three
-leave nothing to select it with. The rule is not softened for this
-case, because the reason it exists does not weaken: the first entry of a table
+leave nothing to select it with. The rule is not softened for this case, because
+the reason it exists does not weaken: the first entry of a table
 is exactly where a discriminator looks right and reads a value belonging to the
 data rather than to the record's identity. What the adopter does instead is
 declare the discriminating bytes as a leading item outside the table, which is
