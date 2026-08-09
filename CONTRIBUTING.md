@@ -15,7 +15,7 @@ dagger call ci
 
 That is the same call CI makes, with no arguments on either side. It runs the
 four Go stages in parallel and reports every failure, not just the first, and it
-runs the schema lint alongside them.
+runs the schema lint and the IR module's own stages alongside them.
 
 ### Running one stage
 
@@ -28,6 +28,7 @@ dagger call vet         # go vet ./...
 dagger call lint        # golangci-lint over ./... against .golangci.yml
 dagger call test        # go test -race ./...
 dagger call proto-lint  # buf lint over proto/ against buf.yaml
+dagger call ir-ci       # the whole standard again, over the irpb/ module
 ```
 
 The first four are not a second definition of the pipeline. Each drives the same
@@ -37,8 +38,11 @@ is the one `ci` calls directly rather than through the standard, because the
 standard has no protobuf stage to wrap; see [Linting the IR
 schema](#linting-the-ir-schema).
 
-`dagger check` runs all six as a checklist, if you would rather see them together
-than pick one.
+`ir-ci` is not a stage but the whole standard a second time, over the second Go
+module; see [The IR module](#the-ir-module) for why there is one.
+
+`dagger check` runs all seven as a checklist, if you would rather see them
+together than pick one.
 
 ### Getting the tools
 
@@ -145,6 +149,68 @@ and why that rule is stricter than what protobuf calls wire-compatible — and
 [`docs/ir/SPEC.md`](docs/ir/SPEC.md) is normative for what every node means. A
 new node kind, or a new member of any closed set in the file, advances the
 version even though `buf` will not say so.
+
+## The IR module
+
+The Go form of the resolved IR is [`irpb/`](irpb/), and it is a **separate Go
+module** — `github.com/Zaba505/cpybkc/irpb` — not a package of this one. Its
+package comment carries the argument; the short version is that a generator
+plugin importing the IR should take on the protobuf runtime and nothing the CLI
+happens to need, and only a module boundary delivers that.
+
+Three consequences a contributor meets:
+
+- **`irpb/go.mod` requires exactly one module.** `irpb/module_test.go` fails the
+  build if a second appears, including a test-only one — a test dependency lands
+  in a plugin author's module graph like any other, which is also why that test
+  parses `go.mod` by hand instead of using `golang.org/x/mod`.
+- **`go test ./...` from the repository root does not reach it.** That is Go's
+  rule about nested modules, not a configuration, and it is why the pipeline
+  invokes the standard a second time as `dagger call ir-ci`. A change to `irpb/`
+  is checked by `dagger call ci` like everything else, but through that call.
+- **The root `go.mod` requires it with a `replace`.** A module cannot be required
+  at a version nobody has published yet, and the first `irpb/v0.1.0` can only tag
+  a commit that already contains `irpb/`. The line comes out with that tag; the
+  comment beside it says what breaks if it does not.
+
+### Regenerating the stubs
+
+`irpb/ir.pb.go` is generated from `proto/cpybkc/ir/v1/ir.proto` and **committed**,
+for the reasons `.dagger/`'s codegen is: the module has to build from a checkout
+alone, and a published module whose sources appear only after somebody runs a
+generator is not a module anyone can `go get`.
+
+```sh
+dagger call proto-gen export --path=irpb
+```
+
+[`buf.gen.yaml`](buf.gen.yaml) decides what that writes — it pins the
+`protoc-gen-go` release, and `irpb/go.mod` requires the matching
+`google.golang.org/protobuf`, so the two move in one change. `dagger call
+proto-gen` and a contributor's own `buf generate` read that same file and produce
+the same tree.
+
+A pull request whose `ir.proto` moved without `irpb/ir.pb.go` moving with it is
+the protobuf half of the rule [After changing the
+module](#after-changing-the-module) already states about `.dagger/`. Nothing in
+`ci` regenerates to check it: a stage that rewrites the tree it is checking is a
+pipeline with an opinion about your working directory, and this is what review is
+for.
+
+### Releasing it
+
+The IR module's tags are `irpb/vX.Y.Z` — Go's own rule for a module in a
+subdirectory, not a convention chosen here. They move independently of the CLI's
+`vX.Y.Z`, which is the point: a documentation fix in `irpb/` is a release of the
+IR module and of nothing else, and a CLI release is not a new IR for anyone to
+re-vendor. `.github/workflows/ci.yaml` matches both patterns.
+
+Neither tag is the IR's own version. That is `Descriptor.version`, specified by
+[`docs/ir/SPEC.md`](docs/ir/SPEC.md), and one IR version outlives many module
+tags. If the schema ever breaks its wire format and becomes package
+`cpybkc.ir.v2`, the Go module becomes `github.com/Zaba505/cpybkc/irpb/v2` under
+Go's major-version rule, and the two version suffixes agree without either being
+kept in step by hand.
 
 ## Specs
 

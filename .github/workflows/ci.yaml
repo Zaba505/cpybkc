@@ -11,8 +11,16 @@ on:
     # job. Today the answer is always no — the module builds a library, so there
     # is nothing to publish yet — and that is a fact about which archetype
     # .dagger/main.go calls rather than about this file.
+    #
+    # Two patterns because this repository publishes two modules. The CLI's
+    # releases are vX.Y.Z; the IR module's are irpb/vX.Y.Z, which is not a prefix
+    # anybody chose — it is Go's own rule for tagging a module in a subdirectory,
+    # and it is what makes the IR module's version independent of the CLI's. A
+    # list matching only "v*" would run the pipeline on one repository's releases
+    # and silently skip the other's.
     tags:
       - "v*"
+      - "irpb/v*"
 
 # A pull request only needs an answer about its newest commit. Superseded runs
 # are cancelled so the queue reflects what is actually up for review. Pushes to

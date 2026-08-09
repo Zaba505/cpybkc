@@ -18,6 +18,10 @@ specified rather than merely implemented:
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md) defines the conformance language all
 four use, and what else they have in common.
 
+A generator plugin written in Go imports the resolved IR from
+[`irpb`](irpb/) — `github.com/Zaba505/cpybkc/irpb`, a module of its own, so that
+building against the contract costs the protobuf runtime and nothing else.
+
 ## Contributing
 
 `dagger call ci` runs fmt, vet, lint and `go test -race` — the same call CI
