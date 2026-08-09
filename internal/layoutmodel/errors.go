@@ -991,6 +991,157 @@ func (e *ArmOverlapError) Error() string {
 	)
 }
 
+// SequenceCountError is a layout that does not carry exactly one `sequence`
+// form.
+//
+// docs/layout/SPEC.md requires exactly one, and it is the whole of what the
+// layout says about the order records may appear in. A layout carrying none says
+// nothing about that order, and one carrying two leaves the order they were
+// written in deciding which orders the file admits.
+type SequenceCountError struct {
+	// Pos is the second `sequence` form where there is one, and the start of the
+	// file where there is none.
+	Pos layout.Pos
+
+	// Count is how many the layout carries.
+	Count int
+}
+
+// Error implements the error interface.
+func (e *SequenceCountError) Error() string {
+	return fmt.Sprintf("%s: a layout carries exactly one sequence form, and this one carries %d", e.Pos, e.Count)
+}
+
+// SequenceFormError is a `sequence` that does not carry exactly one expression.
+//
+// `(sequence)` states no order at all, and `(sequence HEADER TRAILER)` is two
+// expressions where one belongs — which is `seq`, spelled by leaving it out.
+type SequenceFormError struct {
+	// Pos is the form.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *SequenceFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a sequence is written (sequence <expression>), one expression, and this one has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// ExpressionError is something written where a sequencing expression belongs
+// that is neither a record name nor one of the seven operators.
+//
+// The message names the operators and not the record name, because a position
+// naming a record is the one shape nobody gets wrong by reaching for a form that
+// does not exist: every one of these is a layout that wrote `(one-of …)`, `(*)`
+// spelled `(star …)`, or a literal where a term belongs.
+type ExpressionError struct {
+	// Pos is what was written, or the tag of the form that was.
+	Pos layout.Pos
+
+	// Found names it.
+	Found string
+
+	// Admits is the set of operators, named in the message so that a misspelled
+	// one is one search away from the spelling that works.
+	Admits []string
+}
+
+// Error implements the error interface.
+func (e *ExpressionError) Error() string {
+	return fmt.Sprintf(
+		"%s: a sequencing expression is a record name or one of %s, and this is %s",
+		e.Pos, and(e.Admits), e.Found,
+	)
+}
+
+// ExpressionFormError is an operator that does not carry what it takes.
+//
+// `(seq HEADER)` is a concatenation of one, which is the subexpression itself;
+// `(* A B)` is two subexpressions under an operator that repeats one, which is
+// `(* (seq A B))` or `(seq (* A) B)` and not something to guess between; and a
+// `times` or a `when` missing its reference is an operator that reads a value
+// out of nothing.
+type ExpressionFormError struct {
+	// Pos is the form.
+	Pos layout.Pos
+
+	// Kind is the operator it states.
+	Kind ExpressionKind
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ExpressionFormError) Error() string {
+	return fmt.Sprintf("%s: form %s takes %s, and this one has %s", e.Pos, quote(string(e.Kind)), expressionTakes(e.Kind), e.Found)
+}
+
+// expressionTakes names what an operator carries, for the message above.
+func expressionTakes(kind ExpressionKind) string {
+	switch kind {
+	case Seq, Alt:
+		return "two or more subexpressions"
+	case Times:
+		return "one subexpression and the item counting it"
+	case When:
+		return "an item reference, a value and one subexpression"
+	default:
+		return "one subexpression"
+	}
+}
+
+// MatchFormError is a `(one-of …)` in a `when` that names no literal.
+//
+// A `when` selecting on nothing at all admits its subexpression under no value
+// and refuses it under every one, which is the subexpression left out.
+type MatchFormError struct {
+	// Pos is the form.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *MatchFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a when tests a value against a literal or (one-of <literal> ...), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// UnsequencedRecordError is a `record` the sequencing expression never names.
+//
+// docs/layout/SPEC.md requires every record to appear in the expression, and
+// gives the reason this message repeats: a record type nothing can ever admit is
+// one a file reader will never produce, and saying so is cheaper than leaving an
+// adopter to find that out. It is [MissingDiscriminatorError]'s counterpart in
+// this layer — the completeness rule counting one form against another, from the
+// other end.
+type UnsequencedRecordError struct {
+	// Pos is the `record` form, which is the record an adopter has to sequence.
+	// A record missing from an expression has no position inside it.
+	Pos layout.Pos
+
+	// Record is its name.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *UnsequencedRecordError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s appears nowhere in the sequencing expression, and a record type nothing can ever "+
+			"admit is one nothing will ever produce",
+		e.Pos, quote(e.Record),
+	)
+}
+
 // axisNames is the four axes as a layout spells them, for a message that has to
 // list them.
 func axisNames() []string {

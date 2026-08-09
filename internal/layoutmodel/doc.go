@@ -16,14 +16,26 @@
 //
 // Each layer of the format gets a reader here, and a type for what the layer
 // says. [ReadProfile] is the encoding profile (#25), [ReadFraming] is the
-// physical framing (#26) and [ReadDiscrimination] is discrimination (#28);
-// record definitions and sequencing arrive beside them (#27, #29, #30). What
-// they have in common is that a value handed back is one the format admits: a
-// [Profile] carries four stated axes because a profile stating three is an error
-// and not a value with a hole in it, a [Framing] resolves to one of the IR's
-// four framings because the one record format that resolves to none is rejected
-// while the layout is read, and every `record` in a [Discrimination] carries
-// exactly one strategy out of a closed set.
+// physical framing (#26), [ReadDiscrimination] is discrimination (#28) and
+// [ReadSequence] is sequencing (#29); record definitions arrive beside them
+// (#27, #30). What they have in common is that a value handed back is one the
+// format admits: a [Profile] carries four stated axes because a profile stating
+// three is an error and not a value with a hole in it, a [Framing] resolves to
+// one of the IR's four framings because the one record format that resolves to
+// none is rejected while the layout is read, every `record` in a
+// [Discrimination] carries exactly one strategy out of a closed set, and every
+// node of a [Sequence]'s expression is one of the eight terms the algebra is
+// made of, carrying what that term takes.
+//
+// # The one layer that prints as well as reads
+//
+// Sequencing is the only layer whose value is a term rather than a record of
+// settings, and [Expression.String] renders one back into the notation a layout
+// writes it in. It exists because a term is the one thing here that a diagnostic
+// has to quote a *part* of — the subexpression a rule was broken under, not the
+// form it was written in — and because printing then reading yields the same
+// expression, which is a property the reader can be tested against and the other
+// layers have no shape to state.
 //
 // # Why the model is not the AST
 //
