@@ -177,6 +177,41 @@ func TestListAccumulatesRatherThanFailingFast(t *testing.T) {
 	}
 }
 
+// TestListDropsAFaultThatIsNotOne keeps [List.Failed] and [List.Err] answering
+// the same question.
+//
+// [errors.Join] discards nils, so a recorded nil would leave a list reporting a
+// fault it cannot produce — and a reader asking Failed would then reject a
+// layout while handing its caller no reason for it.
+func TestListDropsAFaultThatIsNotOne(t *testing.T) {
+	t.Parallel()
+
+	var list List
+
+	list.Fail(nil)
+
+	if list.Failed() {
+		t.Error("a list holding one nil reports a fault")
+	}
+
+	if err := list.Err(); err != nil {
+		t.Errorf("a list holding one nil yields %v, want nil", err)
+	}
+
+	real := &MissingCopybookError{Path: "cpy/order.cpy"}
+
+	list.Fail(real)
+	list.Fail(nil)
+
+	if !list.Failed() {
+		t.Error("a list with a fault in it reports none")
+	}
+
+	if err := list.Err(); !errors.Is(err, error(real)) {
+		t.Errorf("the fault reported is %v, want the one recorded", err)
+	}
+}
+
 // TestDiagnosticsWalksEveryFaultAJoinCarries is why the walk is written out
 // rather than left to [errors.As]: As finds the first diagnostic in a tree, and
 // a caller printing faults wants all of them, in the order they were reported.

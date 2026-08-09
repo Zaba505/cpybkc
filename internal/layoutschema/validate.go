@@ -46,8 +46,8 @@ func (d Diagnostic) String() string {
 	return diag.Diagnostic{Message: d.Message, Spans: []diag.Span{d.Span}}.String()
 }
 
-// Validate parses a layout from r and checks it against the schema, under the
-// name name.
+// Validate parses a layout from r under the name name and checks it against the
+// schema.
 //
 // The name is what every diagnostic carries — a path, or something else naming
 // the source — for the same reason

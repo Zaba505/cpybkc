@@ -154,7 +154,16 @@ type List struct {
 
 // Fail records a fault. Reading continues after one, because the point of
 // collecting them is to report the second.
+//
+// A nil fault is not one, and is dropped rather than recorded: [errors.Join]
+// discards nils, so keeping one would leave [List.Failed] reporting a fault
+// that [List.Err] cannot produce — and a caller reading Failed would then
+// reject a layout while handing back no reason for it.
 func (l *List) Fail(err error) {
+	if err == nil {
+		return
+	}
+
 	l.errs = append(l.errs, err)
 }
 
