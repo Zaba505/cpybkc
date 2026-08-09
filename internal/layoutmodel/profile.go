@@ -139,18 +139,12 @@ func ReadProfile(file *layout.File) (*Profile, error) {
 // profileReader holds the state one [ReadProfile] accumulates: the faults found
 // so far, and the items already overridden.
 type profileReader struct {
-	errs []error
+	faults
 
 	// overridden is where each item was first overridden, keyed by the
 	// reference's identity. It is what makes a second override on one item
 	// reportable against the first.
 	overridden map[string]layout.Pos
-}
-
-// fail records a fault. Reading continues after one, because the point of
-// collecting them is to report the second.
-func (r *profileReader) fail(err error) {
-	r.errs = append(r.errs, err)
 }
 
 // override reads one `encoding-override` and appends it to the profile.

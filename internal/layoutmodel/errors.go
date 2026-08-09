@@ -13,6 +13,24 @@ import (
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
+// faults is the fault list a layer reader accumulates.
+//
+// Every reader here collects rather than returning the first, for the reason
+// [github.com/Zaba505/cpybkc/internal/layout]'s parser gives: a generated layout
+// is generated wrong in the same way in many places at once, and a reader that
+// reports one fault per run is a reader run once per fault. It is one type
+// rather than a field on each reader so that "keep reading after a fault" is
+// decided once.
+type faults struct {
+	errs []error
+}
+
+// fail records a fault. Reading continues after one, because the point of
+// collecting them is to report the second.
+func (f *faults) fail(err error) {
+	f.errs = append(f.errs, err)
+}
+
 // ProfileCountError is a layout that does not carry exactly one `encoding` form.
 //
 // Both halves are faults an adopter can act on and neither has a default:
@@ -227,6 +245,337 @@ type ItemReferenceError struct {
 // Error implements the error interface.
 func (e *ItemReferenceError) Error() string {
 	return fmt.Sprintf("%s: an item reference is written (item <record-name> <name> ...), and this is %s", e.Pos, e.Found)
+}
+
+// FramingCountError is a layout that does not carry exactly one `framing` form.
+//
+// docs/layout/SPEC.md requires exactly one. A layout carrying none says nothing
+// about how the file is framed, and one carrying two leaves the order they were
+// written in deciding which dataset the copybooks are bound to.
+type FramingCountError struct {
+	// Pos is the second `framing` form where there is one, and the start of the
+	// file where there is none.
+	Pos layout.Pos
+
+	// Count is how many the layout carries.
+	Count int
+}
+
+// Error implements the error interface.
+func (e *FramingCountError) Error() string {
+	return fmt.Sprintf("%s: a layout carries exactly one framing form, and this one carries %d", e.Pos, e.Count)
+}
+
+// MissingRECFMError is a `framing` form that states no `recfm`.
+//
+// It is the one child no record format conditions, because it *is* the record
+// format: every other rule in the layer is keyed on it, and there is no default
+// for the same reason there is no default for an encoding axis.
+type MissingRECFMError struct {
+	// Pos is the `framing` form, which is where the record format has to be
+	// written.
+	Pos layout.Pos
+}
+
+// Error implements the error interface.
+func (e *MissingRECFMError) Error() string {
+	return fmt.Sprintf(
+		"%s: a framing states one recfm, and this one states none; the rest of the framing follows from it",
+		e.Pos,
+	)
+}
+
+// RequiredChildError is a `framing` child the record format requires and the
+// layout does not state.
+//
+// The three are docs/layout/SPEC.md's: `lrecl` under `F` and `FB`, because it is
+// the only thing standing between an adopter and a silent misalignment;
+// `max-segment` under `VBS`, because nothing a layout says implies it and a
+// writer cannot compute it; and `delimiter` and `placement` under
+// `line-sequential`, neither of which has a default.
+type RequiredChildError struct {
+	// Pos is the `framing` form, which is where the child has to be written.
+	Pos layout.Pos
+
+	// Child is the tag nobody wrote.
+	Child string
+
+	// RECFM is the record format requiring it, which is the other half of the
+	// fault: the same child is optional under another spelling.
+	RECFM RECFM
+}
+
+// Error implements the error interface.
+func (e *RequiredChildError) Error() string {
+	return fmt.Sprintf("%s: recfm %s requires %s, and this framing states none", e.Pos, e.RECFM, quote(e.Child))
+}
+
+// UnadmittedChildError is a `framing` child the record format does not admit.
+//
+// It names the record format, which docs/layout/SPEC.md requires of the case it
+// argues in full — an `lrecl` under `line-sequential`, "where the dataset has no
+// such number", is "a diagnostic naming the spelling". A child that says nothing
+// about the file the layout describes is a layout describing two files at once,
+// and which of them was meant is not something to guess at.
+type UnadmittedChildError struct {
+	// Pos is the child that should not be there.
+	Pos layout.Pos
+
+	// Child is its tag.
+	Child string
+
+	// RECFM is the record format that does not admit it.
+	RECFM RECFM
+}
+
+// Error implements the error interface.
+func (e *UnadmittedChildError) Error() string {
+	return fmt.Sprintf("%s: recfm %s admits no %s, and this framing states one", e.Pos, e.RECFM, quote(e.Child))
+}
+
+// RepeatedChildError is one `framing` child stated twice.
+//
+// Like [RepeatedAxisError] it carries both positions, because the fault is the
+// pair: either line is a perfectly good statement on its own, and what an
+// adopter has to decide is which of the two they meant.
+type RepeatedChildError struct {
+	// Pos is the second statement.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Child is the tag stated twice.
+	Child string
+
+	// Form is the tag of the form carrying both.
+	Form string
+}
+
+// Error implements the error interface.
+func (e *RepeatedChildError) Error() string {
+	return fmt.Sprintf("%s: form %s states %s twice, and states it first at %s", e.Pos, quote(e.Form), quote(e.Child), e.First)
+}
+
+// FramingValueError is a value written for a `framing` child that the child does
+// not admit.
+//
+// It is [AxisValueError]'s counterpart in this layer and names the whole set for
+// the same reason: every one of these is a spelling question an adopter can
+// answer from the message.
+type FramingValueError struct {
+	// Pos is the value, not the form carrying it.
+	Pos layout.Pos
+
+	// Child is the tag it was written under.
+	Child string
+
+	// Value is what was written.
+	Value string
+
+	// Admits is the set the child takes.
+	Admits []string
+}
+
+// Error implements the error interface.
+func (e *FramingValueError) Error() string {
+	return fmt.Sprintf("%s: %s is one of %s, and this one says %s", e.Pos, e.Child, and(e.Admits), quote(e.Value))
+}
+
+// FramingFormError is a `framing` child that does not carry exactly one value of
+// the sort it takes.
+//
+// `(lrecl)` states nothing, `(lrecl 80 80)` states two things, and
+// `(lrecl "80")` writes a byte count as text. None of the three is a value with
+// something wrong with it, so none is a [FramingValueError].
+type FramingFormError struct {
+	// Pos is the form, or the element standing where its value belongs.
+	Pos layout.Pos
+
+	// Child is the tag.
+	Child string
+
+	// Takes names what the position takes.
+	Takes string
+
+	// Found names what was written instead.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *FramingFormError) Error() string {
+	return fmt.Sprintf("%s: form %s takes %s, and this one has %s", e.Pos, quote(e.Child), e.Takes, e.Found)
+}
+
+// SizeError is a byte count that is not positive.
+//
+// A framing's numbers are lengths of things that exist, so zero and negative are
+// not small sizes: they are a number nothing in the dataset could have.
+type SizeError struct {
+	// Pos is the number.
+	Pos layout.Pos
+
+	// Child is the tag it was written under.
+	Child string
+
+	// Value is what was written.
+	Value int64
+}
+
+// Error implements the error interface.
+func (e *SizeError) Error() string {
+	return fmt.Sprintf("%s: %s is a positive number of bytes, and this one says %d", e.Pos, e.Child, e.Value)
+}
+
+// UndefinedLengthError is RECFM U, which docs/ir/SPEC.md's "Undefined-length
+// records" excludes.
+//
+// It names the dataset rather than reporting a generic framing error, which both
+// specs require of it: an adopter who has one needs to know that the problem is
+// the record format they were given and not the layout they wrote.
+type UndefinedLengthError struct {
+	// Pos is the `recfm` value.
+	Pos layout.Pos
+}
+
+// Error implements the error interface.
+func (e *UndefinedLengthError) Error() string {
+	return fmt.Sprintf(
+		"%s: recfm U is a dataset whose record extents came from the physical blocks the access method read, "+
+			"and a byte stream on a filesystem has lost them; where every block was in fact the same size the file "+
+			"is a fixed-length one and the layout says F or FB, and where they were not the boundaries have to be "+
+			"put back by whatever writes the stream",
+		e.Pos,
+	)
+}
+
+// CarriageControlError is a record format carrying an ASA or machine carriage
+// control — `FBA`, `VBM`.
+//
+// docs/layout/SPEC.md requires the diagnostic to name the carriage control and
+// say where it belongs instead. The control character is a byte of the record:
+// it is positioned like every other byte, it counts toward LRECL, and something
+// may need to read it. A framing setting would make it a framing byte, and no
+// item covers one, no slack node accounts for one and no predicate ever sees
+// one.
+type CarriageControlError struct {
+	// Pos is the `recfm` value.
+	Pos layout.Pos
+
+	// Value is what was written, in full.
+	Value string
+
+	// Control names which carriage control it carries.
+	Control string
+
+	// RECFM is the record format underneath it, which is what the layout says
+	// once the control character is declared where it belongs.
+	RECFM RECFM
+}
+
+// Error implements the error interface.
+func (e *CarriageControlError) Error() string {
+	return fmt.Sprintf(
+		"%s: recfm %s carries %s carriage control, and a control character is a byte of the record rather than "+
+			"a byte of the framing; declare it as a leading item in the copybook and write recfm %s",
+		e.Pos, quote(e.Value), e.Control, e.RECFM,
+	)
+}
+
+// BlockedStreamError is `(blocks in-stream)`, which docs/ir/SPEC.md's "Block
+// descriptor words in the stream" excludes.
+//
+// A blocked *dataset* is ordinary — `FB` resolves to **unframed** and `VB` to
+// **descriptor-word** — because what blocking is on the mainframe is not what
+// arrives. What is refused is a stream that still carries the block descriptor
+// words, which is a dataset image rather than a record stream.
+type BlockedStreamError struct {
+	// Pos is the `blocks` value.
+	Pos layout.Pos
+}
+
+// Error implements the error interface.
+func (e *BlockedStreamError) Error() string {
+	return fmt.Sprintf(
+		"%s: blocks in-stream is a dataset image rather than a record stream, and the transfer has to deblock it; "+
+			"a blocked dataset is otherwise ordinary and needs nothing said about it",
+		e.Pos,
+	)
+}
+
+// BlockSizeNotAMultipleError is a `blksize` under `FB` that is not a whole
+// number of records.
+//
+// A fixed-length block holds whole records, so a block size that is not a
+// multiple of the record length describes a dataset nothing allocated: one of
+// the two numbers came from somewhere else.
+type BlockSizeNotAMultipleError struct {
+	// Pos is the `blksize` value.
+	Pos layout.Pos
+
+	// RECFM is the record format the rule is keyed on.
+	RECFM RECFM
+
+	// BlockSize and LRECL are the two numbers, so that the message names both.
+	BlockSize int64
+	LRECL     int64
+}
+
+// Error implements the error interface.
+func (e *BlockSizeNotAMultipleError) Error() string {
+	return fmt.Sprintf(
+		"%s: under recfm %s a blksize holds whole records and is a multiple of lrecl, and %d is not a multiple of %d",
+		e.Pos, e.RECFM, e.BlockSize, e.LRECL,
+	)
+}
+
+// BlockSizeTooSmallError is a `blksize` under `VB` or `VBS` that cannot hold one
+// record.
+//
+// A block carries a block descriptor word in front of the records in it, so a
+// block size below the record length plus that word describes a dataset in which
+// the longest record does not fit in a block.
+type BlockSizeTooSmallError struct {
+	// Pos is the `blksize` value.
+	Pos layout.Pos
+
+	// RECFM is the record format the rule is keyed on.
+	RECFM RECFM
+
+	// BlockSize and LRECL are the two numbers.
+	BlockSize int64
+	LRECL     int64
+}
+
+// Error implements the error interface.
+func (e *BlockSizeTooSmallError) Error() string {
+	return fmt.Sprintf(
+		"%s: under recfm %s a blksize is at least lrecl plus the %d bytes of a block descriptor word, "+
+			"and %d is less than %d",
+		e.Pos, e.RECFM, blockDescriptorWord, e.BlockSize, e.LRECL+blockDescriptorWord,
+	)
+}
+
+// ByteStringError is a literal that is not `(bytes "<hex>")`.
+//
+// It covers every shape the fault takes, including the two schema/layout.sexpr
+// names as the reader's: text that is not hexadecimal digits in pairs, and a
+// byte string of no bytes. A delimiter of no bytes would be a delimiter nothing
+// in the file could be found at.
+type ByteStringError struct {
+	// Pos is the literal, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ByteStringError) Error() string {
+	return fmt.Sprintf(
+		"%s: a byte string is written (bytes \"<hex>\"), hexadecimal digits in pairs, and this is %s",
+		e.Pos, e.Found,
+	)
 }
 
 // axisNames is the four axes as a layout spells them, for a message that has to
