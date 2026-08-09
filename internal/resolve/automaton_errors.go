@@ -8,7 +8,6 @@ package resolve
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/Zaba505/cobol-go/copybook"
@@ -224,15 +223,19 @@ func (e *UnboundRegisterError) Error() string { return e.Diagnostic().String() }
 
 // Diagnostic is what the error says, and where.
 func (e *UnboundRegisterError) Diagnostic() diag.Diagnostic {
-	read := "state " + strconv.Itoa(e.State) + " accepts on"
+	// The whole clause and not a fragment of one, because the two reads are
+	// not the same part of speech: a transition reads a register and a state's
+	// acceptance does too, and a sentence built to fit the first describes the
+	// second as a transition that is not there.
+	read := fmt.Sprintf("state %d's acceptance", e.State)
 	if e.Reader != "" {
-		read = "admitting " + e.Reader + " reads"
+		read = "the transition admitting " + e.Reader
 	}
 
 	if e.OnAdmitting {
 		return diag.Diagnostic{
 			Message: fmt.Sprintf(
-				"%s is read out of %s, and the only record that binds it is the one the transition %s it: "+
+				"%s is read out of %s, and what reads it is %s, which is the only thing that binds it: "+
 					"a binding applies after the record is admitted, so the value is wanted before there is one",
 				e.Item, e.Register, read),
 			Spans: []diag.Span{e.Pos},
@@ -241,8 +244,8 @@ func (e *UnboundRegisterError) Diagnostic() diag.Diagnostic {
 
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
-			"%s is read out of %s, and there is a path to where the transition %s it on which no %s has been "+
-				"admitted: a value the automaton has not read yet governs nothing",
+			"%s is read out of %s, and there is a path to %s on which no %s has been admitted: "+
+				"a value the automaton has not read yet governs nothing",
 			e.Item, e.Register, read, e.Register),
 		Spans: []diag.Span{e.Pos},
 	}
