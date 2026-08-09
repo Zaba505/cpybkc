@@ -3073,6 +3073,77 @@ What that buys is an IR that is a thing at rest. It can be written to a file
 (#20), converted to JSON and read (#21), committed, diffed, and replayed against
 a plugin by hand a year later. None of those is available to a protocol.
 
+## Reading a descriptor without generated code
+
+The section above claims self-description. This is the artifact that delivers
+it, and what a consumer may assume about it.
+
+A `FileDescriptorSet` describing this schema is published with every release, as
+the asset **`ir.binpb`** (#19). It is protobuf's own reflection type, encoded in
+the protobuf binary wire format, and every protobuf runtime can build message
+types out of one at run time. A consumer holding it needs no `.proto` file, no
+compiler and no build step to decode a descriptor.
+
+The schema sources are published beside it, as **`ir-protos.tar.gz`**, each file
+at the path its protobuf package requires. That is for the consumer whose build
+*can* run a compiler and would rather generate bindings; the two are
+alternatives, and neither is derived from the other. The published image
+carries the same `ir.binpb` bytes at a path the [container
+contract](../container/SPEC.md) fixes (#57) — one artifact reachable two ways,
+not two artifacts.
+
+### What the set contains
+
+The set **MUST** carry the file defining `cpybkc.ir.v1.Descriptor` and the
+transitive closure of that file's imports, and **MUST NOT** carry anything else.
+The root is the message a plugin is handed, so a schema file this project might
+add that nothing reachable from `Descriptor` imports is not part of the IR, and
+is not published as though it were.
+
+It **MUST** be self-contained: every path named as a dependency by a file in the
+set is a file the set also carries. A consumer's registry fails on the other
+arrangement, and it fails naming a file the consumer has never heard of.
+
+Files **MUST** appear in dependency order — a file only after every file it
+imports. A consumer that walks the set once, building each file's types as it
+goes, is the shape most dynamic protobuf APIs make easiest, and the other order
+fails it at a type reference rather than at a file.
+
+The encoded bytes **MUST** be a function of the schema alone: two builds of one
+commit produce one artifact, and the artifact changes only when the schema does.
+Otherwise a rebuild is indistinguishable from a change to the contract, and an
+adopter diffing two releases learns nothing.
+
+### What is deliberately absent
+
+Comments and source positions. The set carries field numbers, types, names and
+nesting — everything a decode needs — and no `SourceCodeInfo`, so it describes
+the schema rather than the document. The prose is this specification's, and a
+copy of it inside a binary artifact would be a second one to keep current. A
+reader who wants the comments wants `ir-protos.tar.gz`.
+
+### Reading one
+
+Four calls, in every runtime that has them, whatever they are spelled:
+
+1. Decode `ir.binpb` into a `FileDescriptorSet`.
+2. Build a type registry — a file or descriptor pool — from it.
+3. Look up `cpybkc.ir.v1.Descriptor` by name.
+4. Make a dynamic message of that type and decode the file cpybkc passed as
+   `--descriptor` into it.
+
+Everything this document requires of a consumer still binds one that arrived
+this way. In particular it **MUST** read the version field before anything else
+and **MUST** refuse a version it does not understand ([The version
+field](#the-version-field)) — a dynamic decode makes an unknown version easier
+to read, not less binding, because nothing failed to compile on the way in.
+
+The runnable form is `Example_readADescriptorWithoutGeneratedCode` in
+[`irpb/descriptor_set_test.go`](../../irpb/descriptor_set_test.go). It is a test
+rather than a listing here so that the example is checked on every run: the four
+calls above are the shape, and a worked example that had rotted would be worse
+than none.
+
 ## Out of Scope
 
 ### Layout source syntax
@@ -3464,7 +3535,9 @@ records offer them.
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
+| [Reading a descriptor without generated code](#reading-a-descriptor-without-generated-code) | #19 `ir`, #57 `container` |
 | The schema itself | #17 `ir` — [`proto/cpybkc/ir/v1/ir.proto`](../../proto/cpybkc/ir/v1/ir.proto) |
 | The schema, as Go | #18 `ir` — [`irpb/`](../../irpb), a module of its own |
+| The published artifacts | #19 `ir` — [`irpb/descriptor_set.go`](../../irpb/descriptor_set.go) computes the set, [`internal/tools/`](../../internal/tools) writes both files, `.dagger/main.go` builds them and `.github/workflows/release.yaml` attaches them |
 | Emitting the IR | #20, #21 `ir` |
 | Conventions this document follows | #15 `setup` |

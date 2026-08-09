@@ -59,6 +59,22 @@
 // produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
 // else is a second answer to how the committed stubs were made.
 //
+// # Why the release artifacts are built here
+//
+// IrDescriptorSet and IrProtos produce the two files a release attaches — the
+// IR's FileDescriptorSet and the schema sources (#19) — and they are functions
+// on this module for the same reason ProtoLint is: a recipe that only ever ran
+// inside .github/workflows/release.yaml would be a build nobody can reproduce
+// locally and one that first runs on a tag, where a failure is a release that
+// did not happen. Here, `dagger call ir-descriptor-set` is a command a
+// contributor runs, and IrArtifacts puts both builds inside Ci so the recipe is
+// exercised on every pull request rather than once per release.
+//
+// They are also the seam the container work builds on: #57 copies the same file
+// into the published image, from this function rather than from a second
+// invocation of protoc, which is what makes the release asset and the in-image
+// copy two ways of getting one artifact.
+//
 // Ci is what CI calls and what a contributor should run before pushing. The
 // stage functions are for narrowing down what Ci reported.
 package main
@@ -66,6 +82,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 
 	"dagger/cpybkc/internal/dagger"
@@ -124,11 +142,12 @@ func New(
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
 // the Z5Labs standard defines them, over each of this repository's two Go
-// modules, plus `buf lint` over the IR schema. This is the single entrypoint —
-// CI is one `dagger call ci` and stays one, because a workflow step that reran
-// any of these stages would be a second definition of them.
+// modules, plus `buf lint` over the IR schema and a build of the two artifacts a
+// release publishes. This is the single entrypoint — CI is one `dagger call ci`
+// and stays one, because a workflow step that reran any of these stages would be
+// a second definition of them.
 //
-// The three parts run concurrently and all are reported, for the reason the
+// The four parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -136,10 +155,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr error
+	var goErr, irErr, protoErr, artifactErr error
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 
 	go func() {
 		defer wg.Done()
@@ -158,9 +177,14 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		protoErr = m.ProtoLint(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		artifactErr = m.IrArtifacts(ctx)
+	}()
+
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr)
+	return errors.Join(goErr, irErr, protoErr, artifactErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -277,6 +301,113 @@ func (m *Cpybkc) ProtoGen() *dagger.Directory {
 		WithWorkdir("/src").
 		WithExec([]string{"buf", "generate"}).
 		Directory("/src/irpb")
+}
+
+// IrDescriptorSet builds the IR's protobuf FileDescriptorSet — the published
+// ir.binpb — by compiling this repository and asking irpb for it:
+//
+//	dagger call ir-descriptor-set export --path=ir.binpb
+//
+// It is what the release workflow attaches to a release, and what the base image
+// will copy in at the path docs/container/SPEC.md fixes (#57). Both forms are
+// two ways of getting one artifact rather than two artifacts, which only holds
+// while there is one recipe; this is it.
+//
+// It is a function on this module rather than steps in a workflow for the reason
+// .github/workflows/ci.yaml already gives: repo-specific work lands here and is
+// invoked with `dagger call`, so a contributor produces the same bytes CI does
+// with the same command, and there is no second recipe living in YAML that
+// nobody can run locally.
+//
+// dag.Go().Container is the escape hatch the standard Go module offers for
+// exactly this — a command its typed helpers do not cover. Using it rather than
+// a container of this module's own keeps the toolchain version read out of
+// go.mod, where this repository's toolchain version already lives, instead of
+// pinning a golang: tag here that could drift from it.
+//
+// The bytes are a function of the schema: irpb.MarshalFileDescriptorSet encodes
+// deterministically and the file order is fixed by the protos' imports, so two
+// runs over an unchanged tree produce an identical artifact. That is what makes
+// the published file comparable across releases at all.
+func (m *Cpybkc) IrDescriptorSet() *dagger.File {
+	const out = "/out/ir.binpb"
+
+	return dag.Go().
+		Container(m.Source).
+		WithExec([]string{"go", "run", "./internal/tools/ir-descriptor-set", "-o", out}).
+		File(out)
+}
+
+// IrProtos builds the IR schema sources — the published ir-protos.tar.gz —
+// preserving each file's path under proto/:
+//
+//	dagger call ir-protos export --path=ir-protos.tar.gz
+//
+// It is the other artifact a release carries, and it is for the consumer
+// IrDescriptorSet is not for: the one whose build can run protoc and would
+// rather generate bindings than decode dynamically. internal/tools/ir-protos
+// carries the argument for why it is an archive and not the one .proto file.
+//
+// Its bytes are a function of the schema too — every tar field the filesystem
+// could have supplied is a constant and the entries are sorted — so the same
+// commit archives to the same artifact.
+func (m *Cpybkc) IrProtos() *dagger.File {
+	const out = "/out/ir-protos.tar.gz"
+
+	return dag.Go().
+		Container(m.Source).
+		WithExec([]string{"go", "run", "./internal/tools/ir-protos", "-o", out}).
+		File(out)
+}
+
+// IrArtifacts builds both release artifacts and fails if either is empty.
+//
+// It is in Ci so that the recipe a release runs is exercised on every pull
+// request. Without it the only thing that ever runs `go run
+// ./internal/tools/ir-descriptor-set` in a container is the release workflow, on
+// a tag, once — and a build tool that has never been run outside a test is one
+// whose first real invocation is the one nobody can retry.
+//
+// The Go tests own the artifacts' contents and their determinism, which is why
+// this asserts nothing about either. What it asserts is the part they cannot:
+// that the two commands run to completion in a container built from go.mod and
+// leave a file behind. An empty file is the failure worth naming, because it is
+// what a tool that wrote its parent directory and exited would produce, and it
+// uploads as happily as a good one.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) IrArtifacts(ctx context.Context) error {
+	artifacts := map[string]*dagger.File{
+		"ir.binpb":         m.IrDescriptorSet(),
+		"ir-protos.tar.gz": m.IrProtos(),
+	}
+
+	names := make([]string, 0, len(artifacts))
+	for name := range artifacts {
+		names = append(names, name)
+	}
+
+	// Sorted, so that two runs failing on two different artifacts report them in
+	// the same order rather than in whichever order the map produced.
+	slices.Sort(names)
+
+	var errs []error
+
+	for _, name := range names {
+		size, err := artifacts[name].Size(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to build %s: %w", name, err))
+
+			continue
+		}
+
+		if size == 0 {
+			errs = append(errs, fmt.Errorf("%s built to an empty file", name))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // stage returns the check builder the standard pipeline builds on, bound to
