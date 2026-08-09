@@ -216,6 +216,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).Fmt(&parent, ctx)
+		case "IrArtifacts":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Cpybkc).IrArtifacts(&parent, ctx)
 		case "IrCi":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -223,6 +230,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).IrCi(&parent, ctx)
+		case "IrDescriptorSet":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Cpybkc).IrDescriptorSet(&parent), nil
+		case "IrProtos":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Cpybkc).IrProtos(&parent), nil
 		case "Lint":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)

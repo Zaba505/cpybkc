@@ -1,0 +1,87 @@
+name: Release
+
+# A published release is the trigger, not a pushed tag. The distinction matters
+# for what this workflow does: it uploads assets onto a release object, and a
+# release object only exists once somebody has published one. Firing on the tag
+# would mean racing the person who is about to create the release, and losing
+# that race means uploading to a release that is not there yet.
+#
+# `published` covers both a release created straight away and a draft released
+# later, which is the shape a release with notes to write actually takes.
+#
+# There is no filter on which tag. This repository publishes two tag schemes —
+# vX.Y.Z for the CLI and irpb/vX.Y.Z for the IR module — and the IR is what both
+# of them ship, so both get the artifacts. The bytes are a function of the tag's
+# source, so each release's assets describe the schema that release carried, and
+# a reader who has found a release has the IR one download away without having to
+# know which of the two schemes is the one that publishes it.
+on:
+  release:
+    types: [published]
+
+# The floor for every job. The one job that has to write says so itself.
+permissions:
+  contents: read
+
+jobs:
+  # The two IR artifacts, attached to the release.
+  #
+  # ir.binpb is the protobuf FileDescriptorSet describing cpybkc.ir.v1.Descriptor
+  # (#19), so that a plugin author whose language has no protobuf code generation
+  # in the build can fetch one file and decode a descriptor dynamically — see
+  # docs/ir/SPEC.md, "Reading a descriptor without generated code".
+  # ir-protos.tar.gz is the schema itself, at the paths a compiler expects, for
+  # the consumer who would rather generate bindings than decode against a
+  # descriptor set. Neither substitutes for the other.
+  #
+  # The same ir.binpb bytes will ship inside the published image (#57). That is
+  # two ways of getting one artifact rather than two artifacts, and what keeps it
+  # so is that both come from `dagger call ir-descriptor-set` rather than from
+  # two recipes that agree today.
+  ir-artifacts:
+    name: IR artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      # Reading the source, and writing the assets onto the release. Nothing else
+      # in this workflow needs either, which is why the grant is on the job
+      # rather than at the top of the file.
+      contents: write
+    steps:
+      # At the release's tag, not at whatever main has moved to since. The
+      # artifacts are a function of the source, so an asset built from a
+      # different commit would describe an IR that release never shipped.
+      - name: Check out the release's tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      # Pinned to the engineVersion the module itself declares, read out of
+      # dagger.json rather than repeated here — the same step, for the same
+      # reason, as ci.yaml's.
+      - name: Install the Dagger CLI
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
+              BIN_DIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # The same two functions `dagger call ci` builds on every pull request and
+      # a contributor runs locally, so the released assets are produced by a
+      # recipe that has already been exercised rather than by one that only ever
+      # runs at release time.
+      - name: Build the IR artifacts
+        run: |
+          dagger call ir-descriptor-set export --path "$RUNNER_TEMP/ir.binpb"
+          dagger call ir-protos export --path "$RUNNER_TEMP/ir-protos.tar.gz"
+
+      # --clobber so that re-running a failed release job replaces the assets
+      # instead of failing on a name that is already taken. Both artifacts are a
+      # function of the tag's source, so a re-upload cannot change what they say.
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "$RUNNER_TEMP/ir.binpb" \
+            "$RUNNER_TEMP/ir-protos.tar.gz" \
+            --clobber

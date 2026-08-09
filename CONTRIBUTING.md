@@ -2,10 +2,11 @@
 
 ## The pipeline
 
-fmt, vet, golangci-lint, `go test -race` and `buf lint` are defined once, in the
-root Dagger module under [`.dagger/`](.dagger/). CI calls that module and so do
-you, which is the point: there is no arrangement of local commands that passes
-while CI fails, because they are the same functions.
+fmt, vet, golangci-lint, `go test -race`, `buf lint` and the two artifacts a
+release attaches are defined once, in the root Dagger module under
+[`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:
+there is no arrangement of local commands that passes while CI fails, because
+they are the same functions.
 
 Run the whole thing before pushing:
 
@@ -15,7 +16,8 @@ dagger call ci
 
 That is the same call CI makes, with no arguments on either side. It runs the
 four Go stages in parallel and reports every failure, not just the first, and it
-runs the schema lint and the IR module's own stages alongside them.
+runs the schema lint, the IR module's own stages and a build of the [release
+artifacts](#the-release-artifacts) alongside them.
 
 ### Running one stage
 
@@ -23,12 +25,13 @@ runs the schema lint and the IR module's own stages alongside them.
 it reported.
 
 ```sh
-dagger call fmt         # gofmt, reported as a diff of what it would rewrite
-dagger call vet         # go vet ./...
-dagger call lint        # golangci-lint over ./... against .golangci.yml
-dagger call test        # go test -race ./...
-dagger call proto-lint  # buf lint over proto/ against buf.yaml
-dagger call ir-ci       # the whole standard again, over the irpb/ module
+dagger call fmt           # gofmt, reported as a diff of what it would rewrite
+dagger call vet           # go vet ./...
+dagger call lint          # golangci-lint over ./... against .golangci.yml
+dagger call test          # go test -race ./...
+dagger call proto-lint    # buf lint over proto/ against buf.yaml
+dagger call ir-ci         # the whole standard again, over the irpb/ module
+dagger call ir-artifacts  # builds the two artifacts a release attaches
 ```
 
 The first four are not a second definition of the pipeline. Each drives the same
@@ -39,9 +42,10 @@ standard has no protobuf stage to wrap; see [Linting the IR
 schema](#linting-the-ir-schema).
 
 `ir-ci` is not a stage but the whole standard a second time, over the second Go
-module; see [The IR module](#the-ir-module) for why there is one.
+module; see [The IR module](#the-ir-module) for why there is one. `ir-artifacts`
+is not a stage either; see [The release artifacts](#the-release-artifacts).
 
-`dagger check` runs all seven as a checklist, if you would rather see them
+`dagger check` runs all eight as a checklist, if you would rather see them
 together than pick one.
 
 ### Getting the tools
@@ -211,6 +215,49 @@ tags. If the schema ever breaks its wire format and becomes package
 `cpybkc.ir.v2`, the Go module becomes `github.com/Zaba505/cpybkc/irpb/v2` under
 Go's major-version rule, and the two version suffixes agree without either being
 kept in step by hand.
+
+## The release artifacts
+
+Every published release carries two files describing the IR, for the plugin
+authors who are not importing `irpb`:
+
+```sh
+dagger call ir-descriptor-set export --path=ir.binpb
+dagger call ir-protos export --path=ir-protos.tar.gz
+```
+
+`ir.binpb` is the protobuf `FileDescriptorSet` describing
+`cpybkc.ir.v1.Descriptor`, which is what lets a runtime with no code generation
+in the build decode a descriptor dynamically. `ir-protos.tar.gz` is the schema
+sources at the paths their protobuf packages require, for a build that would
+rather compile them. [Reading a descriptor without generated
+code](docs/ir/SPEC.md#reading-a-descriptor-without-generated-code) is the
+contract for both, and it is the document to change if what they contain changes.
+
+Three properties are worth knowing before you touch either:
+
+- **Neither is committed.** `ir.binpb` is computed from the descriptors
+  `protoc-gen-go` compiled into `irpb`, so it cannot drift from the schema; a
+  checked-in copy could. Changing `ir.proto` and regenerating `irpb/ir.pb.go`
+  changes what is published, in the same commit.
+- **Both are reproducible.** Two builds of one commit produce byte-identical
+  files — the encoding is deterministic and every tar field the filesystem could
+  have supplied is a constant — because an artifact that moved on a rebuild would
+  make a rebuild indistinguishable from a change to the contract.
+- **`dagger call ci` builds them.** `ir-artifacts` is in the pipeline so that the
+  recipe a release runs is exercised on every pull request, rather than for the
+  first time on a tag. What is in them is asserted by Go tests, in `irpb` and
+  beside each tool under `internal/tools/`; the pipeline stage only checks that
+  both commands run to completion and leave a file behind.
+
+A `.proto` added under `proto/` that nothing reachable from
+`cpybkc.ir.v1.Descriptor` imports fails `TestPublishedFileDescriptorSetCoversTheSchema`.
+That is deliberate: the IR is one message and everything in `proto/` is reachable
+from it, so a file that is not is a mistake in the schema rather than something
+to exclude.
+
+`.github/workflows/release.yaml` attaches both to a release when one is
+published, building them with the same two calls above at the release's tag.
 
 ## Specs
 

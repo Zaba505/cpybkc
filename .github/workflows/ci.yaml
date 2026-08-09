@@ -53,12 +53,15 @@ jobs:
     name: ci
     runs-on: ubuntu-latest
     permissions:
-      # Reading the source is all the pipeline does. No `packages: write`,
-      # because nothing is pushed; no `id-token: write`, because nothing is
-      # attested — the module produces no artifact to sign. Both grants belong
-      # to the change that gives it one, next to the stage that needs them,
-      # rather than being held here in advance against a job that would not
-      # notice them missing.
+      # Reading the source is all the pipeline does. It now builds the two IR
+      # artifacts a release attaches (#19), but it builds them inside the engine
+      # and throws them away — nothing here uploads, pushes or signs anything.
+      # So no `contents: write`, which belongs to release.yaml's job because
+      # that is where an asset is attached; no `packages: write`, because
+      # nothing is pushed; and no `id-token: write`, because nothing is attested
+      # yet (#58). Each grant belongs to the change that gives it a use, next to
+      # the step that needs it, rather than being held here in advance against a
+      # job that would not notice it missing.
       contents: read
     steps:
       # A shallow checkout on purpose. The module excludes .git from the source

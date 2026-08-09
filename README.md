@@ -22,6 +22,14 @@ A generator plugin written in Go imports the resolved IR from
 [`irpb`](irpb/) — `github.com/Zaba505/cpybkc/irpb`, a module of its own, so that
 building against the contract costs the protobuf runtime and nothing else.
 
+A plugin written in anything else takes one of the two artifacts attached to
+every release: `ir.binpb`, the protobuf `FileDescriptorSet` that lets any
+runtime decode a descriptor with no code generation in the build, or
+`ir-protos.tar.gz`, the schema sources for a build that would rather compile
+them. [Reading a descriptor without generated
+code](docs/ir/SPEC.md#reading-a-descriptor-without-generated-code) is the
+contract for both.
+
 ## Contributing
 
 `dagger call ci` runs fmt, vet, lint and `go test -race` — the same call CI
