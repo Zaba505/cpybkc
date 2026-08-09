@@ -1496,7 +1496,10 @@ identified — a state offering three transitions offers three extents — which
 why the order in [Where framing is consumed, and where it is
 emitted](#where-framing-is-consumed-and-where-it-is-emitted) is normative:
 predicates run first, against bytes at offsets within the record they would
-admit, and the extent follows from the transition taken. Even a variable record
+admit and inside the record in front of the consumer whichever that turns out
+to be ([A predicate never reads past the record in front of
+it](#a-predicate-never-reads-past-the-record-in-front-of-it)), and the extent
+follows from the transition taken. Even a variable record
 keeps the extent inside the record's own bytes rather than the framing's ([A
 variable record is a sum with a variable
 term](#a-variable-record-is-a-sum-with-a-variable-term)). So the question of
@@ -1610,11 +1613,18 @@ Reading one record, in this order:
    the file split it.
 3. Evaluate the state's transitions as [The sequencing
    automaton](#the-sequencing-automaton) says — guards, then predicates, in the
-   order the state carries them — against the record's data beginning here.
-   Where the framing has already stated this record's length, a consumer
-   **MUST NOT** evaluate a predicate against bytes beyond it: a predicate whose
-   target lies outside the record the framing bounds does not match, and if no
-   other matches either, this is a record the layout does not describe.
+   order the state carries them — against the record's data beginning here. A
+   consumer **MUST NOT** evaluate a predicate against bytes outside the record
+   in front of it, and what bounds one is [A predicate never reads past the
+   record in front of
+   it](#a-predicate-never-reads-past-the-record-in-front-of-it). Where the
+   framing has already stated this record's length, a predicate whose target is
+   not wholly within the record the framing bounds does not match — a target
+   past it, and a target beginning inside it and ending beyond — and if no
+   other matches either, this is a record the layout does not describe. Where
+   the framing has stated nothing, that subsection puts every target the state
+   can evaluate inside the shortest record the state can admit, so the bytes
+   are there whenever the input holds a whole record.
 4. Take the transition and admit the record. Its extent is known now, because
    which record it is is known now. Where that extent depends on a count, the
    count is a field lying ahead of the item it sizes or a register an earlier
@@ -1631,8 +1641,13 @@ Reading one record, in this order:
 7. Apply the transition's bindings and move to the state it names.
 
 Reaching end of input anywhere from step 2 to step 6 — part-way through a
-record's extent, or with a required delimiter unread — is a truncated file, and
-a consumer **MUST** report it as one. End of input is tested at step 1 and
+record's extent, with a required delimiter unread, or with a predicate's target
+past the last byte the input holds — is a truncated file, and a consumer
+**MUST** report it as one rather than as a record the layout does not describe.
+Step 3 is inside that range and is not an exception to it; what keeps it off a
+well-formed file is the bound [A predicate never reads past the record in front
+of it](#a-predicate-never-reads-past-the-record-in-front-of-it) places on every
+target a state can evaluate. End of input is tested at step 1 and
 nowhere else, which is what keeps a well-formed trailing delimiter away from
 both the truncation rule and the no-match rule: by the time the test runs, the
 delimiter has been consumed as the framing it is.
@@ -2041,10 +2056,15 @@ record its transition *would* admit ([Where framing is consumed, and where it is
 emitted](#where-framing-is-consumed-and-where-it-is-emitted)) — so a target
 whose position depends on a count obliges a consumer to decode that count out of
 bytes it has not identified. Two failures follow, and neither is detectable. The
-bytes may be another record type's, decoding to a number that sends the read far
-past this record: step 3 bounds that only "where the framing has already stated
-this record's length", and under **delimited** the framing has stated nothing by
-then, so nothing bounds it at all. Or the bytes may not decode, and [A variable
+bytes may be another record type's, decoding to a number that sends the read to
+an offset the layout never described — and nothing bounds that, because a
+position that is not a number is a position the bound [A predicate never reads
+past the record in front of
+it](#a-predicate-never-reads-past-the-record-in-front-of-it) places cannot be
+checked against: `resolve` computes that bound from the layout and would have
+nothing here to compute it against, and under **unframed** and **delimited**
+there is nothing at read time to stop the read either. Or the bytes may not
+decode, and [A variable
 record is a sum with a variable
 term](#a-variable-record-is-a-sum-with-a-variable-term) requires a consumer to
 report that as malformed data — so one consumer condemns a well-formed file
@@ -2350,6 +2370,212 @@ counter reached zero means the file and its own header disagree about how many
 there are. Both are reported and neither is skipped; only the wording differs,
 and it is the wording that saves a day.
 
+### A predicate never reads past the record in front of it
+
+A predicate is evaluated at step 3, against a record nobody has identified yet.
+The record its own transition *would* admit has an extent and the target sits
+inside it; the record actually in front of the consumer may be a shorter one
+another transition at the same state admits, and a target past that record's
+last byte is a target in the bytes behind it — the framing's, or the next
+record's data. A consumer **MUST NOT** evaluate a predicate against bytes
+outside the record in front of it. Two mechanisms make that true, and which one
+applies is decided by the framing (#78, #94).
+
+The guarantee is about the bytes in front of the consumer rather than about
+which record they turn out to be, and that is not a loose way of putting it. A
+predicate exists to be evaluated against records its own transition does not
+admit — that is what selecting one is — so a rule that a predicate reads only
+*its own* record's bytes would forbid the evaluation instead of bounding it.
+What may not happen is a predicate reading a byte no record in front of the
+consumer covers.
+
+**Where the framing states a length, it bounds the predicate.** Under
+**descriptor-word** and **segmented** the length of the record in front of the
+consumer is in hand at step 2, and step 3 spends it: a predicate whose target
+is not wholly within the record the framing bounds does not match. That bound
+is what makes a predicate naming a field the longer record has and the shorter
+one does not available under those two framings, which is why [A record told
+apart only by its length](#a-record-told-apart-only-by-its-length) states that
+pattern as framing-conditional.
+
+**Where it does not, the descriptor is bounded instead.** Under **unframed**
+and **delimited** nothing in the file states a length before the transition is
+taken: the extent follows from the transition, and finding a delimiter is
+scanning, which [The extent governs, and framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it) refuses by name. So
+the bound is placed on the layout rather than on the read. Where a file node's
+framing is **unframed** or **delimited**, the last byte of a transition's
+predicate target **MUST** lie within the shortest record any transition leaving
+the same state can admit while this one is eligible — over the transitions
+whose guards can hold at the same time as its own, which is the pairing [When
+two match, and when none does](#when-two-match-and-when-none-does) already
+tests over. `resolve` **MUST** reject a layout breaking it, naming the record
+the target is in, the target, and the shorter record it would be read past the
+end of, rather than reporting a generic reference error (#37, #94).
+
+*Shortest* is a record's extent with every repetition whose count is a
+reference taken at the minimum occurrences the copybook declared ([A variable
+record is a sum with a variable
+term](#a-variable-record-is-a-sum-with-a-variable-term)) — bounds a repetition
+already carries, read here for a second purpose. A transition carrying no
+predicate is inside the pairing and never narrows it, since the overlap rule
+already forbids one beside any transition eligible at the same time ([A
+transition may carry no predicate](#a-transition-may-carry-no-predicate)).
+
+A predicate's own record is inside the rule and satisfies it already, which is
+worth saying because it is why the rule is about the *other* records. The
+target is contained in the record its transition admits, and no item ahead of
+it carries a repetition whose count is a reference ([Discriminator
+predicates](#discriminator-predicates)), so it sits ahead of every item whose
+width moves and inside the shortest that record can be. What the rule adds is
+the records the state can put in front of it instead.
+
+Two failures close with it, and both are files that are exactly right.
+
+**A well-formed file reported truncated.** A **delimited** file under the
+terminator placement, whose state offers an 80-byte detail with its type code
+at offset 40 and a 10-byte trailer with its type code at offset 0. The file's
+last record is the trailer. The detail's predicate is evaluated first, against
+a record with ten bytes in front of it and nothing behind, so a consumer
+reaches end of input inside step 3 — which the read loop makes a truncated
+file. One consumer condemns a file that is right; another reads *target past
+the input* as *does not match* and reads it correctly, and both readings are
+defensible. Under the rule the layout reaches neither of them: the detail's
+one-byte target ends 31 bytes past the shortest record the state can admit, and
+`resolve` says so.
+
+**A predicate matching the next record's bytes.** The same framing, a 120-byte
+record whose predicate names a field at offset 100 beside an 80-byte one whose
+predicate names offset 0, the longer first in the state's order. On a
+well-formed short record nothing bounds the first predicate, so it tests
+absolute bytes 100 to 103 — the *next* record's data — and where those bytes
+happen to hold the value it tests for, the wrong transition is taken. Step 5
+then reports malformed data on a well-formed file, because the 120-byte extent
+does not end where the delimiter stands. This is the worse of the two, because
+it is the file's own data that decides: the same descriptor reads that layout's
+files correctly until the day the next record's bytes at that offset hold what
+the predicate was looking for.
+
+The guarantee is over a file the layout describes, and it has to be. A
+**delimited** record whose bytes stop before its extent puts a delimiter, and
+then another record's data, where a predicate expects the record's own, and no
+bound computed from the layout can know it — that file is caught a step later,
+when the extent does not end where the delimiter stands ([A record shorter than
+its extent](#a-record-shorter-than-its-extent)). What the rule buys is that a
+file that *is* right is never read wrongly, which is the whole of what was
+wrong with leaving the bound to the framing alone.
+
+**unframed** carries the rule and rarely pays for it. A fixed-length dataset's
+record types all account for one LRECL ([Four framings, and none of them is a
+RECFM](#four-framings-and-none-of-them-is-a-recfm)) and a data-dependent extent
+is refused there outright ([A variable record does not fit a fixed-length
+dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset)), so the
+records a state can admit are of one length and a target inside one of them is
+inside all of them. Where a layout's extents disagree the rule fires, and it
+fires on a layout that was already describing a file whose reader misaligns
+after the first record — the failure that LRECL requirement exists to prevent,
+and the one **unframed** has nothing in the file to detect. The rejection
+arrives at the layout rather than at the twelfth record.
+
+What the rule costs is a discriminator sitting past the end of the shortest
+record its state can admit, on a **delimited** file, and it is worth being
+exact about what is left. The adopter moves the discriminator into the bytes
+every record at that state has, which is where a type code usually is already —
+at the front, or in a header copybook every alternative includes, the two
+shapes [Discriminator predicates](#discriminator-predicates) checks the
+proposed strategies against. Where the records genuinely agree on every byte
+the shorter one has, what is left to tell them apart with is how long they are,
+and that is refused already and on its own terms ([A record told apart only by
+its length](#a-record-told-apart-only-by-its-length)). The two refusals meet
+exactly: under **unframed** and **delimited** a record's length is not in hand
+at step 3 to test, and it is not in hand to bound with either.
+
+Four cheaper answers were available, and each fails.
+
+**Bounding the read by finding the delimiter** is scanning under another name,
+and it fails on the files this project exists for. A `PIC S9(3)V99 COMP-3`
+field holding `+152.50` is the bytes `15 25 0C`, and `0x15` is a line delimiter
+on some mainframe code pages, so a consumer bounding a record by the first
+delimiter it finds bounds it inside a number — and a predicate whose target is
+genuinely inside the record is then outside the bound and does not match. The
+failure changes from a wrong record admitted to a right record refused, which
+is not an improvement, and [The extent governs, and framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it) has refused the
+mechanism already.
+
+**Ordering a state's transitions shortest record first** looks like this rule
+for free: try the short record's predicate, and where it matches, the long
+record's is never evaluated and reads past nothing. It is refused because it
+makes correctness depend on an order this document has twice said decides
+nothing. A consumer **MAY** stop at the first eligible transition that matches
+and is nowhere obliged to, so one that evaluates the rest to check what it was
+handed still over-reads; the order is normative only so that two consumers do
+the same work and report the same thing, and making it load-bearing would put
+the wrong record in a conforming consumer's hands. It also buys nothing at a
+state where a guard puts the long record's transition first.
+
+**Bounding by the extent of the record the transition would admit** is the
+bound already in place, and it is why nothing was noticed for as long as it was
+not. The target is inside that record by construction, so the bound excludes
+nothing whatever. A bound has to come from the record that is *there*, and at
+step 3 there are two statements of that record and no third: the framing's,
+where the framing makes one, and the layout's shortest, where it does not.
+
+**A record length on the file node** would give a consumer a number to bound
+with under **unframed**, and [Lengths the file node does not
+carry](#lengths-the-file-node-does-not-carry) refuses it for reasons that do
+not weaken here. Under **delimited** there is no one length for it to hold.
+
+**Reaching end of input while evaluating a predicate is a truncated file**, and
+the read loop's rule reaches step 3 like every other step between 2 and 6. A
+consumer **MUST** report it as truncated and **MUST NOT** report it as a record
+the layout does not describe: an input holding fewer bytes than the shortest
+record its state can admit stopped part-way through a record, whatever record
+that was going to be. Saying so is safe only because of the rule above. Without
+it, running out of input at step 3 is what a well-formed file does at a short
+last record, which is the first failure above; with it, every target the state
+can evaluate is inside the shortest record, so a predicate runs out of input
+only where a whole record's worth of it is not there.
+
+**A target straddling the bound does not match**, and under one framing half it
+cannot arise. Where the framing states a length, a target beginning inside the
+record it bounds and ending past it is not wholly within it, and a consumer
+**MUST NOT** compare the part that is there against the part of the literal
+that fits: a predicate tests a field's bytes, a field cut in half is not that
+field, and a comparison against a prefix is the one [The automaton remembers,
+in registers](#the-automaton-remembers-in-registers) refuses for a guard over a
+bytes register, arriving from the other side. Under **unframed** and
+**delimited** no target
+straddles anything, since the rule above puts its last byte inside the shortest
+record.
+
+None of this reaches an arm's predicate. An arm is chosen inside a record
+already admitted, every byte of its occurrence is locatable before any arm is
+chosen, and the arms of one variant are of one extent — so there is no shorter
+occurrence for one to read past the end of ([A predicate on an arm reads one
+occurrence](#a-predicate-on-an-arm-reads-one-occurrence), #90).
+
+A writer needs nothing either. It evaluates the predicates of the transitions
+admitting the record it was asked to write, against the record it holds ([A
+writer evaluates a predicate, it never inverts
+one](#a-writer-evaluates-a-predicate-it-never-inverts-one)), and every one of
+those targets is a field of that record. The bound is a reader's because the
+guessing is.
+
+Both halves land now, and neither could land later for free. The read half
+changes what a conforming consumer does with the same bytes — a predicate that
+matched stops matching — so a consumer that has not heard of it disagrees with
+one that has about which record a file holds, which is breaking under
+[Versioning and compatibility](#versioning-and-compatibility) whatever the wire
+format makes of it. The `resolve` half is a narrowing, and imposing a narrowing
+after the first release makes a descriptor that conformed stop conforming,
+while relaxing one later asks nothing of an adopter and something of a
+producer — the direction [A count is in hand before the extent it
+decides](#a-count-is-in-hand-before-the-extent-it-decides) chose for the same
+reason. Nothing is added to the schema for any of it: the rule says which
+descriptors may exist and what a consumer does with the ones that do, so #17
+fixes the schema against the node shapes it already had (#17, #94).
+
 ### A predicate on an arm reads one occurrence
 
 An arm of a variant is selected by a predicate node — the same kind, and the
@@ -2403,6 +2629,16 @@ walked, and every byte of the occurrence is locatable before any arm is chosen
 because the arms are of one extent. So a target **MAY** sit behind the variant,
 and **MAY** sit behind an item of the occurrence whose own extent moves with a
 count the record carries ahead of it.
+
+**Nor does the bound on where a target may sit.** A transition's predicate may
+be evaluated against a record shorter than the one it would admit, so what
+bounds it is the shortest record its state can put in front of it ([A predicate
+never reads past the record in front of
+it](#a-predicate-never-reads-past-the-record-in-front-of-it)). An arm's is
+evaluated in an occurrence already located, of a record already admitted, and
+one occurrence of a group is the same width as another — so there is nothing
+shorter for it to be read past the end of, and its containment in the
+occurrence is the whole of the bound (#94).
 
 An arm carries no guards, and there is nothing for one to do. A guard reads a
 register, a register holds one value for the whole of a record's read ([The
@@ -3026,8 +3262,13 @@ value differs between them. Nothing weaker than that third one will do, and the
 near-miss is worth naming because it looks like it should work: under
 **descriptor-word** and **segmented** a predicate naming a field the longer
 record has and the shorter one does not is not matched by a short record, since
-the read loop makes a predicate whose target lies outside the record the framing
-bounds not match. But it settles only the longer record's transition. The
+the read loop makes a predicate whose target is not wholly within the record the
+framing bounds not match. Under **unframed** and **delimited** that predicate is
+not available at all: there is no length in hand to bound it with, so [A
+predicate never reads past the record in front of
+it](#a-predicate-never-reads-past-the-record-in-front-of-it) refuses the target
+at the layout rather than letting it read the next record's bytes (#94). But it
+settles only the longer record's transition. The
 shorter one still needs a predicate of its own, and unless that predicate is
 unsatisfiable by any input the longer transition admits, the two overlap on a
 long record and `resolve` rejects the pair anyway. Being unsatisfiable there is
@@ -3214,11 +3455,11 @@ records offer them.
 |---|---|
 | [Structure](#structure) | #17, #80, #90 `ir` |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir` |
-| [Physical framing](#physical-framing) | #78, #88, #92 `ir`, #26 `layout`, #52 `gen-go` |
+| [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
 | [Names](#names) | #30 `layout`, #38 `resolve` |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90 `ir` |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir` |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
