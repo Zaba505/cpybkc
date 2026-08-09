@@ -360,6 +360,13 @@ func (r *discriminationReader) discriminate(into *Discrimination, form layout.Fo
 	if !ok {
 		r.fail(&DiscriminateFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
 
+		// The strategy is read anyway, for the reason an override's axes are
+		// read after a misspelled item reference: a discriminator whose record
+		// is written as text is still a discriminator, and a literal misspelled
+		// underneath it is a second thing to fix rather than something to
+		// discover on the next run.
+		_, _ = r.strategy(form.Elements[1], subjectRecord)
+
 		return
 	}
 

@@ -985,9 +985,9 @@ type ArmOverlapError struct {
 // Error implements the error interface.
 func (e *ArmOverlapError) Error() string {
 	return fmt.Sprintf(
-		"%s: arms %s and %s of the variant at %s both admit %s on %s, and is admitted first at %s; "+
+		"%s: %s on %s is admitted by arms %s and %s of the variant at %s, and is admitted first at %s; "+
 			"two arms that can both match one occurrence have nothing to tell them apart",
-		e.Pos, quote(e.Arms[0]), quote(e.Arms[1]), e.Variant, e.Literal, e.Item, e.First,
+		e.Pos, e.Literal, e.Item, quote(e.Arms[0]), quote(e.Arms[1]), e.Variant, e.First,
 	)
 }
 

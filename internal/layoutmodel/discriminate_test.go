@@ -371,6 +371,20 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			},
 		},
 		{
+			// A discriminator whose record is written as text is still a
+			// discriminator, so the strategy under it is read and what is wrong
+			// with the literal is reported in the same run.
+			name:   "every fault is reported: the record, then the strategy under it",
+			source: oneRecord("DETAIL", "(discriminate \"DETAIL\" (equals (item DETAIL D-REC-TYPE) TWENTY))"),
+			want: []string{
+				"layout.sexpr:2:15: a discriminator is written (discriminate <record-name> <strategy>), " +
+					"and this has text",
+				"layout.sexpr:2:57: a literal is text, a number or (bytes \"<hex>\"), and this is the symbol \"TWENTY\"",
+				"layout.sexpr:1:1: record \"DETAIL\" carries no discriminator; a record that carries nothing to " +
+					"test says so, with \"single-record-type\"",
+			},
+		},
+		{
 			name: "an arm selected by nothing at all",
 			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)", strings.Join([]string{
 				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)",
@@ -407,10 +421,10 @@ func TestReadDiscriminationRejects(t *testing.T) {
 				"  (arm PL-BODY-PROPERTY (one-of (item POLICY PL-ENTRIES PL-KIND) \"P\" \"M\")))",
 			}, "\n")),
 			want: []string{
-				"layout.sexpr:5:70: arms \"PL-BODY-MOTOR\" and \"PL-BODY-PROPERTY\" of the variant at " +
-					"(item POLICY PL-ENTRIES PL-BODY-MOTOR) both admit \"M\" on (item POLICY PL-ENTRIES PL-KIND), " +
-					"and is admitted first at layout.sexpr:4:66; two arms that can both match one occurrence have " +
-					"nothing to tell them apart",
+				"layout.sexpr:5:70: \"M\" on (item POLICY PL-ENTRIES PL-KIND) is admitted by arms " +
+					"\"PL-BODY-MOTOR\" and \"PL-BODY-PROPERTY\" of the variant at " +
+					"(item POLICY PL-ENTRIES PL-BODY-MOTOR), and is admitted first at layout.sexpr:4:66; " +
+					"two arms that can both match one occurrence have nothing to tell them apart",
 			},
 		},
 		{
