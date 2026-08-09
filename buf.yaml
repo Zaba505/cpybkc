@@ -1,0 +1,22 @@
+# What `dagger call proto-lint` enforces over proto/, and what a contributor's
+# own `buf lint` enforces if they have the CLI. One file, so there is no
+# arrangement of local commands that passes while CI fails — the same argument
+# .golangci.yml and the root Dagger module already make about the Go stages.
+version: v2
+
+modules:
+  # The schema tree. `proto` is the module root, so a file's directory below it
+  # is its protobuf package: proto/cpybkc/ir/v1/ir.proto is package
+  # cpybkc.ir.v1, which is what PACKAGE_DIRECTORY_MATCH checks.
+  - path: proto
+
+lint:
+  # STANDARD unmodified, with no exceptions and nothing ignored. It is what buf
+  # renamed DEFAULT to, and the rules that cost something here are the ones
+  # worth having: ENUM_ZERO_VALUE_SUFFIX makes every enum's zero value an
+  # explicit _UNSPECIFIED, which is exactly the invalid zero value cobol-go's
+  # codec/SPEC.md requires of each encoding axis, and PACKAGE_VERSION_SUFFIX
+  # puts a version in the package name. That suffix is protobuf's version and
+  # not the IR's; ir.proto's own comment says why the two do not compete.
+  use:
+    - STANDARD

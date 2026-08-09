@@ -3463,5 +3463,6 @@ records offer them.
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
+| The schema itself | #17 `ir` — [`proto/cpybkc/ir/v1/ir.proto`](../../proto/cpybkc/ir/v1/ir.proto) |
 | Emitting the IR | #20, #21 `ir` |
 | Conventions this document follows | #15 `setup` |

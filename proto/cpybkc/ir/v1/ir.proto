@@ -1,0 +1,920 @@
+// Copyright (c) 2026 Richard Carson Derr
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+// The resolved intermediate representation, as protobuf.
+//
+// docs/ir/SPEC.md is normative for everything below: what each node kind
+// carries, which references are legal, and what a consumer does with them. This
+// file is the spelling — message names, field names and field numbers — and
+// nothing here restates a requirement that document already makes. Where a
+// comment states one anyway it is because a reader of the schema alone would
+// otherwise get it wrong, and the section it comes from is named beside it.
+//
+// proto3 rather than edition 2023, though the newer form would express the one
+// optional reference below as a feature rather than a keyword. The IR exists to
+// be read by programs this project did not write, in languages nobody here
+// chooses (docs/ir/SPEC.md, "Why protobuf, and why no gRPC"), and proto3 is the
+// dialect every protobuf runtime in every one of those languages already
+// compiles. Editions require a recent protoc and a recent runtime in each of
+// them, which is a build-time dependency this schema would be imposing on a
+// plugin author for nothing they asked for. It is also the dialect the
+// governing source names: docs/ir/SPEC.md cites the proto3 language guide, and
+// its "Updating A Message Type" section is the floor the compatibility policy
+// below is built on.
+
+syntax = "proto3";
+
+// The v1 in this package is protobuf's version, not the IR's, and the two
+// measure different things. A protobuf package's version suffix advances when
+// the wire format breaks; Descriptor.version advances when the meaning changes,
+// which is a strictly larger set of edits — every node kind below is
+// wire-compatible to add and every one of them advances the IR version. So a
+// descriptor at IR version 4 is an ordinary thing to find in package
+// cpybkc.ir.v1, and the suffix is not a second guard on semantics competing
+// with the field that is one.
+//
+// No go_package option. The generated Go stubs are a separate module whose path
+// and package name are #18's to choose, and naming one here would be this
+// schema deciding it in advance.
+package cpybkc.ir.v1;
+
+// IrVersion is the contract a descriptor was written against.
+//
+// One monotonic integer, never a major and a minor, for the reason
+// docs/ir/SPEC.md's "The version field" gives: the only question a consumer can
+// act on is whether it understands the descriptor in front of it, and a minor
+// number exists to let it answer "not entirely, but I will continue anyway".
+//
+// A producer MUST set Descriptor.version. A consumer MUST read it before
+// anything else and MUST refuse a version it does not know — naming the version
+// it found and the version it understands — rather than proceeding on the parts
+// it recognises. An unknown value arrives as its number, so refusing it is
+// always possible; what is not possible is noticing a meaning that changed
+// underneath a number that did not.
+//
+// # This field is the only guard on semantics
+//
+// The IR carries no capability vocabulary and a plugin declares no feature set:
+// #46's --plugin-info handshake is not being adopted, so nothing asks a plugin
+// what it supports before handing it a descriptor. A plugin that meets
+// something it cannot support errors, and the whole weight of noticing that
+// there is something to error about rests here.
+//
+// The failure to catch is not the plugin that errors. It is the plugin that
+// does not: a thirteenth node kind, a new member of any closed set below, or a
+// fifth framing decodes cleanly in a plugin built before it existed, because
+// protobuf's tolerance is a rule about fields and not about meanings. An
+// unrecognised oneof member arrives as an unset choice, which reads exactly
+// like a member that was never there. The plugin then generates confidently
+// wrong code from a descriptor it half-understood, the compiler sees code that
+// builds, and nothing anywhere reports it.
+//
+// # When this advances
+//
+// The rule is keyed to what a generator must understand in order to be correct,
+// which is stricter than what a decoder can still parse. A version rule keyed
+// to wire compatibility would never advance at all — every addition named below
+// is wire-compatible — and would guard nothing.
+//
+// It advances for:
+//
+//   - A new member of Node.kind: a thirteenth node kind.
+//   - A new member of any other closed set in this file: a framing, a
+//     delimiter placement, a predicate test, a guard test, a register kind, a
+//     value a binding may write, a kind of node a reference position admits.
+//   - Removing a field, reusing a number, or changing what an existing field
+//     means, including narrowing or widening the values it may hold.
+//   - Any other addition a consumer must understand in order to stay correct,
+//     whether or not protobuf would call it compatible.
+//
+// It does not advance for a new field a consumer ignoring it still handles the
+// descriptor correctly without. Within a version every edit MUST be
+// wire-compatible in the sense of the protobuf language guide's "Updating A
+// Message Type", and a consumer MUST ignore fields it does not recognise.
+//
+// Those two rules point in opposite directions on purpose. A consumer MUST
+// ignore an unknown field and MUST fail on an unknown member of a closed set: a
+// field it has never seen is information it did not need, while a choice it has
+// never seen is a fact about the data it cannot represent at all.
+//
+// This is not the IR Go module's tag (#18), and not the assertion generated
+// code carries against the codec it links (#53). One IR version outlives many of
+// both. See docs/ir/SPEC.md, "Versioning and compatibility".
+enum IrVersion {
+  // Never emitted by a conforming producer, and refused by a conforming
+  // consumer. A descriptor whose version is zero is a descriptor whose producer
+  // did not set one.
+  IR_VERSION_UNSPECIFIED = 0;
+
+  // The first release.
+  IR_VERSION_1 = 1;
+}
+
+// Descriptor is a resolved layout: everything a generator plugin consumes, and
+// the only thing it consumes.
+//
+// Structure is a flat set of typed nodes with references between them, never a
+// message nested inside another message. A consumer MUST index nodes by
+// identifier before it can walk anything, and MUST resolve every reference by
+// identifier rather than by name. See docs/ir/SPEC.md, "A node set, not a tree".
+message Descriptor {
+  // Field number 1 so that it precedes the node list on the wire for a producer
+  // that serializes in field-number order, which is what makes "read the
+  // version before anything else" cheap as well as required. A consumer MUST
+  // read it first whatever order the bytes arrive in.
+  IrVersion version = 1;
+
+  // Every node in the descriptor, in ascending identifier order. Exactly one
+  // node of kind File exists and it is the root; the descriptor does not point
+  // at it separately, because a root identifier beside a kind that occurs
+  // exactly once would be one fact stated twice.
+  //
+  // A producer MUST assign identifiers by a deterministic traversal of the
+  // resolved layout, so that identical inputs produce byte-identical IR (#38).
+  // See docs/ir/SPEC.md, "Identity, ordering and determinism".
+  repeated Node nodes = 2;
+}
+
+// Node is one node of the descriptor: an identifier, and a body that is one
+// member of the closed set of twelve kinds.
+//
+// The set is closed so that a consumer switches over members the schema
+// enumerates and a member it has never heard of is a failure it can detect
+// rather than a string it silently ignores. Adding a kind advances IrVersion.
+message Node {
+  // Identity and nothing else. A consumer MUST NOT infer containment, ordering
+  // or position from an identifier.
+  //
+  // Zero is an ordinary identifier. Nothing in this file uses it as a sentinel:
+  // the one reference that may be absent says so with explicit presence, for
+  // exactly that reason. See Transition.predicate_id.
+  //
+  // Every other reference here is a plain scalar, and that is the reading of
+  // `optional` this schema keeps: it marks a reference absence is a meaning
+  // for, not one a producer might have forgotten. Marking the required
+  // references optional too would tell every consumer author that a transition
+  // may admit no record and a file may have no start state, which is the
+  // reading docs/ir/SPEC.md's "A transition may carry no predicate" is careful
+  // to allow about predicates and nothing else.
+  //
+  // What catches an omission instead is the obligation that is already on both
+  // sides: a producer MUST set every reference its position requires, and a
+  // consumer MUST resolve each one to a node of a kind that position admits and
+  // MUST report one that does not as a malformed descriptor.
+  uint64 id = 1;
+
+  oneof kind {
+    File file = 2;
+    Record record = 3;
+    Group group = 4;
+    Variant variant = 5;
+    Field field = 6;
+    Slack slack = 7;
+    Predicate predicate = 8;
+    State state = 9;
+    Transition transition = 10;
+    Register register = 11;
+    Binding binding = 12;
+    Guard guard = 13;
+  }
+}
+
+// File is the dataset: its physical framing and where the automaton starts.
+// Exactly one exists.
+//
+// It carries no record length, no maximum record length, no block size and no
+// descriptor-word width. Each is absent for a reason docs/ir/SPEC.md's "Lengths
+// the file node does not carry" gives, and the shortest of them is that a
+// consumer takes a record's end from its extent, so a length carried here is a
+// value a consumer would have to ignore.
+message File {
+  // Where one record's bytes end and the next record's begin. Framing bytes
+  // belong to the dataset and not to any record: no item covers them, they are
+  // not slack, and no predicate ever sees one.
+  //
+  // Four members, and none of them is a RECFM. A layout file keeps the
+  // adopter's spelling and resolve maps it; see docs/ir/SPEC.md, "Four framings,
+  // and none of them is a RECFM". Adding a fifth advances IrVersion.
+  oneof framing {
+    Unframed unframed = 1;
+    DescriptorWord descriptor_word = 2;
+    Segmented segmented = 3;
+    Delimited delimited = 4;
+  }
+
+  // The state the read begins in. A State node.
+  uint64 start_state_id = 5;
+}
+
+// Unframed: a record's bytes are its extent, beginning at the byte after the
+// record before it. What RECFM F and FB resolve to, and nothing else does.
+//
+// A descriptor whose framing is unframed MUST NOT carry a record type any item
+// of which has a repetition whose count is a reference, at any depth: a record
+// whose extent moves with its data has no single number of bytes to pad out to
+// a fixed stride. See docs/ir/SPEC.md, "A variable record does not fit a
+// fixed-length dataset".
+//
+// Empty rather than absent from the set, because "which of the four" is a
+// question every consumer asks and a framing carrying nothing still has to be
+// one of the four answers.
+message Unframed {}
+
+// DescriptorWord: each record is preceded by the record descriptor word DFSMS
+// defines. What RECFM V and VB resolve to.
+//
+// The descriptor word's own width comes with that definition and is not carried
+// here: a width beside it could hold a number describing no format anyone has.
+message DescriptorWord {}
+
+// Segmented: a record is the concatenation of its segments' data, each segment
+// preceded by a segment descriptor word. What RECFM VBS resolves to.
+message Segmented {
+  // The largest segment a writer may emit, in bytes. The only size any framing
+  // carries.
+  uint32 max_segment_size = 1;
+}
+
+// Delimited: a record's bytes are its extent, with the delimiter around it as
+// placement says. What line sequential and the line-delimited "RECFM=V" of
+// GnuCOBOL and Micro Focus resolve to.
+message Delimited {
+  // The delimiter as literal bytes, never a named character, a code point or a
+  // line-ending style. A producer MUST NOT emit an empty delimiter, and a
+  // consumer MUST compare it to the input as bytes and MUST NOT interpret
+  // either side through a charset.
+  //
+  // Bytes because nothing names the byte that ends a line-delimited record:
+  // cp037 and cp1047 disagree about which of 0x15 and 0x25 is LF, the same file
+  // through Linux ends its records with 0x0A and through Windows with 0x0D
+  // 0x0A, and a spec naming a character would have made one shop wrong about
+  // the other's files. See docs/ir/SPEC.md, "A delimiter is bytes, not a
+  // character".
+  bytes delimiter = 1;
+
+  DelimiterPlacement placement = 2;
+}
+
+// DelimiterPlacement is where a delimited file's delimiter stands relative to
+// the records it separates. It is carried rather than decided by a consumer
+// because it is what makes the end of a file checkable: under separator a
+// trailing delimiter announces a record that is not there, and under terminator
+// a final record with nothing behind it is a file that was cut short. See
+// docs/ir/SPEC.md, "Terminator, separator, and the last record".
+enum DelimiterPlacement {
+  DELIMITER_PLACEMENT_UNSPECIFIED = 0;
+
+  // A delimiter follows every record, the last included. A file of n records
+  // carries n of them.
+  DELIMITER_PLACEMENT_TERMINATOR = 1;
+
+  // A delimiter stands between two records. A file of n records carries n-1,
+  // and nothing follows the last record.
+  DELIMITER_PLACEMENT_SEPARATOR = 2;
+
+  // A delimiter follows every record, except that the file MAY end after the
+  // last record without one. A member because real files need it: a shop's
+  // extract carries the final delimiter on Tuesday and not on Wednesday, out of
+  // the same program over the same data.
+  DELIMITER_PLACEMENT_OPTIONAL_TERMINATOR = 3;
+}
+
+// Record is a record type: what a transition admits.
+message Record {
+  // The record's top level, a Group node.
+  //
+  // A group rather than either kind of item, because a record's top level holds
+  // the slack nodes that resolving REDEFINES away and padding to a fixed stride
+  // produce, and holding members is what a group is. The positions that admit
+  // more than one kind of node are enumerated in docs/ir/SPEC.md, "Identity,
+  // ordering and determinism", and this is not one of them.
+  uint64 root_id = 1;
+
+  Names names = 2;
+}
+
+// Group is an item holding other items.
+//
+// Its width is the sum of its members' and is not carried: no node in this file
+// carries a byte offset, and no record node carries a length. Position is
+// stated once, as ordering and width, so that a producer cannot state it a
+// second time and be wrong in a way no consumer could detect. See
+// docs/ir/SPEC.md, "Ordering and width, and no offset".
+message Group {
+  // The group's members in record order — the order in which they occupy bytes,
+  // which is data here and not a convention a consumer restores by sorting.
+  // Each names a Group, Variant, Field or Slack node.
+  //
+  // A member list MUST NOT contain two items whose extents overlap. REDEFINES
+  // is resolved away before the IR exists rather than carried; see
+  // docs/ir/SPEC.md, "Members never overlap, and `REDEFINES` is resolved away",
+  // and Variant for the one place an alternation survives.
+  //
+  // Containment is stated once, downward. A consumer needing a parent inverts
+  // the member lists while it indexes.
+  repeated uint64 member_ids = 1;
+
+  Names names = 2;
+
+  // Absent where the group does not repeat.
+  Repetition repetition = 3;
+}
+
+// Variant is an alternation over one run of bytes inside a table: what a
+// REDEFINES inside a repeating group resolves to, and the only place an
+// alternation survives resolution.
+//
+// It carries its arms and nothing else. No width, because the width is the
+// arms' common extent and a group's width is not carried either. No names,
+// because the copybook gives the alternation none — the redefined item is the
+// first arm and carries its own. No repetition, because a variant repeats by
+// sitting inside the group that does.
+//
+// A variant MUST be contained, at any depth, in a group that repeats, and a
+// producer MUST NOT emit one anywhere else: outside a table an alternative is
+// chosen once per record and becomes a Record node instead. See
+// docs/ir/SPEC.md, "A variant is chosen once per occurrence".
+message Variant {
+  // The arms in evaluation order. Every arm begins at the variant's first byte,
+  // so this order says nothing about position — it is the one ordered list in
+  // this schema that is not a member list.
+  //
+  // Every arm's extent MUST equal every other arm's, and no item of an arm MAY
+  // carry a repetition whose count is a reference at any depth. That one
+  // requirement is what keeps a variant's contribution to the sum constant, so
+  // that nothing else in this schema moves for it.
+  repeated Arm arms = 1;
+}
+
+// Arm is one alternative of a variant: the predicate that selects it and the
+// item that is its body.
+//
+// A repeated message on Variant rather than a thirteenth node kind. Nothing
+// points at an arm, so it needs no identifier, and a kind for it would be one
+// more member a consumer switches over in order to reach two references. A
+// repetition is already carried this way, on the item it belongs to rather than
+// as a node of its own.
+message Arm {
+  // The Predicate node that selects this arm. Always set, unlike a transition's
+  // — an arm chosen by nothing is not a thing an alternation can mean — and
+  // pointing at the same message a transition's predicate reference does. One
+  // closed set of tests, not a second set for arms.
+  //
+  // Where it is evaluated is what differs: inside one occurrence of the group
+  // that repeats, with the record already admitted, so its target MUST be
+  // contained in that occurrence. See docs/ir/SPEC.md, "A predicate on an arm
+  // reads one occurrence".
+  uint64 predicate_id = 1;
+
+  // The arm's body. Two kinds are admitted here and the reference says which,
+  // rather than leaving a consumer to dereference an untyped identifier and
+  // find out.
+  oneof body {
+    uint64 group_id = 2;
+    uint64 field_id = 3;
+  }
+}
+
+// Field is an elementary item.
+message Field {
+  // The item's width in bytes, for one occurrence. Widths come from cobol-go's
+  // codec/SPEC.md, "Storage Widths", and are resolved before the IR exists: an
+  // item carrying no logical value a generator can use — numeric-edited,
+  // national, INDEX, POINTER — still carries one, so that the sum stays
+  // correct across it.
+  uint32 width = 1;
+
+  Encoding encoding = 2;
+
+  Usage usage = 3;
+
+  // The attributes that follow from the item's PICTURE. Absent where the item
+  // has none: COMP-1 and COMP-2 do not permit a PICTURE, and INDEX and POINTER
+  // have no logical value to describe.
+  Picture picture = 4;
+
+  Names names = 5;
+
+  // Absent where the field does not repeat.
+  Repetition repetition = 6;
+}
+
+// Encoding is the four axes of an encoding, resolved.
+//
+// A producer MUST set all four on every field and MUST NOT leave one unset. A
+// consumer MUST NOT supply a default for a missing axis and MUST treat a field
+// missing one as a malformed descriptor: an IR that reached a generator with an
+// axis unresolved is a bug in resolve, and every one of the four fails silently
+// when wrong.
+//
+// Carried per field and not as a node, so nothing can point at it and nothing
+// can inherit from it. The layout format has a profile layer and per-field
+// overrides; resolution applies the second over the first, and what a field
+// carries is the result. A profile surviving into the IR would be an invitation
+// to inherit, which is a default, and the whole value of the resolved form is
+// that no default survives into it. A record whose fields disagree about
+// charset is therefore the ordinary case here rather than an exception. See
+// docs/ir/SPEC.md, "The encoding profile, applied".
+message Encoding {
+  Charset charset = 1;
+  SignConvention sign_convention = 2;
+  ByteOrder byte_order = 3;
+  FloatFormat float_format = 4;
+}
+
+// Charset governs alphanumeric character data, the digit zone of zoned decimal,
+// and the byte values of a separate sign. It governs nothing in packed, binary
+// or floating-point items; which axis touches which encoding is cobol-go's
+// codec/SPEC.md, "Charset as a First-Class Axis", and is not restated here.
+//
+// The members are the code pages that document names. A consumer MUST refuse a
+// value it does not recognise as a malformed descriptor rather than falling
+// back to one it does. Because an unrecognised value arrives as its own number
+// and is refused on sight, a code page added here later is not something a
+// consumer can silently misread, and adding one does not advance IrVersion —
+// unlike a member of the closed sets a consumer switches over to decide what
+// something means.
+enum Charset {
+  CHARSET_UNSPECIFIED = 0;
+  CHARSET_CP037 = 1;
+  CHARSET_CP500 = 2;
+  CHARSET_CP1047 = 3;
+  CHARSET_CP1140 = 4;
+
+  // ASCII, the identity translation.
+  CHARSET_ASCII = 5;
+}
+
+// SignConvention is how an overpunched sign is spelled in a zoned decimal byte.
+// It is a property of the file in hand and cannot be read from the copybook at
+// all, which is why it is an axis of its own rather than a consequence of
+// charset: a mainframe-written file converted to ASCII has ASCII characters,
+// translated-EBCDIC signs and big-endian binary, and no boolean expresses it.
+// Values and byte tables are cobol-go's codec/SPEC.md, "Zoned Sign
+// Conventions".
+enum SignConvention {
+  SIGN_CONVENTION_UNSPECIFIED = 0;
+
+  // Every EBCDIC file. Universal: there is no competing EBCDIC convention.
+  SIGN_CONVENTION_EBCDIC = 1;
+
+  // The native ASCII convention: Micro Focus, Microsoft COBOL, and GnuCOBOL
+  // compiling for ASCII.
+  SIGN_CONVENTION_ASCII_ZONE37 = 2;
+
+  // What an EBCDIC-to-ASCII text conversion produces from EBCDIC sign data.
+  SIGN_CONVENTION_TRANSLATED_EBCDIC = 3;
+
+  // CA Realia COBOL.
+  SIGN_CONVENTION_REALIA = 4;
+}
+
+// ByteOrder governs COMP, COMP-4 and COMP-5 binary integers. Weakly detectable
+// and never inferred; see cobol-go's codec/SPEC.md, "Byte order — an explicit
+// fork".
+enum ByteOrder {
+  BYTE_ORDER_UNSPECIFIED = 0;
+  BYTE_ORDER_BIG_ENDIAN = 1;
+  BYTE_ORDER_LITTLE_ENDIAN = 2;
+}
+
+// FloatFormat governs COMP-1 and COMP-2. Neither format can detect the other,
+// because every bit pattern is valid in both: an IBM HFP 1.0 read as IEEE is
+// 9.0, which is not an error, not a NaN and not out of range. See cobol-go's
+// codec/SPEC.md, "Two incompatible formats".
+enum FloatFormat {
+  FLOAT_FORMAT_UNSPECIFIED = 0;
+  FLOAT_FORMAT_IEEE754 = 1;
+  FLOAT_FORMAT_IBM_HFP = 2;
+}
+
+// Usage is the item's USAGE, resolved to the one the bytes are in rather than
+// to the alias the copybook spelled. Byte-level meaning is cobol-go's
+// codec/SPEC.md and is not restated here.
+enum Usage {
+  USAGE_UNSPECIFIED = 0;
+
+  // DISPLAY: one character per digit or character position.
+  USAGE_DISPLAY = 1;
+
+  // PACKED-DECIMAL, spelled COMP-3 or COMPUTATIONAL-3.
+  USAGE_PACKED_DECIMAL = 2;
+
+  // COMP-6: packed with no sign nibble. GnuCOBOL and Micro Focus.
+  USAGE_COMP_6 = 3;
+
+  // BINARY, spelled COMP, COMP-4 or COMPUTATIONAL.
+  USAGE_BINARY = 4;
+
+  // COMP-5: the same widths as BINARY, native byte order, different range
+  // semantics.
+  USAGE_COMP_5 = 5;
+
+  // COMP-1, spelled FLOAT-SHORT. Four bytes, no PICTURE.
+  USAGE_COMP_1 = 6;
+
+  // COMP-2, spelled FLOAT-LONG. Eight bytes, no PICTURE.
+  USAGE_COMP_2 = 7;
+
+  // INDEX. Carries a width so that the sum stays correct across it, and no
+  // logical value a generator can use.
+  USAGE_INDEX = 8;
+
+  // POINTER. As INDEX.
+  USAGE_POINTER = 9;
+
+  // NATIONAL. Carries a width so that the sum stays correct across it;
+  // codec/SPEC.md places national items out of scope and derives no PICTURE
+  // attributes for them, so a field carrying this usage carries no Picture.
+  USAGE_NATIONAL = 10;
+}
+
+// Picture is what the PICTURE character-string and the SIGN clause resolved to.
+// Deriving these is cobol-go's work and it is done before the IR exists; see
+// codec/SPEC.md, "From PICTURE to Attributes".
+message Picture {
+  Category category = 1;
+
+  // The number of stored digit positions: the count of 9 symbols with every
+  // repeat count expanded. P positions are digit positions of the value, occupy
+  // no storage, and are not counted here.
+  uint32 digits = 2;
+
+  // The scale, such that value = unscaled_integer * 10^(-scale). Signed,
+  // because a picture ending in a run of P has a negative one. Scale never
+  // affects the number of bytes and is not recoverable from them, which is why
+  // it is carried.
+  int32 scale = 3;
+
+  // Whether the item carries an operational sign: S present in the picture. An
+  // unsigned item stores the unsigned sign value for its encoding, and a
+  // negative value stored into it is stored as its absolute value.
+  bool signed = 4;
+
+  // Where the sign is held. SIGN_POSITION_UNSPECIFIED where the question does
+  // not arise: an unsigned item, or a USAGE the SIGN clause has no effect on,
+  // which is every usage other than DISPLAY.
+  SignPosition sign_position = 5;
+}
+
+// Category is the category the set of symbols in the picture fixes. Only
+// numeric items have a USAGE other than DISPLAY in any meaningful sense.
+enum Category {
+  CATEGORY_UNSPECIFIED = 0;
+  CATEGORY_NUMERIC = 1;
+  CATEGORY_ALPHABETIC = 2;
+  CATEGORY_ALPHANUMERIC = 3;
+  CATEGORY_NUMERIC_EDITED = 4;
+  CATEGORY_ALPHANUMERIC_EDITED = 5;
+}
+
+// SignPosition is the copybook's side of the sign: where an operational sign
+// sits and whether it takes a byte of its own. It is not SignConvention, which
+// is how a sign is spelled in the file in hand; both are needed and they are
+// different axes.
+enum SignPosition {
+  // The item holds no operational sign in a position: it is unsigned, or its
+  // USAGE is one the SIGN clause has no effect on.
+  SIGN_POSITION_UNSPECIFIED = 0;
+
+  SIGN_POSITION_LEADING = 1;
+
+  // The default for a signed DISPLAY item.
+  SIGN_POSITION_TRAILING = 2;
+
+  SIGN_POSITION_LEADING_SEPARATE = 3;
+  SIGN_POSITION_TRAILING_SEPARATE = 4;
+}
+
+// Slack is bytes that are part of the record and belong to no item: what
+// SYNCHRONIZED inserts ahead of an aligned item, what resolving REDEFINES away
+// leaves behind, and what padding a record out to a fixed stride adds.
+//
+// A width and nothing else. No fill byte, because a reader retains the bytes it
+// read and a writer emits what was retained; and no member naming which of the
+// three produced it, because nothing a consumer does depends on the answer. A
+// producer MUST emit one node per maximal run of such bytes, so that two runs
+// of different origin that abut are one node and not two. See docs/ir/SPEC.md,
+// "Slack is a node, not a rule" and "Slack survives a read".
+//
+// Alignment is therefore bytes a generator already has rather than a rule it
+// applies: a generator MUST NOT implement one, because there is nothing left
+// for it to do.
+message Slack {
+  uint32 width = 1;
+}
+
+// Repetition is what an item that repeats carries. An item that does not repeat
+// carries none.
+message Repetition {
+  oneof count {
+    // A constant number of occurrences: OCCURS n. Carries no bounds — there is
+    // nothing to check a constant against.
+    uint32 constant = 1;
+
+    // OCCURS DEPENDING ON: a count read at run time, with the bounds the
+    // copybook declared.
+    VariableCount variable = 2;
+  }
+}
+
+// VariableCount is an OCCURS DEPENDING ON count: where the number of
+// occurrences is read from, and what range the copybook says it may hold.
+//
+// The item's extent is the width of one occurrence times that count, and the
+// item behind it begins at the byte after the last occurrence the count states.
+// The table slides; the other vendor reading resolves to a constant repetition
+// and a field instead, so nothing here says which reading a file was written
+// under. See docs/ir/SPEC.md, "An item after a table slides, and the other
+// reading is a fixed table".
+message VariableCount {
+  // Where the count is read from. Two kinds of node are admitted and the
+  // reference says which, rather than leaving a consumer to dereference an
+  // untyped identifier and find out.
+  //
+  // A field count MUST be contained in the record being read, at any depth, and
+  // MUST lie ahead of the item it counts at a constant position. A register
+  // count MUST have been bound by a transition taken strictly earlier than the
+  // one admitting this record. Both are constraints resolve proves, not things
+  // this message carries; see docs/ir/SPEC.md, "A count is in hand before the
+  // extent it decides".
+  //
+  // Neither kind is one-to-one: two repeating items of one record MAY name the
+  // same count, and nothing here distinguishes a count two repetitions share
+  // from one a single repetition names, because the sharing is two repetitions
+  // pointing at one node.
+  oneof count {
+    uint64 field_id = 1;
+    uint64 register_id = 2;
+  }
+
+  // The copybook's own OCCURS integer-1 TO integer-2, carried for one purpose:
+  // a count outside them is malformed data and a consumer MUST report it rather
+  // than reading that many occurrences. Nothing else in this schema reads them.
+  //
+  // Without them the check does not exist. A descriptor word stating the length
+  // a forbidden count implies agrees with the extent exactly, so the framing
+  // check passes on a record the copybook says cannot exist — which is what a
+  // file written against a later version of that copybook looks like.
+  uint32 min_occurrences = 3;
+  uint32 max_occurrences = 4;
+}
+
+// Names is what a named node is called. Group, Field and Record nodes carry
+// one; Variant, Slack and State nodes have no names at all.
+//
+// A name is not identity: a consumer MUST resolve a reference by identifier and
+// MUST NOT look a node up by name, because duplicate data names are legal
+// COBOL. A name is also local — no node carries a materialised qualified path,
+// for the same reason none carries an offset. A consumer needing one walks the
+// member lists it has already inverted.
+message Names {
+  // The name as the copybook spells it. Present even where an override is: a
+  // rename substitutes a name, and the substitute is carried beside the
+  // original rather than in place of it, so that generated code can still point
+  // back at the copybook it came from.
+  //
+  // Language-neutral. A producer MUST NOT apply the casing or identifier
+  // conventions of any language to either name; turning one into an identifier
+  // in some target language is the generator's work.
+  string original = 1;
+
+  // The rename an adopter asked for, absent where they asked for none.
+  optional string override_name = 2;
+}
+
+// Predicate is a compiled discriminator: the field node it tests, and the test.
+//
+// Two things select on bytes and they share this kind and this set of tests: a
+// transition, choosing a record, and an arm of a variant, choosing an
+// alternative inside one occurrence of a table.
+//
+// A consumer evaluates one knowing no COBOL and knowing nothing about what the
+// strategy that produced it was called in a layout file. See docs/ir/SPEC.md,
+// "Discriminator predicates".
+message Predicate {
+  // The Field node whose bytes are tested. Always set: every member of the set
+  // names a field, there is no member testing a record's length or where it
+  // sits in the stream, and selecting a transition on nothing at all is the
+  // absence of a predicate rather than a member here. See docs/ir/SPEC.md, "A
+  // predicate always names a field".
+  //
+  // A producer MUST ensure the target is contained in the record the referring
+  // transition admits, at any depth, and MUST NOT name a field of any other. It
+  // MUST NOT name a register — a predicate reads the bytes in front of the
+  // consumer and a guard reads what the automaton remembers, and neither
+  // reaches into the other's half.
+  //
+  // The target MUST NOT repeat and MUST NOT sit inside a group that repeats,
+  // and its position MUST be constant within the record: no item ahead of it
+  // may carry a repetition whose count is a reference. A target whose position
+  // depended on a count would oblige a consumer to decode that count out of
+  // bytes it has not identified yet.
+  uint64 field_id = 1;
+
+  // The test.
+  //
+  // The set is closed so that it can be checked for overlap and for
+  // exhaustiveness, and so that the IR stays data rather than carrying source
+  // only one language could run. Its membership lands with the layout
+  // format's discriminator strategies (#22, #28), which are what lower into it;
+  // until then it holds the one test those strategies all reduce to. Every
+  // member that lands MUST be decidable by a writer against the record it is
+  // about to emit, from that record's bytes and its own position in the
+  // automaton, at the moment it emits it — see docs/ir/SPEC.md, "A writer
+  // evaluates a predicate, it never inverts one". Adding one advances
+  // IrVersion, which is why the set is settled before the first release rather
+  // than grown afterwards.
+  oneof test {
+    BytesEqual bytes_equal = 2;
+  }
+}
+
+// BytesEqual is satisfied when the target field's bytes are the carried
+// literal.
+message BytesEqual {
+  // The literal, already padded by the producer to the target field's width, so
+  // that a consumer compares the whole of the target's bytes rather than a
+  // prefix of them. Padding a literal out to a field's width is a COBOL
+  // comparison rule and applying it is the producer's work like every other; a
+  // consumer left to decide whether "Y" matches "Y " is a consumer that decides
+  // differently in each language.
+  bytes value = 1;
+}
+
+// State is a state of the record automaton. Sequencing reaches a generator
+// compiled: no consumer parses a grammar and no generator author implements
+// one. See docs/ir/SPEC.md, "The sequencing automaton".
+//
+// States carry identifiers and no names.
+message State {
+  // Whether reaching the end of the input in this state is a complete file.
+  bool accepts = 1;
+
+  // Guard nodes qualifying that acceptance, where it is conditional. All of
+  // them MUST hold, so their order is not significant, and they are evaluated
+  // against the register file as it stands on entry to the state.
+  //
+  // Empty where acceptance is unconditional — which, on a state that does not
+  // accept at all, it is.
+  repeated uint64 acceptance_guard_ids = 2;
+
+  // The transitions leaving this state, in the order a consumer evaluates them.
+  repeated uint64 transition_ids = 3;
+}
+
+// Transition is one edge of the record automaton: it consumes exactly one
+// record. There are no epsilon transitions.
+message Transition {
+  // The Record node this transition admits. A producer MUST NOT emit a
+  // transition admitting a record whose extent is zero.
+  uint64 record_id = 1;
+
+  // The State node this transition moves to. A cycle here is a file that
+  // repeats a record, which is most files.
+  uint64 next_state_id = 2;
+
+  // The Predicate node that selects this transition, where it carries one.
+  //
+  // Explicitly optional, and that is the point of the keyword: a transition MAY
+  // carry no predicate, one that does not matches every record, and an absent
+  // reference MUST be distinguishable from every identifier a node may carry so
+  // that a consumer never reads one as identifier zero. A sentinel value would
+  // not have been distinguishable, because zero is an ordinary identifier.
+  //
+  // It is optional in the first release rather than later because a consumer
+  // that has not heard of the relaxation reads an unset reference as a
+  // malformed descriptor and refuses a conforming file — a file with one record
+  // type has nothing for a predicate to test. A producer SHOULD still carry one
+  // wherever the record offers a target, because a predicate the automaton does
+  // not need in order to choose is the only detection such a state has. See
+  // docs/ir/SPEC.md, "A transition may carry no predicate".
+  optional uint64 predicate_id = 3;
+
+  // Guard nodes making this transition eligible. All of them MUST hold, so
+  // their order is not significant. A transition carrying none is always
+  // eligible. Guards are evaluated before the record in front of the consumer
+  // is examined at all, and against the register file as it stands on entry to
+  // the state, so a guard never reads what its own transition binds.
+  repeated uint64 guard_ids = 4;
+
+  // Binding nodes this transition applies. They apply when the transition is
+  // taken, after the record is admitted, and each reads the register file as it
+  // stood on entry to the state — so their order is not significant either, and
+  // nothing this transition reads sees what it writes. A producer MUST NOT put
+  // two bindings writing one register on a single transition.
+  repeated uint64 binding_ids = 5;
+}
+
+// Register is a value the automaton carries forward between records: how a
+// header's count or flag governs records other than the one holding it.
+//
+// It declares the kind of value it holds and nothing more. There is one
+// register file for the whole read, a register holds what the most recent
+// binding put in it, and nothing saves or restores one — so the count in force
+// is the one from the nearest preceding record that bound it, along the path
+// actually taken. See docs/ir/SPEC.md, "The automaton remembers, in registers".
+message Register {
+  RegisterKind kind = 1;
+}
+
+// RegisterKind is what a register holds.
+enum RegisterKind {
+  REGISTER_KIND_UNSPECIFIED = 0;
+
+  // The source field's bytes as they appear in the record, so that a guard over
+  // one is a byte comparison needing no charset knowledge.
+  REGISTER_KIND_BYTES = 1;
+
+  // A number, decoded from the source field by that field's own four encoding
+  // axes, because a count is arithmetic and the field holding one may be zoned,
+  // packed or binary.
+  REGISTER_KIND_INTEGER = 2;
+}
+
+// Binding writes a register. It is the only thing that does: no register is
+// derived from anything, and every value in one was put there by a binding
+// naming where it came from.
+message Binding {
+  // The Register node written.
+  uint64 register_id = 1;
+
+  // The value written. A producer MUST NOT bind a field whose value does not
+  // decode to the register's kind, and a consumer MUST report a source field it
+  // cannot decode as that kind as malformed data rather than substituting a
+  // zero or spaces.
+  oneof value {
+    // A Field node contained in the record the transition admits. A producer
+    // MUST NOT name a field of any other record — the admitted record is the
+    // one the consumer has bytes for — and MUST NOT name a field that repeats
+    // or one inside a group that repeats.
+    uint64 field_id = 2;
+
+    // The register's own value, less one. This member exists to count: a
+    // transition that admits one detail and takes one off the counter is how a
+    // run of n records is read without n states.
+    //
+    // A producer MUST guard such a transition so that the register cannot run
+    // below zero, and a consumer reaching one that would MUST report it rather
+    // than wrapping or clamping.
+    Decrement decrement = 3;
+  }
+}
+
+// Decrement carries nothing: which register is written is Binding's, and there
+// is no operand.
+message Decrement {}
+
+// Guard reads a register and decides whether the transition carrying it is
+// eligible at all — or, on a state, whether reaching the end of the input there
+// is a complete file.
+//
+// A guard MUST NOT name a field node. A guard reads what the automaton
+// remembers; a predicate reads the bytes in front of the consumer.
+message Guard {
+  // The Register node tested.
+  uint64 register_id = 1;
+
+  // The test: three members and no fourth. Conjunction is the guard list,
+  // disjunction is a second transition leaving the same state, and a state
+  // already is a disjunction, so the set needs neither. Its membership is
+  // settled here rather than deferred the way the predicate set's is, because a
+  // guard reads a value this schema's own machinery put in a register: there is
+  // no layout-side strategy list for it to follow.
+  oneof test {
+    // The register equals the carried literal.
+    Literal equals = 2;
+
+    // The register is one of the carried literals.
+    LiteralSet one_of = 3;
+
+    // The register holds an integer greater than zero.
+    GreaterThanZero greater_than_zero = 4;
+  }
+}
+
+// Literal is a value a guard compares a register against. Which member is set
+// MUST match the kind of the register tested, which is why this mirrors
+// RegisterKind rather than carrying an untyped byte string.
+message Literal {
+  oneof value {
+    // Compared against a bytes register, already padded by the producer to the
+    // width of the value it will be compared against; a consumer MUST compare
+    // the whole of that value rather than a prefix of it.
+    bytes bytes_value = 1;
+
+    // Compared against an integer register.
+    int64 integer = 2;
+  }
+}
+
+// LiteralSet is the set a one-of guard tests against.
+message LiteralSet {
+  repeated Literal values = 1;
+}
+
+// GreaterThanZero carries nothing: which register is tested is Guard's, and the
+// bound is the name.
+message GreaterThanZero {}

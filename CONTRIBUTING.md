@@ -2,10 +2,10 @@
 
 ## The pipeline
 
-fmt, vet, golangci-lint and `go test -race` are defined once, in the root Dagger
-module under [`.dagger/`](.dagger/). CI calls that module and so do you, which is
-the point: there is no arrangement of local commands that passes while CI fails,
-because they are the same functions.
+fmt, vet, golangci-lint, `go test -race` and `buf lint` are defined once, in the
+root Dagger module under [`.dagger/`](.dagger/). CI calls that module and so do
+you, which is the point: there is no arrangement of local commands that passes
+while CI fails, because they are the same functions.
 
 Run the whole thing before pushing:
 
@@ -14,7 +14,8 @@ dagger call ci
 ```
 
 That is the same call CI makes, with no arguments on either side. It runs the
-four stages in parallel and reports every failure, not just the first.
+four Go stages in parallel and reports every failure, not just the first, and it
+runs the schema lint alongside them.
 
 ### Running one stage
 
@@ -22,18 +23,22 @@ four stages in parallel and reports every failure, not just the first.
 it reported.
 
 ```sh
-dagger call fmt    # gofmt, reported as a diff of what it would rewrite
-dagger call vet    # go vet ./...
-dagger call lint   # golangci-lint over ./... against .golangci.yml
-dagger call test   # go test -race ./...
+dagger call fmt         # gofmt, reported as a diff of what it would rewrite
+dagger call vet         # go vet ./...
+dagger call lint        # golangci-lint over ./... against .golangci.yml
+dagger call test        # go test -race ./...
+dagger call proto-lint  # buf lint over proto/ against buf.yaml
 ```
 
-These are not a second definition of the pipeline. Each drives the same builder
-`ci` drives with one stage enabled instead of four, against the same lint
-configuration, so a stage that passes on its own passes inside `ci`.
+The first four are not a second definition of the pipeline. Each drives the same
+builder `ci` drives with one stage enabled instead of four, against the same lint
+configuration, so a stage that passes on its own passes inside `ci`. `proto-lint`
+is the one `ci` calls directly rather than through the standard, because the
+standard has no protobuf stage to wrap; see [Linting the IR
+schema](#linting-the-ir-schema).
 
-`dagger check` runs all five as a checklist, if you would rather see them
-together than pick one.
+`dagger check` runs all six as a checklist, if you would rather see them together
+than pick one.
 
 ### Getting the tools
 
@@ -114,6 +119,32 @@ v2 syntax once the standard pipeline runs v2 — tracked upstream as
 
 If you run `golangci-lint` directly rather than through `dagger call lint`, use
 v1.64.8 or it will reject the config for the mirror-image reason.
+
+### Linting the IR schema
+
+The resolved IR's protobuf schema lives at
+[`proto/cpybkc/ir/v1/ir.proto`](proto/cpybkc/ir/v1/ir.proto), and `buf.yaml` at
+the repository root configures the lint over it: buf's `STANDARD` category, with
+no exceptions and nothing ignored. `dagger call proto-lint` is what runs it, and
+`ci` runs it too, so the gate covers the schema.
+
+That stage is this repository's own rather than the standard's, because the
+Z5Labs Go pipeline has no protobuf stage to wrap. It is still one definition
+rather than two: the buf release is pinned by tag *and* by digest in
+[`.dagger/main.go`](.dagger/main.go), and the configuration it reads is the
+`buf.yaml` committed here, for the same reason the Go lint stage is handed this
+repository's `.golangci.yml`.
+
+`buf` is not needed locally — the stage runs it in a container, like every other.
+If you have the CLI, `buf lint` from the repository root reads the same file and
+gives the same answer.
+
+Changing the schema is not only a lint question. `ir.proto`'s own comments carry
+the compatibility policy — which edits require `Descriptor.version` to advance,
+and why that rule is stricter than what protobuf calls wire-compatible — and
+[`docs/ir/SPEC.md`](docs/ir/SPEC.md) is normative for what every node means. A
+new node kind, or a new member of any closed set in the file, advances the
+version even though `buf` will not say so.
 
 ## Specs
 

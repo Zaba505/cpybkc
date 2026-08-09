@@ -30,15 +30,38 @@
 // reason — a bump has to move them together, or a stage run on its own stops
 // being the stage Ci runs.
 //
+// # Why ProtoLint is not one of them
+//
+// ProtoLint is this repository's own, not the standard's: the Z5Labs Go
+// pipeline has no protobuf stage to wrap, and the IR schema under proto/ is a
+// contract third parties build against, so it is checked. It runs buf against
+// the buf.yaml committed here, for the reason Lint is passed this repository's
+// .golangci.yml — a configuration CI ignored would be a file contributors read
+// and trusted while the pipeline enforced something else.
+//
+// Ci runs it alongside the standard rather than beside it in the workflow. A
+// second `dagger call` in .github/workflows/ci.yaml would have been the other
+// shape, and it costs the one property this module exists for: `dagger call ci`
+// is the gate a contributor runs, and a check CI performs that the gate does
+// not is an arrangement of local commands that passes while CI fails.
+//
 // Ci is what CI calls and what a contributor should run before pushing. The
 // stage functions are for narrowing down what Ci reported.
 package main
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"dagger/cpybkc/internal/dagger"
 )
+
+// The buf release ProtoLint runs, pinned by tag and by digest. The tag says
+// which release it is and the digest is what actually resolves, so a retagged
+// image cannot change what this repository lints against without the change
+// appearing in a diff — the same promise dagger.json's dependency pins make.
+const bufImage = "bufbuild/buf:1.72.0@sha256:65bd496a89c762ad7151ca9e7d885a45dacb3671a8e8ec39738b9f844d3405ea"
 
 // Cpybkc is the root module type. Source and the lint configuration are bound
 // once at construction so every function below checks the same tree the same
@@ -86,16 +109,39 @@ func New(
 }
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
-// the Z5Labs standard defines them. This is the single entrypoint — CI is one
-// `dagger call ci` and stays one, because a workflow step that reran any of
-// these stages would be a second definition of them.
+// the Z5Labs standard defines them, plus `buf lint` over the IR schema. This is
+// the single entrypoint — CI is one `dagger call ci` and stays one, because a
+// workflow step that reran any of these stages would be a second definition of
+// them.
+//
+// The two halves run concurrently and both are reported, for the reason the
+// standard runs its own four that way: waiting on a Go stage to learn that the
+// schema is unlintable, or the reverse, is a second push to find out about the
+// second failure.
 //
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	return dag.Z5Labs().
-		GoLib(m.Source, dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
-		Ci(ctx)
+	var goErr, protoErr error
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		goErr = dag.Z5Labs().
+			GoLib(m.Source, dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
+			Ci(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		protoErr = m.ProtoLint(ctx)
+	}()
+
+	wg.Wait()
+
+	return errors.Join(goErr, protoErr)
 }
 
 // Fmt reports any file that gofmt would rewrite, as a diff.
@@ -134,6 +180,31 @@ func (m *Cpybkc) Test(ctx context.Context) error {
 	return m.stage().
 		WithTest(dagger.GoCiWithTestOpts{Race: true}).
 		Check(ctx)
+}
+
+// ProtoLint runs `buf lint` over proto/ against this repository's buf.yaml.
+//
+// buf rather than protoc: the schema's problems are naming and layout ones a
+// compiler has no opinion about, and the rule that made this worth wiring up is
+// ENUM_ZERO_VALUE_SUFFIX — an enum whose zero value is a real member is an
+// encoding axis a producer can leave unset and a consumer cannot tell from one
+// that was resolved, which is the failure docs/ir/SPEC.md's "The encoding
+// profile, applied" spends a section refusing.
+//
+// The whole source is mounted rather than just proto/, because buf.yaml sits at
+// the repository root and names the module below it. Nothing else in the tree
+// is read.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) ProtoLint(ctx context.Context) error {
+	_, err := dag.Container().
+		From(bufImage).
+		WithMountedDirectory("/src", m.Source).
+		WithWorkdir("/src").
+		WithExec([]string{"buf", "lint"}).
+		Sync(ctx)
+	return err
 }
 
 // stage returns the check builder the standard pipeline builds on, bound to
