@@ -15,11 +15,13 @@
 // declaration cannot reach, and this package is where those land.
 //
 // Each layer of the format gets a reader here, and a type for what the layer
-// says. [ReadProfile] is the encoding profile (#25); physical framing, record
-// definitions, discrimination and sequencing arrive beside it (#26–#30). What
-// they have in common is that a value handed back is one the format admits: a
-// [Profile] carries four stated axes because a profile stating three is an error
-// and not a value with a hole in it.
+// says. [ReadProfile] is the encoding profile (#25) and [ReadFraming] is the
+// physical framing (#26); record definitions, discrimination and sequencing
+// arrive beside them (#27–#30). What they have in common is that a value handed
+// back is one the format admits: a [Profile] carries four stated axes because a
+// profile stating three is an error and not a value with a hole in it, and a
+// [Framing] resolves to one of the IR's four framings because the one record
+// format that resolves to none is rejected while the layout is read.
 //
 // # Why the model is not the AST
 //
