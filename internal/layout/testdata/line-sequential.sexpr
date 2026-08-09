@@ -1,0 +1,21 @@
+;; A layout on disk, for the one thing an in-memory reader cannot cover: that
+;; ParseFile names the file it read, on every position in it.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order little-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm line-sequential)
+  (delimiter (bytes "0A"))
+  (placement terminator))
+
+(record HEADER (copybook "cpy/export.cpy" HEADER-REC))
+(record DETAIL (copybook "cpy/export.cpy" DETAIL-REC))
+
+(discriminate HEADER (equals (item HEADER H-TYPE) "H"))
+(discriminate DETAIL (one-of (item DETAIL D-TYPE) "D" "E"))
+
+(sequence
+  (seq HEADER (+ DETAIL)))
