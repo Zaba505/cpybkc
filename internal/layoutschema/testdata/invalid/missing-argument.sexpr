@@ -1,0 +1,17 @@
+;; want: form "equals" takes exactly one for its value argument
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80))
+
+(record TRANSACTION
+  (copybook "cpy/txn.cpy" TRANSACTION-REC))
+
+(discriminate TRANSACTION (equals (item TRANSACTION TX-TYPE)))
+
+(sequence (* TRANSACTION))

@@ -920,6 +920,111 @@ apart, or what an automaton does when no transition matches. Those are the IR's
 (#16), settled before this notation existed so that the meanings would not be
 back-derived from the spelling.
 
+## The published schema
+
+The schema is the machine-readable contract [The surface
+syntax](#the-surface-syntax)'s first requirement asks for: the thing a layout
+generator targets and a validator checks. It is `layout-schema.sexpr`, an asset
+on every release, and it is `schema/layout.sexpr` in this repository (#23).
+
+### It is written in the notation it describes
+
+The schema is a set of **form declarations**, written as tagged forms over
+[`z5labs/sexpr-go`](https://github.com/z5labs/sexpr-go)'s grammar — the same
+grammar, and the same shape, as the layouts it describes. That is the dialect,
+and naming it is not a formality: a schema means nothing without the language it
+is written in, and a consumer has to know what to reach for before it can read
+one.
+
+Its own vocabulary is nine tags, none of which appears in a layout: `schema`,
+`sort`, `reference`, `form`, `in`, `arity`, `layer`, `argument` and `child`. A
+`form` declaration states one layout form — where it may appear, how many times,
+its positional arguments in order, and the children it admits with their
+arities. A `sort` names what may stand in a position. A `reference` is a sort
+whose member is a symbol naming an argument of another form, which is how the
+schema says what a reference **MUST** name.
+
+Writing it in the notation rather than in a standard schema language is the
+trade [Tagged forms over
+S-expressions](#tagged-forms-over-s-expressions) argues for and it buys two
+things at that price. A generator targeting the schema emits the notation it
+already has an emitter for and reads the contract with the parser it already
+has. And a diagnostic about the schema and a diagnostic about a layout are the
+same kind of thing with the same kind of span on them, because both are
+positions into S-expression source.
+
+Arities are spelled `exactly-one`, `at-most-one`, `one-or-more`, `zero-or-more`
+and `two-or-more`, for this document's `1`, `0..1`, `1..n`, `0..n` and the two
+or more that `seq` and `alt` take. They are symbols rather than the notation
+above because `0..1` is not a lexeme the grammar admits — it opens like a number
+and is a malformed one.
+
+### The version is in the file, and it moves with the format
+
+The schema carries a single monotonic integer version, stated by the `schema`
+declaration it opens with. A consumer **MUST** read it before anything else, and
+**MUST** refuse a schema whose version it does not know rather than proceeding
+on the declarations it recognises.
+
+It is in the file rather than in its name or its path because a release asset
+travels alone: an adopter has the bytes and nothing around them, and a version
+written in a path is a version the download loses. It is one integer and not a
+major and a minor for the reason
+[`ir/SPEC.md`](../ir/SPEC.md#the-version-field) gives for the IR's — the only
+question a consumer can act on is whether it understands what is in front of it,
+and a minor number exists to let it answer "not entirely, but I will continue
+anyway".
+
+The version advances for every change to what a layout may say, and there is no
+additive change that leaves it alone. That is a property of the vocabulary
+rather than an omission: every set in this format is closed, so a form, a child
+or a value a reader has never seen is a diagnostic rather than something it can
+ignore. It is the same standing cost
+[`ir/SPEC.md`](../ir/SPEC.md#what-breaks-it) accepts for the flat node set,
+arriving from the source side, and it is why the sets are settled before the
+first release rather than grown afterwards. An edit changing no declaration — a
+comment, a reordering — leaves the version alone, because nothing a generator or
+a reader can observe has changed.
+
+The version is not this document's. A spec carries no version number
+([CONVENTIONS.md](../CONVENTIONS.md)); what is versioned is the interface, and
+the schema is where that number lives for this one.
+
+### What the schema does not say
+
+The schema states what a layout is **shaped** like. A layout it accepts is
+well-formed, not valid, and four classes of rule are deliberately outside it.
+
+**Conditional arities.** `lrecl` is required under `F` and `FB`, `max-segment`
+under `VBS`, `delimiter` and `placement` under `line-sequential`. The schema
+declares the widest form, exactly as [Physical framing](#physical-framing)'s
+table does, and the conditions are the layout reader's (#24).
+
+**Spellings admitted in order to be rejected by name.** `U` and `(blocks
+in-stream)` are members of their sets here, for the reason each is admitted at
+all: a format with no spelling for them would leave the adopter who has one
+describing their file as something else. What rejects them, with the diagnostic
+each is owed, is the reader.
+
+**Rules counting one form against another.** Exactly one `discriminate` per
+`record`, every `record` appearing somewhere in the sequencing expression, an
+`encoding-override` naming at least one axis. A declaration is about one form
+and its positions, so a rule relating two of them is the reader's. The one
+cross-form statement the schema does make is the reference, and it is the
+important one: a position declared to name a `record` **MUST** name one the
+layout defines, which is what makes a reference checkable rather than
+conventional.
+
+**Everything a copybook decides**, which is
+[Validation and diagnostics](#validation-and-diagnostics)'s second list entire.
+
+None of the four is a gap to be closed later by growing the vocabulary. A schema
+carrying a conditional arity would be a second statement of a rule the reader
+already enforces, kept in step by hand, for the two to disagree about — and the
+disagreement would surface as a layout the published schema accepts and the
+reader does not, which is the failure [The S-expression
+grammar](#the-s-expression-grammar) refuses one layer down.
+
 ## Validation and diagnostics
 
 A layout is checked in two places, and which place a check lands in follows from
@@ -951,6 +1056,15 @@ The split is not a policy. A check that needs a copybook cannot run before one
 has been read, and a check that does not **SHOULD** run in the reader, so that a
 layout with a misspelled tag is reported as a misspelled tag rather than as
 whatever it fails to resolve into.
+
+Most of the reader's list is [the published
+schema](#the-published-schema)'s rather than a second reading of this document.
+An unknown tag, an unknown child, a repeated child, a missing required child, a
+value outside a closed set and a reference naming no record are each something a
+declaration states, and the reader performs them by reading the schema rather
+than by carrying a copy of the tables above. What is left to it is what a
+declaration cannot say: the conditional arities, the spellings rejected by name,
+and the rules counting one form against another.
 
 ### Every diagnostic carries a span, and some carry two
 
@@ -1123,10 +1237,11 @@ computed once by `resolve`.
 
 | Section | Implemented by |
 |---|---|
-| [The surface syntax](#the-surface-syntax) | #22, #23 `layout` |
+| [The surface syntax](#the-surface-syntax) | #22 `layout` |
 | [The encoding profile](#the-encoding-profile) | #25 `layout` |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout` |
 | [Discrimination](#discrimination) | #28 `layout` |
 | [Sequencing](#sequencing) | #29 `layout` |
+| [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |

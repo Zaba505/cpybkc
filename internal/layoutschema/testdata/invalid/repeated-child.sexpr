@@ -1,0 +1,18 @@
+;; want: form "framing" takes at most one lrecl
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80)
+  (lrecl 80))
+
+(record TRANSACTION
+  (copybook "cpy/txn.cpy" TRANSACTION-REC))
+
+(discriminate TRANSACTION single-record-type)
+
+(sequence (* TRANSACTION))

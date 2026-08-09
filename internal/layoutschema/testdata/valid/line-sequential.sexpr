@@ -1,0 +1,26 @@
+;; A line-delimited extract written on Linux: a header, a run of details and
+;; footers in any order, and a rename carried through to generated code.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order little-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm line-sequential)
+  (delimiter (bytes "0A"))
+  (placement terminator))
+
+(record HEADER (copybook "cpy/export.cpy" HEADER-REC))
+(record DETAIL (copybook "cpy/export.cpy" DETAIL-REC))
+(record FOOTER (copybook "cpy/export.cpy" FOOTER-REC))
+
+(rename (item DETAIL D-KEY D-CUST-NO) "CustomerNumber")
+
+(discriminate HEADER (equals (item HEADER H-TYPE) "H"))
+(discriminate DETAIL (one-of (item DETAIL D-TYPE) "D" "E"))
+(discriminate FOOTER (equals (item FOOTER F-TYPE) (bytes "C6")))
+
+(sequence
+  (seq HEADER
+       (+ (alt DETAIL FOOTER))))

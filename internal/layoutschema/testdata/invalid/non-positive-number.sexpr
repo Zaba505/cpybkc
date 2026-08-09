@@ -1,0 +1,17 @@
+;; want: value of form "lrecl" is a positive integer
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 0))
+
+(record TRANSACTION
+  (copybook "cpy/txn.cpy" TRANSACTION-REC))
+
+(discriminate TRANSACTION single-record-type)
+
+(sequence (* TRANSACTION))

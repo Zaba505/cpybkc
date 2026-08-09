@@ -1,0 +1,242 @@
+;; The published schema for the cpybkc file layout format.
+;;
+;; This is the machine-readable contract a generator targets and cpybkc's own
+;; validator checks a layout against. It is the artifact docs/layout/SPEC.md's
+;; "The published schema" specifies; that section is normative and this file is
+;; what it describes.
+;;
+;; It is written in the notation it describes — tagged forms over z5labs/sexpr-go's
+;; grammar — because a generator that can emit a layout can already read this, and
+;; a diagnostic about the schema and a diagnostic about a layout are then the same
+;; kind of thing with the same kind of span on it.
+;;
+;; The vocabulary is small and closed. Nine tags appear at the top of this file
+;; and nowhere in a layout: schema, sort, reference, form, in, arity, layer,
+;; argument, child. Everything else here is the name of a layout form, of one of
+;; its arguments, or of a value it may hold.
+;;
+;;   (schema <name> <version>)   what is described, and which version of it
+;;   (sort <name> <member> ...)  a name for what may stand in a position
+;;   (reference <sort> <form> <argument>)
+;;                               a sort whose member is a symbol naming that
+;;                               argument of some <form> in the same layout
+;;   (form <tag> ...)            one layout form: where it may appear, how many
+;;                               times, its positional arguments in order, and
+;;                               the children it admits
+;;
+;; A form carrying (in ...) is reachable from a context: `top-level`, meaning
+;; the layout itself, or the name of a sort. A form carrying no (in ...) is a
+;; child, reachable only where a parent's (child ...) names it. Arity always
+;; sits at the position rather than on the form, which is why `charset` is
+;; required under `encoding` and optional under `encoding-override` without
+;; being declared twice.
+;;
+;; Arities are spelled `exactly-one`, `at-most-one`, `one-or-more`,
+;; `zero-or-more` and `two-or-more`, for SPEC.md's 1, 0..1, 1..n, 0..n and the
+;; two-or-more `seq` and `alt` take. They are symbols rather than SPEC.md's
+;; digits because `0..1` is not a lexeme the grammar admits.
+;;
+;; Argument sorts are a primitive — `symbol`, `text`, `number`,
+;; `positive-number` — a sort declared below, or an inline closed set written
+;; `(values ...)`. Each closed set is inline because each is used in exactly one
+;; position; a set named and referred to by name would be a second place to look
+;; for what a `recfm` may say.
+;;
+;; What this file does not carry, and where each lands instead, is
+;; docs/layout/SPEC.md's "What the schema does not say". In short: conditional
+;; arities, spellings admitted in order to be rejected by name, rules relating
+;; two forms, and everything needing a copybook are the layout reader's and
+;; `resolve`'s. A layout this schema accepts is well-formed, not valid.
+
+(schema layout 1)
+
+;;; Sorts --------------------------------------------------------------------
+
+;; An item reference — SPEC.md's "An item reference" — wherever one appears.
+(sort item-ref (form item))
+
+;; A run of bytes given literally, with no charset and no padding.
+(sort byte-string (form bytes))
+
+;; A discriminator literal: text, a number, or bytes. Which one it is decides
+;; what it is compared against, and that resolution is `resolve`'s.
+(sort literal text number byte-string)
+
+;; What `when` tests a value against: one literal, or one of several.
+(sort match literal (form one-of))
+
+;; A discrimination strategy. The set is closed for v1.
+(sort strategy (form equals) (form one-of) (symbol single-record-type))
+
+;; A sequencing expression: a record name, or one of the seven operators. The
+;; set is closed for the same reason the strategies are.
+(sort expression
+  record-name
+  (form seq)
+  (form alt)
+  (form *)
+  (form +)
+  (form ?)
+  (form times)
+  (form when))
+
+;; A symbol naming a record the same layout defines.
+(reference record-name record name)
+
+;;; References and literals --------------------------------------------------
+
+;; (item <record-name> <name> ...) — the record, then the path from its
+;; top-level item down to the item named, one name per level, outermost first.
+;; The top-level item's own name is not repeated.
+(form item (in item-ref)
+  (argument record record-name exactly-one)
+  (argument name symbol one-or-more))
+
+;; (bytes "F0F1") — hexadecimal digits in pairs. That the text is hexadecimal,
+;; and that a byte string of no bytes is a diagnostic, are the reader's.
+(form bytes (in byte-string)
+  (argument hex text exactly-one))
+
+;;; The encoding profile ------------------------------------------------------
+
+(form encoding (in top-level) (arity exactly-one) (layer encoding-profile)
+  (child charset exactly-one)
+  (child sign-convention exactly-one)
+  (child byte-order exactly-one)
+  (child float-format exactly-one))
+
+(form encoding-override (in top-level) (arity zero-or-more) (layer encoding-profile)
+  (argument item item-ref exactly-one)
+  (child charset at-most-one)
+  (child sign-convention at-most-one)
+  (child byte-order at-most-one)
+  (child float-format at-most-one))
+
+;; `charset` takes a symbol and not a closed set. The charsets are
+;; `cobol-go`'s `codec/SPEC.md`'s, and a code page added to that axis would
+;; otherwise have to be added here before an adopter could name it.
+(form charset
+  (argument value symbol exactly-one))
+
+(form sign-convention
+  (argument value (values ebcdic ascii-zone-37 translated-ebcdic realia) exactly-one))
+
+(form byte-order
+  (argument value (values big-endian little-endian) exactly-one))
+
+(form float-format
+  (argument value (values ieee-754 hfp) exactly-one))
+
+;;; Physical framing ----------------------------------------------------------
+
+;; Which children this form requires follows from the `recfm` value: `lrecl` is
+;; required under F and FB, `max-segment` under VBS, `delimiter` and `placement`
+;; under line-sequential. The table below is the widest form, exactly as
+;; SPEC.md's is, and the conditions are the reader's.
+(form framing (in top-level) (arity exactly-one) (layer physical-framing)
+  (child recfm exactly-one)
+  (child lrecl at-most-one)
+  (child blksize at-most-one)
+  (child blocks at-most-one)
+  (child max-segment at-most-one)
+  (child delimiter at-most-one)
+  (child placement at-most-one))
+
+;; U is a spelling this schema admits and `resolve` rejects by name, so that an
+;; adopter who has one is told what is wrong with it rather than left describing
+;; their file as something else.
+(form recfm
+  (argument value (values F FB V VB VBS U line-sequential) exactly-one))
+
+(form lrecl
+  (argument value positive-number exactly-one))
+
+(form blksize
+  (argument value positive-number exactly-one))
+
+;; `in-stream` is admitted on the same terms as U.
+(form blocks
+  (argument value (values deblocked in-stream) exactly-one))
+
+(form max-segment
+  (argument value positive-number exactly-one))
+
+(form delimiter
+  (argument value byte-string exactly-one))
+
+(form placement
+  (argument value (values terminator separator optional-terminator) exactly-one))
+
+;;; Record definitions --------------------------------------------------------
+
+(form record (in top-level) (arity one-or-more) (layer record-definitions)
+  (argument name symbol exactly-one)
+  (child copybook exactly-one))
+
+(form copybook
+  (argument path text exactly-one)
+  (argument top-level-name symbol exactly-one))
+
+;; The substitute name is text and is carried verbatim: it is language-neutral,
+;; and turning a name into an identifier is a generator's work.
+(form rename (in top-level) (arity zero-or-more) (layer record-definitions)
+  (argument item item-ref exactly-one)
+  (argument name text exactly-one))
+
+(form copybook-reading (in top-level) (arity at-most-one) (layer record-definitions)
+  (child occurs-depending-on exactly-one))
+
+(form occurs-depending-on
+  (argument value (values odoslide noodoslide) exactly-one))
+
+;;; Discrimination ------------------------------------------------------------
+
+;; SPEC.md requires exactly one `discriminate` per `record`. This schema states
+;; the half of that it can — that a layout carries at least one — because the
+;; other half relates two forms and is the reader's.
+(form discriminate (in top-level) (arity one-or-more) (layer discrimination)
+  (argument record record-name exactly-one)
+  (argument strategy strategy exactly-one))
+
+(form equals (in strategy)
+  (argument item item-ref exactly-one)
+  (argument value literal exactly-one))
+
+(form one-of (in strategy)
+  (argument item item-ref exactly-one)
+  (argument value literal one-or-more))
+
+;;; Sequencing ----------------------------------------------------------------
+
+(form sequence (in top-level) (arity exactly-one) (layer sequencing)
+  (argument expression expression exactly-one))
+
+(form seq (in expression)
+  (argument subexpression expression two-or-more))
+
+(form alt (in expression)
+  (argument subexpression expression two-or-more))
+
+(form * (in expression)
+  (argument subexpression expression exactly-one))
+
+(form + (in expression)
+  (argument subexpression expression exactly-one))
+
+(form ? (in expression)
+  (argument subexpression expression exactly-one))
+
+(form times (in expression)
+  (argument subexpression expression exactly-one)
+  (argument count item-ref exactly-one))
+
+(form when (in expression)
+  (argument item item-ref exactly-one)
+  (argument value match exactly-one)
+  (argument subexpression expression exactly-one))
+
+;; `one-of` again, in the position `when` tests against. It is the same tag in a
+;; different sort and not the strategy above: there is no item reference on it,
+;; because `when` has already named the item.
+(form one-of (in match)
+  (argument value literal one-or-more))

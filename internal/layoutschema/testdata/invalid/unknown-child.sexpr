@@ -1,0 +1,18 @@
+;; want: form "framing" has no child "padding"
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80)
+  (padding 4))
+
+(record TRANSACTION
+  (copybook "cpy/txn.cpy" TRANSACTION-REC))
+
+(discriminate TRANSACTION single-record-type)
+
+(sequence (* TRANSACTION))
