@@ -625,18 +625,88 @@ func (s *Schema) link() error {
 		return err
 	}
 
+	if err := s.linkIncludes(); err != nil {
+		return err
+	}
+
 	return s.linkForms()
 }
 
-// linkNames refuses a schema in which a sort and a form share a name.
+// linkNames refuses a schema in which a sort and a child form share a name.
 //
-// (in <name>) names a sort or a parent form and is read as whichever exists, so
-// a name that is both makes the clause mean two things. Refusing the collision
-// is what lets the spelling stay one symbol.
+// Nothing in this loader is ambiguous about such a name: (in ...) resolves
+// against the sorts alone, and a child is reached through its parent's
+// (child ...) rather than through a context. The collision costs the reader
+// instead, and the reader is a generator author holding the published file as
+// the contract. `(in charset)` would name the sort while `(child charset ...)`
+// named the form, and a diagnostic saying `charset` would say nothing about
+// which of the two it meant. One name for one thing is worth keeping while it
+// costs a check.
 func (s *Schema) linkNames() error {
 	for _, name := range s.sortNames() {
 		if _, exists := s.children[name]; exists {
-			return fmt.Errorf("%s: %q is both a sort and a child form, so (in %s) is ambiguous", at(s.sorts[name].pos), name, name)
+			return fmt.Errorf("%s: %q is both a sort and a child form, and one name in this schema names one thing", at(s.sorts[name].pos), name)
+		}
+	}
+
+	return nil
+}
+
+// linkIncludes refuses a sort that reaches itself through the sorts it
+// includes.
+//
+// A cycle is the one schema fault that would survive loading and then not
+// terminate: checking a value against a sort walks that sort's includes, so two
+// sorts including each other is an infinite descent at validation time rather
+// than a diagnostic. Catching it here is what lets the walk in validate.go stay
+// a plain recursion, and it is caught at the same point as every other way a
+// schema can parse and still be unusable.
+//
+// [Schema.linkSorts] has already rejected an include naming nothing, so
+// anything not in the sort table here is a primitive and has no includes of its
+// own.
+func (s *Schema) linkIncludes() error {
+	const (
+		unvisited = iota
+		onPath
+		settled
+	)
+
+	state := make(map[string]int, len(s.sorts))
+
+	var walk func(name string) error
+
+	walk = func(name string) error {
+		switch state[name] {
+		case onPath:
+			return fmt.Errorf("%s: sort %q includes itself, by way of the sorts it includes", at(s.sorts[name].pos), name)
+		case settled:
+			return nil
+		case unvisited:
+			// Walked below. Named rather than left as the default so that the
+			// three states a sort can be in are all in one place.
+		}
+
+		state[name] = onPath
+
+		for _, included := range s.sorts[name].include {
+			if _, exists := s.sorts[included]; !exists {
+				continue
+			}
+
+			if err := walk(included); err != nil {
+				return err
+			}
+		}
+
+		state[name] = settled
+
+		return nil
+	}
+
+	for _, name := range s.sortNames() {
+		if err := walk(name); err != nil {
+			return err
 		}
 	}
 

@@ -183,6 +183,16 @@ func TestLoadRefusesASchemaItCannotHold(t *testing.T) {
 			schema: "(schema layout 1)\n(sort literal text)\n(sort literal number)",
 		},
 		{
+			// The one fault that would otherwise survive loading and then not
+			// terminate: checking a value against a sort walks its includes.
+			name:   "two sorts including each other",
+			schema: "(schema layout 1)\n(sort literal match)\n(sort match literal)",
+		},
+		{
+			name:   "a sort including itself",
+			schema: "(schema layout 1)\n(sort literal literal)",
+		},
+		{
 			name:   "a primitive redeclared",
 			schema: "(schema layout 1)\n(sort symbol text)",
 		},
