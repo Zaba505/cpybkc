@@ -792,7 +792,33 @@ identifier is a generator's work (#30, #50).
 At most one rename **MAY** name a given item; two would leave their order
 deciding. The reference **MAY** name a group, and **MAY** name an item that
 repeats, in which case the substitute is the name of the item and reaches every
-occurrence of it.
+occurrence of it. The substitute is a name and not an occurrence's, for the
+reason [an item reference](#an-item-reference) names an item and not an
+occurrence of one: a table of a hundred entries has one field there, named once.
+
+### A substitute is a name nothing beside it already answers to
+
+Two renames **MUST NOT** substitute one name for two items under one parent, and
+a rename **MUST NOT** substitute a name an item beside its target already
+carries. Each is a diagnostic carrying two spans — the substitute, and the
+statement it collides with — because either half is a perfectly good rename on
+its own, and what an adopter has to decide is which of the two items they meant
+to call the name (#30).
+
+The second holds even where that sibling is itself renamed. The original is
+carried beside the substitute rather than in place of it
+([`ir/SPEC.md`](../ir/SPEC.md#names)), so an item that has been renamed answers
+to the name the copybook gave it still, and two items under one parent answering
+to one name is the ambiguity a rename exists to remove. Swapping two names is
+spelled by renaming both to names nothing under that parent carries.
+
+Which items a target has beside it is the copybook's, so the rule divides where
+[Validation and diagnostics](#validation-and-diagnostics) divides everything
+else. The layout reader reports the halves the layout decides on its own — two
+renames under one parent substituting one name, and a substitute equal to the
+name of an item the layout itself references under that parent, an item the
+copybook therefore has — and `resolve` reports a substitute colliding with a
+name only the copybook knows about (#32).
 
 ### The `OCCURS DEPENDING ON` reading is one statement per layout
 
@@ -1332,9 +1358,10 @@ each is owed, is the reader.
 **Rules counting one form against another.** Exactly one `discriminate` per
 `record`, one `discriminate-variant` per variant, two arms of one variant that
 do not name one alternative, every `record` appearing somewhere in the
-sequencing expression, an `encoding-override` naming at least one axis. A
-declaration is about one form
-and its positions, so a rule relating two of them is the reader's. The one
+sequencing expression, an `encoding-override` naming at least one axis, at most
+one `rename` per item and no two of them substituting one name under one parent.
+A declaration is about one form and its positions, so a rule relating two of
+them is the reader's. The one
 cross-form statement the schema does make is the reference, and it is the
 important one: a position declared to name a `record` **MUST** name one the
 layout defines, which is what makes a reference checkable rather than
@@ -1366,9 +1393,11 @@ arms of one variant naming one alternative, or naming one target and one
 literal; an arm whose target is rooted at another record, stands under another
 outermost group than the variant, or descends through the variant or one of its
 arms; a record name in the sequencing expression that no `record` form defines,
-and a `record` the expression never names; a `blksize`, `lrecl`, `max-segment`
-or `delimiter` under a spelling that does not admit it; and the framing
-spellings rejected by name — `U`, a carriage-control suffix,
+and a `record` the expression never names; a second `rename` naming one item, a
+name substituted for two items under one parent, and a substitute equal to the
+name of an item the layout itself references under that parent; a `blksize`,
+`lrecl`, `max-segment` or `delimiter` under a spelling that does not admit it;
+and the framing spellings rejected by name — `U`, a carriage-control suffix,
 `(blocks in-stream)`.
 
 **`resolve`** (#32–#38) has the copybooks too, and reports everything that needs
@@ -1376,13 +1405,15 @@ them: a `copybook` child naming a file it cannot read, and one naming a
 top-level item the copybook it read does not declare (#27); an item reference
 naming no item or more than one; a reference that
 repeats or sits inside a repeating group where the position forbids it; a
-discriminator behind a variable item; a literal wider than the item it is
-compared against; a `times` or `when` whose item is not admitted strictly
-earlier on every path; a record type whose extent does not account for `lrecl`
-under `F` or `FB`, or exceeds it under the others; a variable-extent record type
-on a fixed-length dataset; a copybook carrying an `OCCURS DEPENDING ON` with no
-`copybook-reading` form to read it under; two records at one point in the
-sequence whose discriminators can both match; an arm's target outside the
+discriminator behind a variable item; a rename whose substitute is the name of
+an item beside its target that the layout itself never references; a literal
+wider than the item it is compared against; a `times` or `when` whose item is
+not admitted strictly earlier on every path; a record type whose extent does not
+account for `lrecl` under `F` or `FB`, or exceeds it under the others; a
+variable-extent record type on a fixed-length dataset; a copybook carrying an
+`OCCURS DEPENDING ON` with no `copybook-reading` form to read it under; two
+records at one point in the sequence whose discriminators can both match; an
+arm's target outside the
 innermost repeating group containing the variant, or inside an arm that does not
 also contain it; two arms of one variant whose predicates can both match one
 occurrence; and a redefine inside a repeating group that no

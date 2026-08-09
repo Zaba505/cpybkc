@@ -16,16 +16,18 @@
 //
 // Each layer of the format gets a reader here, and a type for what the layer
 // says. [ReadProfile] is the encoding profile (#25), [ReadFraming] is the
-// physical framing (#26), [ReadDiscrimination] is discrimination (#28) and
-// [ReadSequence] is sequencing (#29); record definitions arrive beside them
-// (#27, #30). What they have in common is that a value handed back is one the
-// format admits: a [Profile] carries four stated axes because a profile stating
-// three is an error and not a value with a hole in it, a [Framing] resolves to
-// one of the IR's four framings because the one record format that resolves to
-// none is rejected while the layout is read, every `record` in a
-// [Discrimination] carries exactly one strategy out of a closed set, and every
-// node of a [Sequence]'s expression is one of the eight terms the algebra is
-// made of, carrying what that term takes.
+// physical framing (#26), [ReadDiscrimination] is discrimination (#28),
+// [ReadSequence] is sequencing (#29) and [ReadRenames] is the record
+// definitions layer's renames (#27, #30). What they have in common is that a
+// value handed back is one the format admits: a [Profile] carries four stated
+// axes because a profile stating three is an error and not a value with a hole
+// in it, a [Framing] resolves to one of the IR's four framings because the one
+// record format that resolves to none is rejected while the layout is read,
+// every `record` in a [Discrimination] carries exactly one strategy out of a
+// closed set, every node of a [Sequence]'s expression is one of the eight terms
+// the algebra is made of, carrying what that term takes, and every [Rename]
+// names its item in full and carries the substitute beside the original rather
+// than in place of it.
 //
 // # The one layer that prints as well as reads
 //

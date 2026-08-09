@@ -34,6 +34,20 @@ type ItemRef struct {
 	Path []string
 }
 
+// Name is the item's own name, as the copybook spells it: the last name on the
+// path, which is the one the reference ends at.
+//
+// It is the name every other name in the reference qualifies, and so the one a
+// [Rename] substitutes for. The zero [ItemRef] has none — a reference always
+// carries at least one name, and a value that does not is one nobody read.
+func (r ItemRef) Name() string {
+	if len(r.Path) == 0 {
+		return ""
+	}
+
+	return r.Path[len(r.Path)-1]
+}
+
 // String renders the reference the way a layout writes it, which is what a
 // diagnostic naming an item quotes.
 func (r ItemRef) String() string {
