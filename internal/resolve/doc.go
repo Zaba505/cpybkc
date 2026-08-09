@@ -91,10 +91,42 @@
 // [github.com/Zaba505/cpybkc/internal/layoutmodel.Strategy] a layout wrote
 // rather than a compiled predicate.
 //
-// Slack is the one of those with a foot in both stories. Which alignments a
-// dialect honours is `cobol-go`'s and the rest of the rule is #34's, but a
-// record whose redefines have been resolved away has bytes no item occupies
-// whatever a SYNCHRONIZED clause does, so this package emits a slack node for
-// every byte of a group's extent its members leave uncovered, wherever the gap
-// came from.
+// # Slack, and its four producers
+//
+// Every byte of a record that no item occupies is a slack node in the
+// containment order, whatever left it uncovered (docs/ir/SPEC.md, "Slack is a
+// node, not a rule"). Four things leave bytes uncovered and the node is the same
+// for all four: the gap ahead of a SYNCHRONIZED item, the storage a REDEFINES
+// alternative does not fill, the padding between one occurrence of a table and
+// the next, and the tail of a record whose items stop short of the `lrecl` a
+// fixed-length dataset states. Which boundary an aligned item sits on is
+// `cobol-go`'s answer and is not recomputed here; what this package does with
+// the bytes it left behind is the rest of the rule (#34).
+//
+// One node per *maximal* run, which is why the member list is merged rather than
+// appended to. Two runs of different origin that abut are one node of the summed
+// width, because "Slack survives a read" makes a consumer keep one run of bytes
+// per node, so how this stage divides a run of eight would otherwise decide the
+// shape of every record a generator emits.
+//
+// Two edges a run does not cross, and both are edges a merged node would belong
+// to neither side of. An arm's, because an arm's extent is the variant's width
+// and a node spanning the end of one arm and the bytes behind the variant would
+// make that arm wider than its siblings. And a repeating group's, because a node
+// inside one stands for a run per occurrence while a node behind it stands for
+// one run in the record, and no single width is both.
+//
+// # LRECL is the one thing a framing says about a record's members
+//
+// [Options.Framing] reaches this package for one check and one node. Under a
+// fixed-length dataset the next record begins a fixed distance on whatever the
+// record was, so a record type accounts for all of LRECL: one shorter carries
+// the difference as the trailing slack above, and one longer is a fault, since
+// no node takes bytes away. A record type whose extent moves with a count meets
+// that at one count and misses it at every other, and is rejected rather than
+// padded (docs/ir/SPEC.md, "A variable record does not fit a fixed-length
+// dataset", #92).
+//
+// Under the other three framings each record states its own length, so an
+// `lrecl` is a maximum that is checked and never padded to.
 package resolve
