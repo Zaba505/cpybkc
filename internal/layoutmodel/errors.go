@@ -991,6 +991,141 @@ func (e *ArmOverlapError) Error() string {
 	)
 }
 
+// RenameFormError is a `rename` that is not `(rename <item-ref> "<name>")`.
+//
+// It covers both shapes the fault takes — a form carrying something other than
+// an item and a name, and a name written as anything but text — because what is
+// wrong with each is the same thing: the form takes two things and holds
+// something else. A reference that is written and wrong is an
+// [ItemReferenceError] instead, which is also what a rename naming its target
+// with a bare name gets: a bare name is not a reference, and it is not one
+// because duplicate data names are legal COBOL and a name alone is not an
+// identity.
+type RenameFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *RenameFormError) Error() string {
+	return fmt.Sprintf("%s: a rename is written (rename <item-ref> \"<name>\"), and this has %s", e.Pos, e.Found)
+}
+
+// EmptyRenameError is a rename substituting a name of no characters.
+//
+// It is [ByteStringError]'s empty case in this layer: the schema declares the
+// position to take text and cannot say that the text says something, and a name
+// nothing can be called is a rename that leaves an adopter's own name out.
+type EmptyRenameError struct {
+	// Pos is the string.
+	Pos layout.Pos
+
+	// Item is the item it was written for.
+	Item ItemRef
+}
+
+// Error implements the error interface.
+func (e *EmptyRenameError) Error() string {
+	return fmt.Sprintf(
+		"%s: the rename on %s substitutes a name of no characters, and a name is at least one",
+		e.Pos, e.Item,
+	)
+}
+
+// DuplicateRenameError is a second `rename` naming an item another one already
+// named.
+//
+// docs/layout/SPEC.md admits at most one per item and gives the reason this
+// message repeats: two "would leave their order deciding", and the order forms
+// are written in is not something this format lets anything depend on.
+type DuplicateRenameError struct {
+	// Pos is the second rename.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Item is the item both name.
+	Item ItemRef
+}
+
+// Error implements the error interface.
+func (e *DuplicateRenameError) Error() string {
+	return fmt.Sprintf(
+		"%s: %s is renamed twice, and is renamed first at %s; a rename names an item at most once",
+		e.Pos, e.Item, e.First,
+	)
+}
+
+// RenameCollisionError is one name substituted for two items under one parent.
+//
+// It carries both spans, because the fault is the pair: either rename is a
+// perfectly good one on its own, and what an adopter has to decide is which of
+// the two items they meant to call the name.
+type RenameCollisionError struct {
+	// Pos is the second substitute.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Items are the two items, in the order the layout renames them.
+	Items [2]ItemRef
+
+	// Name is what both are called.
+	Name string
+}
+
+// Error implements the error interface.
+func (e *RenameCollisionError) Error() string {
+	return fmt.Sprintf(
+		"%s: name %s is substituted for %s and for %s, which stand under one parent, and is substituted "+
+			"first at %s",
+		e.Pos, quote(e.Name), e.Items[0], e.Items[1], e.First,
+	)
+}
+
+// RenameShadowsSiblingError is a substitute equal to the name of an item
+// standing beside the one being renamed.
+//
+// It carries both spans for [RenameCollisionError]'s reason, and it holds even
+// where the sibling is itself renamed: docs/ir/SPEC.md's "Names" carries an
+// original beside a substitute rather than in place of it, so the sibling still
+// answers to the name the copybook gave it. Swapping two names is spelled by
+// renaming both to names nothing under that parent carries.
+//
+// It is the half of the rule the layout decides. Which siblings a target
+// actually has is the copybook's, and a substitute colliding with one the
+// layout never mentions is `resolve`'s to report.
+type RenameShadowsSiblingError struct {
+	// Pos is the substitute.
+	Pos layout.Pos
+
+	// First is where the layout names the sibling.
+	First layout.Pos
+
+	// Item is the item being renamed.
+	Item ItemRef
+
+	// Sibling is the item standing beside it that already carries the name.
+	Sibling ItemRef
+
+	// Name is the substitute.
+	Name string
+}
+
+// Error implements the error interface.
+func (e *RenameShadowsSiblingError) Error() string {
+	return fmt.Sprintf(
+		"%s: the rename on %s substitutes %s, which is the name of %s beside it at %s; an original is carried "+
+			"beside a substitute rather than in place of it, so the item there answers to that name still",
+		e.Pos, e.Item, quote(e.Name), e.Sibling, e.First,
+	)
+}
+
 // SequenceCountError is a layout that does not carry exactly one `sequence`
 // form.
 //
