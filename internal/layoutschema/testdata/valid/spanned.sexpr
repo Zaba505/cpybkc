@@ -1,0 +1,35 @@
+;; A spanned dataset: a per-item encoding override, an OCCURS DEPENDING ON
+;; reading, a counted run and a conditional trailer.
+(encoding
+  (charset cp1047)
+  (sign-convention translated-ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(encoding-override (item BATCH-HEADER BH-PARTNER-REF)
+  (charset ascii)
+  (sign-convention ebcdic))
+
+(framing
+  (recfm VBS)
+  (lrecl 32760)
+  (blksize 27998)
+  (blocks deblocked)
+  (max-segment 4096))
+
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+(record BATCH-HEADER (copybook "cpy/batch.cpy" BATCH-HEADER-REC))
+(record BATCH-ITEM   (copybook "cpy/batch.cpy" BATCH-ITEM-REC))
+(record BATCH-AUDIT  (copybook "cpy/batch.cpy" BATCH-AUDIT-REC))
+
+(discriminate BATCH-HEADER (equals (item BATCH-HEADER BH-TYPE) 1))
+(discriminate BATCH-ITEM   (equals (item BATCH-ITEM BI-TYPE) (bytes "F2")))
+(discriminate BATCH-AUDIT  (one-of (item BATCH-AUDIT BA-TYPE) "98" "99"))
+
+(sequence
+  (seq BATCH-HEADER
+       (times BATCH-ITEM (item BATCH-HEADER BH-ITEM-COUNT))
+       (when (item BATCH-HEADER BH-AUDIT-FLAG) (one-of "Y" "A")
+             (? BATCH-AUDIT))))

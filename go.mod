@@ -10,6 +10,13 @@ require github.com/Zaba505/cpybkc/irpb v0.0.0
 
 require google.golang.org/protobuf v1.36.11
 
+// The grammar underneath the layout format. docs/layout/SPEC.md delegates the
+// lexis and the parse of a layout file to it — what a symbol is, where a number
+// ends, what a comment attaches to, and the line and column every diagnostic is
+// built on — so this is the one reading of that grammar in the repository
+// rather than a second one beside the document's.
+require github.com/z5labs/sexpr-go v0.1.0
+
 // Local until irpb carries its first tag. A module cannot be required at a
 // version nobody has published, and irpb/v0.1.0 can only exist on a commit that
 // already contains irpb — so the first release of the IR module is necessarily

@@ -2,7 +2,7 @@
 
 ## The pipeline
 
-fmt, vet, golangci-lint, `go test -race`, `buf lint` and the two artifacts a
+fmt, vet, golangci-lint, `go test -race`, `buf lint` and the three artifacts a
 release attaches are defined once, in the root Dagger module under
 [`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:
 there is no arrangement of local commands that passes while CI fails, because
@@ -31,7 +31,8 @@ dagger call lint          # golangci-lint over ./... against .golangci.yml
 dagger call test          # go test -race ./...
 dagger call proto-lint    # buf lint over proto/ against buf.yaml
 dagger call ir-ci         # the whole standard again, over the irpb/ module
-dagger call ir-artifacts  # builds the two artifacts a release attaches
+dagger call ir-artifacts  # builds the two IR artifacts a release attaches
+dagger call layout-artifact  # builds the layout schema a release attaches
 ```
 
 The first four are not a second definition of the pipeline. Each drives the same
@@ -43,9 +44,10 @@ schema](#linting-the-ir-schema).
 
 `ir-ci` is not a stage but the whole standard a second time, over the second Go
 module; see [The IR module](#the-ir-module) for why there is one. `ir-artifacts`
-is not a stage either; see [The release artifacts](#the-release-artifacts).
+and `layout-artifact` are not stages either; see [The release
+artifacts](#the-release-artifacts).
 
-`dagger check` runs all eight as a checklist, if you would rather see them
+`dagger check` runs all nine as a checklist, if you would rather see them
 together than pick one.
 
 ### Getting the tools
@@ -218,12 +220,14 @@ kept in step by hand.
 
 ## The release artifacts
 
-Every published release carries two files describing the IR, for the plugin
-authors who are not importing `irpb`:
+Every published release carries three files. Two describe the IR, for the plugin
+authors who are not importing `irpb`; the third is the layout schema, for the
+shop generating layout files rather than writing them:
 
 ```sh
 dagger call ir-descriptor-set export --path=ir.binpb
 dagger call ir-protos export --path=ir-protos.tar.gz
+dagger call layout-schema export --path=layout-schema.sexpr
 ```
 
 `ir.binpb` is the protobuf `FileDescriptorSet` describing
@@ -234,21 +238,34 @@ rather compile them. [Reading a descriptor without generated
 code](docs/ir/SPEC.md#reading-a-descriptor-without-generated-code) is the
 contract for both, and it is the document to change if what they contain changes.
 
-Three properties are worth knowing before you touch either:
+`layout-schema.sexpr` is the machine-readable contract for the layout format:
+the set of form declarations a layout generator targets, written in the notation
+it describes. It is `schema/layout.sexpr` in the tree, published byte for byte,
+because an adopter's diagnostic and this repository's have to be about the same
+text. [The published schema](docs/layout/SPEC.md#the-published-schema) is the
+document to change if what it declares changes — including the version it
+carries, which moves with the format and not with the document.
 
-- **Neither is committed.** `ir.binpb` is computed from the descriptors
-  `protoc-gen-go` compiled into `irpb`, so it cannot drift from the schema; a
-  checked-in copy could. Changing `ir.proto` and regenerating `irpb/ir.pb.go`
-  changes what is published, in the same commit.
-- **Both are reproducible.** Two builds of one commit produce byte-identical
-  files — the encoding is deterministic and every tar field the filesystem could
-  have supplied is a constant — because an artifact that moved on a rebuild would
-  make a rebuild indistinguishable from a change to the contract.
-- **`dagger call ci` builds them.** `ir-artifacts` is in the pipeline so that the
-  recipe a release runs is exercised on every pull request, rather than for the
-  first time on a tag. What is in them is asserted by Go tests, in `irpb` and
-  beside each tool under `internal/tools/`; the pipeline stage only checks that
-  both commands run to completion and leave a file behind.
+Three properties are worth knowing before you touch any of them:
+
+- **Neither IR artifact is committed.** `ir.binpb` is computed from the
+  descriptors `protoc-gen-go` compiled into `irpb`, so it cannot drift from the
+  schema; a checked-in copy could. Changing `ir.proto` and regenerating
+  `irpb/ir.pb.go` changes what is published, in the same commit. The layout
+  schema is the other way round — it is a source file a person writes, so it is
+  committed, and `layout-schema` publishes it unchanged after checking that it
+  loads.
+- **All three are reproducible.** Two builds of one commit produce byte-identical
+  files — the encoding is deterministic, every tar field the filesystem could
+  have supplied is a constant, and the schema is copied rather than reformatted —
+  because an artifact that moved on a rebuild would make a rebuild
+  indistinguishable from a change to the contract.
+- **`dagger call ci` builds them.** `ir-artifacts` and `layout-artifact` are in
+  the pipeline so that the recipe a release runs is exercised on every pull
+  request, rather than for the first time on a tag. What is in them is asserted
+  by Go tests, in `irpb` and beside each tool under `internal/tools/`; the
+  pipeline stages only check that the commands run to completion and leave a file
+  behind.
 
 A `.proto` added under `proto/` that nothing reachable from
 `cpybkc.ir.v1.Descriptor` imports fails `TestPublishedFileDescriptorSetCoversTheSchema`.
@@ -256,8 +273,8 @@ That is deliberate: the IR is one message and everything in `proto/` is reachabl
 from it, so a file that is not is a mistake in the schema rather than something
 to exclude.
 
-`.github/workflows/release.yaml` attaches both to a release when one is
-published, building them with the same two calls above at the release's tag.
+`.github/workflows/release.yaml` attaches all three to a release when one is
+published, building them with the same three calls above at the release's tag.
 
 ## Specs
 

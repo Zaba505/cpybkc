@@ -1,0 +1,17 @@
+;; want: the name of a record form this layout defines
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80))
+
+(record TRANSACTION
+  (copybook "cpy/txn.cpy" TRANSACTION-REC))
+
+(discriminate TRANSACTON single-record-type)
+
+(sequence (* TRANSACTION))

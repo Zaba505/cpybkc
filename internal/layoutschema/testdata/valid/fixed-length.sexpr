@@ -1,0 +1,19 @@
+;; A fixed-length dataset carrying one record type and nothing to tell it apart
+;; from — the shape `single-record-type` exists for.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80)
+  (blksize 27920))
+
+(record TRANSACTION
+  (copybook "cpy/txn.cpy" TRANSACTION-REC))
+
+(discriminate TRANSACTION single-record-type)
+
+(sequence (* TRANSACTION))

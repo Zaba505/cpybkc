@@ -61,14 +61,16 @@
 //
 // # Why the release artifacts are built here
 //
-// IrDescriptorSet and IrProtos produce the two files a release attaches — the
-// IR's FileDescriptorSet and the schema sources (#19) — and they are functions
-// on this module for the same reason ProtoLint is: a recipe that only ever ran
-// inside .github/workflows/release.yaml would be a build nobody can reproduce
-// locally and one that first runs on a tag, where a failure is a release that
-// did not happen. Here, `dagger call ir-descriptor-set` is a command a
-// contributor runs, and IrArtifacts puts both builds inside Ci so the recipe is
-// exercised on every pull request rather than once per release.
+// IrDescriptorSet and IrProtos produce two of the three files a release
+// attaches — the IR's FileDescriptorSet and the schema sources (#19) — and
+// LayoutSchema produces the third, the published layout schema a shop's layout
+// generator targets (#23). They are functions on this module for the same reason
+// ProtoLint is: a recipe that only ever ran inside
+// .github/workflows/release.yaml would be a build nobody can reproduce locally
+// and one that first runs on a tag, where a failure is a release that did not
+// happen. Here, `dagger call ir-descriptor-set` is a command a contributor runs,
+// and IrArtifacts and LayoutArtifact put all three builds inside Ci so the
+// recipes are exercised on every pull request rather than once per release.
 //
 // They are also the seam the container work builds on: #57 copies the same file
 // into the published image, from this function rather than from a second
@@ -142,12 +144,12 @@ func New(
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
 // the Z5Labs standard defines them, over each of this repository's two Go
-// modules, plus `buf lint` over the IR schema and a build of the two artifacts a
-// release publishes. This is the single entrypoint — CI is one `dagger call ci`
-// and stays one, because a workflow step that reran any of these stages would be
-// a second definition of them.
+// modules, plus `buf lint` over the IR schema and a build of the three artifacts
+// a release publishes. This is the single entrypoint — CI is one
+// `dagger call ci` and stays one, because a workflow step that reran any of
+// these stages would be a second definition of them.
 //
-// The four parts run concurrently and all are reported, for the reason the
+// The five parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -155,10 +157,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr, artifactErr error
+	var goErr, irErr, protoErr, artifactErr, layoutErr error
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 
 	go func() {
 		defer wg.Done()
@@ -182,9 +184,14 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		artifactErr = m.IrArtifacts(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		layoutErr = m.LayoutArtifact(ctx)
+	}()
+
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, artifactErr)
+	return errors.Join(goErr, irErr, protoErr, artifactErr, layoutErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -408,6 +415,61 @@ func (m *Cpybkc) IrArtifacts(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// LayoutSchema builds the published layout schema — the released
+// layout-schema.sexpr — by checking that this repository's schema loads and
+// writing it out unchanged:
+//
+//	dagger call layout-schema export --path=layout-schema.sexpr
+//
+// It is the third asset a release attaches, and the one that is not about the
+// IR. docs/layout/SPEC.md's "The published schema" is the contract: the set of
+// form declarations a shop's layout generator targets, written in the notation
+// it describes. An adopter validating what they generated runs cpybkc, which
+// reads this same file.
+//
+// The bytes are the repository's schema/layout.sexpr byte for byte, because an
+// adopter's diagnostic and this repository's have to be about the same text. So
+// what the command adds is the check rather than a transformation, and
+// internal/tools/layout-schema carries the argument for why that check happens
+// on the way out as well as in the tests.
+//
+// It is a function on this module for the reason IrDescriptorSet is: a recipe
+// that only ever ran inside .github/workflows/release.yaml would be a build
+// nobody can reproduce locally and one that first runs on a tag, where a failure
+// is a release that did not happen.
+func (m *Cpybkc) LayoutSchema() *dagger.File {
+	const out = "/out/layout-schema.sexpr"
+
+	return dag.Go().
+		Container(m.Source).
+		WithExec([]string{"go", "run", "./internal/tools/layout-schema", "-o", out}).
+		File(out)
+}
+
+// LayoutArtifact builds the layout schema and fails if it is empty.
+//
+// It is IrArtifacts' counterpart for the layout half of what a release carries,
+// separate from it because the two are about different contracts and a run
+// failing on one should say which. Everything IrArtifacts' comment says about
+// why an artifact build belongs in Ci applies here unchanged, and the empty file
+// is the same failure: it is what a tool that created its parent directory and
+// exited would leave behind, and it uploads as happily as a good one.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) LayoutArtifact(ctx context.Context) error {
+	size, err := m.LayoutSchema().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to build layout-schema.sexpr: %w", err)
+	}
+
+	if size == 0 {
+		return fmt.Errorf("layout-schema.sexpr built to an empty file")
+	}
+
+	return nil
 }
 
 // stage returns the check builder the standard pipeline builds on, bound to
