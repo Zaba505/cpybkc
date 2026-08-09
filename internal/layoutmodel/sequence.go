@@ -442,6 +442,13 @@ func (r *sequenceReader) times(form layout.Form) (Expression, bool) {
 	if len(form.Elements) != 2 {
 		r.fail(&ExpressionFormError{Pos: form.Pos, Kind: Times, Found: timesShortfall(form.Elements)})
 
+		// What was written is read anyway, for the reason a `sequence` carrying
+		// two expressions has both read: an operator with the wrong number of
+		// arguments may also have something wrong inside one of them, and the
+		// second is a thing to fix rather than something to discover on the next
+		// run.
+		r.timesParts(form)
+
 		return Expression{}, false
 	}
 
@@ -471,6 +478,10 @@ func (r *sequenceReader) when(form layout.Form) (Expression, bool) {
 	if len(form.Elements) != 3 {
 		r.fail(&ExpressionFormError{Pos: form.Pos, Kind: When, Found: whenShortfall(form.Elements)})
 
+		// As in [sequenceReader.times]: the arity is one fault and what stands
+		// inside the operator may be another.
+		r.whenParts(form)
+
 		return Expression{}, false
 	}
 
@@ -491,6 +502,72 @@ func (r *sequenceReader) when(form layout.Form) (Expression, bool) {
 	}
 
 	return Expression{Pos: form.Pos, Kind: When, Item: item, Match: match, Sub: []Expression{sub}}, true
+}
+
+// timesParts reads whatever a malformed `times` carries, so that a fault inside
+// one of its arguments is reported beside the arity rather than after it.
+//
+// Each element is read in the position the operator declares for it, with one
+// exception: where a `times` carries a single element, which position that
+// element stands in is what the element itself says. An item reference is the
+// count and anything else is the subexpression, because reading a count as a
+// term would name the same line twice and describe it wrongly the second time.
+func (r *sequenceReader) timesParts(form layout.Form) {
+	for i, element := range form.Elements {
+		if i > 1 {
+			return
+		}
+
+		if i == 1 || (len(form.Elements) == 1 && isItemRef(element)) {
+			r.count(element, form.Tag)
+
+			continue
+		}
+
+		_, _ = r.expression(element, form.Tag)
+	}
+}
+
+// whenParts is the same for a malformed `when`.
+//
+// It needs no exception: a `when` names the item it reads first, so the position
+// an element stands in is what it is, however few of the three were written.
+func (r *sequenceReader) whenParts(form layout.Form) {
+	for i, element := range form.Elements {
+		switch i {
+		case 0:
+			r.count(element, form.Tag)
+		case 1:
+			_, _ = r.match(element)
+		case 2:
+			_, _ = r.expression(element, form.Tag)
+		default:
+			return
+		}
+	}
+}
+
+// count reads the item reference a value-reading operator stands on, and holds
+// the record it is rooted at to the records the layout defines.
+func (r *sequenceReader) count(node layout.Node, within string) {
+	item, err := readItemRef(node)
+	if err != nil {
+		r.fail(err)
+
+		return
+	}
+
+	r.itemRecord(item, within)
+}
+
+// isItemRef reports whether a node is written as an item reference.
+//
+// It is what tells "a count and no subexpression" from "a subexpression and no
+// count": the two are one arity and two different mistakes.
+func isItemRef(node layout.Node) bool {
+	form, ok := node.(layout.Form)
+
+	return ok && form.Tag == tagItem
 }
 
 // match reads what a `when` tests a value against: one literal, or `(one-of
@@ -594,14 +671,20 @@ func subexpressions(read int) string {
 
 // timesShortfall names what a `times` carries where a subexpression and a count
 // belong.
+//
+// One element is two different mistakes, and which one it is is what the element
+// says: a message telling an adopter they wrote a subexpression when they wrote
+// a count sends them to add the wrong half back.
 func timesShortfall(elements []layout.Node) string {
-	switch len(elements) {
-	case 0:
+	switch {
+	case len(elements) == 0:
 		return "neither"
-	case 1:
-		return "a subexpression and no count"
-	default:
+	case len(elements) > 1:
 		return "several"
+	case isItemRef(elements[0]):
+		return "a count and no subexpression"
+	default:
+		return "a subexpression and no count"
 	}
 }
 

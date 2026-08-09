@@ -500,8 +500,37 @@ func TestReadSequenceRejects(t *testing.T) {
 				"layout.sexpr:3:23: form \"times\" takes one subexpression and the item counting it, and this " +
 					"one has a subexpression and no count",
 				"layout.sexpr:3:11: form \"seq\" takes two or more subexpressions, and this one has one",
+			},
+		},
+		{
+			// The arity is one fault and what stands inside the operator is
+			// another, and both are reported: a `times` carrying an item
+			// reference alone is missing its subexpression, and the reference is
+			// still held to the records the layout defines.
+			name:   "a count and no subexpression",
+			source: sequenced("(sequence (seq HEADER (times (item ORDER O-COUNT))))", "HEADER", "DETAIL"),
+			want: []string{
+				"layout.sexpr:3:23: form \"times\" takes one subexpression and the item counting it, and this " +
+					"one has a count and no subexpression",
+				"layout.sexpr:3:30: form \"times\" names record \"ORDER\", and the layout defines no record of " +
+					"that name",
+				"layout.sexpr:3:11: form \"seq\" takes two or more subexpressions, and this one has one",
 				"layout.sexpr:2:1: record \"DETAIL\" appears nowhere in the sequencing expression, and a record " +
 					"type nothing can ever admit is one nothing will ever produce",
+			},
+		},
+		{
+			// The same, at the operator taking three things rather than two: the
+			// item is read in the position it stands in, so the record it names
+			// is checked even though the `when` is short a subexpression.
+			name:   "a presence test short a subexpression and rooted at no record",
+			source: sequenced("(sequence (seq HEADER (when (item ORDER O-FLAG) \"Y\")))", "HEADER"),
+			want: []string{
+				"layout.sexpr:2:23: form \"when\" takes an item reference, a value and one subexpression, and " +
+					"this one has an item and a value and no subexpression",
+				"layout.sexpr:2:29: form \"when\" names record \"ORDER\", and the layout defines no record of " +
+					"that name",
+				"layout.sexpr:2:11: form \"seq\" takes two or more subexpressions, and this one has one",
 			},
 		},
 		{
