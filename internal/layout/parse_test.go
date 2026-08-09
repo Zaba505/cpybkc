@@ -30,7 +30,7 @@ func TestParseBuildsAPositionedAST(t *testing.T) {
 		want   string
 	}{
 		{
-			name:   "a form with one argument",
+			name:   "a form that is nothing but a tag",
 			source: "(framing)",
 			want:   "1:1 form framing",
 		},
@@ -229,6 +229,40 @@ func TestParseRejectsConstructsWithNoMeaningInALayout(t *testing.T) {
 			source:    "(record `ORDER-HEADER)",
 			construct: ConstructQuoteShorthand,
 			pos:       Pos{File: "layout.sexpr", Line: 1, Column: 9},
+		},
+		{
+			// The tag position is held to the same exclusions as every other,
+			// so an excluded construct written there is reported as the
+			// construct it is rather than as a form that opens with something
+			// odd.
+			name:      "a quote shorthand where the tag belongs",
+			source:    "('record ORDER-HEADER)",
+			construct: ConstructQuoteShorthand,
+			pos:       Pos{File: "layout.sexpr", Line: 1, Column: 2},
+		},
+		{
+			name:      "a boolean where the tag belongs",
+			source:    "(#t ORDER-HEADER)",
+			construct: ConstructBoolean,
+			pos:       Pos{File: "layout.sexpr", Line: 1, Column: 2},
+		},
+		{
+			name:      "the empty list where the tag belongs",
+			source:    "(() ORDER-HEADER)",
+			construct: ConstructEmptyList,
+			pos:       Pos{File: "layout.sexpr", Line: 1, Column: 2},
+		},
+		{
+			name:      "an improper list where the tag belongs",
+			source:    "((record . ORDER-HEADER) HEADER)",
+			construct: ConstructImproperList,
+			pos:       Pos{File: "layout.sexpr", Line: 1, Column: 2},
+		},
+		{
+			name:      "nil where the tag belongs",
+			source:    "(nil ORDER-HEADER)",
+			construct: ConstructNil,
+			pos:       Pos{File: "layout.sexpr", Line: 1, Column: 2},
 		},
 		{
 			name:      "nil where a child was omitted",

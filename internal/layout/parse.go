@@ -107,6 +107,15 @@ func (r *reader) form(list sexpr.List) (Form, bool) {
 	// admissible has already refused an empty list and an improper one, so
 	// there is an element zero and everything after it is an element rather
 	// than a tail.
+	//
+	// The tag position is held to the excluded constructs first, and for the
+	// same reason every other position is: `('record ORDER-HEADER)` is a quote
+	// shorthand, and reporting it as a form that opens with something odd names
+	// the symptom rather than the construct SPEC.md excludes by name.
+	if !r.admissible(list.Elements[0]) {
+		return Form{}, false
+	}
+
 	tag, ok := list.Elements[0].(sexpr.Symbol)
 	if !ok {
 		r.fail(&UntaggedFormError{
