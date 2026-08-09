@@ -45,6 +45,7 @@ func resolveTable(t *testing.T, src string, build func(*copybook.Field) []Redefi
 	return Resolve(field, Options{
 		Copybook:  "test.cpy",
 		Dialect:   copybook.IBMEnterprise(),
+		Encoding:  mainframe(),
 		Redefines: build(field),
 	})
 }
@@ -305,7 +306,8 @@ func TestAVariantIsRejectedWhenItsAlternativesCannotBeMadeToAgree(t *testing.T) 
 		// A lenient dialect is what lets an oversized redefinition
 		// reach this package at all; a strict one refuses it while the
 		// copybook is being laid out.
-		Dialect: lenient(),
+		Dialect:  lenient(),
+		Encoding: mainframe(),
 		Redefines: []Redefine{{
 			Item: fieldNamed(t, field, "SHORT"),
 			Alternatives: []Alternative{

@@ -240,7 +240,7 @@ func TestPositionsAgreeWithTheOffsetsTheCopybookWasLaidOutAt(t *testing.T) {
 				t.Fatalf("laying the copybook out: %v", err)
 			}
 
-			records, err := Resolve(field, Options{Dialect: copybook.IBMEnterprise()})
+			records, err := Resolve(field, Options{Dialect: copybook.IBMEnterprise(), Encoding: mainframe()})
 			if err != nil {
 				t.Fatalf("resolving: %v", err)
 			}

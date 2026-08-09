@@ -91,7 +91,7 @@ func TestARepeatingItemPaddedToItsStrideCarriesThePaddingInsideItself(t *testing
    05 T PIC S9(5) COMP SYNCHRONIZED OCCURS 3 TIMES.
    05 Z PIC X(2).
 `)
-	records, err := Resolve(field, Options{Dialect: dialect})
+	records, err := Resolve(field, Options{Dialect: dialect, Encoding: mainframe()})
 	if err != nil {
 		t.Fatalf("resolving: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
 // A fault here names as much of the record, the repeating group the variant sits
@@ -255,6 +256,90 @@ func (e *UnknownAlternativeError) Diagnostic() diag.Diagnostic {
 			e.Record, e.Redefined, e.Alternative, joinAnd(e.Names)),
 		Spans: []diag.Span{e.Pos},
 	}
+}
+
+// IncompleteProfileError is a record handed to [Resolve] with an encoding
+// profile stating fewer than all four axes.
+//
+// `codec/SPEC.md` requires all four from its caller and forbids a default for
+// any of them, because every one fails *silently* when it is wrong — a charset
+// yields a plausible string, a byte order a plausible number — and none is
+// recoverable from the file with certainty. Completing the profile here would be
+// that guess made once and applied to every field of the record.
+//
+// It points at no file, which is the one fault in this package that does not.
+// The profile is written in a layout rather than in a copybook, and
+// `layoutmodel` has already refused a layout that states three axes, with the
+// line: one that reaches here is a caller who assembled [Options] by hand, so a
+// span would name a copybook that is not wrong or a layout line that says the
+// right thing.
+type IncompleteProfileError struct {
+	// Record is the record being resolved.
+	Record string
+
+	// Axes are the axes the profile does not state, in docs/layout/SPEC.md's
+	// order.
+	Axes []layoutmodel.Axis
+}
+
+// Error implements the error interface.
+func (e *IncompleteProfileError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *IncompleteProfileError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"the encoding profile for record %s states no %s, and an encoding axis has no default",
+			e.Record, joinAnd(axisNames(e.Axes))),
+	}
+}
+
+// UnresolvedEncodingError is a field that left resolution with an encoding axis
+// unset.
+//
+// It is the completeness assertion docs/ir/SPEC.md's "The encoding profile,
+// applied" asks a producer for, and it is about this package rather than about
+// anything an adopter wrote: a complete profile with overrides applied over it
+// is complete, so nothing a layout or a copybook can say produces one. It exists
+// because the requirement is on what reaches a generator, where the only repair
+// available is the one that document forbids — a consumer **MUST** treat a field
+// missing an axis as a malformed descriptor and **MUST NOT** fill it in — so an
+// axis that escapes here escapes for good.
+type UnresolvedEncodingError struct {
+	// Pos is the field's entry in the copybook.
+	Pos diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Item is the field the axis is unset on.
+	Item string
+
+	// Axes are the axes it does not state, in docs/layout/SPEC.md's order.
+	Axes []layoutmodel.Axis
+}
+
+// Error implements the error interface.
+func (e *UnresolvedEncodingError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *UnresolvedEncodingError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s was resolved with no %s: every field carries all four encoding axes, and this is a bug in cpybkc rather than in the copybook or the layout",
+			e.Record, e.Item, joinAnd(axisNames(e.Axes))),
+		Spans: []diag.Span{e.Pos},
+	}
+}
+
+// axisNames is what a message calls a list of axes: the tag a layout writes each
+// one as, which is the word an adopter would have typed.
+func axisNames(axes []layoutmodel.Axis) []string {
+	names := make([]string, 0, len(axes))
+	for _, axis := range axes {
+		names = append(names, axis.String())
+	}
+	return names
 }
 
 // joinAnd renders a list the way a sentence does.

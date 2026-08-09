@@ -87,6 +87,25 @@ type Node struct {
 	// inside the group that does, which is the only place it may sit.
 	Repetition *Repetition
 
+	// Encoding is the four encoding axes governing this field's bytes: the
+	// layout's profile with every override reaching this item applied over
+	// it. All four are stated on a field node this package hands back.
+	//
+	// The fifth thing a generator needs to read a field's bytes is its
+	// USAGE, and that is not here: it is a clause of the copybook, already
+	// inherited down the entry tree by
+	// [github.com/Zaba505/cobol-go/copybook.Field.Usage], and a copy on the
+	// node would be a second answer to a question the copybook has already
+	// answered. The axes are here because no copybook states them.
+	//
+	// It is carried by a field node and by no other kind. docs/ir/SPEC.md's
+	// "The encoding profile, applied" puts all four on every field node and
+	// carries no profile node for one to inherit from, so a group holding a
+	// copy would be that profile under another name — a second statement of
+	// an axis, for a member to disagree with. A slack node has no encoding
+	// for the reason it has no names: nothing reads those bytes as a value.
+	Encoding layoutmodel.Axes
+
 	// width is the bytes one occurrence of a field or a slack node occupies.
 	// It is unexported because a group and a variant must not be able to
 	// carry one: their widths follow from what they hold, and a member
