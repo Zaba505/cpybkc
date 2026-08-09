@@ -636,8 +636,10 @@ func (r *discriminationReader) strategy(node layout.Node, subject string) (Strat
 	strategy := Strategy{Pos: form.Pos, Kind: kind, Item: item}
 
 	for _, element := range form.Elements[1:] {
-		literal, ok := r.literal(element)
-		if !ok {
+		literal, err := readLiteral(element)
+		if err != nil {
+			r.fail(err)
+
 			return Strategy{}, false
 		}
 
@@ -647,32 +649,33 @@ func (r *discriminationReader) strategy(node layout.Node, subject string) (Strat
 	return strategy, true
 }
 
-// literal reads one of the three spellings a literal takes.
-func (r *discriminationReader) literal(node layout.Node) (Literal, bool) {
+// readLiteral reads one of the three spellings a literal takes.
+//
+// It is a free function rather than a reader's method for [readItemRef]'s
+// reason: sequencing's `when` compares a value against literals too
+// (docs/layout/SPEC.md's "Two operators read a value"), and one reading of a
+// literal is what keeps the two layers spelling them alike.
+func readLiteral(node layout.Node) (Literal, error) {
 	switch value := node.(type) {
 	case layout.Text:
-		return Literal{Pos: value.Pos, Kind: TextLiteral, Text: value.Value}, true
+		return Literal{Pos: value.Pos, Kind: TextLiteral, Text: value.Value}, nil
 	case layout.Int:
-		return Literal{Pos: value.Pos, Kind: NumberLiteral, Number: strconv.FormatInt(value.Value, 10)}, true
+		return Literal{Pos: value.Pos, Kind: NumberLiteral, Number: strconv.FormatInt(value.Value, 10)}, nil
 	case layout.Float:
 		return Literal{
 			Pos:    value.Pos,
 			Kind:   NumberLiteral,
 			Number: strconv.FormatFloat(value.Value, 'f', -1, 64),
-		}, true
+		}, nil
 	case layout.Form:
 		bytes, err := readByteString(value)
 		if err != nil {
-			r.fail(err)
-
-			return Literal{}, false
+			return Literal{}, err
 		}
 
-		return Literal{Pos: bytes.Pos, Kind: BytesLiteral, Bytes: bytes}, true
+		return Literal{Pos: bytes.Pos, Kind: BytesLiteral, Bytes: bytes}, nil
 	default:
-		r.fail(&LiteralError{Pos: node.Position(), Found: describe(node)})
-
-		return Literal{}, false
+		return Literal{}, &LiteralError{Pos: node.Position(), Found: describe(node)}
 	}
 }
 
