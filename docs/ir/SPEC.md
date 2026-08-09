@@ -3042,9 +3042,10 @@ is a fact about the data that it cannot represent at all.
 
 ### What this version is not
 
-It is not the IR Go module's tag (#18), which follows Go's module rules and
-moves for reasons — a dependency bump, a documentation fix — that say nothing
-about the descriptor. It is not the two-sided assertion generated code carries
+It is not the IR Go module's tag (#18) — `irpb/vX.Y.Z`, on
+[`github.com/Zaba505/cpybkc/irpb`](../../irpb) — which follows Go's module rules
+and moves for reasons, a dependency bump or a documentation fix, that say
+nothing about the descriptor. It is not the two-sided assertion generated code carries
 against the `codec` it links (#53), which binds a generator's output to a
 library at another layer entirely. One IR version can outlive many of both.
 
@@ -3464,5 +3465,6 @@ records offer them.
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | The schema itself | #17 `ir` — [`proto/cpybkc/ir/v1/ir.proto`](../../proto/cpybkc/ir/v1/ir.proto) |
+| The schema, as Go | #18 `ir` — [`irpb/`](../../irpb), a module of its own |
 | Emitting the IR | #20, #21 `ir` |
 | Conventions this document follows | #15 `setup` |

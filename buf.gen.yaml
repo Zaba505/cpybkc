@@ -1,0 +1,31 @@
+# How irpb/ir.pb.go is produced from proto/. One file, beside the buf.yaml that
+# lints the same schema, for the same reason: `dagger call proto-gen` and a
+# contributor's own `buf generate` read this file, so there is no local recipe
+# that produces a different tree than the one CI would.
+version: v2
+
+plugins:
+  # Pinned to an exact protoc-gen-go release, and irpb/go.mod requires the same
+  # version of google.golang.org/protobuf. The generated file asserts a minimum
+  # runtime version at compile time, so the two are one decision: bump them in
+  # the same change, regenerate, and commit the result.
+  #
+  # A remote plugin rather than a local binary because the alternative is asking
+  # every contributor to `go install protoc-gen-go` at the right version and
+  # trusting them to have done it. The pin is what makes the remote form
+  # reproducible; buf resolves it to one immutable plugin build.
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    # `out: irpb` plus `module=` is what puts the generated file at irpb/ir.pb.go
+    # rather than at irpb/github.com/Zaba505/cpybkc/irpb/ir.pb.go. protoc-gen-go
+    # derives an output path from ir.proto's go_package option; module= strips
+    # that prefix off it, leaving the module's own root.
+    #
+    # paths=source_relative would have been the other way to flatten it, and it
+    # is wrong here: it derives the path from the .proto's location under proto/,
+    # which would bury the package at irpb/cpybkc/ir/v1/ and make the import path
+    # repeat itself. The Go module path is the one this repository chose; the
+    # directory tree under proto/ is protobuf's, and buf.yaml already explains
+    # that it is load-bearing for PACKAGE_DIRECTORY_MATCH.
+    out: irpb
+    opt:
+      - module=github.com/Zaba505/cpybkc/irpb

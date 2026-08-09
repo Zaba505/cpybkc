@@ -34,11 +34,20 @@ syntax = "proto3";
 // descriptor at IR version 4 is an ordinary thing to find in package
 // cpybkc.ir.v1, and the suffix is not a second guard on semantics competing
 // with the field that is one.
-//
-// No go_package option. The generated Go stubs are a separate module whose path
-// and package name are #18's to choose, and naming one here would be this
-// schema deciding it in advance.
 package cpybkc.ir.v1;
+
+// The Go stubs are their own module, not a package of the CLI's: a plugin
+// author importing the IR takes on the protobuf runtime and nothing else, which
+// is a property of the module boundary and cannot be had from a package inside
+// a larger module. irpb/doc.go carries the whole argument.
+//
+// The path element is irpb rather than cpybkcpb because the module is named for
+// what it contains and not for the repository that publishes it. Its Go major
+// version is where the package's v1 above ends up when it advances: a
+// wire-breaking move to package cpybkc.ir.v2 is a breaking change to every Go
+// consumer, so it is released as module .../irpb/v2, and Go's import-path rule
+// for major versions carries the protobuf package's version suffix for free.
+option go_package = "github.com/Zaba505/cpybkc/irpb";
 
 // IrVersion is the contract a descriptor was written against.
 //

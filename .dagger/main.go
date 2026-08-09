@@ -45,6 +45,20 @@
 // is the gate a contributor runs, and a check CI performs that the gate does
 // not is an arrangement of local commands that passes while CI fails.
 //
+// # Why the standard is invoked twice
+//
+// This repository holds two Go modules: the CLI at the root and the published IR
+// module at irpb/. A nested go.mod is where `go test ./...` stops, so the source
+// directory that reaches one of them cannot reach the other, and IrCi is the
+// second invocation that covers the second module. It is the standard again and
+// not a variation on it — same archetype, same lint configuration — because the
+// module the third-party generators actually import is the last place this
+// repository should be checking something bespoke.
+//
+// ProtoGen is the odd one out: it is not a check at all but the generator that
+// produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
+// else is a second answer to how the committed stubs were made.
+//
 // Ci is what CI calls and what a contributor should run before pushing. The
 // stage functions are for narrowing down what Ci reported.
 package main
@@ -109,12 +123,12 @@ func New(
 }
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
-// the Z5Labs standard defines them, plus `buf lint` over the IR schema. This is
-// the single entrypoint — CI is one `dagger call ci` and stays one, because a
-// workflow step that reran any of these stages would be a second definition of
-// them.
+// the Z5Labs standard defines them, over each of this repository's two Go
+// modules, plus `buf lint` over the IR schema. This is the single entrypoint —
+// CI is one `dagger call ci` and stays one, because a workflow step that reran
+// any of these stages would be a second definition of them.
 //
-// The two halves run concurrently and both are reported, for the reason the
+// The three parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -122,10 +136,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, protoErr error
+	var goErr, irErr, protoErr error
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 
 	go func() {
 		defer wg.Done()
@@ -136,12 +150,37 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
+		irErr = m.IrCi(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
 		protoErr = m.ProtoLint(ctx)
 	}()
 
 	wg.Wait()
 
-	return errors.Join(goErr, protoErr)
+	return errors.Join(goErr, irErr, protoErr)
+}
+
+// IrCi runs the same standard pipeline over irpb/, the published IR module.
+//
+// It is a second call rather than a wider source directory because irpb/ is a
+// separate Go module. `go test ./...` from the repository root stops at a nested
+// go.mod and never descends into it, so without this stage the module third
+// parties actually import — including the smoke test asserting they can — is the
+// one part of the tree nothing checks. Two modules, two invocations of the
+// standard; that is the cost of the boundary irpb/doc.go exists to keep.
+//
+// It is handed the same .golangci.yml, so the two modules are linted against one
+// configuration rather than one each.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) IrCi(ctx context.Context) error {
+	return dag.Z5Labs().
+		GoLib(m.Source.Directory("irpb"), dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
+		Ci(ctx)
 }
 
 // Fmt reports any file that gofmt would rewrite, as a diff.
@@ -205,6 +244,39 @@ func (m *Cpybkc) ProtoLint(ctx context.Context) error {
 		WithExec([]string{"buf", "lint"}).
 		Sync(ctx)
 	return err
+}
+
+// ProtoGen regenerates the Go IR stubs from proto/ and returns irpb/ as it
+// should look afterwards. Export it over the working tree to apply it:
+//
+//	dagger call proto-gen export --path=irpb
+//
+// The generated file is committed, like .dagger/'s codegen and for the same two
+// reasons: the module has to build from a checkout alone, and a published module
+// whose sources exist only after somebody has run a generator is not a module
+// anyone can `go get`. What buf writes is decided by buf.gen.yaml, which pins the
+// protoc-gen-go release; this function only supplies the container and the
+// source, so `dagger call proto-gen` and a contributor's own `buf generate`
+// cannot disagree.
+//
+// It returns the whole directory rather than the one .pb.go file so that a
+// second message file added to proto/ arrives here without this signature
+// changing. Exporting it is therefore a merge over irpb/, not a replacement of
+// it — go.mod, doc.go and the tests are in the returned directory unchanged,
+// because they were in the mounted source.
+//
+// The result is a Directory and not a check: whether the committed stubs match
+// this output is a question for review of the same commit, in the way
+// CONTRIBUTING.md already asks it of .dagger/. Ci does not regenerate, because a
+// check that rewrites the tree it is checking is a pipeline stage with an
+// opinion about your working directory.
+func (m *Cpybkc) ProtoGen() *dagger.Directory {
+	return dag.Container().
+		From(bufImage).
+		WithMountedDirectory("/src", m.Source).
+		WithWorkdir("/src").
+		WithExec([]string{"buf", "generate"}).
+		Directory("/src/irpb")
 }
 
 // stage returns the check builder the standard pipeline builds on, bound to
