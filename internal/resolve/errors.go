@@ -484,8 +484,9 @@ func (e *UnstatedReadingError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
 			"in record %s, %s occurs a number of times read from %s, and the layout does not say whether an "+
-				"item behind a table slides: state (copybook-reading (occurs-depending-on odoslide)) or "+
-				"noodoslide, whichever the compiler that wrote the file was set to",
+				"item behind a table slides: write (copybook-reading (occurs-depending-on odoslide)) or "+
+				"(copybook-reading (occurs-depending-on noodoslide)), whichever the compiler that wrote "+
+				"the file was set to",
 			e.Record, e.Table, e.Count),
 		Spans: []diag.Span{e.Pos},
 	}

@@ -207,19 +207,26 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 
 	r := &resolver{opts: opts, record: record}
 
-	// The reading is held to before anything is laid out, and on its own, for
-	// the profile's reason: it decides what every item behind every table in
-	// the record resolves to, so resolving without one would report a
-	// resolution nobody chose and bury the copybook's own faults among its
-	// consequences.
 	items := layout.Items()
 	if odo := tables(items); len(odo) > 0 {
+		// The reading is held to before anything is laid out and on its
+		// own, for the profile's reason: it decides what every item behind
+		// every table in the record resolves to, so resolving without one
+		// would report a resolution nobody chose and bury the copybook's
+		// own faults among its consequences.
 		if !opts.Reading.Stated() {
 			r.requireReading(odo)
 
 			return nil, r.faults.Err()
 		}
 
+		// The count-reference rules are ordinary faults and are joined with
+		// whatever else the walk finds, rather than returned on their own.
+		// A copybook and the layout over it go wrong in the same way in
+		// several places at once, and a count in the wrong place does not
+		// stop the record being laid out — `cobol-go` already computed it —
+		// so stopping here would be one fault per run over a copybook this
+		// package can say more about.
 		if opts.Reading.Slides() {
 			r.checkCounts(items, odo)
 		}
