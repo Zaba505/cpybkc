@@ -229,11 +229,11 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 //
 // Under [layoutmodel.LRECLExact] a record type accounts for all of LRECL, so a
 // record type whose items stop short carries the difference as a trailing slack
-// node — the third producer of slack, beside an alignment gap and a REDEFINES
-// tail, and indistinguishable from either once emitted (#26, #34). It is
-// appended through [mergeSlack] for that reason: a record whose last member is
-// already slack ends in one run of the summed width and not in two nodes that
-// abut.
+// node — the fourth producer of slack, beside an alignment gap, a REDEFINES tail
+// and a table's stride padding, and indistinguishable from any of them once
+// emitted (#26, #34). It is appended through [mergeSlack] for that reason: a
+// record whose last member is already slack ends in one run of the summed width
+// and not in two nodes that abut.
 func (r *resolver) frame(records []*Record) {
 	framing := r.opts.Framing
 	if framing == nil {

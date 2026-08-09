@@ -18,9 +18,10 @@ import (
 
 // A fixed-length dataset gives every record the same number of bytes, so a
 // record type whose items stop short of LRECL ends in a run that belongs to no
-// item — the third producer of slack, beside an alignment gap and a REDEFINES
-// tail, and the same kind of node once emitted (docs/layout/SPEC.md, "`lrecl`
-// and `blksize` describe the dataset, not the stream").
+// item — the fourth producer of slack, beside an alignment gap, a REDEFINES tail
+// and a table's stride padding, and the same kind of node as any of them once
+// emitted (docs/layout/SPEC.md, "`lrecl` and `blksize` describe the dataset, not
+// the stream").
 
 // fixed is a framing over a fixed-length dataset stating lrecl, which is the
 // framing under which a record type's extent has to *be* that number.
