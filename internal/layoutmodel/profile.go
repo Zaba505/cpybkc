@@ -94,10 +94,17 @@ func ReadProfile(file *layout.File) (*Profile, error) {
 		case tagEncoding:
 			encodings = append(encodings, form)
 
-			axes := read.axes(form, form.Elements)
+			axes, stated := read.axes(form, form.Elements)
 
-			for _, axis := range axes.Missing() {
-				read.fail(&MissingAxisError{Pos: form.Pos, Axis: axis})
+			// Only an axis the profile says nothing at all about is missing. An
+			// axis stated with a value the axis does not admit has already been
+			// reported against the value, and reporting it again as unstated
+			// would name the same line twice and describe it wrongly the second
+			// time.
+			for _, axis := range allAxes {
+				if _, ok := stated[axis]; !ok {
+					read.fail(&MissingAxisError{Pos: form.Pos, Axis: axis})
+				}
 			}
 
 			if len(encodings) == 1 {
@@ -161,7 +168,7 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 		// The axes are read anyway. An override whose reference is misspelled is
 		// still an override, and a charset misspelled underneath it is a second
 		// thing to fix rather than something to discover on the next run.
-		r.axes(form, form.Elements[1:])
+		_, _ = r.axes(form, form.Elements[1:])
 
 		return
 	}
@@ -176,10 +183,19 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 		r.overridden[item.identity()] = form.Pos
 	}
 
-	axes := r.axes(form, form.Elements[1:])
-	if len(axes.Stated()) == 0 {
+	axes, stated := r.axes(form, form.Elements[1:])
+
+	// An override states an axis when it carries one of the four forms, whatever
+	// the form turned out to say. One whose only axis was rejected on its own
+	// account is not also an override that names no axis: the layout plainly
+	// names one, and the fault is already reported against the value.
+	if len(stated) == 0 {
 		r.fail(&EmptyOverrideError{Pos: form.Pos, Item: item})
 
+		return
+	}
+
+	if len(axes.Stated()) == 0 {
 		return
 	}
 
@@ -188,10 +204,12 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 
 // axes reads the axis children of a form, whichever of the four are there.
 //
-// What is missing is the caller's to judge: `encoding` requires all four and
-// `encoding-override` requires one, and neither rule is visible from the
+// It returns what the form says and where it said each axis — including an axis
+// whose value was rejected, which is stated and unusable rather than unstated.
+// How many are required is the caller's to judge: `encoding` takes all four and
+// `encoding-override` takes at least one, and neither rule is visible from the
 // children alone.
-func (r *profileReader) axes(form layout.Form, elements []layout.Node) Axes {
+func (r *profileReader) axes(form layout.Form, elements []layout.Node) (Axes, map[Axis]layout.Pos) {
 	var (
 		axes  Axes
 		first = make(map[Axis]layout.Pos)
@@ -228,7 +246,7 @@ func (r *profileReader) axes(form layout.Form, elements []layout.Node) Axes {
 		axes.set(axis, value)
 	}
 
-	return axes
+	return axes, first
 }
 
 // axisValue reads the one symbol an axis form carries, holding it to the set the

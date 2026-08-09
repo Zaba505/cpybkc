@@ -41,6 +41,11 @@ func (e *ProfileCountError) Error() string {
 // name." One of these is reported per missing axis rather than one naming them
 // all, so that a profile missing two axes is two things to fix rather than one
 // message to read twice.
+//
+// An axis is missing when the profile says nothing about it. An axis stated with
+// a value the axis does not admit is an [AxisValueError] and not this: the line
+// is there, and calling it absent would send an adopter to write one they have
+// already written.
 type MissingAxisError struct {
 	// Pos is the `encoding` form, which is where the axis has to be written.
 	Pos layout.Pos
@@ -159,6 +164,11 @@ func (e *ChildError) Error() string {
 // not say" files it under the rules a declaration cannot state: the schema
 // declares each axis `at-most-one` on this form, and "at least one of the four"
 // is a statement about the four together.
+//
+// An override states an axis when it carries one of the four forms, whatever
+// that form turned out to say. One whose only axis was rejected on its own
+// account is an [AxisValueError] or an [AxisFormError] alone, because the layout
+// plainly names an axis and this message would deny it.
 type EmptyOverrideError struct {
 	// Pos is the `encoding-override` form.
 	Pos layout.Pos

@@ -308,8 +308,8 @@ func (a Axes) Complete() bool {
 	return len(a.Missing()) == 0
 }
 
-// Over applies a over base, axis by axis: an axis a states replaces base's, and
-// an axis it does not leaves base's alone.
+// Over applies the receiver over base, axis by axis: an axis the receiver states
+// replaces base's, and an axis it leaves unstated leaves base's alone.
 //
 // This is docs/layout/SPEC.md's "An override naming one axis leaves the other
 // three as the profile states them; one naming all four replaces the profile

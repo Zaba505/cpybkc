@@ -288,11 +288,12 @@ func TestReadProfileRejects(t *testing.T) {
 			},
 		},
 		{
+			// The charset is stated and unusable rather than unstated, so this
+			// is the value fault alone and not a MissingAxisError beside it.
 			name:   "a code page nobody has a table for",
 			source: "(encoding (charset cp1252) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))",
 			want: []string{
 				"layout.sexpr:1:20: charset is one of cp037, cp500, cp1047, cp1140 or ascii, and this one says \"cp1252\"",
-				"layout.sexpr:1:1: the encoding profile states no charset; all four axes are required and none of them has a default",
 			},
 		},
 		{
@@ -300,7 +301,6 @@ func TestReadProfileRejects(t *testing.T) {
 			source: "(encoding (charset cp037) (sign-convention SignEBCDIC) (byte-order big-endian) (float-format hfp))",
 			want: []string{
 				"layout.sexpr:1:44: sign-convention is one of ebcdic, ascii-zone-37, translated-ebcdic or realia, and this one says \"SignEBCDIC\"",
-				"layout.sexpr:1:1: the encoding profile states no sign-convention; all four axes are required and none of them has a default",
 			},
 		},
 		{
@@ -308,7 +308,6 @@ func TestReadProfileRejects(t *testing.T) {
 			source: "(encoding (charset cp037) (sign-convention ebcdic) (byte-order little) (float-format hfp))",
 			want: []string{
 				"layout.sexpr:1:64: byte-order is one of big-endian or little-endian, and this one says \"little\"",
-				"layout.sexpr:1:1: the encoding profile states no byte-order; all four axes are required and none of them has a default",
 			},
 		},
 		{
@@ -316,7 +315,6 @@ func TestReadProfileRejects(t *testing.T) {
 			source: "(encoding (charset) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))",
 			want: []string{
 				"layout.sexpr:1:11: form \"charset\" takes one symbol naming its value, and this one has no value",
-				"layout.sexpr:1:1: the encoding profile states no charset; all four axes are required and none of them has a default",
 			},
 		},
 		{
@@ -324,7 +322,6 @@ func TestReadProfileRejects(t *testing.T) {
 			source: "(encoding (charset cp037 cp500) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))",
 			want: []string{
 				"layout.sexpr:1:11: form \"charset\" takes one symbol naming its value, and this one has several",
-				"layout.sexpr:1:1: the encoding profile states no charset; all four axes are required and none of them has a default",
 			},
 		},
 		{
@@ -332,7 +329,6 @@ func TestReadProfileRejects(t *testing.T) {
 			source: "(encoding (charset \"cp037\") (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))",
 			want: []string{
 				"layout.sexpr:1:20: form \"charset\" takes one symbol naming its value, and this one has text",
-				"layout.sexpr:1:1: the encoding profile states no charset; all four axes are required and none of them has a default",
 			},
 		},
 		{
@@ -362,6 +358,19 @@ func TestReadProfileRejects(t *testing.T) {
 			}, "\n"),
 			want: []string{
 				"layout.sexpr:2:1: the override on (item ORDER-HEADER OH-PARTNER-REF) states no axis; an override states at least one of charset, sign-convention, byte-order or float-format",
+			},
+		},
+		{
+			// The layout plainly names an axis, so the fault is the value and
+			// nothing else: reporting it as an override naming no axis would
+			// deny what is written on the line above it.
+			name: "an override whose only axis was rejected is not also an override naming none",
+			source: strings.Join([]string{
+				"(encoding (charset cp037) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))",
+				"(encoding-override (item ORDER-HEADER OH-PARTNER-REF) (charset cp1252))",
+			}, "\n"),
+			want: []string{
+				"layout.sexpr:2:64: charset is one of cp037, cp500, cp1047, cp1140 or ascii, and this one says \"cp1252\"",
 			},
 		},
 		{
@@ -424,7 +433,6 @@ func TestReadProfileRejects(t *testing.T) {
 			}, "\n"),
 			want: []string{
 				"layout.sexpr:1:43: byte-order is one of big-endian or little-endian, and this one says \"sideways\"",
-				"layout.sexpr:1:1: the override on (item R F) states no axis; an override states at least one of charset, sign-convention, byte-order or float-format",
 				"layout.sexpr:2:1: the encoding profile states no byte-order; all four axes are required and none of them has a default",
 				"layout.sexpr:2:1: the encoding profile states no float-format; all four axes are required and none of them has a default",
 			},
