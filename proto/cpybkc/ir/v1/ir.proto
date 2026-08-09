@@ -150,6 +150,19 @@ message Node {
   // Zero is an ordinary identifier. Nothing in this file uses it as a sentinel:
   // the one reference that may be absent says so with explicit presence, for
   // exactly that reason. See Transition.predicate_id.
+  //
+  // Every other reference here is a plain scalar, and that is the reading of
+  // `optional` this schema keeps: it marks a reference absence is a meaning
+  // for, not one a producer might have forgotten. Marking the required
+  // references optional too would tell every consumer author that a transition
+  // may admit no record and a file may have no start state, which is the
+  // reading docs/ir/SPEC.md's "A transition may carry no predicate" is careful
+  // to allow about predicates and nothing else.
+  //
+  // What catches an omission instead is the obligation that is already on both
+  // sides: a producer MUST set every reference its position requires, and a
+  // consumer MUST resolve each one to a node of a kind that position admits and
+  // MUST report one that does not as a malformed descriptor.
   uint64 id = 1;
 
   oneof kind {
