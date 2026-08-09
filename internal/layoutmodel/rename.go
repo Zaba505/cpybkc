@@ -213,14 +213,20 @@ func (r *renameReader) target(form layout.Form, item ItemRef) bool {
 // the ambiguity a rename exists to remove. Swapping two names is spelled by
 // renaming both to names nothing under that parent carries.
 //
-// An item is not its own sibling, so a rename substituting the name its target
-// already has is admitted: it says the same thing twice and leaves every name
-// where it was.
+// An item is not its own sibling under either check. A rename substituting the
+// name its target already has is admitted — it says the same thing twice and
+// leaves every name where it was — and a second rename on one item is reported
+// as the duplicate it is and not as a collision between an item and itself.
 func (r *renameReader) collisions(read []Rename, rename Rename) bool {
 	sound := true
 
+	// An item is not its own sibling here either: two renames on one item are a
+	// [DuplicateRenameError] already, and a collision message about them would
+	// name that item twice and read as though two items were involved.
 	earlier := slices.IndexFunc(read, func(other Rename) bool {
-		return other.Substitute == rename.Substitute && siblings(other.Item, rename.Item)
+		return other.Substitute == rename.Substitute &&
+			other.Item.identity() != rename.Item.identity() &&
+			siblings(other.Item, rename.Item)
 	})
 	if earlier >= 0 {
 		r.fail(&RenameCollisionError{

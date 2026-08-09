@@ -327,6 +327,20 @@ func TestReadRenamesRejects(t *testing.T) {
 			},
 		},
 		{
+			// The two are one statement made twice, which is what the duplicate
+			// rule is about. A collision message here would name one item on
+			// both sides of itself and read as though two were involved.
+			name: "one item renamed twice to one name",
+			source: renaming([]string{"DETAIL"},
+				`(rename (item DETAIL D-CUST-NO) "CustomerNumber")`,
+				`(rename (item DETAIL D-CUST-NO) "CustomerNumber")`,
+			),
+			want: []string{
+				"layout.sexpr:3:1: (item DETAIL D-CUST-NO) is renamed twice, and is renamed first at " +
+					"layout.sexpr:2:1; a rename names an item at most once",
+			},
+		},
+		{
 			name: "one name substituted for two items under one parent",
 			source: renaming([]string{"DETAIL"},
 				`(rename (item DETAIL D-KEY D-CUST-NO) "Customer")`,
