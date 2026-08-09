@@ -81,15 +81,58 @@
 // copy on the node would be a second answer to a question the copybook has
 // answered. Spelling them into the descriptor's own members is #38's.
 //
+// # A table's extent moves with a count, under one of the two readings
+//
+// [Options.Reading] is the fork docs/ir/SPEC.md's "An item after a table slides,
+// and the other reading is a fixed table" records, and it reaches this package
+// for the same reason a framing does: a layout states it and `resolve` resolves
+// it. Under `odoslide` an `OCCURS DEPENDING ON` table becomes a [Repetition]
+// whose count is a reference to the field the DEPENDING ON phrase names, and
+// every item behind it begins at the byte after the last occurrence that count
+// states. Under `noodoslide` the same clause describes a fixed table at the
+// copybook's declared maximum, so it becomes a constant repetition and the count
+// field is resolved as an ordinary field of the record with nothing pointing at
+// it. There is no default: the two put every item behind the table somewhere
+// different and nothing in the file disagrees with the wrong one, so a copybook
+// carrying the clause under an unstated reading is rejected (#87).
+//
+// Both readings carry the copybook's own `OCCURS integer-1 TO integer-2` on the
+// repetition, and under the sliding one they are what a consumer holds a decoded
+// count to — a count outside them is malformed data. [Record.At] is that check
+// and the sum that follows from it, run here so that this package's tests run it
+// against the counts `cobol-go` resolves independently.
+//
+// What a count reference may name is held to before anything is laid out, and
+// each rule is docs/ir/SPEC.md's: it may not name a field that repeats or one
+// inside a group that repeats, because nothing carries an occurrence number and
+// a count with a value per occurrence makes the occurrences of its group
+// different widths (#84); it lies ahead of the item it counts and at a constant
+// position, because otherwise locating it needs the extent it decides (#88); and
+// where two repeating items of one record name it, their declared ranges have to
+// overlap, because otherwise no count sizes both tables (#89). Those run on the
+// copybook's items rather than on the resolved nodes, so a copybook with four
+// REDEFINES alternatives reports each fault once rather than four times.
+//
 // # What this package leaves to the stories after it
 //
-// Compiling a layout's discriminator strategies into predicate nodes is #37's, a
-// count read out of a record is #35's, and assembling nodes into a
+// Compiling a layout's discriminator strategies into predicate nodes is #37's,
+// binding a count that lives in an earlier record into a register is #36's, and
+// assembling nodes into a
 // [github.com/Zaba505/cpybkc/irpb.Descriptor] with identifiers on them is #38's.
-// A [Repetition] here therefore carries the count the layout was computed at
-// beside the item a DEPENDING ON phrase names, and an [Arm] carries the
+// A [Repetition] here therefore names a [github.com/Zaba505/cobol-go/copybook.Field]
+// rather than an identifier, and an [Arm] carries the
 // [github.com/Zaba505/cpybkc/internal/layoutmodel.Strategy] a layout wrote
 // rather than a compiled predicate.
+//
+// A count that lives in another record never reaches here at all, and that is
+// the division rather than a gap: a DEPENDING ON phrase names an item of the
+// copybook record carrying it, so every reference this package resolves is to a
+// field of the record being read. Where a layout's count comes from a header
+// admitted earlier, the automaton binds that field into a register as it admits
+// the header and the repetition names the register — which is a node this
+// package does not build, and is why a reference reaching across records is not
+// a shape it has to refuse (docs/ir/SPEC.md, "A variable record is a sum with a
+// variable term", #77).
 //
 // # Slack, and its four producers
 //

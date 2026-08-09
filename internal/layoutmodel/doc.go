@@ -17,17 +17,26 @@
 // Each layer of the format gets a reader here, and a type for what the layer
 // says. [ReadProfile] is the encoding profile (#25), [ReadFraming] is the
 // physical framing (#26), [ReadDiscrimination] is discrimination (#28),
-// [ReadSequence] is sequencing (#29) and [ReadRenames] is the record
-// definitions layer's renames (#27, #30). What they have in common is that a
-// value handed back is one the format admits: a [Profile] carries four stated
-// axes because a profile stating three is an error and not a value with a hole
-// in it, a [Framing] resolves to one of the IR's four framings because the one
-// record format that resolves to none is rejected while the layout is read,
-// every `record` in a [Discrimination] carries exactly one strategy out of a
-// closed set, every node of a [Sequence]'s expression is one of the eight terms
-// the algebra is made of, carrying what that term takes, and every [Rename]
-// names its item in full and carries the substitute beside the original rather
-// than in place of it.
+// [ReadSequence] is sequencing (#29), and [ReadRenames] and
+// [ReadCopybookReading] are the two halves of the record definitions layer this
+// package reads — its renames (#27, #30) and its `OCCURS DEPENDING ON` reading
+// (#27, #35). What they have in common is that a value handed back is one the
+// format admits: a [Profile] carries four stated axes because a profile stating
+// three is an error and not a value with a hole in it, a [Framing] resolves to
+// one of the IR's four framings because the one record format that resolves to
+// none is rejected while the layout is read, every `record` in a
+// [Discrimination] carries exactly one strategy out of a closed set, every node
+// of a [Sequence]'s expression is one of the eight terms the algebra is made of,
+// carrying what that term takes, every [Rename] names its item in full and
+// carries the substitute beside the original rather than in place of it, and a
+// [Reading] is one of the two vendor readings or the statement that the layout
+// made neither.
+//
+// The reading is the one value here whose absence is not this package's to
+// refuse. Whether a layout needed one is a question about the copybooks it binds
+// rather than about the layout, and this package never opens a copybook, so an
+// unstated reading leaves here as [ReadingUnstated] and `resolve` is what
+// rejects it — against the record and the table that needed the answer.
 //
 // # The one layer that prints as well as reads
 //

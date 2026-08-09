@@ -1620,7 +1620,7 @@ computed once by `resolve`.
 | [The surface syntax](#the-surface-syntax) | #22 `layout` |
 | [The encoding profile](#the-encoding-profile) | #25 `layout` |
 | [Physical framing](#physical-framing) | #26 `layout` |
-| [Record definitions](#record-definitions) | #27, #30 `layout` |
+| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve` |
 | [Discrimination](#discrimination) | #28 `layout` |
 | [Sequencing](#sequencing) | #29 `layout` |
 | [The published schema](#the-published-schema) | #23 `layout` |

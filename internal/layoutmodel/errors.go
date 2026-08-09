@@ -1108,6 +1108,94 @@ func (e *RenameShadowsSiblingError) Error() string {
 	)
 }
 
+// ReadingCountError is a layout carrying more than one `copybook-reading` form.
+//
+// There is no counterpart for a layout carrying none, which is the difference
+// between this and [ProfileCountError] or [FramingCountError]. The form's arity
+// is zero or one, because whether the layout needed it is a question about the
+// copybooks it binds and not about the layout: only a record carrying an
+// `OCCURS DEPENDING ON` needs the answer, and `resolve` is what has one open.
+//
+// It carries both positions for [RepeatedAxisError]'s reason: either line is a
+// perfectly good statement on its own, and what an adopter has to decide is
+// which of the two they meant. A layout whose tables slide and whose other
+// tables do not describes a file no compiler produced, so the second line is
+// never a refinement of the first.
+type ReadingCountError struct {
+	// Pos is the second `copybook-reading` form.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Count is how many the layout carries.
+	Count int
+}
+
+// Error implements the error interface.
+func (e *ReadingCountError) Error() string {
+	return fmt.Sprintf(
+		"%s: a layout carries at most one copybook-reading form, and this one carries %d, the first at %s; "+
+			"the reading is a property of the compiler that wrote the file rather than of any record in it",
+		e.Pos, e.Count, e.First,
+	)
+}
+
+// ReadingValueError is a value written for `occurs-depending-on` that the child
+// does not admit.
+//
+// It is [FramingValueError]'s counterpart in this layer and names the whole set
+// for the same reason: this is a spelling question an adopter can answer from
+// the message, and the spellings are the compiler directives they looked the
+// setting up under.
+type ReadingValueError struct {
+	// Pos is the value, not the form carrying it.
+	Pos layout.Pos
+
+	// Value is what was written.
+	Value string
+
+	// Admits is the set the child takes.
+	Admits []string
+}
+
+// Error implements the error interface.
+func (e *ReadingValueError) Error() string {
+	return fmt.Sprintf(
+		"%s: occurs-depending-on is one of %s, and this one says %s",
+		e.Pos, and(e.Admits), quote(e.Value),
+	)
+}
+
+// ReadingFormError is a `copybook-reading` form, or its `occurs-depending-on`
+// child, that does not carry exactly one value of the sort it takes.
+//
+// `(copybook-reading)` states nothing and `(occurs-depending-on odoslide
+// noodoslide)` states both readings at once. Neither is a value with something
+// wrong with it, so neither is a [ReadingValueError].
+type ReadingFormError struct {
+	// Pos is the form the shortfall is in.
+	Pos layout.Pos
+
+	// Child is the tag, empty where the fault is in the `copybook-reading`
+	// form itself rather than in its child.
+	Child string
+
+	// Takes is what belongs there, and Found what was written.
+	Takes string
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ReadingFormError) Error() string {
+	form := tagCopybookReading
+	if e.Child != "" {
+		form = e.Child
+	}
+
+	return fmt.Sprintf("%s: %s takes %s, and this one carries %s", e.Pos, form, e.Takes, e.Found)
+}
+
 // SequenceCountError is a layout that does not carry exactly one `sequence`
 // form.
 //
