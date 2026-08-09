@@ -37,6 +37,49 @@ type Options struct {
 	// apart. A redefine outside one needs no entry: its alternatives become
 	// records, and [Resolve] returns one per combination.
 	Redefines []Redefine
+
+	// Encoding is the layout's encoding profile: the four axes every field of
+	// the record is resolved against.
+	//
+	// It has no default, for the reason [Options.Dialect] has none and
+	// `codec/SPEC.md` requires all four of them from its caller. Each axis
+	// fails silently when it is wrong — a charset yields a plausible string
+	// and a byte order a plausible number, with nothing in the file to
+	// disagree — so a profile stating fewer than four is rejected here rather
+	// than completed.
+	Encoding layoutmodel.Axes
+
+	// EncodingOverrides are the layout's per-item encoding overrides, each
+	// already resolved to the copybook item it names.
+	//
+	// They arrive against fields rather than as the layout's item references
+	// for [Redefine]'s reason: resolving a reference against a copybook is one
+	// step and resolving the copybook is another, and a package doing both
+	// would read a layout's spelling of an item in two places. An override
+	// naming an item of some other record is one this record never meets, so
+	// a caller may hand over the layout's whole list.
+	EncodingOverrides []EncodingOverride
+}
+
+// EncodingOverride is what a layout restates about one item's encoding.
+//
+// docs/layout/SPEC.md's "An override is per item, and there is no second
+// profile" is the whole of it: the axes it states replace the profile's for the
+// item it names, and the ones it leaves unstated leave the profile's alone.
+type EncodingOverride struct {
+	// Item is the copybook item the override names.
+	//
+	// It **MAY** be a group, in which case the override reaches every
+	// elementary item under it, and it **MAY** repeat, in which case it
+	// reaches every occurrence: an encoding is a property of an item's bytes
+	// wherever those bytes sit.
+	Item *copybook.Field
+
+	// Axes are the axes it restates. An axis it leaves unstated is not
+	// restated and is not reset — [layoutmodel.Axes.Over] is the application
+	// — so an override naming one axis leaves the other three where they
+	// were.
+	Axes layoutmodel.Axes
 }
 
 // Redefine is what a layout says about one REDEFINES inside a repeating group.
@@ -84,6 +127,12 @@ type Alternative struct {
 // to exactly one Record. The order is the order the alternatives are met walking
 // the record, outermost and earliest first.
 //
+// Every field node comes back with all four encoding axes stated, per
+// docs/ir/SPEC.md, "The encoding profile, applied": [Options.Encoding] with the
+// overrides reaching that item applied over it. A profile stating fewer than
+// four is refused before the walk starts, and nothing that leaves here states
+// fewer.
+//
 // Every fault it finds is reported, joined with [errors.Join] and assertable
 // with [errors.As], rather than the first: a copybook and the layout over it go
 // wrong in the same way in several places at once. A record it found a fault in
@@ -94,13 +143,22 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 		return nil, ErrNilRecord
 	}
 
+	// The profile is held to before anything is laid out, and on its own
+	// rather than joined with what the copybook turns out to be wrong about.
+	// An axis nobody stated is a hole in every field of the record at once, so
+	// resolving anyway would report the one fault once per field and bury the
+	// copybook's own faults among them.
+	if missing := opts.Encoding.Missing(); len(missing) > 0 {
+		return nil, &IncompleteProfileError{Record: record.Name, Axes: missing}
+	}
+
 	layout, err := copybook.NewLayout(record, opts.Dialect)
 	if err != nil {
 		return nil, err
 	}
 
 	r := &resolver{opts: opts, record: record}
-	options := r.item(layout.Record)
+	options := r.item(layout.Record, opts.Encoding)
 	if r.faults.Failed() {
 		return nil, r.faults.Err()
 	}
@@ -120,7 +178,48 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 			Alternatives: option.alternatives,
 		})
 	}
+
+	r.assertResolved(records)
+	if r.faults.Failed() {
+		return nil, r.faults.Err()
+	}
 	return records, nil
+}
+
+// assertResolved holds every field of the records to docs/ir/SPEC.md's "The
+// encoding profile, applied": all four axes stated, on every field node, with
+// none left unset.
+//
+// It cannot fire against a profile this package accepted — [Options.Encoding] is
+// complete before the walk starts and [layoutmodel.Axes.Over] never unsets an
+// axis — and running it anyway is the point. The requirement is on what leaves
+// resolution rather than on what entered it, and the repair a consumer would
+// otherwise reach for is the one docs/ir/SPEC.md forbids: a field missing an
+// axis is a malformed descriptor and a generator **MUST NOT** fill it in, so an
+// unresolved axis that escapes here has nowhere downstream to be caught. The
+// assertion is therefore over the result, in the terms the requirement is
+// written in, and a resolution this package grows later is checked by it without
+// being asked to remember.
+func (r *resolver) assertResolved(records []*Record) {
+	for _, record := range records {
+		record.Walk(func(node *Node) {
+			if node.Kind != KindField {
+				return
+			}
+
+			missing := node.Encoding.Missing()
+			if len(missing) == 0 {
+				return
+			}
+
+			r.faults.Fail(&UnresolvedEncodingError{
+				Pos:    r.span(node.Field),
+				Record: r.record.Name,
+				Item:   itemName(node.Field),
+				Axes:   missing,
+			})
+		})
+	}
 }
 
 // resolver carries what the walk needs: the options it was given, the record it
@@ -142,27 +241,60 @@ type option struct {
 	alternatives []*copybook.Field
 }
 
-// item resolves one laid-out item into every option it admits.
-func (r *resolver) item(item *copybook.Item) []option {
+// item resolves one laid-out item into every option it admits, under the
+// encoding governing the item above it.
+func (r *resolver) item(item *copybook.Item, in layoutmodel.Axes) []option {
+	in = r.encoding(item.Field, in)
+
 	if item.Field.Kind != copybook.KindGroup {
-		return []option{{node: elementary(item)}}
+		return []option{{node: elementary(item, in)}}
 	}
-	return r.group(item)
+	return r.group(item, in)
 }
 
-// elementary builds the node for an item that holds no others.
+// encoding is the encoding governing field: the override naming it, where the
+// layout wrote one, over the encoding already in effect where it sits.
+//
+// Over the encoding in effect and not over the profile, which is the one thing
+// about overrides docs/layout/SPEC.md leaves to be settled here. An override
+// reaches every elementary item under the group it names, so a field under an
+// overridden group is already governed by that override when its own is met;
+// applying the inner one over the profile instead would let an override naming
+// one axis silently undo an enclosing override of another, which is the opposite
+// of what "leaves the other three as the profile states them" is for. Composed,
+// that sentence holds at every depth, and an axis nobody restated anywhere is
+// still the profile's.
+//
+// The first entry naming an item wins, as [resolver.redefine] takes the first.
+// `layoutmodel` already refuses a layout that overrides one item twice, so a
+// second entry here is a caller that assembled one by hand, and reporting it as
+// the adopter's fault would name a line the adopter wrote correctly.
+func (r *resolver) encoding(field *copybook.Field, in layoutmodel.Axes) layoutmodel.Axes {
+	for i := range r.opts.EncodingOverrides {
+		if r.opts.EncodingOverrides[i].Item == field {
+			return r.opts.EncodingOverrides[i].Axes.Over(in)
+		}
+	}
+	return in
+}
+
+// elementary builds the node for an item that holds no others, under the
+// encoding governing it.
 //
 // A repeating item whose stride exceeds its width has padding between one
 // occurrence and the next, and an elementary node has nowhere to put a slack
 // node. So it becomes a group that repeats, holding the item and the padding —
 // which is the same shape the IR would need for it, since alignment reaches a
-// generator as bytes it already has rather than as a rule it applies.
-func elementary(item *copybook.Item) *Node {
+// generator as bytes it already has rather than as a rule it applies. The
+// encoding stays on the field node inside it: the wrapper is this package's own
+// and stands for no copybook item, and the padding is not a field's bytes.
+func elementary(item *copybook.Item, in layoutmodel.Axes) *Node {
 	field := &Node{
 		Kind:       KindField,
 		Field:      item.Field,
 		width:      item.Length,
 		Repetition: repetitionOf(item),
+		Encoding:   in,
 	}
 	if item.Stride == item.Length {
 		return field
@@ -187,19 +319,20 @@ type run struct {
 	alternatives []*copybook.Field
 }
 
-// group resolves a group item into every option its member list admits.
+// group resolves a group item into every option its member list admits, under
+// the encoding governing the group.
 //
 // The member list is built cluster by cluster — an item and the items redefining
 // it are one cluster — and every byte of the group's extent no cluster covers
 // becomes slack, so that the members sum to the extent exactly and the position
 // of everything behind them is the sum and nothing else.
-func (r *resolver) group(item *copybook.Item) []option {
+func (r *resolver) group(item *copybook.Item, in layoutmodel.Axes) []option {
 	lists := []run{{}}
 	cursor := item.Offset
 
 	for _, c := range clustersOf(item) {
 		gap := c.start() - cursor
-		choices := r.cluster(c)
+		choices := r.cluster(c, in)
 		cursor = c.start() + c.extent()
 
 		next := make([]run, 0, len(lists)*len(choices))
@@ -247,10 +380,10 @@ func (r *resolver) group(item *copybook.Item) []option {
 }
 
 // cluster resolves one redefine cluster into every run its group's member list
-// admits.
-func (r *resolver) cluster(c cluster) []run {
+// admits, under the encoding governing the group holding it.
+func (r *resolver) cluster(c cluster, in layoutmodel.Axes) []run {
 	if len(c.members) == 1 {
-		options := r.item(c.members[0])
+		options := r.item(c.members[0], in)
 		runs := make([]run, 0, len(options))
 		for _, chosen := range options {
 			runs = append(runs, run{nodes: []*Node{chosen.node}, alternatives: chosen.alternatives})
@@ -259,14 +392,14 @@ func (r *resolver) cluster(c cluster) []run {
 	}
 
 	if inTable(c.members[0]) {
-		return []run{r.variant(c)}
+		return []run{r.variant(c, in)}
 	}
 
 	// Outside a repeating group every alternative becomes its own record, so
 	// the cluster multiplies the options rather than becoming a node.
 	var runs []run
 	for _, member := range c.members {
-		for _, chosen := range r.item(member) {
+		for _, chosen := range r.item(member, in) {
 			alternatives := make([]*copybook.Field, 0, len(chosen.alternatives)+1)
 			alternatives = append(alternatives, chosen.alternatives...)
 			alternatives = append(alternatives, member.Field)
@@ -284,7 +417,7 @@ func (r *resolver) cluster(c cluster) []run {
 // The layout says which alternatives there are and what selects each one. Two or
 // more make a variant; one says every occurrence takes it, and resolves to that
 // alternative's items with no variant at all.
-func (r *resolver) variant(c cluster) run {
+func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 	redefined := c.members[0]
 	table := enclosingTable(redefined)
 
@@ -297,7 +430,7 @@ func (r *resolver) variant(c cluster) run {
 			Redefined: itemName(redefined.Field),
 			Names:     names(c.members[1:]),
 		})
-		return r.base(c)
+		return r.base(c, in)
 	}
 
 	// The redefined item's storage is what an occurrence reserved, and it is
@@ -360,7 +493,7 @@ func (r *resolver) variant(c cluster) run {
 		arms = append(arms, Arm{
 			Alternative: alternative.Name,
 			Predicate:   alternative.Predicate,
-			Body:        armBody(r.first(member), extent),
+			Body:        armBody(r.first(member, in), extent),
 		})
 	}
 
@@ -372,18 +505,18 @@ func (r *resolver) variant(c cluster) run {
 			Group:     groupName(table),
 			Redefined: itemName(redefined.Field),
 		})
-		return r.base(c)
+		return r.base(c, in)
 
 	case len(spec.Alternatives) == 1:
 		// Nothing is chosen, so there is no alternation to carry and no
 		// predicate to carry it under: the one alternative's items stand
 		// where the cluster stood, padded out like a record's.
 		if len(arms) == 0 {
-			return r.base(c)
+			return r.base(c, in)
 		}
 		member := c.find(spec.Alternatives[0].Name)
 		return run{
-			nodes:        pad(r.first(member), c.extent()),
+			nodes:        pad(r.first(member, in), c.extent()),
 			alternatives: []*copybook.Field{member.Field},
 		}
 	}
@@ -391,7 +524,7 @@ func (r *resolver) variant(c cluster) run {
 	if len(arms) < len(spec.Alternatives) {
 		// A fault was already reported for the arms that are missing, and a
 		// variant short of them would be a second, less useful one.
-		return r.base(c)
+		return r.base(c, in)
 	}
 
 	return run{nodes: pad(&Node{Kind: KindVariant, Arms: arms}, c.extent())}
@@ -401,8 +534,8 @@ func (r *resolver) variant(c cluster) run {
 // the redefined item, which is the copybook's own first description of those
 // bytes. It keeps the walk going so that a second fault is reported beside the
 // first, and nothing is returned to a caller while a fault stands.
-func (r *resolver) base(c cluster) run {
-	return run{nodes: pad(r.first(c.members[0]), c.extent())}
+func (r *resolver) base(c cluster, in layoutmodel.Axes) run {
+	return run{nodes: pad(r.first(c.members[0], in), c.extent())}
 }
 
 // first resolves an item to its one option.
@@ -410,8 +543,8 @@ func (r *resolver) base(c cluster) run {
 // Inside a repeating group there is only ever one: a redefine down there is
 // itself in a repeating group, so it becomes a variant rather than multiplying
 // the record's alternatives.
-func (r *resolver) first(item *copybook.Item) *Node {
-	options := r.item(item)
+func (r *resolver) first(item *copybook.Item, in layoutmodel.Axes) *Node {
+	options := r.item(item, in)
 	if len(options) == 0 {
 		return &Node{Kind: KindGroup, Field: item.Field}
 	}
@@ -429,8 +562,16 @@ func (r *resolver) redefine(field *copybook.Field) *Redefine {
 }
 
 // span is where in the copybook a field is.
+//
+// A node this package introduced stands for no field and has no line: what comes
+// back for one is the copybook itself, which diag renders as the file alone
+// rather than as a line zero nothing can jump to.
 func (r *resolver) span(field *copybook.Field) diag.Span {
-	return diag.Span{File: r.opts.Copybook, Line: field.Pos.Line, Column: field.Pos.Column}
+	span := diag.Span{File: r.opts.Copybook}
+	if field != nil {
+		span.Line, span.Column = field.Pos.Line, field.Pos.Column
+	}
+	return span
 }
 
 // pad returns the nodes a member list gets for node, followed by the slack

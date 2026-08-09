@@ -62,6 +62,22 @@ func fieldNamed(t *testing.T, record *copybook.Field, name string) *copybook.Fie
 	return found
 }
 
+// mainframe is the encoding profile every test here states unless it is testing
+// the profile: the four axes a file written and read on a mainframe has.
+//
+// A test states one because [Resolve] requires one — `codec` defaults no axis
+// and neither does this package — and states this one because a test about
+// widths and containment should be reading the same profile as the next test
+// about widths and containment.
+func mainframe() layoutmodel.Axes {
+	return layoutmodel.Axes{
+		Charset:        layoutmodel.CP037,
+		SignConvention: layoutmodel.SignEBCDIC,
+		ByteOrder:      layoutmodel.BigEndian,
+		FloatFormat:    layoutmodel.HFP,
+	}
+}
+
 // resolveAll resolves a copybook source under IBM Enterprise COBOL, which is the
 // dialect every test here states unless it is testing the dialect.
 func resolveAll(t *testing.T, src string, redefines ...Redefine) []*Record {
@@ -70,6 +86,7 @@ func resolveAll(t *testing.T, src string, redefines ...Redefine) []*Record {
 	records, err := Resolve(recordOf(t, src), Options{
 		Copybook:  "test.cpy",
 		Dialect:   copybook.IBMEnterprise(),
+		Encoding:  mainframe(),
 		Redefines: redefines,
 	})
 	if err != nil {
@@ -140,7 +157,7 @@ func TestResolveReportsACopybookItCannotLayOut(t *testing.T) {
 	// An elementary DISPLAY item with no PICTURE has no width, which is
 	// `cobol-go`'s to report: this package does not measure storage a second
 	// time, so it has nothing of its own to say about one.
-	_, err := Resolve(recordOf(t, "01 R.\n   05 A.\n"), Options{Dialect: copybook.IBMEnterprise()})
+	_, err := Resolve(recordOf(t, "01 R.\n   05 A.\n"), Options{Dialect: copybook.IBMEnterprise(), Encoding: mainframe()})
 	if err == nil {
 		t.Fatal("resolved a record whose width cannot be determined")
 	}

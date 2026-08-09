@@ -56,11 +56,35 @@
 // wrote to read one item two ways: every occurrence takes it, and no variant is
 // emitted at all.
 //
+// # The encoding is per field, and no default survives
+//
+// `codec` takes four encoding axes from its caller and defaults none of them,
+// because every one fails silently when wrong. docs/ir/SPEC.md's "The encoding
+// profile, applied" meets that requirement on the generator's behalf by putting
+// all four on every field node and carrying no profile node for one to inherit
+// from, and this package is where the pair a layout writes — one profile, and
+// per-item overrides over it — becomes that (#33).
+//
+// So [Options.Encoding] is required and complete, an [EncodingOverride] applies
+// over the encoding in effect where its item sits, and [Node.Encoding] on a
+// field is the result. A record whose fields disagree about charset needs
+// nothing special for it: the axes are per field, so the mixed file is the
+// ordinary case here rather than an exception. Which axis actually governs a
+// given field's bytes — charset does not touch packed decimal — is
+// `codec/SPEC.md`'s question and is not asked here.
+//
+// The rest of what docs/ir/SPEC.md puts on a field node beside the axes — its
+// USAGE, and the attributes that follow from its PICTURE — is not computed here
+// and is not copied here. `cobol-go` has already inherited the USAGE down the
+// entry tree and parsed the PICTURE, both onto the
+// [github.com/Zaba505/cobol-go/copybook.Field] every field node carries, and a
+// copy on the node would be a second answer to a question the copybook has
+// answered. Spelling them into the descriptor's own members is #38's.
+//
 // # What this package leaves to the stories after it
 //
-// The four encoding axes and a field's PICTURE attributes are #33's, compiling a
-// layout's discriminator strategies into predicate nodes is #37's, a count read
-// out of a record is #35's, and assembling nodes into a
+// Compiling a layout's discriminator strategies into predicate nodes is #37's, a
+// count read out of a record is #35's, and assembling nodes into a
 // [github.com/Zaba505/cpybkc/irpb.Descriptor] with identifiers on them is #38's.
 // A [Repetition] here therefore carries the count the layout was computed at
 // beside the item a DEPENDING ON phrase names, and an [Arm] carries the
