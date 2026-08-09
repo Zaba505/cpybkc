@@ -176,8 +176,9 @@ no nesting at all would have to encode it as a chain of nodes with generated
 names, which is the reconstruction the second requirement exists to avoid,
 arriving from the opposite direction.
 
-**Positions survive.** `sexpr.Parse` carries a line and a column on every token,
-which is what #24's positioned AST and #31's cross-file spans are built out of.
+**Positions survive.** The grammar's parse carries a line and a column on every
+token, which is what #24's positioned AST and #31's cross-file spans are built
+out of.
 A diagnostic that can point at the sub-form that is wrong, and at the copybook
 item it names, is half of what this layer is for; see [Validation and
 diagnostics](#validation-and-diagnostics).
@@ -270,9 +271,13 @@ there is nothing for a diagnostic to say about it.
 
 Each form is given as a skeleton and a table of children.
 
-- `<name>` is a placeholder for a value of the stated sort.
+- `<name>` is a placeholder for a value of the stated sort, and `…` after one
+  stands for further arguments or children of the same kind.
 - **Arity** is `1` (required, exactly one), `0..1` (optional, at most one),
-  `1..n` (required, repeatable) or `0..n` (optional, repeatable).
+  `1..n` (required, repeatable) or `0..n` (optional, repeatable). Where a
+  child's arity depends on another child's value — every such case is in
+  [Physical framing](#physical-framing) — the table gives the widest form and
+  the prose beside it gives the condition.
 - A child a form's table does not list is a diagnostic naming both the child and
   the form it appeared in. Repeating a child whose arity is `1` or `0..1` is a
   diagnostic naming both occurrences.
@@ -405,8 +410,13 @@ and it is expressible here only because the four are stated separately.
 
 ```
 (encoding-override <item-ref>
-  (charset <charset>))
+  <axis> …)
 ```
+
+`<axis>` is one or more of the four children below, each spelled exactly as it
+is on `encoding`. An override naming one axis leaves the other three as the
+profile states them; one naming all four replaces the profile entirely for that
+item.
 
 | Child | Arity | Value |
 |---|---|---|
@@ -440,8 +450,15 @@ profile surviving into the IR for anything to inherit from (#25, #33).
 ```
 (framing
   (recfm <recfm>)
-  (lrecl <n>))
+  <child> …)
 ```
+
+Which children a `framing` form admits, and which of them it requires, follows
+from the `recfm` value: `lrecl` is required under `F` and `FB` and not admitted
+under `line-sequential`, `max-segment` is required under `VBS` and nowhere else,
+and `delimiter` and `placement` are required under `line-sequential` and nowhere
+else. The two subsections below say which applies where and why; the table lists
+them all.
 
 | Child | Arity | Value |
 |---|---|---|
