@@ -53,6 +53,25 @@ type Options struct {
 	// [layoutmodel.Framing] states no `lrecl` and means the same thing.
 	Framing *layoutmodel.Framing
 
+	// Reading is which of the two vendor readings of `OCCURS DEPENDING ON`
+	// the layout says its file was written under.
+	//
+	// It has no default, and [layoutmodel.ReadingUnstated] is what a layout
+	// that stated neither hands over. Under `odoslide` a table becomes a
+	// repetition whose count is a reference and every item behind it moves
+	// with that count; under `noodoslide` the same clause describes a fixed
+	// table at the copybook's declared maximum beside a field saying how many
+	// entries the writing program filled. The two put every item behind the
+	// table somewhere different and nothing in the file disagrees with the
+	// wrong one, so a record carrying the clause under an unstated reading is
+	// rejected rather than resolved either way (docs/ir/SPEC.md, "An item
+	// after a table slides, and the other reading is a fixed table", #87).
+	//
+	// A copybook carrying no such clause needs no reading, and one stated for
+	// it is ignored: the setting is about tables and a record with none is
+	// resolved identically under both.
+	Reading layoutmodel.Reading
+
 	// Redefines says how each REDEFINES inside a repeating group is told
 	// apart. A redefine outside one needs no entry: its alternatives become
 	// records, and [Resolve] returns one per combination.
@@ -187,6 +206,25 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 	}
 
 	r := &resolver{opts: opts, record: record}
+
+	// The reading is held to before anything is laid out, and on its own, for
+	// the profile's reason: it decides what every item behind every table in
+	// the record resolves to, so resolving without one would report a
+	// resolution nobody chose and bury the copybook's own faults among its
+	// consequences.
+	items := layout.Items()
+	if odo := tables(items); len(odo) > 0 {
+		if !opts.Reading.Stated() {
+			r.requireReading(odo)
+
+			return nil, r.faults.Err()
+		}
+
+		if opts.Reading.Slides() {
+			r.checkCounts(items, odo)
+		}
+	}
+
 	options := r.item(layout.Record, opts.Encoding)
 	if r.faults.Failed() {
 		return nil, r.faults.Err()
@@ -384,7 +422,7 @@ func (r *resolver) item(item *copybook.Item, in layoutmodel.Axes) []option {
 	in = r.encoding(item.Field, in)
 
 	if item.Field.Kind != copybook.KindGroup {
-		return []option{{node: elementary(item, in)}}
+		return []option{{node: r.elementary(item, in)}}
 	}
 	return r.group(item, in)
 }
@@ -425,12 +463,12 @@ func (r *resolver) encoding(field *copybook.Field, in layoutmodel.Axes) layoutmo
 // generator as bytes it already has rather than as a rule it applies. The
 // encoding stays on the field node inside it: the wrapper is this package's own
 // and stands for no copybook item, and the padding is not a field's bytes.
-func elementary(item *copybook.Item, in layoutmodel.Axes) *Node {
+func (r *resolver) elementary(item *copybook.Item, in layoutmodel.Axes) *Node {
 	field := &Node{
 		Kind:       KindField,
 		Field:      item.Field,
 		width:      item.Length,
-		Repetition: repetitionOf(item),
+		Repetition: r.repetitionOf(item),
 		Encoding:   in,
 	}
 	if item.Stride == item.Length {
@@ -508,7 +546,7 @@ func (r *resolver) group(item *copybook.Item, in layoutmodel.Axes) []option {
 				Kind:       KindGroup,
 				Field:      item.Field,
 				Members:    mergeSlack(members),
-				Repetition: repetitionOf(item),
+				Repetition: r.repetitionOf(item),
 			},
 			alternatives: list.alternatives,
 		})
@@ -591,7 +629,7 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 			continue
 		}
 
-		switch counted := referenceCount(member); {
+		switch counted := r.referenceCount(member); {
 		case member.Total() > extent:
 			r.faults.Fail(&ArmExtentError{
 				Pos:       r.span(member.Field),
@@ -773,33 +811,6 @@ func mergeSlack(nodes []*Node) []*Node {
 		merged = append(merged, node)
 	}
 	return merged
-}
-
-// repetitionOf reads an item's repetition, nil where it does not repeat.
-func repetitionOf(item *copybook.Item) *Repetition {
-	if item.MaxOccurs <= 1 {
-		return nil
-	}
-
-	repetition := &Repetition{Count: item.Occurs, Min: item.MinOccurs, Max: item.MaxOccurs}
-	if item.DependingOn != nil {
-		repetition.DependingOn = item.DependingOn.Field
-	}
-	return repetition
-}
-
-// referenceCount returns the first item at or under item whose repetition count
-// is read out of the record, or nil where none is.
-func referenceCount(item *copybook.Item) *copybook.Item {
-	if item.DependingOn != nil {
-		return item
-	}
-	for _, child := range item.Children {
-		if found := referenceCount(child); found != nil {
-			return found
-		}
-	}
-	return nil
 }
 
 // inTable reports whether item is contained, at any depth, in a group that

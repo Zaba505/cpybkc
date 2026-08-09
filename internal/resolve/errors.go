@@ -448,6 +448,295 @@ func (e *VariableExtentError) Diagnostic() diag.Diagnostic {
 	}
 }
 
+// UnstatedReadingError is a copybook carrying an `OCCURS DEPENDING ON` under a
+// layout that did not say which reading its file was written under.
+//
+// The two readings are not two arithmetics over one shape: under `odoslide` the
+// table's extent moves with the count and every item behind it moves with it,
+// and under `noodoslide` the occurrences stand at the copybook's declared
+// maximum, the items behind them are at constant offsets, and the count field
+// governs no byte at all. Reading one file as the other is wrong at every item
+// behind the table, silently, at every record.
+//
+// So there is nothing to fall back on and no side to take by default, which is
+// what makes this a fault rather than a warning with a resolution attached. It
+// names the table because that is where an adopter starts: the answer is a
+// property of the compiler that wrote the file, spelled `ODOSLIDE`/`NOODOSLIDE`
+// by Micro Focus, `odoslide` by GnuCOBOL and nothing at all by IBM Enterprise
+// COBOL, which slides unconditionally.
+type UnstatedReadingError struct {
+	// Pos is the entry carrying the DEPENDING ON phrase.
+	Pos diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Table is the repeating item, and Count the item its count is read from.
+	Table string
+	Count string
+}
+
+// Error implements the error interface.
+func (e *UnstatedReadingError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *UnstatedReadingError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s occurs a number of times read from %s, and the layout does not say whether an "+
+				"item behind a table slides: state (copybook-reading (occurs-depending-on odoslide)) or "+
+				"noodoslide, whichever the compiler that wrote the file was set to",
+			e.Record, e.Table, e.Count),
+		Spans: []diag.Span{e.Pos},
+	}
+}
+
+// CountOccurrenceError is an `OCCURS DEPENDING ON` count that repeats, or that
+// sits inside a group that repeats.
+//
+// Nothing in a repetition carries an occurrence number, so a reference that
+// could reach a later occurrence names bytes the descriptor cannot say it meant
+// — reading it as the first is a guess about intention that a consumer cannot
+// detect is wrong (docs/ir/SPEC.md, "A reference names a field, not an
+// occurrence of one").
+//
+// A count has a second reason the other two positions do not, and it is the one
+// that decides the shape of everything above it: a count with a value per
+// occurrence of its enclosing group is a group whose occurrences are not all the
+// same width, so "the width of one occurrence times that count" stops being
+// arithmetic and an aligned item inside such an occurrence needs a different
+// number of padding bytes in each one — which a slack node, carrying a single
+// width, cannot describe at all.
+//
+// The shape refused is the one an adopter expects: a count beside the table it
+// governs, both inside a repeating group, meaning "the count in this occurrence
+// governs this occurrence". It is an expectation rather than a file shape, and
+// COBOL's own rules already turn it away.
+type CountOccurrenceError struct {
+	// Pos is the count field's entry in the copybook.
+	Pos diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Count is the field the count is read from, and Table the repeating item
+	// naming it.
+	Count string
+	Table string
+
+	// Group is the innermost repeating group the count sits in, empty where
+	// the count field is itself the thing that repeats.
+	Group string
+}
+
+// Error implements the error interface.
+func (e *CountOccurrenceError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *CountOccurrenceError) Diagnostic() diag.Diagnostic {
+	repeats := fmt.Sprintf("%s repeats", e.Count)
+	if e.Group != "" {
+		repeats = fmt.Sprintf("%s sits in the repeating group %s", e.Count, e.Group)
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s occurs a number of times read from %s, and %s: a count has one value per record, "+
+				"because a count with one per occurrence makes the occurrences of its group different widths",
+			e.Record, e.Table, e.Count, repeats),
+		Spans: []diag.Span{e.Pos},
+	}
+}
+
+// CountPositionError is an `OCCURS DEPENDING ON` count whose own position is not
+// a constant, because some item ahead of it carries a repetition whose count is
+// a reference.
+//
+// docs/ir/SPEC.md's "A count is in hand before the extent it decides" states two
+// halves of one requirement — a count lies ahead of what it counts, and at a
+// constant position — and this is the second. The first is refused before a
+// record reaches this package at all: `cobol-go` will not lay out a copybook
+// whose DEPENDING ON object is defined after the table it controls, because
+// locating a trailing count needs the table's extent and the table's extent
+// needs the count, and [Resolve] returns that fault unchanged rather than
+// resolving the data-name a second time to restate it.
+//
+// A count behind some *other* variable table is readable — a walk in record
+// order reaches that table's own count first — and is refused all the same. It
+// is a count no compiler writes, Micro Focus states the rule for the clause
+// flatly (*Data-name-1 must have a fixed location, and must not follow an item
+// that contains an OCCURS DEPENDING ON clause*), and relaxing the restriction
+// later costs no version while imposing it later would be breaking.
+type CountPositionError struct {
+	// Pos is the count field's entry in the copybook.
+	Pos diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Count is the field the count is read from, and Table the repeating item
+	// naming it.
+	Count string
+	Table string
+
+	// Behind is the variable item the count sits behind.
+	Behind string
+}
+
+// Error implements the error interface.
+func (e *CountPositionError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *CountPositionError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s occurs a number of times read from %s, and %s sits behind %s, whose own extent "+
+				"moves with a count: a count lies ahead of what it counts and at a constant position",
+			e.Record, e.Table, e.Count, e.Count, e.Behind),
+		Spans: []diag.Span{e.Pos},
+	}
+}
+
+// SharedCountBoundsError is two repeating items of one record naming one count
+// whose declared ranges have no value in common.
+//
+// Sharing a count is admitted and is the plainest record with two variable
+// tables in it: two tables under separate counts oblige a record to carry both
+// count fields ahead of both tables, and one count ahead of two tables satisfies
+// that with nothing arranged. A consumer decodes the field once and sizes both
+// tables from that one value (docs/ir/SPEC.md, "One count may size two tables,
+// and a writer refuses to choose").
+//
+// The declared bounds are the one place the second reference is not simply a
+// second multiplication: each repetition carries its own, both bind the one
+// value, and the range a record can actually carry is the overlap. Where the
+// ranges do not overlap at all there is no count that sizes both tables, so
+// every record of the descriptor is malformed data — and the alternative to
+// rejecting the layout here is that diagnostic once per record for the life of
+// the file.
+type SharedCountBoundsError struct {
+	// Pos is the count field's entry in the copybook.
+	Pos diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Count is the field both repetitions name.
+	Count string
+
+	// Tables are the two repeating items, and Bounds the minimum and maximum
+	// each one declares, in the same order.
+	Tables []string
+	Bounds [][2]int
+}
+
+// Error implements the error interface.
+func (e *SharedCountBoundsError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *SharedCountBoundsError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s occurs %s and %s occurs %s, and both counts are read from %s: no value sizes "+
+				"both tables, so every record of this layout would be malformed",
+			e.Record, e.Tables[0], occurrences(e.Bounds[0]), e.Tables[1], occurrences(e.Bounds[1]), e.Count),
+		Spans: []diag.Span{e.Pos},
+	}
+}
+
+// MissingCountError is [Record.At] handed no count for a table whose repetition
+// names one.
+//
+// It is not an absent table and it is not zero occurrences. docs/ir/SPEC.md
+// requires a consumer to report a count it cannot decode as a number rather than
+// reading the group as absent, and a count field holding spaces is a real
+// mainframe occurrence — read as zero it produces a record that parses and is
+// wrong. So a count nobody supplied is refused here rather than defaulted, and a
+// caller whose decode failed reports that failure instead of leaving the entry
+// out.
+//
+// It points at no file, which it shares with [CountBoundsError] and with nothing
+// else in this package: the copybook declared the table correctly and the layout
+// chose a reading correctly, and what is wrong is one record's bytes.
+type MissingCountError struct {
+	// Record is the record being read.
+	Record string
+
+	// Count is the field the count is read from, and Table the repeating item
+	// naming it.
+	Count string
+	Table string
+}
+
+// Error implements the error interface.
+func (e *MissingCountError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *MissingCountError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s occurs a number of times read from %s, and no count was decoded for it: a count "+
+				"that would not decode is malformed data rather than zero occurrences",
+			e.Record, e.Table, e.Count),
+	}
+}
+
+// CountBoundsError is a decoded count outside the occurrences the copybook
+// declared.
+//
+// The bounds are carried on a repetition for this check and for nothing else,
+// and it is the only thing in reach that bounds a number decoded out of a file:
+// a descriptor word stating the length a forbidden count implies agrees with the
+// record's extent exactly, so the framing check passes on a record the copybook
+// says cannot exist — which is what a file written against a later version of
+// that copybook looks like. Under **unframed** there is nothing to disagree with
+// it at all, and a corrupt count runs the read into the next record.
+//
+// A negative count is this fault and not one of its own. Every copybook's
+// declared minimum is at least zero, so a negative value is below it, and what
+// an adopter needs told is the range the count had to be in.
+//
+// One of these per repetition naming the count, rather than one per count.
+// Two repeating items may name one field, each carries its own declared minimum
+// and maximum, and both bind the one value, so a count admitted by one table and
+// refused by the other is refused.
+type CountBoundsError struct {
+	// Record is the record being read.
+	Record string
+
+	// Count is the field the count is read from, and Table the repeating item
+	// naming it.
+	Count string
+	Table string
+
+	// Value is what was decoded, and Min and Max the occurrences the copybook
+	// declares for this table.
+	Value int
+	Min   int
+	Max   int
+}
+
+// Error implements the error interface.
+func (e *CountBoundsError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *CountBoundsError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, the count read from %s is %d, and %s occurs %s",
+			e.Record, e.Count, e.Value, e.Table, occurrences([2]int{e.Min, e.Max})),
+	}
+}
+
+// occurrences renders a declared range the way an OCCURS clause states one.
+func occurrences(bounds [2]int) string {
+	if bounds[0] == bounds[1] {
+		return fmt.Sprintf("%d times", bounds[0])
+	}
+
+	return fmt.Sprintf("%d to %d times", bounds[0], bounds[1])
+}
+
 // recordNamed is what a message calls a record, with the alternatives that tell
 // one resolution of it from another where the copybook has any.
 func recordNamed(record string, alternatives []string) string {

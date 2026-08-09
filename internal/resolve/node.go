@@ -153,24 +153,42 @@ func (n *Node) Occurrences() int {
 // its whole extent and not one occurrence of it.
 func (n *Node) Extent() int { return n.Width() * n.Occurrences() }
 
-// Repetition is what an item that repeats carries.
+// Repetition is what an item that repeats carries: a constant number of
+// occurrences, or a reference to the field a count is read from together with
+// the bounds the copybook declared (docs/ir/SPEC.md, "A variable record is a sum
+// with a variable term").
 //
-// Count is the occurrence count the layout was computed at, which for an
-// OCCURS ... DEPENDING ON table is the declared maximum — the storage a compiler
-// reserves for it. Turning DependingOn into the IR's reference, and the extent
-// that moves with it, is #35's; what this package needs from it is that the
-// count is a reference at all, which is what a variant's arms may not contain.
+// A repetition whose count is a reference is what the *sliding* reading of
+// `OCCURS DEPENDING ON` resolves to. Under the other reading the same clause is
+// a fixed table at its declared maximum, and what stands here is a constant with
+// no reference in it at all — see [Options.Reading] (#87).
 type Repetition struct {
-	// Count is the occurrence count the layout was computed at.
+	// Count is the occurrence count this repetition stands at: the constant
+	// the copybook wrote for a fixed table, the declared maximum for a
+	// reference as [Resolve] hands it back — the storage a compiler reserves
+	// — and the count a consumer decoded after [Record.At].
 	Count int
 
-	// Min and Max are the bounds the OCCURS clause allows. They both equal
-	// Count for a fixed table.
+	// Min and Max are the bounds the OCCURS clause allows, and they both
+	// equal Count for a fixed table.
+	//
+	// They are the copybook's own `OCCURS integer-1 TO integer-2`, neither
+	// narrowed nor widened to what a layout would prefer, and they are
+	// carried for one check and nothing else: a count outside them is
+	// malformed data, which is [Record.At]'s to report. Without them there is
+	// nothing in a record to bound a number decoded out of a file.
 	Min int
 	Max int
 
-	// DependingOn is the item whose value gives the count, nil for a fixed
+	// DependingOn is the field whose value gives the count, nil for a fixed
 	// table.
+	//
+	// A field of the record being read, at any depth, and never a field of
+	// another record: a DEPENDING ON phrase names an item of the copybook
+	// record carrying it, and a count that comes from an earlier record
+	// arrives as a register the automaton bound rather than as a reference
+	// reaching across records (docs/ir/SPEC.md, #77). A register is #36's
+	// node, so nothing here stands for one.
 	DependingOn *copybook.Field
 }
 
@@ -246,10 +264,17 @@ func (r *Record) Extent() int { return r.Root.Width() }
 // so an item behind one sits where it would sit without it, and a position
 // inside an arm is measured through the arm the item is in.
 //
-// It reports false for a node that is not in the record. A record holding an
-// OCCURS ... DEPENDING ON table has positions behind that table which move with
-// the count; what comes back is the position at the count the layout was
-// computed at, which is the declared maximum (#35).
+// It reports false for a node that is not in the record.
+//
+// A record holding a table whose count is a reference has positions behind that
+// table which move with the count, and this is the sum at the count every
+// repetition currently stands at — the declared maximum, as [Resolve] hands a
+// record back, and one record's own counts after [Record.At]. That is the whole
+// of how a data-dependent offset is modelled: ordering and width, with a term in
+// the sum that is not a constant. Nothing carries a second, different mechanism
+// for a field behind a variable table, and no node carries an offset for one to
+// be wrong in (docs/ir/SPEC.md, "A variable record is a sum with a variable
+// term", #35).
 func (r *Record) Position(target *Node) (int, bool) {
 	return position(r.Root, target, 0)
 }

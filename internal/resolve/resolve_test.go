@@ -80,6 +80,11 @@ func mainframe() layoutmodel.Axes {
 
 // resolveAll resolves a copybook source under IBM Enterprise COBOL, which is the
 // dialect every test here states unless it is testing the dialect.
+//
+// The reading is that dialect's too: IBM Enterprise COBOL slides
+// unconditionally, so a test about a copybook laid out under it reads its tables
+// the way that compiler does. A test about the fork itself states its own
+// (odo_test.go).
 func resolveAll(t *testing.T, src string, redefines ...Redefine) []*Record {
 	t.Helper()
 
@@ -87,6 +92,7 @@ func resolveAll(t *testing.T, src string, redefines ...Redefine) []*Record {
 		Copybook:  "test.cpy",
 		Dialect:   copybook.IBMEnterprise(),
 		Encoding:  mainframe(),
+		Reading:   layoutmodel.ODOSlide,
 		Redefines: redefines,
 	})
 	if err != nil {

@@ -46,6 +46,7 @@ func resolveTable(t *testing.T, src string, build func(*copybook.Field) []Redefi
 		Copybook:  "test.cpy",
 		Dialect:   copybook.IBMEnterprise(),
 		Encoding:  mainframe(),
+		Reading:   layoutmodel.ODOSlide,
 		Redefines: build(field),
 	})
 }

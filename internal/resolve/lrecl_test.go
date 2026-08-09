@@ -51,6 +51,7 @@ func framed(t *testing.T, src string, framing *layoutmodel.Framing) ([]*Record, 
 		Copybook: "test.cpy",
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
+		Reading:  layoutmodel.ODOSlide,
 		Framing:  framing,
 	})
 }
