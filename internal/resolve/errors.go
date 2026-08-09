@@ -12,12 +12,17 @@ import (
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
 
-// Every fault here names four things: the record, the repeating group the
-// variant sits in, the redefined item, and the arm. docs/ir/SPEC.md asks for
-// those by name rather than for a generic width error, and the reason is what an
-// adopter does next — a message saying two extents differ sends them looking
-// through a copybook for two numbers, and one naming the entry, the table it is
-// in and the alternative that does not fit sends them to the line.
+// A fault here names as much of the record, the repeating group the variant sits
+// in, the redefined item and the arm as the fault is about. docs/ir/SPEC.md asks
+// for those by name rather than for a generic width error, and the reason is
+// what an adopter does next — a message saying two extents differ sends them
+// looking through a copybook for two numbers, and one naming the entry, the
+// table it is in and the alternative that does not fit sends them to the line.
+//
+// The two that name fewer name fewer because they are about fewer.
+// [ArmCountError] is about a variant that has no arms, so there is no arm to
+// name, and [UnknownAlternativeError] is about a name that matches nothing under
+// the redefined item, which is true wherever that item sits.
 
 // ArmExtentError is an arm that needs more bytes than the item it redefines.
 //
@@ -142,10 +147,10 @@ func (e *ArmPredicateError) Diagnostic() diag.Diagnostic {
 // ArmCountError is a layout that names a redefine inside a repeating group and
 // then names no alternative of it.
 //
-// One alternative is not this fault: it says every occurrence takes that one,
-// and resolves to its items with no variant. Naming none says nothing at all,
-// which leaves the alternation unresolved in exactly the way naming the item was
-// meant to settle.
+// Naming one is not this fault and the message says so: one alternative says
+// every occurrence takes it, and resolves to its items with no variant at all.
+// Naming none says nothing, which leaves the alternation unresolved in exactly
+// the way naming the item was meant to settle.
 type ArmCountError struct {
 	// Pos is the redefined item's entry in the copybook.
 	Pos diag.Span
@@ -167,7 +172,7 @@ func (e *ArmCountError) Error() string { return e.Diagnostic().String() }
 func (e *ArmCountError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
-			"in record %s, the variant on %s in the repeating group %s names no alternative at all, and a variant needs two",
+			"in record %s, nothing is named as an alternative of %s in the repeating group %s: name one to say every occurrence takes it, or two or more with a predicate on each to tell them apart",
 			e.Record, e.Redefined, e.Group),
 		Spans: []diag.Span{e.Pos},
 	}

@@ -456,9 +456,11 @@ func TestAnAlternativeTheCopybookDoesNotDeclareIsRejected(t *testing.T) {
 	}
 }
 
-// TestAVariantWithTooFewArmsIsRejected: two at least, because an alternation
-// over one thing is not one.
-func TestAVariantWithTooFewArmsIsRejected(t *testing.T) {
+// TestARedefineTheLayoutNamesNoAlternativeOfIsRejected, and the message says
+// what naming one and naming two would each have meant — naming one is the
+// overlay above and not a fault, so a diagnostic that said "a variant needs two"
+// would send an adopter to write a predicate they may not need.
+func TestARedefineTheLayoutNamesNoAlternativeOfIsRejected(t *testing.T) {
 	t.Parallel()
 
 	_, err := resolveTable(t, tableSource, func(field *copybook.Field) []Redefine {
@@ -468,6 +470,9 @@ func TestAVariantWithTooFewArmsIsRejected(t *testing.T) {
 	var count *ArmCountError
 	if !errors.As(err, &count) {
 		t.Fatalf("resolving reported %v, want an ArmCountError", err)
+	}
+	if !strings.Contains(count.Error(), "name one to say every occurrence takes it") {
+		t.Errorf("the diagnostic does not say that naming one alternative is allowed: %s", count.Error())
 	}
 }
 
