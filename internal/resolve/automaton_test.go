@@ -1,0 +1,1057 @@
+// Copyright (c) 2026 Richard Carson Derr
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+package resolve
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/Zaba505/cobol-go/copybook"
+
+	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
+)
+
+// Sequencing reaches a generator compiled, and these hold the compilation to
+// docs/ir/SPEC.md's "The sequencing automaton": states and transitions and no
+// expression, every transition consuming exactly one record, a start state no
+// transition re-enters, and a counted run that is one register and one guard
+// however wide the count is.
+//
+// Every test here drives the real layout parser and the real copybook reader, so
+// that no test asserts a graph compiled out of a model the readers would never
+// have produced. What a test writes is a layout and one copybook per record, and
+// what it asserts is the whole graph rendered — one line per state and one per
+// transition — because what has to be right is not one guard but which state
+// carries it.
+
+// header, detail and summary are the three copybooks of docs/ir/SPEC.md's
+// "A counted run, as nodes": a header carrying a detail count and a flag, the
+// details the count governs, and the summary the flag governs. Each carries its
+// type code at its own first byte, which is what a consumer tells them apart by.
+const (
+	header = `01 HDR-REC.
+   05 HDR-TYPE PIC X(1).
+   05 DTL-COUNT PIC 9(2).
+   05 SUM-FLAG PIC X(1).
+`
+
+	detail = `01 DTL-REC.
+   05 DTL-TYPE PIC X(1).
+   05 DTL-BODY PIC X(20).
+`
+
+	summary = `01 SUM-REC.
+   05 SUM-TYPE PIC X(1).
+   05 SUM-TOTAL PIC 9(7).
+`
+)
+
+// countedRun is the layout of that appendix: the records, what tells each apart,
+// and the expression saying any number of counted groups make a file.
+const countedRun = `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(record SUMMARY (copybook "sum.cpy" SUM-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(discriminate SUMMARY (equals (item SUMMARY SUM-TYPE) "S"))
+(sequence
+  (+ (seq HEADER
+          (times DETAIL (item HEADER DTL-COUNT))
+          (when (item HEADER SUM-FLAG) "Y" SUMMARY))))`
+
+// countedRunCopybooks binds those three record names to those three copybooks.
+func countedRunCopybooks() map[string]string {
+	return map[string]string{"HEADER": header, "DETAIL": detail, "SUMMARY": summary}
+}
+
+// compileLayout is the whole pipeline a caller runs: parse the layout, read the
+// two layers the automaton is compiled out of, resolve each record name to the
+// copybook the test gave it, and compile.
+//
+// It reports what compilation said rather than failing on it, because half of
+// these tests are about the fault.
+func compileLayout(t *testing.T, source string, copybooks map[string]string) (*Automaton, error) {
+	t.Helper()
+
+	file, err := layout.Parse("layout.sexpr", strings.NewReader(source))
+	if err != nil {
+		t.Fatalf("parsing the layout: %v", err)
+	}
+
+	sequence, err := layoutmodel.ReadSequence(file)
+	if err != nil {
+		t.Fatalf("reading the sequencing layer: %v", err)
+	}
+
+	discrimination, err := layoutmodel.ReadDiscrimination(file)
+	if err != nil {
+		t.Fatalf("reading the discrimination layer: %v", err)
+	}
+
+	opts := Sequencing{Sequence: sequence, Dialect: copybook.IBMEnterprise()}
+	for _, discriminator := range discrimination.Records {
+		src, bound := copybooks[discriminator.Record]
+		if !bound {
+			t.Fatalf("the test binds no copybook to record %s", discriminator.Record)
+		}
+
+		opts.Records = append(opts.Records, SequencedRecord{
+			Name:          discriminator.Record,
+			Copybook:      strings.ToLower(discriminator.Record) + ".cpy",
+			Item:          recordOf(t, src),
+			Discriminator: discriminator.Strategy,
+		})
+	}
+
+	return CompileSequence(opts)
+}
+
+// compiled is a layout the caller expects to compile.
+func compiled(t *testing.T, source string, copybooks map[string]string) *Automaton {
+	t.Helper()
+
+	automaton, err := compileLayout(t, source, copybooks)
+	if err != nil {
+		t.Fatalf("compiling the sequence: %v", err)
+	}
+
+	return automaton
+}
+
+// refused is a layout the caller expects to be rejected.
+func refused(t *testing.T, source string, copybooks map[string]string) error {
+	t.Helper()
+
+	automaton, err := compileLayout(t, source, copybooks)
+	if err == nil {
+		t.Fatalf("the sequence compiled, want a fault:\n%s", renderAutomaton(automaton))
+	}
+
+	return err
+}
+
+// renderAutomaton draws the whole graph: the registers, then one line per state
+// and one indented line per transition leaving it.
+//
+// A rendering rather than a struct literal for [renderSequence]'s reason: what
+// has to be right is every guard *and* the state carrying it, and a rendering
+// carrying both fails with the whole graph in the message.
+func renderAutomaton(a *Automaton) string {
+	lines := make([]string, 0, len(a.Registers)+len(a.States))
+
+	for _, register := range a.Registers {
+		lines = append(lines, fmt.Sprintf("register %d %s from %s", register.ID, register.Kind, register.Source))
+	}
+
+	for _, state := range a.States {
+		head := fmt.Sprintf("state %d", state.ID)
+		switch {
+		case state.Accepts && len(state.Acceptance) > 0:
+			head += " accepts when " + renderGuards(state.Acceptance)
+		case state.Accepts:
+			head += " accepts"
+		}
+
+		lines = append(lines, head)
+		for _, transition := range state.Transitions {
+			lines = append(lines, "  "+renderTransition(transition))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderTransition draws one edge in the order a consumer evaluates it: the
+// guards that make it eligible, the predicate that selects it, the record it
+// admits, the bindings it applies and the state it moves to.
+func renderTransition(t *Transition) string {
+	parts := make([]string, 0, 5)
+
+	if len(t.Guards) > 0 {
+		parts = append(parts, "when "+renderGuards(t.Guards))
+	}
+
+	if t.Predicate == nil {
+		parts = append(parts, "on no predicate")
+	} else {
+		parts = append(parts, "on "+renderStrategy(*t.Predicate))
+	}
+
+	parts = append(parts, "admit "+t.Record)
+
+	for _, binding := range t.Bindings {
+		if binding.Value == BindLessOne {
+			parts = append(parts, "take one off "+binding.Register.String())
+
+			continue
+		}
+
+		parts = append(parts, "bind "+binding.Register.String())
+	}
+
+	return strings.Join(parts, ", ") + fmt.Sprintf(", go to %d", t.To.ID)
+}
+
+// renderStrategy draws a discriminator the way a layout writes one.
+func renderStrategy(s layoutmodel.Strategy) string {
+	literals := make([]string, 0, len(s.Literals))
+	for _, literal := range s.Literals {
+		literals = append(literals, literal.String())
+	}
+
+	return "(" + string(s.Kind) + " " + s.Item.String() + " " + strings.Join(literals, " ") + ")"
+}
+
+// assertRendering fails with the whole graph where it is not the one wanted.
+func assertRendering(t *testing.T, a *Automaton, want string) {
+	t.Helper()
+
+	if got := renderAutomaton(a); got != strings.TrimSpace(want) {
+		t.Errorf("the automaton is\n%s\n\nwant\n%s", got, strings.TrimSpace(want))
+	}
+}
+
+// TestTheCountedRunOfTheAppendix compiles docs/ir/SPEC.md's "A counted run, as
+// nodes" and asserts the graph against it.
+//
+// The appendix names three states and this graph has four, because a position
+// automaton gives every appearance of a record name its own state and the
+// appendix merges the two that behave alike. State 1 and state 2 are the
+// appendix's single `group`: one is where a header has just been admitted and
+// the other where a detail has, and every transition leaving them agrees. States
+// carry identifiers and no names, so which of the two a consumer is in is not a
+// thing anything downstream can ask.
+//
+// The one difference in substance is the flag guard the appendix carries on
+// `group`'s acceptance and on its third transition. This compiles `(when flag
+// "Y" SUMMARY)` into a guard on the transition admitting the summary and into
+// nothing on the paths that skip it, because the guard set has no negation and
+// the complement of `Y` is not a set a compiler can know. What that costs is one
+// of the appendix's four detections, and [TestTheFailuresACountedRunDetects] is
+// where each of them is asserted.
+func TestTheCountedRunOfTheAppendix(t *testing.T) {
+	t.Parallel()
+
+	assertRendering(t, compiled(t, countedRun, countedRunCopybooks()), `
+register 1 integer from (item HEADER DTL-COUNT)
+register 2 bytes from (item HEADER SUM-FLAG)
+state 0
+  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+state 1 accepts when (item HEADER DTL-COUNT) equal to 0
+  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+  when (item HEADER DTL-COUNT) equal to 0 and (item HEADER SUM-FLAG) equal to "Y", on (equals (item SUMMARY SUM-TYPE) "S"), admit SUMMARY, go to 3
+  when (item HEADER DTL-COUNT) equal to 0, on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+state 2 accepts when (item HEADER DTL-COUNT) equal to 0
+  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+  when (item HEADER DTL-COUNT) equal to 0 and (item HEADER SUM-FLAG) equal to "Y", on (equals (item SUMMARY SUM-TYPE) "S"), admit SUMMARY, go to 3
+  when (item HEADER DTL-COUNT) equal to 0, on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+state 3 accepts
+  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+`)
+}
+
+// TestTheFailuresACountedRunDetects walks the four things docs/ir/SPEC.md's
+// appendix says its automaton catches that a memoryless graph could not, and
+// asserts of each that the compiled graph carries what catches it.
+//
+// The second is the one a compiled `when` cannot carry, and it is asserted as
+// what it is rather than skipped: the acceptance guard is the counter and not
+// the flag, so a file whose summary is missing where the flag said `Y` is
+// accepted. The sub-test after it is the layout an adopter writes instead, where
+// the summary is counted rather than flagged and the detection comes back —
+// because zero is a test the guard set has and *not `Y`* is not.
+func TestTheFailuresACountedRunDetects(t *testing.T) {
+	t.Parallel()
+
+	automaton := compiled(t, countedRun, countedRunCopybooks())
+
+	t.Run("a file ending two details short", func(t *testing.T) {
+		// End of input in the group with the counter above zero: the
+		// acceptance guard does not hold, so the file is truncated rather
+		// than complete.
+		for _, state := range automaton.States[1:3] {
+			if !state.Accepts || len(state.Acceptance) != 1 {
+				t.Fatalf("state %d accepts %v under %d guards, want one", state.ID, state.Accepts, len(state.Acceptance))
+			}
+
+			if guard := state.Acceptance[0]; guard.Test != GuardEquals || guard.Register.Kind != RegisterInteger {
+				t.Errorf("state %d accepts under %s, want the counter equal to zero", state.ID, renderGuard(guard))
+			}
+		}
+	})
+
+	t.Run("a missing summary where the flag says Y", func(t *testing.T) {
+		// The appendix's second detection, and the one a compiled `when`
+		// gives up. Its accepting states are guarded on the counter alone,
+		// so end of input with the flag at `Y` and no summary read is a
+		// complete file here and a truncated one there.
+		for _, state := range automaton.States[1:3] {
+			for _, guard := range state.Acceptance {
+				if guard.Register.Kind == RegisterBytes {
+					t.Errorf("state %d accepts under %s: a compiled `when` has no negation to put there",
+						state.ID, renderGuard(guard))
+				}
+			}
+		}
+	})
+
+	t.Run("a missing summary where a count says one", func(t *testing.T) {
+		// What an adopter writes to buy that detection back: the summary is
+		// counted rather than flagged, and acceptance is guarded on the
+		// count reaching zero like every other counted run.
+		counted := strings.Replace(countedRun,
+			`(when (item HEADER SUM-FLAG) "Y" SUMMARY)`,
+			`(times SUMMARY (item HEADER SUM-COUNT))`, 1)
+		copybooks := countedRunCopybooks()
+		copybooks["HEADER"] = strings.Replace(header, "SUM-FLAG PIC X(1)", "SUM-COUNT PIC 9(1)", 1)
+
+		guarded := compiled(t, counted, copybooks)
+		for _, state := range guarded.States[1:] {
+			if !state.Accepts {
+				continue
+			}
+
+			if len(state.Acceptance) == 0 {
+				t.Errorf("state %d accepts unguarded, want the summary count to qualify it", state.ID)
+			}
+		}
+	})
+
+	t.Run("a sixth detail where the header said five", func(t *testing.T) {
+		// In the group with the counter at zero the detail transition is
+		// ineligible, and the two transitions that are eligible are selected
+		// by predicates a detail record does not match. So the record is
+		// reported rather than admitted.
+		detail := transitionAdmitting(t, automaton.States[1], "DETAIL")
+		if len(detail.Guards) != 1 || detail.Guards[0].Test != GuardPositive {
+			t.Fatalf("the detail transition is guarded by %s, want the counter above zero", renderGuards(detail.Guards))
+		}
+
+		for _, other := range automaton.States[1].Transitions {
+			if other == detail {
+				continue
+			}
+
+			if satisfiable(mergeGuards(detail.Guards, other.Guards)) {
+				t.Errorf("admitting %s is eligible at the same time as the detail, so a sixth detail has "+
+					"somewhere to go", other.Record)
+			}
+		}
+	})
+
+	t.Run("a summary where the flag says N", func(t *testing.T) {
+		// The transition admitting the summary carries the flag guard, so
+		// with the flag anything but `Y` it is ineligible and a summary
+		// record matches nothing the state offers.
+		summary := transitionAdmitting(t, automaton.States[1], "SUMMARY")
+
+		var flag *Guard
+		for i, guard := range summary.Guards {
+			if guard.Register.Kind == RegisterBytes {
+				flag = &summary.Guards[i]
+			}
+		}
+
+		if flag == nil {
+			t.Fatalf("the summary transition is guarded by %s, want the flag among them", renderGuards(summary.Guards))
+		}
+
+		if flag.Test != GuardEquals || len(flag.Literals) != 1 || flag.Literals[0].Text != "Y" {
+			t.Errorf("the flag guard is %s, want it equal to \"Y\"", renderGuard(*flag))
+		}
+	})
+}
+
+// transitionAdmitting is the one transition of a state that admits a record.
+func transitionAdmitting(t *testing.T, state *State, record string) *Transition {
+	t.Helper()
+
+	for _, transition := range state.Transitions {
+		if transition.Record == record {
+			return transition
+		}
+	}
+
+	t.Fatalf("state %d offers no transition admitting %s", state.ID, record)
+
+	return nil
+}
+
+// TestTheStartStateIsNothingsTarget is docs/layout/SPEC.md's "The first record
+// of a file is the first thing the expression admits, and nothing is written to
+// say so".
+//
+// A state is the only thing the automaton knows about position and there is no
+// predicate for *first* to lower into, so what makes the first record
+// expressible is a state no transition re-enters — even where the file is any
+// number of repeats of the same group and every other state is re-entered (#80).
+func TestTheStartStateIsNothingsTarget(t *testing.T) {
+	t.Parallel()
+
+	automaton := compiled(t, countedRun, countedRunCopybooks())
+
+	if automaton.Start != automaton.States[0] || automaton.Start.ID != 0 {
+		t.Fatalf("the start state is %d, want the first state", automaton.Start.ID)
+	}
+
+	for _, state := range automaton.States {
+		for _, transition := range state.Transitions {
+			if transition.To == automaton.Start {
+				t.Errorf("state %d re-enters the start state admitting %s", state.ID, transition.Record)
+			}
+		}
+	}
+
+	// And the first record of the file is the only thing it offers.
+	if len(automaton.Start.Transitions) != 1 || automaton.Start.Transitions[0].Record != "HEADER" {
+		t.Errorf("the start state offers %d transitions, want one admitting HEADER", len(automaton.Start.Transitions))
+	}
+}
+
+// TestEveryTransitionConsumesExactlyOneRecord is docs/ir/SPEC.md's "No epsilon
+// transitions, and what the graph pays instead": there is no transition that
+// moves without reading, which is what keeps a generated reader a loop over one
+// record at a time.
+func TestEveryTransitionConsumesExactlyOneRecord(t *testing.T) {
+	t.Parallel()
+
+	automaton := compiled(t, countedRun, countedRunCopybooks())
+
+	for _, state := range automaton.States {
+		for _, transition := range state.Transitions {
+			if transition.Record == "" {
+				t.Errorf("state %d carries a transition admitting no record", state.ID)
+			}
+		}
+	}
+}
+
+// TestACountedRunIsOneRegisterAndOneGuard is what the register file is bought
+// with: a graph whose size follows the layout instead of the data.
+//
+// A `PIC 9(4)` count admits ten thousand different files and the graph is the
+// same size for all of them — one register, one guard and no state per possible
+// count, which is what docs/ir/SPEC.md means by a counted run compiled without
+// unrolling.
+func TestACountedRunIsOneRegisterAndOneGuard(t *testing.T) {
+	t.Parallel()
+
+	copybooks := countedRunCopybooks()
+	copybooks["HEADER"] = strings.Replace(header, "DTL-COUNT PIC 9(2)", "DTL-COUNT PIC 9(4)", 1)
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (times DETAIL (item HEADER DTL-COUNT))))`
+
+	assertRendering(t, compiled(t, source, copybooks), `
+register 1 integer from (item HEADER DTL-COUNT)
+state 0
+  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), go to 1
+state 1 accepts when (item HEADER DTL-COUNT) equal to 0
+  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+state 2 accepts when (item HEADER DTL-COUNT) equal to 0
+  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+`)
+}
+
+// TestTheCounterCannotRunBelowZero is docs/ir/SPEC.md's requirement on a
+// producer: a transition taking one off a register is guarded so that the
+// register cannot run below zero.
+//
+// One guard does both jobs here, which is why there is no second rule to keep.
+// The transition that takes one off is the transition that enters a pass of the
+// run, and the guard that bounds the run is the guard that keeps the counter
+// non-negative.
+func TestTheCounterCannotRunBelowZero(t *testing.T) {
+	t.Parallel()
+
+	automaton := compiled(t, countedRun, countedRunCopybooks())
+
+	took := 0
+	for _, state := range automaton.States {
+		for _, transition := range state.Transitions {
+			for _, binding := range transition.Bindings {
+				if binding.Value != BindLessOne {
+					continue
+				}
+
+				took++
+
+				guarded := false
+				for _, guard := range transition.Guards {
+					if guard.Register == binding.Register && guard.Test == GuardPositive {
+						guarded = true
+					}
+				}
+
+				if !guarded {
+					t.Errorf("state %d takes one off %s under %s, want it guarded above zero",
+						state.ID, binding.Register, renderGuards(transition.Guards))
+				}
+			}
+		}
+	}
+
+	if took == 0 {
+		t.Error("nothing takes one off a counter, so the graph is not the one this asserts")
+	}
+}
+
+// TestARegisterBoundEarlierAndDecrementedByTheAdmittingTransitionCompiles is
+// what docs/ir/SPEC.md's "A count is in hand before the extent it decides"
+// leaves admissible after #88's rewording: a register bound on an earlier
+// transition and rebound, or decremented, by the transition admitting the record
+// that reads it.
+//
+// Both shapes stand on one transition of the counted run. The transition
+// admitting a detail reads the counter at step 3 and takes one off it at step 7,
+// and the transition admitting the next header reads the counter *and* rebinds
+// it from the record it admits — each read taking the value the register held on
+// entry to the state, which is what makes the two orders different things.
+func TestARegisterBoundEarlierAndDecrementedByTheAdmittingTransitionCompiles(t *testing.T) {
+	t.Parallel()
+
+	automaton := compiled(t, countedRun, countedRunCopybooks())
+	group := automaton.States[1]
+
+	detail := transitionAdmitting(t, group, "DETAIL")
+	if len(detail.Guards) != 1 || len(detail.Bindings) != 1 || detail.Bindings[0].Value != BindLessOne {
+		t.Errorf("the detail transition is %s, want it reading the counter and taking one off it",
+			renderTransition(detail))
+	}
+
+	next := transitionAdmitting(t, group, "HEADER")
+	rebinds := false
+	for _, binding := range next.Bindings {
+		if binding.Value == BindField && binding.Register == next.Guards[0].Register {
+			rebinds = true
+		}
+	}
+
+	if !rebinds {
+		t.Errorf("the transition admitting the next header is %s, want it reading the counter and rebinding it",
+			renderTransition(next))
+	}
+}
+
+// TestARunCountedByTheRecordBeingCountedIsRejected is the shape #88 reworded
+// docs/ir/SPEC.md to refuse: a repetition naming a register that only the
+// transition admitting its own record binds.
+//
+// A binding applies at step 7 of the read loop and the extent it decides is
+// wanted at step 4, so on the first admission the register holds nothing and on
+// every later one it holds the previous record's value. What is asserted here is
+// as much the message as the refusal: the diagnostic names the record and the
+// register rather than reporting a reference that does not resolve, because the
+// reference resolves perfectly and it is the *order* that does not work.
+func TestARunCountedByTheRecordBeingCountedIsRejected(t *testing.T) {
+	t.Parallel()
+
+	source := `(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (times DETAIL (item DETAIL DTL-COUNT)))`
+
+	counted := `01 DTL-REC.
+   05 DTL-TYPE PIC X(1).
+   05 DTL-COUNT PIC 9(2).
+`
+
+	err := refused(t, source, map[string]string{"DETAIL": counted})
+
+	var unbound *UnboundRegisterError
+	if !errors.As(err, &unbound) {
+		t.Fatalf("compiling reported %v, want an unbound register", err)
+	}
+
+	if !unbound.OnAdmitting {
+		t.Error("the fault does not say the only binding is on the admitting transition")
+	}
+
+	for _, want := range []string{"DETAIL", "(item DETAIL DTL-COUNT)", "after the record is admitted"} {
+		if !strings.Contains(unbound.Error(), want) {
+			t.Errorf("the diagnostic is %q, want it to name %q", unbound.Error(), want)
+		}
+	}
+}
+
+// TestAValueInARecordNotYetReadIsRejected is docs/ir/SPEC.md's "A value the
+// automaton has not read yet", and the other half of what
+// [UnboundRegisterError] reports.
+//
+// The header is optional here, so there is a path to the counted run on which no
+// header was admitted and the counter holds nothing. A consumer reading a stream
+// forward has no way to go back for it, and `resolve` proves that before a byte
+// is read rather than leaving it to surprise a reader halfway through a
+// hundred-million-record file.
+func TestAValueInARecordNotYetReadIsRejected(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq (? HEADER) (times DETAIL (item HEADER DTL-COUNT))))`
+
+	err := refused(t, source, countedRunCopybooks())
+
+	var unbound *UnboundRegisterError
+	if !errors.As(err, &unbound) {
+		t.Fatalf("compiling reported %v, want an unbound register", err)
+	}
+
+	if unbound.OnAdmitting {
+		t.Error("the fault says the admitting transition binds it, and no transition here does")
+	}
+
+	for _, want := range []string{"HEADER", "(item HEADER DTL-COUNT)", "not read yet"} {
+		if !strings.Contains(unbound.Error(), want) {
+			t.Errorf("the diagnostic is %q, want it to name %q", unbound.Error(), want)
+		}
+	}
+}
+
+// TestABindingNeverNamesAnItemThatRepeats is docs/ir/SPEC.md's "A reference
+// names a field, not an occurrence of one", applied to the one position this
+// story owns.
+//
+// Nothing carries an occurrence number, so an item with a value per occurrence
+// is a value the automaton has no spelling for. The diagnostic names the record,
+// the item and the enclosing group that repeats, because the generic version
+// sends a reader to look for a misspelling in a reference that is spelled
+// correctly.
+func TestABindingNeverNamesAnItemThatRepeats(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (times DETAIL %s)))`
+
+	for _, tc := range []struct {
+		name      string
+		reference string
+		copybook  string
+		item      string
+		group     string
+	}{
+		{
+			name:      "the item itself repeats",
+			reference: "(item HEADER COUNTS)",
+			copybook: `01 HDR-REC.
+   05 HDR-TYPE PIC X(1).
+   05 COUNTS PIC 9(2) OCCURS 3 TIMES.
+`,
+			item: "COUNTS",
+		},
+		{
+			name:      "the item sits in a group that repeats",
+			reference: "(item HEADER TOTALS COUNTS)",
+			copybook: `01 HDR-REC.
+   05 HDR-TYPE PIC X(1).
+   05 TOTALS OCCURS 3 TIMES.
+      10 COUNTS PIC 9(2).
+`,
+			item:  "COUNTS",
+			group: "TOTALS",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			copybooks := countedRunCopybooks()
+			copybooks["HEADER"] = tc.copybook
+
+			err := refused(t, fmt.Sprintf(source, tc.reference), copybooks)
+
+			var repeats *SequenceOccurrenceError
+			if !errors.As(err, &repeats) {
+				t.Fatalf("compiling reported %v, want a repeating reference", err)
+			}
+
+			if repeats.Record != "HEADER" || repeats.Item != tc.item || repeats.Group != tc.group {
+				t.Errorf("the fault names record %q, item %q and group %q, want %q, %q and %q",
+					repeats.Record, repeats.Item, repeats.Group, "HEADER", tc.item, tc.group)
+			}
+		})
+	}
+}
+
+// TestACountThatDoesNotDecodeToAnIntegerIsRejected is docs/layout/SPEC.md's
+// third restriction on `times`, and docs/ir/SPEC.md's rule that a producer must
+// not bind a field whose value does not decode to the register's kind.
+//
+// A `when` carries no such rule and the sub-test says so: a bytes register holds
+// its source field's bytes as they appear, so a guard over one is a byte
+// comparison whatever the item's PICTURE turns out to be.
+func TestACountThatDoesNotDecodeToAnIntegerIsRejected(t *testing.T) {
+	t.Parallel()
+
+	alphanumeric := `01 HDR-REC.
+   05 HDR-TYPE PIC X(1).
+   05 DTL-COUNT PIC X(2).
+   05 SUM-FLAG PIC X(1).
+`
+
+	copybooks := countedRunCopybooks()
+	copybooks["HEADER"] = alphanumeric
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (times DETAIL (item HEADER DTL-COUNT))))`
+
+	err := refused(t, source, copybooks)
+
+	var kind *SequenceCountKindError
+	if !errors.As(err, &kind) {
+		t.Fatalf("compiling reported %v, want a count of the wrong kind", err)
+	}
+
+	if kind.Record != "HEADER" || kind.Item != "DTL-COUNT" {
+		t.Errorf("the fault names record %q and item %q, want HEADER and DTL-COUNT", kind.Record, kind.Item)
+	}
+
+	t.Run("a when reads the same item without complaint", func(t *testing.T) {
+		flagged := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (when (item HEADER DTL-COUNT) "01" DETAIL)))`
+
+		automaton := compiled(t, flagged, copybooks)
+		if len(automaton.Registers) != 1 || automaton.Registers[0].Kind != RegisterBytes {
+			t.Errorf("the automaton carries %d registers, want one holding bytes", len(automaton.Registers))
+		}
+	})
+}
+
+// TestAnItemReferenceNamingNoItemIsRejected is the half of the reference rules
+// that needs a copybook, which is why it is here and not in `layoutmodel`.
+func TestAnItemReferenceNamingNoItemIsRejected(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (times DETAIL (item HEADER NO-SUCH-COUNT))))`
+
+	err := refused(t, source, countedRunCopybooks())
+
+	var missing *SequenceItemError
+	if !errors.As(err, &missing) {
+		t.Fatalf("compiling reported %v, want an unresolved reference", err)
+	}
+
+	if missing.Operator != "times" || missing.Record != "HEADER" {
+		t.Errorf("the fault names operator %q of record %q, want times of HEADER", missing.Operator, missing.Record)
+	}
+}
+
+// TestAFlagGoverningTheRecordHoldingItBecomesABranch is docs/ir/SPEC.md's "When
+// a value becomes a state, and when it becomes a register", and the SHOULD in
+// it kept rather than restated.
+//
+// Two records told apart by a flag are an `alt` of two names with a
+// discriminator each: the dependence on the value has become the state the
+// automaton is in, and no register is emitted for it. A register the graph does
+// not need is memory every consumer in every language carries for nothing.
+func TestAFlagGoverningTheRecordHoldingItBecomesABranch(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (alt HEADER DETAIL))`
+
+	automaton := compiled(t, source, countedRunCopybooks())
+
+	if len(automaton.Registers) != 0 {
+		t.Errorf("the automaton carries %d registers, want none", len(automaton.Registers))
+	}
+
+	assertRendering(t, automaton, `
+state 0
+  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, go to 1
+  on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, go to 2
+state 1 accepts
+state 2 accepts
+`)
+}
+
+// TestASingleRecordTypeCompilesToNoPredicate is docs/ir/SPEC.md's "A transition
+// may carry no predicate" and the strategy #28 named for it.
+//
+// A file with one record type has nothing for a predicate to test, and the
+// transition admitting it carries the *absence* of a predicate rather than a
+// member of the set testing nothing.
+func TestASingleRecordTypeCompilesToNoPredicate(t *testing.T) {
+	t.Parallel()
+
+	source := `(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate DETAIL single-record-type)
+(sequence (* DETAIL))`
+
+	assertRendering(t, compiled(t, source, countedRunCopybooks()), `
+state 0 accepts
+  on no predicate, admit DETAIL, go to 1
+state 1 accepts
+  on no predicate, admit DETAIL, go to 1
+`)
+}
+
+// TestATransitionCarryingNoPredicateBesideAnEligibleSiblingIsRejected is #80
+// folded into the overlap rule rather than beside it.
+//
+// A transition carrying no predicate matches every record, so it overlaps every
+// transition leaving its state whose guards can hold at the same time as its
+// own. Guards are the only thing that can separate two of them, and where
+// nothing does the layout is rejected rather than the ambiguity being settled by
+// evaluation order — a transition carrying no predicate is not a default arm and
+// is not tried last.
+func TestATransitionCarryingNoPredicateBesideAnEligibleSiblingIsRejected(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL single-record-type)
+(sequence (alt HEADER DETAIL))`
+
+	err := refused(t, source, countedRunCopybooks())
+
+	var ambiguous *SequenceAmbiguityError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("compiling reported %v, want an ambiguity", err)
+	}
+
+	if !ambiguous.Unguarded {
+		t.Error("the fault does not say one of the two carries no discriminator")
+	}
+
+	if ambiguous.State != 0 {
+		t.Errorf("the fault is at state %d, want the start state", ambiguous.State)
+	}
+}
+
+// TestTwoRecordsAtOnePointTestingOneRunOfBytesForOneValueAreRejected is
+// docs/ir/SPEC.md's "When two match, and when none does": `resolve` rejects a
+// layout whose discriminators overlap, so that the question of what a consumer
+// does when two match does not arise.
+func TestTwoRecordsAtOnePointTestingOneRunOfBytesForOneValueAreRejected(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "H"))
+(sequence (alt HEADER DETAIL))`
+
+	err := refused(t, source, countedRunCopybooks())
+
+	var ambiguous *SequenceAmbiguityError
+	if !errors.As(err, &ambiguous) {
+		t.Fatalf("compiling reported %v, want an ambiguity", err)
+	}
+
+	if ambiguous.Unguarded {
+		t.Error("the fault says one carries no discriminator, and both carry one")
+	}
+
+	if ambiguous.Records != [2]string{"HEADER", "DETAIL"} {
+		t.Errorf("the fault names %v, want both records", ambiguous.Records)
+	}
+}
+
+// TestTwoDiscriminatorsOverDifferentRunsOfBytesOverlap is the reading
+// docs/ir/SPEC.md insists on: the test is whether one input can satisfy both,
+// not whether the two read the same bytes.
+//
+// A record keyed on its first byte beside one keyed on its second is where the
+// narrower reading lets a real ambiguity through, because a record can carry
+// both values at once.
+func TestTwoDiscriminatorsOverDifferentRunsOfBytesOverlap(t *testing.T) {
+	t.Parallel()
+
+	elsewhere := `01 DTL-REC.
+   05 DTL-LEAD PIC X(1).
+   05 DTL-TYPE PIC X(1).
+   05 DTL-BODY PIC X(20).
+`
+
+	copybooks := countedRunCopybooks()
+	copybooks["DETAIL"] = elsewhere
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (alt HEADER DETAIL))`
+
+	var ambiguous *SequenceAmbiguityError
+	if err := refused(t, source, copybooks); !errors.As(err, &ambiguous) {
+		t.Fatalf("compiling reported %v, want an ambiguity", err)
+	}
+}
+
+// TestGuardsSeparateTransitionsWhosePredicatesOverlap is the narrowing
+// docs/ir/SPEC.md puts on the overlap rule, and the thing that makes a counted
+// run expressible at all.
+//
+// Two transitions whose guards cannot hold at the same time are never both
+// eligible, so their predicates may overlap freely — here they are the very same
+// test on the very same run of bytes, and only the counter separates them.
+func TestGuardsSeparateTransitionsWhosePredicatesOverlap(t *testing.T) {
+	t.Parallel()
+
+	// TAIL is built to the detail's copybook and told apart by the same value
+	// in the same place, so nothing but the counter says which of the two a
+	// record at that point is.
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(record TAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(discriminate TAIL (equals (item TAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (times DETAIL (item HEADER DTL-COUNT)) TAIL))`
+
+	copybooks := countedRunCopybooks()
+	copybooks["TAIL"] = detail
+
+	automaton := compiled(t, source, copybooks)
+
+	group := automaton.States[1]
+	if len(group.Transitions) != 2 {
+		t.Fatalf("the state after the header offers %d transitions, want two", len(group.Transitions))
+	}
+
+	if satisfiable(mergeGuards(group.Transitions[0].Guards, group.Transitions[1].Guards)) {
+		t.Errorf("the two transitions can be eligible together:\n  %s\n  %s",
+			renderTransition(group.Transitions[0]), renderTransition(group.Transitions[1]))
+	}
+}
+
+// TestANestedWhenIsTheConjunctionTheAlgebraDoesNotCarry is
+// docs/layout/SPEC.md's "What the algebra deliberately cannot say", from the
+// compiler's side: there is no conjunction on one operator, and a nested `when`
+// is the shape that already works. Both guards land on the transition the pair
+// governs.
+func TestANestedWhenIsTheConjunctionTheAlgebraDoesNotCarry(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record SUMMARY (copybook "sum.cpy" SUM-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate SUMMARY (equals (item SUMMARY SUM-TYPE) "S"))
+(sequence
+  (seq HEADER
+       (when (item HEADER SUM-FLAG) "Y"
+             (when (item HEADER HDR-TYPE) (one-of "H" "h") SUMMARY))))`
+
+	automaton := compiled(t, source, countedRunCopybooks())
+
+	summary := transitionAdmitting(t, automaton.States[1], "SUMMARY")
+	if len(summary.Guards) != 2 {
+		t.Fatalf("the summary transition carries %s, want both tests", renderGuards(summary.Guards))
+	}
+
+	if summary.Guards[0].Test != GuardEquals || summary.Guards[1].Test != GuardOneOf {
+		t.Errorf("the summary transition carries %s, want an equals and a one-of", renderGuards(summary.Guards))
+	}
+}
+
+// TestAPointAcceptingUnderTwoSetsOfGuardsIsRejected is the one shape of the
+// algebra that has nowhere to go in the IR.
+//
+// A state carries one list of acceptance guards and a list is a conjunction.
+// docs/ir/SPEC.md puts disjunction in the state — a second transition leaving it
+// — and acceptance is not a transition, so an `alt` of two counted runs leaves
+// the state ahead of it complete under either counter reaching zero and there is
+// nowhere to write the second condition. It is reported rather than narrowed to
+// one, because either narrowing calls some file the layout admits truncated or
+// some file it forbids complete.
+func TestAPointAcceptingUnderTwoSetsOfGuardsIsRejected(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(record SUMMARY (copybook "sum.cpy" SUM-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(discriminate SUMMARY (equals (item SUMMARY SUM-TYPE) "S"))
+(sequence
+  (seq HEADER
+       (alt (times DETAIL (item HEADER DTL-COUNT))
+            (times SUMMARY (item HEADER DTL-COUNT)))))`
+
+	err := refused(t, source, countedRunCopybooks())
+
+	var acceptance *SequenceAcceptanceError
+	if !errors.As(err, &acceptance) {
+		t.Fatalf("compiling reported %v, want a disjunctive acceptance", err)
+	}
+
+	if acceptance.What != "HEADER" || acceptance.Ways != 2 {
+		t.Errorf("the fault is about %q under %d sets of guards, want HEADER under two",
+			acceptance.What, acceptance.Ways)
+	}
+}
+
+// TestATransitionNoRegisterFileAdmitsIsNotEmitted is the other half of what
+// makes overlap decidable: a guard list is a flat conjunction of tests against
+// literals and zero, so whether one contradicts itself is a question this
+// compiler can answer.
+//
+// A counted run inside a `*` is the shape that produces one. Restarting the run
+// needs the counter above zero, leaving it needs the counter at zero, and
+// nothing between the two rebinds it — so the edge back into the run is an edge
+// no register file admits. It is dropped rather than emitted, because a consumer
+// would evaluate it against every record forever and a producer would have to
+// explain it.
+func TestATransitionNoRegisterFileAdmitsIsNotEmitted(t *testing.T) {
+	t.Parallel()
+
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (seq HEADER (* (times DETAIL (item HEADER DTL-COUNT)))))`
+
+	automaton := compiled(t, source, countedRunCopybooks())
+
+	for _, state := range automaton.States {
+		for _, transition := range state.Transitions {
+			if !satisfiable(transition.Guards) {
+				t.Errorf("state %d carries %s, which no register file admits",
+					state.ID, renderTransition(transition))
+			}
+		}
+	}
+
+	// The run itself is still there, entered from the header and continued
+	// from within: what is dropped is only the way back in from its own end.
+	if len(automaton.States) != 3 {
+		t.Errorf("the automaton has %d states, want the header, the detail and the start", len(automaton.States))
+	}
+}
+
+// TestCompileSequenceRefusesNoSequence is the one fault that is not about a
+// layout: a caller handing over nothing at all.
+func TestCompileSequenceRefusesNoSequence(t *testing.T) {
+	t.Parallel()
+
+	if _, err := CompileSequence(Sequencing{}); !errors.Is(err, ErrNilSequence) {
+		t.Errorf("compiling nothing reported %v, want %v", err, ErrNilSequence)
+	}
+}

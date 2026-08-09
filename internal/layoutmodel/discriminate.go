@@ -116,7 +116,7 @@ type Literal struct {
 
 	// Number is what a [NumberLiteral] said, rendered back from the value the
 	// grammar read. Two spellings of one number — `12` and `12.0` — render the
-	// same, which is what makes two of them one literal for [Literal.identity].
+	// same, which is what makes two of them one literal for [Literal.Identity].
 	Number string
 
 	// Bytes is what a [BytesLiteral] said.
@@ -138,7 +138,7 @@ func (l Literal) String() string {
 	}
 }
 
-// identity is what makes two literals the same one.
+// Identity is what makes two literals the same one.
 //
 // The spelling *and* the sort, because the sort decides the resolution: `"01"`
 // is text through the item's charset and `01` is a number through its `PICTURE`,
@@ -146,7 +146,14 @@ func (l Literal) String() string {
 // answer. Two literals that are the same here are the same under every charset,
 // which is what makes an overlap decided on this identity one decidable from the
 // layout alone.
-func (l Literal) identity() string { return string(l.Kind) + " " + l.String() }
+//
+// It is exported because the overlap this layer can decide is not the only one.
+// `resolve` decides two more against the same identity and for the same reason —
+// whether two transitions leaving one state can both match a record, and whether
+// two guards over one register can hold at once — and a second reading of what
+// makes two literals equal is a second answer for them to disagree about (#36,
+// #37).
+func (l Literal) Identity() string { return string(l.Kind) + " " + l.String() }
 
 // Strategy is one discrimination strategy, read.
 //
@@ -557,7 +564,7 @@ func (r *discriminationReader) overlap(read []Arm, arm Arm, variant ItemRef) {
 
 		for _, literal := range arm.Predicate.Literals {
 			index := slices.IndexFunc(earlier.Predicate.Literals, func(other Literal) bool {
-				return other.identity() == literal.identity()
+				return other.Identity() == literal.Identity()
 			})
 			if index < 0 {
 				continue

@@ -3,9 +3,29 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package resolve turns a copybook record into the shape the IR describes: an
+// Package resolve turns a copybook record into the shape the IR describes — an
 // ordered containment of groups, fields, variants and slack, every elementary
-// item carrying the byte width `cobol-go`'s codec/SPEC.md gives it.
+// item carrying the byte width `cobol-go`'s codec/SPEC.md gives it — and a
+// layout's sequencing expression into the record automaton that says in what
+// order those records may appear.
+//
+// [Resolve] is the first and [CompileSequence] the second. They share this
+// package because they spend the same two sources: a copybook read by
+// `cobol-go`, and a layout read by
+// [github.com/Zaba505/cpybkc/internal/layoutmodel]. They share nothing else —
+// what is inside a record and what order records come in are different
+// questions, and the second needs every record at once where the first needs
+// one.
+//
+// # The automaton is compiled here for the reason the offsets are
+//
+// Sequencing reaches a generator as states and transitions and never as the
+// expression they were compiled from (docs/ir/SPEC.md, "The sequencing
+// automaton"). A regex-like algebra implemented independently in four languages
+// is four slightly different algebras, exactly as four independent readings of a
+// PICTURE are four different widths — so the algebra is spent here, once, and
+// [CompileSequence]'s own comment is where the construction and the two proofs
+// over it are argued (#36, #76, #77, #80, #88).
 //
 // # Why the arithmetic is here and nowhere else
 //
@@ -116,23 +136,22 @@
 // # What this package leaves to the stories after it
 //
 // Compiling a layout's discriminator strategies into predicate nodes is #37's,
-// binding a count that lives in an earlier record into a register is #36's, and
-// assembling nodes into a
+// and assembling nodes into a
 // [github.com/Zaba505/cpybkc/irpb.Descriptor] with identifiers on them is #38's.
 // A [Repetition] here therefore names a [github.com/Zaba505/cobol-go/copybook.Field]
-// rather than an identifier, and an [Arm] carries the
+// rather than an identifier, an [Arm] carries the
 // [github.com/Zaba505/cpybkc/internal/layoutmodel.Strategy] a layout wrote
-// rather than a compiled predicate.
+// rather than a compiled predicate, and a [Transition] carries one too.
 //
-// A count that lives in another record never reaches here at all, and that is
-// the division rather than a gap: a DEPENDING ON phrase names an item of the
-// copybook record carrying it, so every reference this package resolves is to a
+// A count that lives in another record never reaches [Resolve] at all, and that
+// is the division rather than a gap: a DEPENDING ON phrase names an item of the
+// copybook record carrying it, so every reference that function resolves is to a
 // field of the record being read. Where a layout's count comes from a header
-// admitted earlier, the automaton binds that field into a register as it admits
-// the header and the repetition names the register — which is a node this
-// package does not build, and is why a reference reaching across records is not
-// a shape it has to refuse (docs/ir/SPEC.md, "A variable record is a sum with a
-// variable term", #77).
+// admitted earlier it is written as a `times`, and [CompileSequence] binds that
+// field into a [Register] as the transition admitting the header is taken —
+// which is why a reference reaching across records is not a shape [Resolve] has
+// to refuse (docs/ir/SPEC.md, "A variable record is a sum with a variable term",
+// #77).
 //
 // # Slack, and its four producers
 //
