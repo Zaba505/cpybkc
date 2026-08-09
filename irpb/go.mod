@@ -2,8 +2,9 @@
 // github.com/Zaba505/cpybkc, so that importing the IR costs a plugin author the
 // protobuf runtime and nothing the CLI happens to need; see doc.go.
 //
-// Keep this require list at exactly one entry. boundary_test.go fails the build
-// if a second one appears, which is the only enforcement a module boundary has.
+// Keep this require list at exactly one entry. TestModuleDependsOnlyOnTheProtobufRuntime,
+// in module_test.go, fails if a second one appears, which is the only
+// enforcement a module boundary has.
 module github.com/Zaba505/cpybkc/irpb
 
 // Deliberately behind the toolchain the repository develops on. This module is

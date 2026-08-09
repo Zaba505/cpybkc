@@ -20,8 +20,8 @@
 // the layout parser's, the plugin runner's, whatever the CLI grows — into the
 // build list of a plugin author who wanted twelve node kinds and a Marshal. So
 // the boundary is a module boundary: irpb requires google.golang.org/protobuf
-// and nothing else, ModuleDependsOnlyOnTheProtobufRuntime asserts it, and the
-// arrow points one way. The CLI depends on this module; this module depends on
+// and nothing else, TestModuleDependsOnlyOnTheProtobufRuntime in module_test.go
+// asserts it, and the arrow points one way. The CLI depends on this module; this module depends on
 // no part of the CLI and never will.
 //
 // # Versions, of which there are two
