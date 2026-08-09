@@ -1,0 +1,302 @@
+// Copyright (c) 2026 Richard Carson Derr
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+package resolve
+
+import (
+	"github.com/Zaba505/cobol-go/copybook"
+
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
+)
+
+// Kind is what a resolved node is, one member of the closed set docs/ir/SPEC.md,
+// "The node kinds", admits inside a record.
+//
+// The kinds a record cannot contain — file, record, predicate, state,
+// transition, register, binding, guard — are not here. This package resolves
+// what is inside a record; the automaton is #36's and the descriptor #38's.
+type Kind int
+
+const (
+	// KindGroup is an item holding other items. It carries no width of its
+	// own: [Node.Width] answers from the member list.
+	KindGroup Kind = iota + 1
+
+	// KindField is an elementary item, carrying the width one occurrence of
+	// it occupies.
+	KindField
+
+	// KindVariant is an alternation over one run of bytes inside a table:
+	// what a REDEFINES inside a repeating group resolves to.
+	KindVariant
+
+	// KindSlack is bytes that are part of the record and belong to no item.
+	KindSlack
+)
+
+// String implements the [fmt.Stringer] interface.
+func (k Kind) String() string {
+	switch k {
+	case KindGroup:
+		return "group"
+	case KindField:
+		return "field"
+	case KindVariant:
+		return "variant"
+	case KindSlack:
+		return "slack"
+	}
+	return "unknown"
+}
+
+// Node is one item of a resolved record.
+//
+// It is one type over four kinds rather than four types behind an interface,
+// because the IR is a flat list of nodes over a closed set of bodies and a
+// consumer switches over that set. What a kind does not carry is nil or zero
+// here for the same reason it is absent there: a slack node has no copybook
+// item behind it, a variant has no names and no repetition, and a field has no
+// members.
+//
+// No node carries a byte offset. Position is stated once, as ordering and
+// width, and [Record.Position] is the sum that reads it back
+// (docs/ir/SPEC.md, "Ordering and width, and no offset").
+type Node struct {
+	// Kind is which of the four this is.
+	Kind Kind
+
+	// Field is the copybook item the node stands for, and is nil for a slack
+	// node, for a variant, and for a group this package introduced to hold a
+	// node beside the slack that pads it out. A nil Field is a node with no
+	// names, which is what the IR carries for one.
+	Field *copybook.Field
+
+	// Members are a group's members, in record order — the order in which
+	// they occupy bytes. It is empty for every other kind.
+	Members []*Node
+
+	// Arms are a variant's alternatives, in evaluation order. Every arm
+	// begins at the variant's first byte, so the order says nothing about
+	// position. It is empty for every other kind.
+	Arms []Arm
+
+	// Repetition is what an item that repeats carries, and is nil for one
+	// that does not. A variant never carries one: it repeats by sitting
+	// inside the group that does, which is the only place it may sit.
+	Repetition *Repetition
+
+	// width is the bytes one occurrence of a field or a slack node occupies.
+	// It is unexported because a group and a variant must not be able to
+	// carry one: their widths follow from what they hold, and a member
+	// stating a second answer is the failure the IR is shaped to make
+	// unrepresentable.
+	width int
+}
+
+// Width reports the bytes one occurrence of the node occupies.
+//
+// A field's and a slack node's is carried. A group's is the sum of its members'
+// extents and a variant's is its arms' common extent, and neither is stored:
+// docs/ir/SPEC.md declines to carry either, and a method is how that refusal
+// survives contact with a caller.
+func (n *Node) Width() int {
+	switch n.Kind {
+	case KindGroup:
+		total := 0
+		for _, member := range n.Members {
+			total += member.Extent()
+		}
+		return total
+	case KindVariant:
+		if len(n.Arms) == 0 {
+			return 0
+		}
+		return n.Arms[0].Body.Extent()
+	}
+	return n.width
+}
+
+// Occurrences reports how many times the node repeats: one where it carries no
+// repetition, and the count the layout was computed at where it does.
+func (n *Node) Occurrences() int {
+	if n.Repetition == nil {
+		return 1
+	}
+	return n.Repetition.Count
+}
+
+// Extent reports the bytes the node occupies in the member list holding it:
+// [Node.Width] times [Node.Occurrences].
+//
+// This is what enters the position sum, so a node ahead of another contributes
+// its whole extent and not one occurrence of it.
+func (n *Node) Extent() int { return n.Width() * n.Occurrences() }
+
+// Repetition is what an item that repeats carries.
+//
+// Count is the occurrence count the layout was computed at, which for an
+// OCCURS ... DEPENDING ON table is the declared maximum — the storage a compiler
+// reserves for it. Turning DependingOn into the IR's reference, and the extent
+// that moves with it, is #35's; what this package needs from it is that the
+// count is a reference at all, which is what a variant's arms may not contain.
+type Repetition struct {
+	// Count is the occurrence count the layout was computed at.
+	Count int
+
+	// Min and Max are the bounds the OCCURS clause allows. They both equal
+	// Count for a fixed table.
+	Min int
+	Max int
+
+	// DependingOn is the item whose value gives the count, nil for a fixed
+	// table.
+	DependingOn *copybook.Field
+}
+
+// Reference reports whether the count is read out of the record rather than
+// written in the copybook.
+func (r *Repetition) Reference() bool { return r != nil && r.DependingOn != nil }
+
+// Arm is one alternative of a variant: the predicate that selects it and the
+// node that is its body.
+//
+// A pair and not a node of its own, because nothing points at an arm and a kind
+// for it would be one more member a consumer switches over in order to reach two
+// references (docs/ir/SPEC.md, "A variant is chosen once per occurrence").
+type Arm struct {
+	// Alternative is the name the copybook gives the item this arm selects,
+	// which is what a layout writes in an `arm` form.
+	Alternative string
+
+	// Predicate is the strategy the layout chose for this arm. It is carried
+	// rather than compiled: lowering a strategy into an IR predicate node is
+	// #37's.
+	Predicate layoutmodel.Strategy
+
+	// Body is the arm's body, a group or a field node. Where the alternative
+	// occupies fewer bytes than the variant's extent, it is a group holding
+	// the alternative and the slack that pads it out, because the slack has
+	// to sit inside the arm and an elementary item has nowhere to put it.
+	Body *Node
+}
+
+// Record is one resolved alternative of a copybook record.
+//
+// A copybook record holding no REDEFINES outside a repeating group resolves to
+// exactly one of these. One holding some resolves to one per combination of
+// alternatives, each carrying the whole record with that combination's items in
+// place and slack over the bytes they do not occupy.
+type Record struct {
+	// Root is the record's top level, always a group node.
+	//
+	// A group rather than either kind of item, because the top level is where
+	// the slack that resolving REDEFINES away leaves behind has to go, and
+	// holding members is what a group is.
+	Root *Node
+
+	// Item is the copybook record this is an alternative of.
+	Item *copybook.Field
+
+	// Alternatives are the items chosen at each redefine outside a repeating
+	// group, in the order the choices are met walking the record. It is empty
+	// for a record whose copybook holds none, and it is what tells two
+	// alternatives of one copybook record apart — the IR carries the
+	// copybook's name, which is the same on both.
+	Alternatives []*copybook.Field
+}
+
+// Extent reports the record's length in bytes: the width of its top level.
+//
+// A record node carries no length in the IR, for the reason a group carries no
+// width; this is the sum, run here.
+func (r *Record) Extent() int { return r.Root.Width() }
+
+// Position reports the byte position of target within the record, measured from
+// the first byte of the record's data: the sum of the extents of everything
+// ahead of it in containment order, counting exactly one occurrence of every
+// group that encloses it and repeats.
+//
+// The occurrence it lands on is the first. Saying so costs nothing today —
+// docs/ir/SPEC.md's "A reference names a field, not an occurrence of one"
+// forbids every reference that could reach a later one — and it is what makes
+// the sum the same arithmetic before and after that prohibition is relaxed.
+//
+// A variant contributes its arms' common extent like any other constant term,
+// so an item behind one sits where it would sit without it, and a position
+// inside an arm is measured through the arm the item is in.
+//
+// It reports false for a node that is not in the record. A record holding an
+// OCCURS ... DEPENDING ON table has positions behind that table which move with
+// the count; what comes back is the position at the count the layout was
+// computed at, which is the declared maximum (#35).
+func (r *Record) Position(target *Node) (int, bool) {
+	return position(r.Root, target, 0)
+}
+
+// position walks node looking for target, carrying the bytes ahead of node in
+// at. It is a walk rather than a parent chain because containment is stated once
+// and downward, exactly as a consumer of the IR has it.
+func position(node, target *Node, at int) (int, bool) {
+	if node == target {
+		return at, true
+	}
+
+	switch node.Kind {
+	case KindGroup:
+		for _, member := range node.Members {
+			if found, ok := position(member, target, at); ok {
+				return found, true
+			}
+			at += member.Extent()
+		}
+	case KindVariant:
+		// Every arm begins at the variant's first byte, so an arm
+		// contributes nothing to the sum and the arms are searched at the
+		// variant's own position rather than one behind another.
+		for _, arm := range node.Arms {
+			if found, ok := position(arm.Body, target, at); ok {
+				return found, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// Walk calls fn for every node of the record in containment order, outermost
+// first, the top level included. A variant's arms are walked in evaluation
+// order.
+func (r *Record) Walk(fn func(*Node)) { walk(r.Root, fn) }
+
+func walk(node *Node, fn func(*Node)) {
+	fn(node)
+	for _, member := range node.Members {
+		walk(member, fn)
+	}
+	for _, arm := range node.Arms {
+		walk(arm.Body, fn)
+	}
+}
+
+// Find returns the first node standing for the copybook item named name, in
+// [Record.Walk] order, or nil where the record holds none.
+//
+// A name is not identity — duplicate data names are legal COBOL — so this is for
+// a caller that already knows the record it is looking in holds one, which in
+// practice means a test.
+func (r *Record) Find(name string) *Node {
+	var found *Node
+	r.Walk(func(node *Node) {
+		if found != nil || node.Field == nil || node.Field.Filler {
+			return
+		}
+		if node.Field.Name == name {
+			found = node
+		}
+	})
+	return found
+}
+
+// slackNode builds a slack node of width bytes.
+func slackNode(width int) *Node { return &Node{Kind: KindSlack, width: width} }
