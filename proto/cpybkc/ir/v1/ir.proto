@@ -727,17 +727,18 @@ message Predicate {
   //
   // The set is closed so that it can be checked for overlap and for
   // exhaustiveness, and so that the IR stays data rather than carrying source
-  // only one language could run. Its membership lands with the layout
-  // format's discriminator strategies (#22, #28), which are what lower into it;
-  // until then it holds the one test those strategies all reduce to. Every
-  // member that lands MUST be decidable by a writer against the record it is
-  // about to emit, from that record's bytes and its own position in the
-  // automaton, at the moment it emits it — see docs/ir/SPEC.md, "A writer
-  // evaluates a predicate, it never inverts one". Adding one advances
-  // IrVersion, which is why the set is settled before the first release rather
-  // than grown afterwards.
+  // only one language could run. Its membership is these two, settled with the
+  // layout format's discriminator strategies (#22, #28), which are what lower
+  // into it: `equals` becomes BytesEqual and `one-of` becomes BytesOneOf, while
+  // `single-record-type` becomes no predicate at all. Every member MUST be
+  // decidable by a writer against the record it is about to emit, from that
+  // record's bytes and its own position in the automaton, at the moment it
+  // emits it — see docs/ir/SPEC.md, "A writer evaluates a predicate, it never
+  // inverts one". Adding one advances IrVersion, which is why the set is
+  // settled before the first release rather than grown afterwards.
   oneof test {
     BytesEqual bytes_equal = 2;
+    BytesOneOf bytes_one_of = 3;
   }
 }
 
@@ -751,6 +752,31 @@ message BytesEqual {
   // consumer left to decide whether "Y" matches "Y " is a consumer that decides
   // differently in each language.
   bytes value = 1;
+}
+
+// BytesOneOf is satisfied when the target field's bytes are one of the carried
+// literals.
+//
+// A member of its own rather than a shorthand a producer expands into several
+// BytesEqual predicates: a transition carries at most one predicate and an arm
+// carries exactly one, so a strategy admitting three type codes has nowhere to
+// put three of them, and splitting it into three transitions to one state would
+// turn a set of values into a set of edges for the overlap rule to forgive. Two
+// of these overlap when their literal sets intersect, which is the same
+// question about bytes that BytesEqual asks.
+message BytesOneOf {
+  // The literals, each padded by the producer to the target field's width, in
+  // the order the layout wrote them. A producer MUST carry at least two and
+  // MUST NOT carry the same literal twice: one literal is BytesEqual's work,
+  // and a repeated one is a value tested twice and a producer that did not
+  // check its own overlap.
+  //
+  // The order decides nothing — a consumer stopping at the first that matches
+  // and one comparing them all report the same thing, because the literals are
+  // distinct. It is preserved so that two producers handed one layout emit one
+  // descriptor, which is what "identical inputs produce byte-identical IR"
+  // requires of every repeated field here.
+  repeated bytes values = 1;
 }
 
 // State is a state of the record automaton. Sequencing reaches a generator

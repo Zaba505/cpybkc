@@ -28,6 +28,13 @@ import (
 // records over one `01`-level, and a record bound to a copybook that composes a
 // shared header with a body. It fails if the schema ever grows a uniqueness
 // rule over `copybook` that the document does not state.
+//
+// Nor is the fifth. It carries the second scope a discriminator is written in —
+// SPEC.md's "A discriminator for a redefine inside a table" — which is the one
+// top-level form the three framings do not reach: two variants in one record,
+// arms selected by both predicates, and a target inside the repeating group the
+// arm is being chosen for, which is a position a record-level discriminator may
+// not name.
 func TestValidLayoutsValidate(t *testing.T) {
 	schema := publishedSchema(t)
 
