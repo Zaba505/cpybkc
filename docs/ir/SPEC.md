@@ -170,8 +170,9 @@ generators resolving one differently — into every language anyone writes a
 generator in.
 
 The cost is real, and none of it is paid by the producer. A consumer **MUST**
-index the node list by identifier before it can walk anything. The JSON debug
-form (#21) is markedly harder to read than a nested one would be. And adding a
+index the node list by identifier before it can walk anything. The [JSON
+rendering](#a-descriptor-is-readable-by-a-person) (#21) is markedly harder to
+read than a nested one would be. And adding a
 kind to the set is a breaking change rather than an addition, for the reason
 [Versioning and compatibility](#versioning-and-compatibility) gives. The set is
 closed to buy something specific for that price: a consumer switches over
@@ -3070,8 +3071,9 @@ document that defines the message rather than by reading to the end and finding
 no service in it.
 
 What that buys is an IR that is a thing at rest. It can be written to a file
-(#20), converted to JSON and read (#21), committed, diffed, and replayed against
-a plugin by hand a year later. None of those is available to a protocol.
+(#20), [rendered as JSON and read](#a-descriptor-is-readable-by-a-person) (#21),
+committed, diffed, and replayed against a plugin by hand a year later. None of
+those is available to a protocol.
 
 ## Reading a descriptor without generated code
 
@@ -3143,6 +3145,60 @@ The runnable form is `Example_readADescriptorWithoutGeneratedCode` in
 rather than a listing here so that the example is checked on every run: the four
 calls above are the shape, and a worked example that had rotted would be worse
 than none.
+
+## A descriptor is readable by a person
+
+The encoding above is protobuf, which nobody reads. cpybkc **MUST** therefore
+also render a descriptor as JSON, and that rendering is the debugging surface:
+the answer to *what was this generator actually handed*, which is the first
+question asked whenever generated code is wrong. It is what `--emit-ir` writes
+when `--emit-ir-format json` asks for it (#21), to the same destinations the
+binary form goes to.
+
+It is also the interop path for a consumer whose language's protobuf support is
+too weak to be worth fighting. That consumer is the same one
+[Reading a descriptor without generated code](#reading-a-descriptor-without-generated-code)
+serves, arriving with less: no code generation, and no dynamic decode either.
+
+### The binary form is canonical
+
+The rendering is **one-way**, and no consumer is entitled to be handed one. A
+generator plugin is handed the binary encoding — what a plugin reads is the
+[plugin contract](../plugin/SPEC.md)'s to fix (#39) — and a plugin accepting
+either form would have to sniff which one it had, which is a decision about
+bytes that every generator would then make for itself and some would make
+differently. So a producer **MUST NOT** write a rendering where a descriptor is
+called for, and a consumer **MUST NOT** rely on one to round-trip: nothing in
+this document defines a JSON *encoding* of a descriptor, and every requirement
+it makes is a requirement about the binary form.
+
+That is why the two are not a pair of equals with a default between them. A
+tool offering both **MUST** produce the binary form where nothing asks
+otherwise, so that the form somebody depends on is the form they get by not
+deciding, and the rendering is the one that has to be asked for by name (#21).
+
+### The rendering is normalized
+
+Two renderings of one descriptor **MUST** be byte-identical, and a rendering
+**MUST NOT** vary with the build of the tool that produced it (#21). That is
+[Identity, ordering and determinism](#identity-ordering-and-determinism)'s
+promise carried one step further out, and it is here for the reason that
+promise is: a rendering is a thing to commit beside a layout, diff against last
+week's, and paste into an issue, and one that churned on an upgrade could not be
+any of the three.
+
+It is worth stating because the obvious implementation does not satisfy it. A
+JSON printer is entitled to vary its insignificant whitespace, and Go's
+`protojson` varies it deliberately — per binary, to stop anyone depending on its
+exact output — so a rendering re-emitted after an upgrade would differ on every
+line with nothing in it that anybody changed. cpybkc normalizes the whitespace
+before writing.
+
+A rendering **MUST** use protobuf's own field names — `start_state_id`, not
+`startStateId`. Anyone reading a descriptor is reading it beside this document
+and beside [`ir.proto`](../../proto/cpybkc/ir/v1/ir.proto), and a
+lowerCamelCase rendering would make them translate every name back before they
+could look one up.
 
 ## Out of Scope
 
@@ -3536,8 +3592,9 @@ records offer them.
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | [Reading a descriptor without generated code](#reading-a-descriptor-without-generated-code) | #19 `ir`, #57 `container` |
+| [A descriptor is readable by a person](#a-descriptor-is-readable-by-a-person) | #21 `ir` |
 | The schema itself | #17 `ir` — [`proto/cpybkc/ir/v1/ir.proto`](../../proto/cpybkc/ir/v1/ir.proto) |
 | The schema, as Go | #18 `ir` — [`irpb/`](../../irpb), a module of its own |
 | The published artifacts | #19 `ir` — [`irpb/descriptor_set.go`](../../irpb/descriptor_set.go) computes the set, [`internal/tools/`](../../internal/tools) writes both files, `.dagger/main.go` builds them and `.github/workflows/release.yaml` attaches them |
-| Emitting the IR | #20, #21 `ir` — [`internal/emit/`](../../internal/emit) encodes a descriptor deterministically and writes it where `--emit-ir` names, a path or `-` for standard output |
+| Emitting the IR | #20, #21 `ir` — [`internal/emit/`](../../internal/emit) encodes a descriptor deterministically, in either form, and writes it where `--emit-ir` names, a path or `-` for standard output |
 | Conventions this document follows | #15 `setup` |

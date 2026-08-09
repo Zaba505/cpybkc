@@ -4,7 +4,8 @@
 // https://opensource.org/licenses/MIT
 
 // Package emit writes a resolved IR descriptor where the CLI's --emit-ir flag
-// names, in the protobuf binary wire encoding a generator plugin is handed.
+// names: in the protobuf binary wire encoding a generator plugin is handed, or
+// — where --emit-ir-format asks for it — as the JSON a person reads.
 //
 // # Why the flag exists
 //
@@ -18,7 +19,8 @@
 //
 // It is stable in the sense that matters to somebody building on it: the flag
 // writes a [github.com/Zaba505/cpybkc/irpb.Descriptor] and nothing else, at the
-// version that message carries, encoded the one way this package encodes it.
+// version that message carries, encoded the one way this package encodes the
+// [Format] it was asked for.
 // What is *in* a descriptor is docs/ir/SPEC.md's to say and its own version
 // field's to move; a consumer whose build has no protobuf code generation in it
 // decodes the bytes with the published FileDescriptorSet
@@ -52,21 +54,66 @@
 //
 // # Determinism
 //
-// [Marshal] is the only place this repository encodes a descriptor, and it
-// encodes deterministically: equal descriptors produce equal bytes, so a
-// consumer that diffs two emissions is reading a change to the resolved layout
-// and never a change of encoder mood. Ordering *inside* the message — the node
-// identifiers and the order of the node list — is the producer's obligation and
-// is stated as one by docs/ir/SPEC.md, "Identity, ordering and determinism";
-// this package cannot supply it and does not pretend to. What it supplies is
-// the other half, so that identical descriptors cannot come out as different
-// files.
+// [Marshal] is the only place this repository encodes a descriptor for a
+// consumer, and it encodes deterministically: equal descriptors produce equal
+// bytes, so a consumer that diffs two emissions is reading a change to the
+// resolved layout and never a change of encoder mood. Ordering *inside* the
+// message — the node identifiers and the order of the node list — is the
+// producer's obligation and is stated as one by docs/ir/SPEC.md, "Identity,
+// ordering and determinism"; this package cannot supply it and does not pretend
+// to. What it supplies is the other half, so that identical descriptors cannot
+// come out as different files.
 //
 // The IR schema has no map field today, which is the one construct whose
 // encoding would otherwise follow Go's randomised map iteration. Setting the
 // option anyway is what keeps that a property of the encoder rather than a
 // silent requirement on the schema, discovered by whoever adds the first map
 // and diffs two runs.
+//
+// [MarshalJSON] owes the same promise and pays more for it; see "Normalized,
+// because protojson is not" below.
+//
+// # Two forms, and which one is canonical
+//
+// The binary encoding is canonical. It is what a plugin is handed
+// (docs/plugin/SPEC.md), what a consumer decodes, and what every requirement
+// docs/ir/SPEC.md makes of a descriptor is a requirement about. [FormatJSON]
+// asks for protojson instead, and that form is debug and interop output: for
+// reading a descriptor beside the specification when a generator's output is
+// wrong, and for the consumer whose language has protobuf tooling too weak to
+// decode the binary form comfortably.
+//
+// The JSON is one-way. Nothing in this repository reads it back, no plugin is
+// handed one, and this package will not decode one — a plugin accepting both
+// would have to sniff which it had, which is the position docs/plugin/SPEC.md
+// takes and the reason the two forms are not interchangeable. So the JSON is
+// not a second wire encoding that the descriptor's version field governs, and a
+// descriptor reconstructed from a rendering is nobody's guarantee.
+//
+// The default is therefore the canonical form. A caller who says nothing gets
+// the bytes a plugin is handed, and the debug form is the one you have to ask
+// for by name.
+//
+// # Normalized, because protojson is not
+//
+// [MarshalJSON]'s bytes are a function of the descriptor and of nothing else —
+// in particular, not of the build that produced them. protojson deliberately
+// varies its insignificant whitespace, emitting an extra space after a comma or
+// after a "key:" chosen by a hash of the running binary, precisely so that
+// nobody depends on its exact output. That is fixed within one cpybkc and
+// different in the next, so a rendering committed beside a layout would diff on
+// every line after an upgrade with nothing in it that anybody changed.
+//
+// So the rendering is re-indented through encoding/json before it is returned,
+// which rewrites every byte of whitespace between tokens and leaves the token
+// sequence alone. The output is then pinned to what protojson *said* rather
+// than to how it spaced it. Everything else protojson already guarantees:
+// fields come in field-number order, and the schema has no map field whose keys
+// would need sorting.
+//
+// The property cannot be observed by rendering twice in one test binary — the
+// spacing is chosen once per process — which is why the normalization is tested
+// directly, against both shapes protojson emits, written out by hand.
 //
 // # It runs no generator
 //
@@ -79,11 +126,14 @@
 package emit
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/Zaba505/cpybkc/irpb"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -105,11 +155,68 @@ const (
 	// SPEC.md). A dash is therefore never a relative path here, and a caller
 	// wanting a file of that name spells it "./-".
 	Stdout = "-"
+
+	// FormatFlag is the name of the CLI flag selecting which [Format] --emit-ir
+	// writes, without its leading dashes.
+	//
+	// It is a flag of its own rather than a value of --emit-ir, and the reason
+	// is that --emit-ir's operand is already spoken for: it is the destination
+	// (#20), so `--emit-ir=json` names a file called "json" and cannot also name
+	// an encoding. A format and a destination are two answers, so they are two
+	// flags — which is also what lets either form go to either destination
+	// rather than making JSON a synonym for standard output.
+	FormatFlag = "emit-ir-format"
 )
 
+// Format is the encoding --emit-ir writes a descriptor in.
+//
+// The set is closed, and closed by the same argument docs/ir/SPEC.md closes the
+// node kinds with: a caller that meets an encoding this package does not
+// produce should be told so, rather than handed the default and left to work
+// out later which bytes it got.
+//
+// It satisfies flag.Value, so a command binds the flag with flag.Var and the
+// rejection of an unknown spelling happens once, here, at parse time.
+type Format string
+
+const (
+	// FormatBinary is the protobuf binary wire encoding: the canonical form, the
+	// bytes a plugin is handed, and what --emit-ir writes when nothing asks
+	// otherwise.
+	FormatBinary Format = "binary"
+
+	// FormatJSON is protojson, normalized: debug and interop output, one-way,
+	// and never what a plugin is handed. See the package documentation, "Two
+	// forms, and which one is canonical".
+	FormatJSON Format = "json"
+)
+
+// String returns the format as it is spelled on the command line, so that a
+// usage message and an error report the name a caller would type.
+func (f Format) String() string {
+	return string(f)
+}
+
+// Set parses the --emit-ir-format operand, and is what makes an unrecognised
+// encoding a parse failure rather than a silent fallback to [FormatBinary].
+//
+// A caller who asked for JSON and quietly received protobuf would find out at
+// whatever reads the file, which is the wrong end of the pipeline to discover a
+// misspelling from.
+func (f *Format) Set(s string) error {
+	switch parsed := Format(s); parsed {
+	case FormatBinary, FormatJSON:
+		*f = parsed
+
+		return nil
+	default:
+		return fmt.Errorf("%q is not a format; write %q or %q", s, FormatBinary, FormatJSON)
+	}
+}
+
 // Marshal encodes d in the protobuf binary wire encoding: the form a generator
-// plugin is handed, the form --emit-ir writes, and the only form this
-// repository produces a descriptor in.
+// plugin is handed, the form --emit-ir writes by default, and the canonical
+// form of a descriptor.
 //
 // The bytes are deterministic; see the package documentation for what that
 // covers and what it leaves to the producer of the descriptor.
@@ -132,8 +239,92 @@ func Marshal(d *irpb.Descriptor) ([]byte, error) {
 	return b, nil
 }
 
-// Write encodes d and writes it to dest, which is a filesystem path or [Stdout]
-// — in which case the bytes go to out and out alone.
+// MarshalJSON renders d as protojson, normalized: the debug and interop form
+// [FormatJSON] asks for, and never the form a plugin is handed.
+//
+// The rendering uses protobuf's own field names — start_state_id, not
+// startStateId — because a descriptor is read beside docs/ir/SPEC.md and
+// proto/cpybkc/ir/v1/ir.proto, and a lowerCamelCase rendering would make the
+// reader translate every name back before they could look one up.
+//
+// Two renderings of one descriptor are the same bytes, and so are two
+// renderings by different builds of cpybkc; the package documentation,
+// "Normalized, because protojson is not", says what that costs and why the
+// obvious implementation does not provide it.
+//
+// The bytes end in exactly one newline, because unlike the binary form this one
+// is a text file: it is committed, diffed and pasted into an issue, and a
+// rendering without a final newline reports itself as a change in every diff
+// that touches it and leaves a shell prompt mid-line.
+//
+// A nil descriptor is an error, for the reason [Marshal] gives — protojson
+// renders one as "{}" without complaint, which is a rendering of nothing that
+// looks like a rendering of an empty descriptor.
+func MarshalJSON(d *irpb.Descriptor) ([]byte, error) {
+	if d == nil {
+		return nil, fmt.Errorf("there is no descriptor to render")
+	}
+
+	b, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(d)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render the descriptor as JSON: %w", err)
+	}
+
+	indented, err := indentJSON(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(indented, '\n'), nil
+}
+
+// jsonIndent is the indentation a rendered descriptor is written with. Two
+// spaces, which is what the layout format and the project manifest a reader
+// meets in the same sitting are indented with.
+const jsonIndent = "  "
+
+// indentJSON reformats valid JSON into one canonical indented shape, discarding
+// whatever insignificant whitespace it arrived carrying.
+//
+// This is the step that makes [MarshalJSON]'s output a function of the
+// descriptor rather than of the binary that rendered it. It is a function of
+// its own, and tested as one, because the property it supplies cannot be
+// observed through protojson from inside a single test binary.
+func indentJSON(b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, b, "", jsonIndent); err != nil {
+		return nil, fmt.Errorf("failed to normalize the rendered descriptor: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// encode encodes d in the format asked for.
+//
+// An unrecognised format is an error rather than a fallback to [FormatBinary].
+// [Format.Set] already rejects one at parse time, so reaching here means a
+// caller assembled a Format some other way, and the failure it is about to
+// cause — a consumer handed bytes in an encoding it did not ask for — is worth
+// less than the failure of being told.
+func encode(d *irpb.Descriptor, format Format) ([]byte, error) {
+	switch format {
+	case FormatBinary:
+		return Marshal(d)
+	case FormatJSON:
+		return MarshalJSON(d)
+	default:
+		return nil, fmt.Errorf("--%s: %q is not a format; write %q or %q", FormatFlag, format, FormatBinary, FormatJSON)
+	}
+}
+
+// Write encodes d in format and writes it to dest, which is a filesystem path
+// or [Stdout] — in which case the bytes go to out and out alone.
+//
+// The format is a parameter rather than a default this function supplies,
+// because the two forms are not interchangeable (see the package documentation,
+// "Two forms, and which one is canonical") and a caller that never says which
+// one it wants is a caller that has not decided. The command line is where the
+// default lives: --emit-ir-format is bound to [FormatBinary].
 //
 // An existing file is replaced. A descriptor is derived entirely from its
 // inputs, so re-emitting after a layout changed is the whole point of the flag,
@@ -149,12 +340,12 @@ func Marshal(d *irpb.Descriptor) ([]byte, error) {
 // Nothing is created or truncated until d has encoded, so a call that fails
 // leaves whatever was at dest alone rather than replacing a good descriptor
 // with a short one.
-func Write(dest string, out io.Writer, d *irpb.Descriptor) error {
+func Write(dest string, out io.Writer, d *irpb.Descriptor, format Format) error {
 	if dest == "" {
 		return fmt.Errorf("--%s: name a file to write the descriptor to, or %q for standard output", Flag, Stdout)
 	}
 
-	b, err := Marshal(d)
+	b, err := encode(d, format)
 	if err != nil {
 		return err
 	}
