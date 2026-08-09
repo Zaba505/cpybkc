@@ -27,18 +27,20 @@ permissions:
   contents: read
 
 jobs:
-  # The whole pipeline: fmt, vet, golangci-lint and `go test -race`, as the root
-  # Dagger module defines them and as `dagger call ci` runs them on a
+  # The whole pipeline: fmt, vet, golangci-lint, `go test -race` and `buf lint`,
+  # as the root Dagger module defines them and as `dagger call ci` runs them on a
   # contributor's machine. It is one call and it stays one — a step here that
   # reran any of those stages would be a second definition of the standard, and
   # the two would drift. See CONTRIBUTING.md and .dagger/main.go.
   #
-  # Repo-specific verification lands in this workflow the same way: as another
-  # function on the root module invoked by another `dagger call`, never as raw
-  # Go steps beside it. cpybkc has none yet — the conformance corpus is #66-#68
-  # — but a golden-file or corpus job written with `actions/setup-go` and
-  # `go test` would be a second toolchain, a second set of stage definitions and
-  # a second answer to what this repository checks.
+  # Repo-specific verification lands as another function on the root module,
+  # never as raw Go steps beside this one. `buf lint` over the IR schema is the
+  # first of them and it is called by `ci` rather than by a second `dagger call`
+  # here, so that the gate a contributor runs before pushing is the whole of what
+  # CI checks; the conformance corpus (#66-#68) lands the same way. A golden-file
+  # or corpus job written with `actions/setup-go` and `go test` would be a second
+  # toolchain, a second set of stage definitions and a second answer to what this
+  # repository checks.
   ci:
     name: ci
     runs-on: ubuntu-latest
