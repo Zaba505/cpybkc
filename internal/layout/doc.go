@@ -60,7 +60,10 @@
 // diagnostics: a generated layout is generated wrong in the same way in many
 // places at once, and a reader that reports one fault per run is a reader run
 // once per fault. Each is still assertable with [errors.As], because that is
-// what errors.Join is traversed by.
+// what errors.Join is traversed by. The list they accumulate in is
+// [github.com/Zaba505/cpybkc/internal/diag.List], and the rendering of the
+// result is that package's too — a fault this reader found and a fault
+// `resolve` found in a copybook are the same kind of thing, and read the same.
 //
 // # What it does not check
 //

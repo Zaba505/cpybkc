@@ -46,4 +46,10 @@
 // once per fault. Each carries the position of the sub-form that is wrong rather
 // than of the top-level form containing it, which is what SPEC.md's "Positions
 // survive" buys and what the layout reader's spans are built out of.
+//
+// A diagnostic's position is a
+// [github.com/Zaba505/cpybkc/internal/diag.Span] and names the file the layout
+// was checked under, which is why [Schema.Validate] takes a name: an adopter
+// checking a layout against a copybook is holding two files, and a position
+// that cannot say which one it is in stops being usable exactly then.
 package layoutschema

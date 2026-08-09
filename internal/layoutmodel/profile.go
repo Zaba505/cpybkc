@@ -6,8 +6,7 @@
 package layoutmodel
 
 import (
-	"errors"
-
+	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
@@ -103,7 +102,7 @@ func ReadProfile(file *layout.File) (*Profile, error) {
 			// time.
 			for _, axis := range allAxes {
 				if _, ok := stated[axis]; !ok {
-					read.fail(&MissingAxisError{Pos: form.Pos, Axis: axis})
+					read.Fail(&MissingAxisError{Pos: form.Pos, Axis: axis})
 				}
 			}
 
@@ -126,11 +125,11 @@ func ReadProfile(file *layout.File) (*Profile, error) {
 			pos = encodings[1].Pos
 		}
 
-		read.fail(&ProfileCountError{Pos: pos, Count: len(encodings)})
+		read.Fail(&ProfileCountError{Pos: pos, Count: len(encodings)})
 	}
 
-	if len(read.errs) > 0 {
-		return nil, errors.Join(read.errs...)
+	if read.Failed() {
+		return nil, read.Err()
 	}
 
 	return profile, nil
@@ -139,7 +138,7 @@ func ReadProfile(file *layout.File) (*Profile, error) {
 // profileReader holds the state one [ReadProfile] accumulates: the faults found
 // so far, and the items already overridden.
 type profileReader struct {
-	faults
+	diag.List
 
 	// overridden is where each item was first overridden, keyed by the
 	// reference's identity. It is what makes a second override on one item
@@ -150,14 +149,14 @@ type profileReader struct {
 // override reads one `encoding-override` and appends it to the profile.
 func (r *profileReader) override(profile *Profile, form layout.Form) {
 	if len(form.Elements) == 0 {
-		r.fail(&ItemReferenceError{Pos: form.Pos, Found: "an override naming no item at all"})
+		r.Fail(&ItemReferenceError{Pos: form.Pos, Found: "an override naming no item at all"})
 
 		return
 	}
 
 	item, err := readItemRef(form.Elements[0])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		// The axes are read anyway. An override whose reference is misspelled is
 		// still an override, and a charset misspelled underneath it is a second
@@ -168,7 +167,7 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 	}
 
 	if first, already := r.overridden[item.identity()]; already {
-		r.fail(&DuplicateOverrideError{Pos: form.Pos, First: first, Item: item})
+		r.Fail(&DuplicateOverrideError{Pos: form.Pos, First: first, Item: item})
 	} else {
 		if r.overridden == nil {
 			r.overridden = make(map[string]layout.Pos)
@@ -184,7 +183,7 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 	// account is not also an override that names no axis: the layout plainly
 	// names one, and the fault is already reported against the value.
 	if len(stated) == 0 {
-		r.fail(&EmptyOverrideError{Pos: form.Pos, Item: item})
+		r.Fail(&EmptyOverrideError{Pos: form.Pos, Item: item})
 
 		return
 	}
@@ -212,20 +211,20 @@ func (r *profileReader) axes(form layout.Form, elements []layout.Node) (Axes, ma
 	for _, element := range elements {
 		child, ok := element.(layout.Form)
 		if !ok {
-			r.fail(&ChildError{Pos: element.Position(), Form: form.Tag, Found: describe(element), Admits: axisNames()})
+			r.Fail(&ChildError{Pos: element.Position(), Form: form.Tag, Found: describe(element), Admits: axisNames()})
 
 			continue
 		}
 
 		axis, ok := lookupAxis(child.Tag)
 		if !ok {
-			r.fail(&ChildError{Pos: child.TagPos, Form: form.Tag, Found: describe(child), Admits: axisNames()})
+			r.Fail(&ChildError{Pos: child.TagPos, Form: form.Tag, Found: describe(child), Admits: axisNames()})
 
 			continue
 		}
 
 		if pos, repeated := first[axis]; repeated {
-			r.fail(&RepeatedAxisError{Pos: child.Pos, First: pos, Axis: axis, Form: form.Tag})
+			r.Fail(&RepeatedAxisError{Pos: child.Pos, First: pos, Axis: axis, Form: form.Tag})
 
 			continue
 		}
@@ -252,20 +251,20 @@ func (r *profileReader) axisValue(form layout.Form, axis Axis) (string, bool) {
 			found = "several"
 		}
 
-		r.fail(&AxisFormError{Pos: form.Pos, Axis: axis, Found: found})
+		r.Fail(&AxisFormError{Pos: form.Pos, Axis: axis, Found: found})
 
 		return "", false
 	}
 
 	symbol, ok := form.Elements[0].(layout.Symbol)
 	if !ok {
-		r.fail(&AxisFormError{Pos: form.Elements[0].Position(), Axis: axis, Found: describe(form.Elements[0])})
+		r.Fail(&AxisFormError{Pos: form.Elements[0].Position(), Axis: axis, Found: describe(form.Elements[0])})
 
 		return "", false
 	}
 
 	if !axis.admits(symbol.Value) {
-		r.fail(&AxisValueError{Pos: symbol.Pos, Axis: axis, Value: symbol.Value})
+		r.Fail(&AxisValueError{Pos: symbol.Pos, Axis: axis, Value: symbol.Value})
 
 		return "", false
 	}

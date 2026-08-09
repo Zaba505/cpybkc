@@ -6,11 +6,11 @@
 package layoutmodel
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
@@ -404,11 +404,11 @@ func ReadFraming(file *layout.File) (*Framing, error) {
 			pos = forms[1].Pos
 		}
 
-		read.fail(&FramingCountError{Pos: pos, Count: len(forms)})
+		read.Fail(&FramingCountError{Pos: pos, Count: len(forms)})
 	}
 
-	if len(read.errs) > 0 {
-		return nil, errors.Join(read.errs...)
+	if read.Failed() {
+		return nil, read.Err()
 	}
 
 	return framing, nil
@@ -416,7 +416,7 @@ func ReadFraming(file *layout.File) (*Framing, error) {
 
 // framingReader holds the state one [ReadFraming] accumulates.
 type framingReader struct {
-	faults
+	diag.List
 }
 
 // framing reads one `framing` form.
@@ -437,19 +437,19 @@ func (r *framingReader) framing(form layout.Form) *Framing {
 	for _, element := range form.Elements {
 		child, ok := element.(layout.Form)
 		if !ok {
-			r.fail(&ChildError{Pos: element.Position(), Form: form.Tag, Found: describe(element), Admits: framingChildren})
+			r.Fail(&ChildError{Pos: element.Position(), Form: form.Tag, Found: describe(element), Admits: framingChildren})
 
 			continue
 		}
 
 		if !slices.Contains(framingChildren, child.Tag) {
-			r.fail(&ChildError{Pos: child.TagPos, Form: form.Tag, Found: describe(child), Admits: framingChildren})
+			r.Fail(&ChildError{Pos: child.TagPos, Form: form.Tag, Found: describe(child), Admits: framingChildren})
 
 			continue
 		}
 
 		if pos, repeated := stated[child.Tag]; repeated {
-			r.fail(&RepeatedChildError{Pos: child.Pos, First: pos, Child: child.Tag, Form: form.Tag})
+			r.Fail(&RepeatedChildError{Pos: child.Pos, First: pos, Child: child.Tag, Form: form.Tag})
 
 			continue
 		}
@@ -462,7 +462,7 @@ func (r *framingReader) framing(form layout.Form) *Framing {
 	}
 
 	if _, ok := stated[tagRECFM]; !ok {
-		r.fail(&MissingRECFMError{Pos: form.Pos})
+		r.Fail(&MissingRECFMError{Pos: form.Pos})
 	}
 
 	// Which children a framing requires and which it refuses follows from the
@@ -493,11 +493,11 @@ func (r *framingReader) children(form layout.Form, recfm RECFM, stated map[strin
 		switch admits(child, recfm) {
 		case arityRequired:
 			if !present {
-				r.fail(&RequiredChildError{Pos: form.Pos, Child: child, RECFM: recfm})
+				r.Fail(&RequiredChildError{Pos: form.Pos, Child: child, RECFM: recfm})
 			}
 		case arityRefused:
 			if present {
-				r.fail(&UnadmittedChildError{Pos: pos, Child: child, RECFM: recfm})
+				r.Fail(&UnadmittedChildError{Pos: pos, Child: child, RECFM: recfm})
 			}
 		case arityAdmitted:
 		}
@@ -519,7 +519,7 @@ func (r *framingReader) blockSize(framing *Framing, usable map[string]bool) {
 	switch framing.RECFM {
 	case RECFMFB:
 		if framing.BlockSize.Value%framing.LRECL.Value != 0 {
-			r.fail(&BlockSizeNotAMultipleError{
+			r.Fail(&BlockSizeNotAMultipleError{
 				Pos:       framing.BlockSize.Pos,
 				RECFM:     framing.RECFM,
 				BlockSize: framing.BlockSize.Value,
@@ -528,7 +528,7 @@ func (r *framingReader) blockSize(framing *Framing, usable map[string]bool) {
 		}
 	case RECFMVB, RECFMVBS:
 		if framing.BlockSize.Value < framing.LRECL.Value+blockDescriptorWord {
-			r.fail(&BlockSizeTooSmallError{
+			r.Fail(&BlockSizeTooSmallError{
 				Pos:       framing.BlockSize.Pos,
 				RECFM:     framing.RECFM,
 				BlockSize: framing.BlockSize.Value,
@@ -573,7 +573,7 @@ func (r *framingReader) recfm(framing *Framing, child layout.Form) bool {
 
 	if slices.Contains(recfms, value) {
 		if value == RECFMU {
-			r.fail(&UndefinedLengthError{Pos: symbol.Pos})
+			r.Fail(&UndefinedLengthError{Pos: symbol.Pos})
 
 			return false
 		}
@@ -584,12 +584,12 @@ func (r *framingReader) recfm(framing *Framing, child layout.Form) bool {
 	}
 
 	if base, control, ok := carriageControl(symbol.Value); ok {
-		r.fail(&CarriageControlError{Pos: symbol.Pos, Value: symbol.Value, Control: control, RECFM: base})
+		r.Fail(&CarriageControlError{Pos: symbol.Pos, Value: symbol.Value, Control: control, RECFM: base})
 
 		return false
 	}
 
-	r.fail(&FramingValueError{Pos: symbol.Pos, Child: child.Tag, Value: symbol.Value, Admits: recfmNames()})
+	r.Fail(&FramingValueError{Pos: symbol.Pos, Child: child.Tag, Value: symbol.Value, Admits: recfmNames()})
 
 	return false
 }
@@ -607,12 +607,12 @@ func (r *framingReader) blocks(framing *Framing, child layout.Form) bool {
 
 		return true
 	case InStream:
-		r.fail(&BlockedStreamError{Pos: symbol.Pos})
+		r.Fail(&BlockedStreamError{Pos: symbol.Pos})
 
 		return false
 	}
 
-	r.fail(&FramingValueError{Pos: symbol.Pos, Child: child.Tag, Value: symbol.Value, Admits: blocksNames()})
+	r.Fail(&FramingValueError{Pos: symbol.Pos, Child: child.Tag, Value: symbol.Value, Admits: blocksNames()})
 
 	return false
 }
@@ -626,7 +626,7 @@ func (r *framingReader) placement(framing *Framing, child layout.Form) bool {
 
 	value := Placement(symbol.Value)
 	if !slices.Contains(placements, value) {
-		r.fail(&FramingValueError{Pos: symbol.Pos, Child: child.Tag, Value: symbol.Value, Admits: placementNames()})
+		r.Fail(&FramingValueError{Pos: symbol.Pos, Child: child.Tag, Value: symbol.Value, Admits: placementNames()})
 
 		return false
 	}
@@ -639,14 +639,14 @@ func (r *framingReader) placement(framing *Framing, child layout.Form) bool {
 // delimiter reads the bytes a delimited file's records are wrapped in.
 func (r *framingReader) delimiter(framing *Framing, child layout.Form) bool {
 	if len(child.Elements) != 1 {
-		r.fail(&FramingFormError{Pos: child.Pos, Child: child.Tag, Takes: "one byte string", Found: count(len(child.Elements))})
+		r.Fail(&FramingFormError{Pos: child.Pos, Child: child.Tag, Takes: "one byte string", Found: count(len(child.Elements))})
 
 		return false
 	}
 
 	value, err := readByteString(child.Elements[0])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return false
 	}
@@ -661,7 +661,7 @@ func (r *framingReader) size(into *Size, child layout.Form) bool {
 	const takes = "one positive number of bytes"
 
 	if len(child.Elements) != 1 {
-		r.fail(&FramingFormError{Pos: child.Pos, Child: child.Tag, Takes: takes, Found: count(len(child.Elements))})
+		r.Fail(&FramingFormError{Pos: child.Pos, Child: child.Tag, Takes: takes, Found: count(len(child.Elements))})
 
 		return false
 	}
@@ -669,7 +669,7 @@ func (r *framingReader) size(into *Size, child layout.Form) bool {
 	switch value := child.Elements[0].(type) {
 	case layout.Int:
 		if value.Value <= 0 {
-			r.fail(&SizeError{Pos: value.Pos, Child: child.Tag, Value: value.Value})
+			r.Fail(&SizeError{Pos: value.Pos, Child: child.Tag, Value: value.Value})
 
 			return false
 		}
@@ -680,9 +680,9 @@ func (r *framingReader) size(into *Size, child layout.Form) bool {
 	case layout.Float:
 		// A number with a fraction is not a number of bytes, and describe would
 		// call it "a number", which is what the position takes.
-		r.fail(&FramingFormError{Pos: value.Pos, Child: child.Tag, Takes: takes, Found: "a number with a fraction"})
+		r.Fail(&FramingFormError{Pos: value.Pos, Child: child.Tag, Takes: takes, Found: "a number with a fraction"})
 	default:
-		r.fail(&FramingFormError{
+		r.Fail(&FramingFormError{
 			Pos:   child.Elements[0].Position(),
 			Child: child.Tag,
 			Takes: takes,
@@ -699,14 +699,14 @@ func (r *framingReader) symbol(child layout.Form) (layout.Symbol, bool) {
 	const takes = "one symbol naming its value"
 
 	if len(child.Elements) != 1 {
-		r.fail(&FramingFormError{Pos: child.Pos, Child: child.Tag, Takes: takes, Found: count(len(child.Elements))})
+		r.Fail(&FramingFormError{Pos: child.Pos, Child: child.Tag, Takes: takes, Found: count(len(child.Elements))})
 
 		return layout.Symbol{}, false
 	}
 
 	symbol, ok := child.Elements[0].(layout.Symbol)
 	if !ok {
-		r.fail(&FramingFormError{
+		r.Fail(&FramingFormError{
 			Pos:   child.Elements[0].Position(),
 			Child: child.Tag,
 			Takes: takes,

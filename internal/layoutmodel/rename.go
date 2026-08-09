@@ -6,9 +6,9 @@
 package layoutmodel
 
 import (
-	"errors"
 	"slices"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
@@ -105,8 +105,8 @@ func ReadRenames(file *layout.File) ([]Rename, error) {
 		renames = append(renames, rename)
 	}
 
-	if len(read.errs) > 0 {
-		return nil, errors.Join(read.errs...)
+	if read.Failed() {
+		return nil, read.Err()
 	}
 
 	return renames, nil
@@ -114,7 +114,7 @@ func ReadRenames(file *layout.File) ([]Rename, error) {
 
 // renameReader holds the state one [ReadRenames] accumulates.
 type renameReader struct {
-	faults
+	diag.List
 
 	// records are the records the layout defines, which is what makes a rename
 	// rooted at a record nobody defined answerable.
@@ -133,21 +133,21 @@ type renameReader struct {
 // rename reads one `rename` form, against the renames already read.
 func (r *renameReader) rename(read []Rename, form layout.Form) (Rename, bool) {
 	if len(form.Elements) != 2 {
-		r.fail(&RenameFormError{Pos: form.Pos, Found: renameShortfall(form.Elements)})
+		r.Fail(&RenameFormError{Pos: form.Pos, Found: renameShortfall(form.Elements)})
 
 		return Rename{}, false
 	}
 
 	item, err := readItemRef(form.Elements[0])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return Rename{}, false
 	}
 
 	name, ok := form.Elements[1].(layout.Text)
 	if !ok {
-		r.fail(&RenameFormError{Pos: form.Elements[1].Position(), Found: describe(form.Elements[1])})
+		r.Fail(&RenameFormError{Pos: form.Elements[1].Position(), Found: describe(form.Elements[1])})
 
 		return Rename{}, false
 	}
@@ -161,7 +161,7 @@ func (r *renameReader) rename(read []Rename, form layout.Form) (Rename, bool) {
 	sound := r.target(form, item)
 
 	if name.Value == "" {
-		r.fail(&EmptyRenameError{Pos: name.Pos, Item: item})
+		r.Fail(&EmptyRenameError{Pos: name.Pos, Item: item})
 
 		// A name of no characters collides with nothing, and every message the
 		// collision rules could produce about it would name the empty string.
@@ -177,13 +177,13 @@ func (r *renameReader) target(form layout.Form, item ItemRef) bool {
 	sound := true
 
 	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == item.Record }) {
-		r.fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
+		r.Fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
 
 		sound = false
 	}
 
 	if first, already := r.renamed[item.identity()]; already {
-		r.fail(&DuplicateRenameError{Pos: form.Pos, First: first, Item: item})
+		r.Fail(&DuplicateRenameError{Pos: form.Pos, First: first, Item: item})
 
 		return false
 	}
@@ -229,7 +229,7 @@ func (r *renameReader) collisions(read []Rename, rename Rename) bool {
 			siblings(other.Item, rename.Item)
 	})
 	if earlier >= 0 {
-		r.fail(&RenameCollisionError{
+		r.Fail(&RenameCollisionError{
 			Pos:   rename.SubstitutePos,
 			First: read[earlier].SubstitutePos,
 			Items: [2]ItemRef{read[earlier].Item, rename.Item},
@@ -245,7 +245,7 @@ func (r *renameReader) collisions(read []Rename, rename Rename) bool {
 			other.Name() == rename.Substitute
 	})
 	if sibling >= 0 {
-		r.fail(&RenameShadowsSiblingError{
+		r.Fail(&RenameShadowsSiblingError{
 			Pos:     rename.SubstitutePos,
 			First:   r.named[sibling].Pos,
 			Item:    rename.Item,

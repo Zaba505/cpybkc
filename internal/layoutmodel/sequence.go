@@ -6,11 +6,11 @@
 package layoutmodel
 
 import (
-	"errors"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
@@ -286,7 +286,7 @@ func ReadSequence(file *layout.File) (*Sequence, error) {
 			pos = forms[1].Pos
 		}
 
-		read.fail(&SequenceCountError{Pos: pos, Count: len(forms)})
+		read.Fail(&SequenceCountError{Pos: pos, Count: len(forms)})
 	}
 
 	// A record the expression never names is a fact about the layout rather than
@@ -301,13 +301,13 @@ func ReadSequence(file *layout.File) (*Sequence, error) {
 	if len(forms) > 0 {
 		for _, record := range read.records {
 			if _, sequenced := read.sequenced[record.name]; !sequenced {
-				read.fail(&UnsequencedRecordError{Pos: record.pos, Record: record.name})
+				read.Fail(&UnsequencedRecordError{Pos: record.pos, Record: record.name})
 			}
 		}
 	}
 
-	if len(read.errs) > 0 {
-		return nil, errors.Join(read.errs...)
+	if read.Failed() {
+		return nil, read.Err()
 	}
 
 	return sequence, nil
@@ -315,7 +315,7 @@ func ReadSequence(file *layout.File) (*Sequence, error) {
 
 // sequenceReader holds the state one [ReadSequence] accumulates.
 type sequenceReader struct {
-	faults
+	diag.List
 
 	// records are the records the layout defines, which is what makes "a record
 	// name the layout defines" and "a record the expression never names"
@@ -330,7 +330,7 @@ type sequenceReader struct {
 // sequence reads one `sequence` form.
 func (r *sequenceReader) sequence(form layout.Form) (*Sequence, bool) {
 	if len(form.Elements) != 1 {
-		r.fail(&SequenceFormError{Pos: form.Pos, Found: count(len(form.Elements))})
+		r.Fail(&SequenceFormError{Pos: form.Pos, Found: count(len(form.Elements))})
 
 		// Every element is read anyway, for the reason a discriminator's
 		// strategy is read after a misspelled record name: a `sequence` carrying
@@ -365,7 +365,7 @@ func (r *sequenceReader) expression(node layout.Node, within string) (Expression
 	case layout.Form:
 		return r.operator(node)
 	default:
-		r.fail(&ExpressionError{Pos: node.Position(), Found: describe(node), Admits: operatorNames()})
+		r.Fail(&ExpressionError{Pos: node.Position(), Found: describe(node), Admits: operatorNames()})
 
 		return Expression{}, false
 	}
@@ -385,7 +385,7 @@ func (r *sequenceReader) operator(form layout.Form) (Expression, bool) {
 	case kind == When:
 		return r.when(form)
 	default:
-		r.fail(&ExpressionError{Pos: form.TagPos, Found: describe(form), Admits: operatorNames()})
+		r.Fail(&ExpressionError{Pos: form.TagPos, Found: describe(form), Admits: operatorNames()})
 
 		return Expression{}, false
 	}
@@ -409,7 +409,7 @@ func (r *sequenceReader) branch(form layout.Form, kind ExpressionKind) (Expressi
 	// of two one of which is malformed is reported against that subexpression
 	// and against this rule, and not twice against this one.
 	if len(expression.Sub) < 2 {
-		r.fail(&ExpressionFormError{Pos: form.Pos, Kind: kind, Found: subexpressions(len(expression.Sub))})
+		r.Fail(&ExpressionFormError{Pos: form.Pos, Kind: kind, Found: subexpressions(len(expression.Sub))})
 
 		return Expression{}, false
 	}
@@ -420,7 +420,7 @@ func (r *sequenceReader) branch(form layout.Form, kind ExpressionKind) (Expressi
 // repetition reads a `*`, a `+` or a `?`, which take exactly one subexpression.
 func (r *sequenceReader) repetition(form layout.Form, kind ExpressionKind) (Expression, bool) {
 	if len(form.Elements) != 1 {
-		r.fail(&ExpressionFormError{Pos: form.Pos, Kind: kind, Found: subexpressions(len(form.Elements))})
+		r.Fail(&ExpressionFormError{Pos: form.Pos, Kind: kind, Found: subexpressions(len(form.Elements))})
 
 		for _, element := range form.Elements {
 			_, _ = r.expression(element, form.Tag)
@@ -440,7 +440,7 @@ func (r *sequenceReader) repetition(form layout.Form, kind ExpressionKind) (Expr
 // times reads `(times <e> <item-ref>)`.
 func (r *sequenceReader) times(form layout.Form) (Expression, bool) {
 	if len(form.Elements) != 2 {
-		r.fail(&ExpressionFormError{Pos: form.Pos, Kind: Times, Found: timesShortfall(form.Elements)})
+		r.Fail(&ExpressionFormError{Pos: form.Pos, Kind: Times, Found: timesShortfall(form.Elements)})
 
 		// What was written is read anyway, for the reason a `sequence` carrying
 		// two expressions has both read: an operator with the wrong number of
@@ -459,7 +459,7 @@ func (r *sequenceReader) times(form layout.Form) (Expression, bool) {
 	// should not have to run again to be told about the other.
 	item, err := readItemRef(form.Elements[1])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return Expression{}, false
 	}
@@ -476,7 +476,7 @@ func (r *sequenceReader) times(form layout.Form) (Expression, bool) {
 // when reads `(when <item-ref> <match> <e>)`.
 func (r *sequenceReader) when(form layout.Form) (Expression, bool) {
 	if len(form.Elements) != 3 {
-		r.fail(&ExpressionFormError{Pos: form.Pos, Kind: When, Found: whenShortfall(form.Elements)})
+		r.Fail(&ExpressionFormError{Pos: form.Pos, Kind: When, Found: whenShortfall(form.Elements)})
 
 		// As in [sequenceReader.times]: the arity is one fault and what stands
 		// inside the operator may be another.
@@ -487,7 +487,7 @@ func (r *sequenceReader) when(form layout.Form) (Expression, bool) {
 
 	item, err := readItemRef(form.Elements[0])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return Expression{}, false
 	}
@@ -552,7 +552,7 @@ func (r *sequenceReader) whenParts(form layout.Form) {
 func (r *sequenceReader) count(node layout.Node, within string) {
 	item, err := readItemRef(node)
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return
 	}
@@ -576,7 +576,7 @@ func (r *sequenceReader) match(node layout.Node) (Match, bool) {
 	form, ok := node.(layout.Form)
 	if ok && form.Tag == tagOneOf {
 		if len(form.Elements) == 0 {
-			r.fail(&MatchFormError{Pos: form.Pos, Found: "no literal"})
+			r.Fail(&MatchFormError{Pos: form.Pos, Found: "no literal"})
 
 			return Match{}, false
 		}
@@ -586,7 +586,7 @@ func (r *sequenceReader) match(node layout.Node) (Match, bool) {
 		for _, element := range form.Elements {
 			literal, err := readLiteral(element)
 			if err != nil {
-				r.fail(err)
+				r.Fail(err)
 
 				return Match{}, false
 			}
@@ -602,7 +602,7 @@ func (r *sequenceReader) match(node layout.Node) (Match, bool) {
 	// is a [LiteralError] naming what was written.
 	literal, err := readLiteral(node)
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return Match{}, false
 	}
@@ -622,7 +622,7 @@ func (r *sequenceReader) name(symbol layout.Symbol, within string) {
 	}
 
 	if !r.defines(symbol.Value) {
-		r.fail(&UnknownRecordError{Pos: symbol.Pos, Record: symbol.Value, Form: within})
+		r.Fail(&UnknownRecordError{Pos: symbol.Pos, Record: symbol.Value, Form: within})
 	}
 }
 
@@ -635,7 +635,7 @@ func (r *sequenceReader) name(symbol layout.Symbol, within string) {
 // referred to by an operator and never actually sequenced.
 func (r *sequenceReader) itemRecord(item ItemRef, within string) {
 	if !r.defines(item.Record) {
-		r.fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: within})
+		r.Fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: within})
 	}
 }
 

@@ -6,10 +6,10 @@
 package layoutmodel
 
 import (
-	"errors"
 	"slices"
 	"strconv"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
@@ -290,12 +290,12 @@ func ReadDiscrimination(file *layout.File) (*Discrimination, error) {
 	// the forms are.
 	for _, record := range read.records {
 		if _, discriminated := read.discriminated[record.name]; !discriminated {
-			read.fail(&MissingDiscriminatorError{Pos: record.pos, Record: record.name})
+			read.Fail(&MissingDiscriminatorError{Pos: record.pos, Record: record.name})
 		}
 	}
 
-	if len(read.errs) > 0 {
-		return nil, errors.Join(read.errs...)
+	if read.Failed() {
+		return nil, read.Err()
 	}
 
 	return discrimination, nil
@@ -332,7 +332,7 @@ func recordNames(file *layout.File) []recordDefinition {
 
 // discriminationReader holds the state one [ReadDiscrimination] accumulates.
 type discriminationReader struct {
-	faults
+	diag.List
 
 	// records are the records the layout defines, which is what makes "one
 	// discriminator per record" and "a discriminator on a record nobody defined"
@@ -351,14 +351,14 @@ type discriminationReader struct {
 // discriminate reads one `discriminate` form.
 func (r *discriminationReader) discriminate(into *Discrimination, form layout.Form) {
 	if len(form.Elements) != 2 {
-		r.fail(&DiscriminateFormError{Pos: form.Pos, Found: count(len(form.Elements))})
+		r.Fail(&DiscriminateFormError{Pos: form.Pos, Found: count(len(form.Elements))})
 
 		return
 	}
 
 	name, ok := form.Elements[0].(layout.Symbol)
 	if !ok {
-		r.fail(&DiscriminateFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
+		r.Fail(&DiscriminateFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
 
 		// The strategy is read anyway, for the reason an override's axes are
 		// read after a misspelled item reference: a discriminator whose record
@@ -371,9 +371,9 @@ func (r *discriminationReader) discriminate(into *Discrimination, form layout.Fo
 	}
 
 	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == name.Value }) {
-		r.fail(&UnknownRecordError{Pos: name.Pos, Record: name.Value, Form: form.Tag})
+		r.Fail(&UnknownRecordError{Pos: name.Pos, Record: name.Value, Form: form.Tag})
 	} else if first, already := r.discriminated[name.Value]; already {
-		r.fail(&DuplicateDiscriminatorError{Pos: form.Pos, First: first, Record: name.Value})
+		r.Fail(&DuplicateDiscriminatorError{Pos: form.Pos, First: first, Record: name.Value})
 	} else {
 		if r.discriminated == nil {
 			r.discriminated = make(map[string]layout.Pos)
@@ -395,7 +395,7 @@ func (r *discriminationReader) discriminate(into *Discrimination, form layout.Fo
 	// is `resolve`'s; this half is the reference's own spelling and is checkable
 	// here (#84).
 	if strategy.Predicate() && strategy.Item.Record != name.Value {
-		r.fail(&ForeignTargetError{Pos: strategy.Item.Pos, Item: strategy.Item, Record: name.Value})
+		r.Fail(&ForeignTargetError{Pos: strategy.Item.Pos, Item: strategy.Item, Record: name.Value})
 
 		return
 	}
@@ -411,14 +411,14 @@ func (r *discriminationReader) discriminate(into *Discrimination, form layout.Fo
 // variant reads one `discriminate-variant` form.
 func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 	if len(form.Elements) == 0 {
-		r.fail(&VariantFormError{Pos: form.Pos, Found: "a variant discriminator naming no item at all"})
+		r.Fail(&VariantFormError{Pos: form.Pos, Found: "a variant discriminator naming no item at all"})
 
 		return
 	}
 
 	item, err := readItemRef(form.Elements[0])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return
 	}
@@ -434,7 +434,7 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 		}
 
 		if first, already := armNamed(discriminator.Arms, arm.Alternative); already {
-			r.fail(&DuplicateArmError{Pos: arm.Pos, First: first, Variant: item, Alternative: arm.Alternative})
+			r.Fail(&DuplicateArmError{Pos: arm.Pos, First: first, Variant: item, Alternative: arm.Alternative})
 
 			continue
 		}
@@ -448,7 +448,7 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 	// the elements written, so a variant carrying two arms one of which is
 	// malformed is not also reported as a variant carrying one.
 	if len(discriminator.Arms) < 2 {
-		r.fail(&VariantArmCountError{Pos: form.Pos, Variant: item, Count: len(discriminator.Arms)})
+		r.Fail(&VariantArmCountError{Pos: form.Pos, Variant: item, Count: len(discriminator.Arms)})
 
 		return
 	}
@@ -460,11 +460,11 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 // reference can be checked against without a copybook.
 func (r *discriminationReader) variantItem(form layout.Form, item ItemRef) {
 	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == item.Record }) {
-		r.fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
+		r.Fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
 	}
 
 	if first, already := r.variants[item.identity()]; already {
-		r.fail(&DuplicateVariantError{Pos: form.Pos, First: first, Variant: item})
+		r.Fail(&DuplicateVariantError{Pos: form.Pos, First: first, Variant: item})
 	} else {
 		if r.variants == nil {
 			r.variants = make(map[string]layout.Pos)
@@ -478,7 +478,7 @@ func (r *discriminationReader) variantItem(form layout.Form, item ItemRef) {
 	// ancestor is that item — and a record does not repeat, so no copybook can
 	// make such a reference name a variant.
 	if len(item.Path) < 2 {
-		r.fail(&VariantDepthError{Pos: item.Pos, Variant: item})
+		r.Fail(&VariantDepthError{Pos: item.Pos, Variant: item})
 	}
 }
 
@@ -486,26 +486,26 @@ func (r *discriminationReader) variantItem(form layout.Form, item ItemRef) {
 func (r *discriminationReader) arm(node layout.Node, variant ItemRef) (Arm, bool) {
 	form, ok := node.(layout.Form)
 	if !ok {
-		r.fail(&ArmFormError{Pos: node.Position(), Found: describe(node)})
+		r.Fail(&ArmFormError{Pos: node.Position(), Found: describe(node)})
 
 		return Arm{}, false
 	}
 
 	if form.Tag != tagArm {
-		r.fail(&ArmFormError{Pos: form.TagPos, Found: "form " + quote(form.Tag)})
+		r.Fail(&ArmFormError{Pos: form.TagPos, Found: "form " + quote(form.Tag)})
 
 		return Arm{}, false
 	}
 
 	if len(form.Elements) != 2 {
-		r.fail(&ArmFormError{Pos: form.Pos, Found: count(len(form.Elements))})
+		r.Fail(&ArmFormError{Pos: form.Pos, Found: count(len(form.Elements))})
 
 		return Arm{}, false
 	}
 
 	name, ok := form.Elements[0].(layout.Symbol)
 	if !ok {
-		r.fail(&ArmFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
+		r.Fail(&ArmFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
 
 		return Arm{}, false
 	}
@@ -516,7 +516,7 @@ func (r *discriminationReader) arm(node layout.Node, variant ItemRef) (Arm, bool
 	}
 
 	if !predicate.Predicate() {
-		r.fail(&StrategyError{
+		r.Fail(&StrategyError{
 			Pos:     predicate.Pos,
 			Subject: subjectArm,
 			Found:   "the symbol " + quote(string(predicate.Kind)),
@@ -527,7 +527,7 @@ func (r *discriminationReader) arm(node layout.Node, variant ItemRef) (Arm, bool
 	}
 
 	if found, ok := armTargetFault(predicate.Item, variant, name.Value); ok {
-		r.fail(&ArmTargetError{
+		r.Fail(&ArmTargetError{
 			Pos:         predicate.Item.Pos,
 			Alternative: name.Value,
 			Item:        predicate.Item,
@@ -563,7 +563,7 @@ func (r *discriminationReader) overlap(read []Arm, arm Arm, variant ItemRef) {
 				continue
 			}
 
-			r.fail(&ArmOverlapError{
+			r.Fail(&ArmOverlapError{
 				Pos:     literal.Pos,
 				First:   earlier.Predicate.Literals[index].Pos,
 				Variant: variant,
@@ -595,40 +595,40 @@ func (r *discriminationReader) strategy(node layout.Node, subject string) (Strat
 			return Strategy{Pos: symbol.Pos, Kind: SingleRecordType}, true
 		}
 
-		r.fail(&StrategyError{Pos: symbol.Pos, Subject: subject, Found: describe(symbol), Admits: admits})
+		r.Fail(&StrategyError{Pos: symbol.Pos, Subject: subject, Found: describe(symbol), Admits: admits})
 
 		return Strategy{}, false
 	}
 
 	form, ok := node.(layout.Form)
 	if !ok {
-		r.fail(&StrategyError{Pos: node.Position(), Subject: subject, Found: describe(node), Admits: admits})
+		r.Fail(&StrategyError{Pos: node.Position(), Subject: subject, Found: describe(node), Admits: admits})
 
 		return Strategy{}, false
 	}
 
 	kind := StrategyKind(form.Tag)
 	if !slices.Contains(predicates, kind) {
-		r.fail(&StrategyError{Pos: form.TagPos, Subject: subject, Found: describe(form), Admits: admits})
+		r.Fail(&StrategyError{Pos: form.TagPos, Subject: subject, Found: describe(form), Admits: admits})
 
 		return Strategy{}, false
 	}
 
 	if len(form.Elements) < 2 {
-		r.fail(&StrategyFormError{Pos: form.Pos, Kind: kind, Found: strategyShortfall(form.Elements)})
+		r.Fail(&StrategyFormError{Pos: form.Pos, Kind: kind, Found: strategyShortfall(form.Elements)})
 
 		return Strategy{}, false
 	}
 
 	if kind == Equals && len(form.Elements) > 2 {
-		r.fail(&StrategyFormError{Pos: form.Elements[2].Position(), Kind: kind, Found: "several"})
+		r.Fail(&StrategyFormError{Pos: form.Elements[2].Position(), Kind: kind, Found: "several"})
 
 		return Strategy{}, false
 	}
 
 	item, err := readItemRef(form.Elements[0])
 	if err != nil {
-		r.fail(err)
+		r.Fail(err)
 
 		return Strategy{}, false
 	}
@@ -638,7 +638,7 @@ func (r *discriminationReader) strategy(node layout.Node, subject string) (Strat
 	for _, element := range form.Elements[1:] {
 		literal, err := readLiteral(element)
 		if err != nil {
-			r.fail(err)
+			r.Fail(err)
 
 			return Strategy{}, false
 		}
