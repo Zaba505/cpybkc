@@ -209,10 +209,17 @@ type Arm struct {
 	// which is what a layout writes in an `arm` form.
 	Alternative string
 
-	// Predicate is the strategy the layout chose for this arm. It is carried
-	// rather than compiled: lowering a strategy into an IR predicate node is
-	// #37's.
-	Predicate layoutmodel.Strategy
+	// Predicate is the predicate that selects this arm, and is never nil.
+	//
+	// The same node kind and the same closed set of tests a transition's
+	// predicate is, and bound by different rules: its target sits inside the
+	// occurrence being walked rather than at a constant position in the
+	// record, because it is evaluated once the record has been admitted
+	// (docs/ir/SPEC.md, "A predicate on an arm reads one occurrence", #90).
+	//
+	// An arm carries exactly one, and there is no default arm: an alternative
+	// selected by nothing is a choice a consumer cannot make.
+	Predicate *Predicate
 
 	// Body is the arm's body, a group or a field node. Where the alternative
 	// occupies fewer bytes than the variant's extent, it is a group holding

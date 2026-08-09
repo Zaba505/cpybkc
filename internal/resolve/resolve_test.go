@@ -116,9 +116,14 @@ func resolveOne(t *testing.T, src string, redefines ...Redefine) *Record {
 // selects is a strategy that lowers into a predicate, for an arm a test needs
 // selected by something rather than by a particular thing. Compiling one into an
 // IR predicate node is #37's, so what it tests is not this package's business.
-func selects(value string) layoutmodel.Strategy {
+func selects(value string, path ...string) layoutmodel.Strategy {
+	if len(path) == 0 {
+		path = []string{"ENTRY", "CODE"}
+	}
+
 	return layoutmodel.Strategy{
 		Kind:     layoutmodel.Equals,
+		Item:     layoutmodel.ItemRef{Record: "R", Path: path},
 		Literals: []layoutmodel.Literal{{Kind: layoutmodel.TextLiteral, Text: value}},
 	}
 }

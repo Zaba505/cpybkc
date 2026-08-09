@@ -584,7 +584,19 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 					continue
 				}
 
-				if !c.predicatesOverlap(first.Predicate, second.Predicate) {
+				if !c.predicatesOverlap(first, second) {
+					continue
+				}
+
+				// A record with nothing outside a table to name is
+				// refused in its own words, because the pair is not a
+				// pair of discriminators an adopter can rewrite: one
+				// of the two records offers no target a predicate may
+				// name, and the answer is a leading item outside the
+				// table rather than a different literal
+				// (docs/ir/SPEC.md, "A record with nothing outside a
+				// table to name", #80, #84).
+				if c.reportUnnameable(state, first, second) {
 					continue
 				}
 
@@ -599,6 +611,39 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 			}
 		}
 	}
+}
+
+// reportUnnameable reports an overlapping pair one of whose records offers no
+// field a predicate may name, and says whether it did.
+//
+// Only a transition carrying no predicate can be the one: a record every field
+// of which sits inside a table has no target for a discriminator to name, so its
+// strategy is `single-record-type` and its transition carries none. A record
+// that *does* offer a target and carries no predicate anyway is the ordinary
+// ambiguity, and the message for it is the ordinary one.
+func (c *compiler) reportUnnameable(state *State, first, second *Transition) bool {
+	for _, pair := range [][2]*Transition{{first, second}, {second, first}} {
+		if pair[0].Predicate != nil {
+			continue
+		}
+
+		record, known := c.record(pair[0].Record)
+		if !known || nameable(c.layoutOf(record)) {
+			continue
+		}
+
+		c.faults.Fail(&UnnameableRecordError{
+			Pos:      layoutSpan(c.positions[pair[0].To.ID-1].pos),
+			Copybook: copybookSpan(record, record.Item),
+			State:    state.ID,
+			Record:   pair[0].Record,
+			Beside:   pair[1].Record,
+		})
+
+		return true
+	}
+
+	return false
 }
 
 // predicatesOverlap reports whether one record can satisfy both predicates.
@@ -623,63 +668,27 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 // A transition carrying no predicate matches every record, so it overlaps
 // everything (#80).
 //
-// Two literals are the same value where their spellings are, which is
-// [layoutmodel.Literal.Identity]'s reading and is decidable from the layout
-// alone. Resolving a literal to the bytes a consumer compares — through the
-// item's charset, PICTURE and width — is #37's, and the comparison becomes one
-// over bytes when it lands.
-func (c *compiler) predicatesOverlap(a, b *layoutmodel.Strategy) bool {
-	if a == nil || b == nil {
+// Two values are the same value where the bytes they resolved to are, which is
+// [Value.Identity]'s reading: `"01"` written as text and `(bytes "F0F1")` are
+// one value on an EBCDIC file, and the two transitions carrying them are two a
+// record satisfies both of. That is the answer with a copybook in hand, and it
+// is strictly finer than the one `layoutmodel` reaches from a layout alone.
+func (c *compiler) predicatesOverlap(first, second *Transition) bool {
+	if first.Predicate == nil || second.Predicate == nil {
 		return true
 	}
 
-	over, ok := c.target(a)
-	against, againstOK := c.target(b)
-
-	switch {
-	case !ok || !againstOK:
-		// A discriminator whose reference does not resolve is #37's fault to
-		// report, and an ambiguity decided on one would name a pair of
-		// records where the fault is a misspelled item.
+	over, ok := c.stretchOf(first.Record, first.Predicate)
+	against, againstOK := c.stretchOf(second.Record, second.Predicate)
+	if !ok || !againstOK {
+		// A discriminator whose target this cannot place is one
+		// [compiler.discriminator] has already reported, and an ambiguity
+		// decided on it would name a pair of records where the fault is a
+		// misspelled item.
 		return false
-	case over != against:
-		return true
 	}
 
-	return slices.ContainsFunc(a.Literals, func(one layoutmodel.Literal) bool {
-		return slices.ContainsFunc(b.Literals, func(other layoutmodel.Literal) bool {
-			return one.Identity() == other.Identity()
-		})
-	})
-}
-
-// stretch is a run of a record's bytes: what a predicate tests.
-type stretch struct{ at, width int }
-
-// target is the run of bytes a predicate tests, and whether its reference
-// resolves to exactly one item.
-//
-// The offsets are the ones the record's static layout gives, which is the
-// declared maximum of every table in it. That a predicate's target sits at a
-// constant position — so that the run is the same run in every record of that
-// type — is #37's to hold a discriminator to.
-func (c *compiler) target(s *layoutmodel.Strategy) (stretch, bool) {
-	record, known := c.record(s.Item.Record)
-	if !known {
-		return stretch{}, false
-	}
-
-	built := c.layoutOf(record)
-	if built == nil {
-		return stretch{}, false
-	}
-
-	matched := itemsAt(built.Record, s.Item.Path)
-	if len(matched) != 1 {
-		return stretch{}, false
-	}
-
-	return stretch{at: matched[0].Offset, width: matched[0].Length}, true
+	return overlap(first.Predicate, over, second.Predicate, against)
 }
 
 // satisfiable reports whether some register file satisfies every guard in the
@@ -719,7 +728,7 @@ func satisfiable(guards []Guard) bool {
 // count literal that will not parse is a fault for whoever wrote it rather than
 // a reason to call a state ambiguous.
 func holdsTogether(guards []Guard) bool {
-	var narrowed []layoutmodel.Literal
+	var narrowed []Value
 	bounded := false
 
 	for _, guard := range guards {
@@ -728,13 +737,13 @@ func holdsTogether(guards []Guard) bool {
 		}
 
 		if !bounded {
-			narrowed, bounded = guard.Literals, true
+			narrowed, bounded = guard.Values, true
 
 			continue
 		}
 
-		narrowed = slices.DeleteFunc(slices.Clone(narrowed), func(one layoutmodel.Literal) bool {
-			return !slices.ContainsFunc(guard.Literals, func(other layoutmodel.Literal) bool {
+		narrowed = slices.DeleteFunc(slices.Clone(narrowed), func(one Value) bool {
+			return !slices.ContainsFunc(guard.Values, func(other Value) bool {
 				return one.Identity() == other.Identity()
 			})
 		})
@@ -751,15 +760,12 @@ func holdsTogether(guards []Guard) bool {
 	return slices.ContainsFunc(narrowed, above(0))
 }
 
-// above is a literal that reads as a number greater than n.
-func above(n int) func(layoutmodel.Literal) bool {
-	return func(literal layoutmodel.Literal) bool {
-		if literal.Kind != layoutmodel.NumberLiteral {
-			return true
-		}
-
-		value, err := strconv.Atoi(literal.Number)
-
-		return err != nil || value > n
-	}
+// above is a value that is a number greater than n.
+//
+// A value carrying bytes survives it, because a guard over a bytes register
+// never carries a `positive` test beside an `equals` one — the two are over
+// registers of different kinds — and calling such a pair unsatisfiable would
+// report an ambiguity that is not there.
+func above(n int64) func(Value) bool {
+	return func(value Value) bool { return value.Bytes != nil || value.Number > n }
 }

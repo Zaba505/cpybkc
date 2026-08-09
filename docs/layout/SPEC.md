@@ -1621,7 +1621,7 @@ computed once by `resolve`.
 | [The encoding profile](#the-encoding-profile) | #25 `layout` |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve` |
-| [Discrimination](#discrimination) | #28 `layout` |
+| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve` |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |

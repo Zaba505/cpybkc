@@ -85,7 +85,7 @@ func TestARedefineInsideATableBecomesAVariant(t *testing.T) {
 			variant.Arms[0].Alternative, variant.Arms[1].Alternative)
 	}
 	for _, arm := range variant.Arms {
-		if !arm.Predicate.Predicate() {
+		if arm.Predicate == nil {
 			t.Errorf("the arm %s is selected by nothing", arm.Alternative)
 		}
 		if got := arm.Body.Extent(); got != 8 {
@@ -225,8 +225,8 @@ func TestAShorterArmCarriesTheSlackItsItemsDoNotOccupy(t *testing.T) {
 		return []Redefine{{
 			Item: fieldNamed(t, field, "WIDE"),
 			Alternatives: []Alternative{
-				{Name: "WIDE", Predicate: selects("W")},
-				{Name: "NARROW", Predicate: selects("N")},
+				{Name: "WIDE", Predicate: selects("W", "ENTRY", "TAG")},
+				{Name: "NARROW", Predicate: selects("N", "ENTRY", "TAG")},
 			},
 		}}
 	})
@@ -312,8 +312,8 @@ func TestAVariantIsRejectedWhenItsAlternativesCannotBeMadeToAgree(t *testing.T) 
 		Redefines: []Redefine{{
 			Item: fieldNamed(t, field, "SHORT"),
 			Alternatives: []Alternative{
-				{Name: "SHORT", Predicate: selects("S")},
-				{Name: "LONG", Predicate: selects("L")},
+				{Name: "SHORT", Predicate: selects("S", "ENTRY", "TAG")},
+				{Name: "LONG", Predicate: selects("L", "ENTRY", "TAG")},
 			},
 		}},
 	})
@@ -350,8 +350,8 @@ func TestAVariantIsRejectedWhenAnArmsExtentMovesWithData(t *testing.T) {
 		return []Redefine{{
 			Item: fieldNamed(t, field, "FIXED"),
 			Alternatives: []Alternative{
-				{Name: "FIXED", Predicate: selects("F")},
-				{Name: "VARYING", Predicate: selects("V")},
+				{Name: "FIXED", Predicate: selects("F", "ENTRY", "TAG")},
+				{Name: "VARYING", Predicate: selects("V", "ENTRY", "TAG")},
 			},
 		}}
 	})
