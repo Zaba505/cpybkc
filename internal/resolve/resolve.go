@@ -294,7 +294,7 @@ func (r *resolver) frame(records []*Record) {
 			// dataset at all has no extent for the check below to be
 			// about.
 			r.faults.Fail(&VariableExtentError{
-				Pos:    framingSpan(framing.Pos),
+				Pos:    layoutSpan(framing.Pos),
 				Item:   r.span(item),
 				Record: r.record.Name,
 				RECFM:  framing.RECFM,
@@ -312,7 +312,7 @@ func (r *resolver) frame(records []*Record) {
 		switch {
 		case extent > lrecl:
 			r.faults.Fail(&LRECLExtentError{
-				Pos:          framingSpan(framing.LRECL.Pos),
+				Pos:          layoutSpan(framing.LRECL.Pos),
 				Item:         r.span(r.record),
 				Record:       r.record.Name,
 				Alternatives: alternativeNames(record),
@@ -743,13 +743,14 @@ func (r *resolver) redefine(field *copybook.Field) *Redefine {
 	return nil
 }
 
-// framingSpan is where in the layout a framing form is.
+// layoutSpan is where in the layout a form is: a framing's `lrecl`, a
+// sequencing operator's item reference, the `sequence` form itself.
 //
-// It is the other file a fault about a record's extent implicates: the number
-// comes from the dataset the adopter wrote down and the extent from a copybook
-// they may not own, so a diagnostic naming only one of the two names the one
-// they cannot change (docs/layout/SPEC.md, "Every diagnostic carries a span").
-func framingSpan(pos layout.Pos) diag.Span {
+// It is the other file a fault about a record implicates: a number comes from
+// the dataset the adopter wrote down and an extent from a copybook they may not
+// own, so a diagnostic naming only one of the two names the one they cannot
+// change (docs/layout/SPEC.md, "Every diagnostic carries a span").
+func layoutSpan(pos layout.Pos) diag.Span {
 	return diag.Span{File: pos.File, Line: pos.Line, Column: pos.Column}
 }
 

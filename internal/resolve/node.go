@@ -15,8 +15,9 @@ import (
 // "The node kinds", admits inside a record.
 //
 // The kinds a record cannot contain — file, record, predicate, state,
-// transition, register, binding, guard — are not here. This package resolves
-// what is inside a record; the automaton is #36's and the descriptor #38's.
+// transition, register, binding, guard — are not here. This is what is inside a
+// record; the automaton's own nodes are [State], [Transition] and [Register],
+// and assembling every kind into one descriptor is #38's.
 type Kind int
 
 const (
@@ -186,9 +187,10 @@ type Repetition struct {
 	// A field of the record being read, at any depth, and never a field of
 	// another record: a DEPENDING ON phrase names an item of the copybook
 	// record carrying it, and a count that comes from an earlier record
-	// arrives as a register the automaton bound rather than as a reference
-	// reaching across records (docs/ir/SPEC.md, #77). A register is #36's
-	// node, so nothing here stands for one.
+	// arrives as a [Register] the automaton bound rather than as a
+	// reference reaching across records (docs/ir/SPEC.md, #77). Which
+	// transitions bind that register, and the proof that one is bound
+	// before it is read, are [CompileSequence]'s.
 	DependingOn *copybook.Field
 }
 
