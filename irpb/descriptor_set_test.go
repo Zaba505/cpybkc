@@ -400,7 +400,10 @@ func Example_readADescriptorWithoutGeneratedCode() {
 		panic(err)
 	}
 
-	md := desc.(protoreflect.MessageDescriptor)
+	md, ok := desc.(protoreflect.MessageDescriptor)
+	if !ok {
+		panic("cpybkc.ir.v1.Descriptor is not a message")
+	}
 
 	msg := dynamicpb.NewMessage(md)
 	if err := proto.Unmarshal(descriptor, msg); err != nil {
