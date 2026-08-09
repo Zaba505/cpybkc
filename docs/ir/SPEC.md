@@ -3539,5 +3539,5 @@ records offer them.
 | The schema itself | #17 `ir` — [`proto/cpybkc/ir/v1/ir.proto`](../../proto/cpybkc/ir/v1/ir.proto) |
 | The schema, as Go | #18 `ir` — [`irpb/`](../../irpb), a module of its own |
 | The published artifacts | #19 `ir` — [`irpb/descriptor_set.go`](../../irpb/descriptor_set.go) computes the set, [`internal/tools/`](../../internal/tools) writes both files, `.dagger/main.go` builds them and `.github/workflows/release.yaml` attaches them |
-| Emitting the IR | #20, #21 `ir` |
+| Emitting the IR | #20, #21 `ir` — [`internal/emit/`](../../internal/emit) encodes a descriptor deterministically and writes it where `--emit-ir` names, a path or `-` for standard output |
 | Conventions this document follows | #15 `setup` |

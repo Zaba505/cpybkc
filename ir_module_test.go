@@ -26,11 +26,14 @@ const irModulePath = "github.com/Zaba505/cpybkc/irpb"
 // here, and its package path is the published module's rather than any path
 // inside this one.
 //
-// It exists because nothing else in this module imports the IR yet. When
-// resolve assembles a descriptor (#38) and --emit-ir writes one (#20), ordinary
-// use will assert the same thing far better and this test can go. Until then the
-// requirement in go.mod would otherwise be a line no build depends on, which
+// It was written because nothing else in this module imported the IR, which
+// made the requirement in go.mod a line no build depended on and so a line
 // `go mod tidy` removes without anybody noticing that the arrow went with it.
+// That hazard is gone: internal/emit encodes and writes a descriptor (#20), so
+// the import is load-bearing and the arrow is asserted by the build. What is
+// left here is the same claim stated in one place rather than inferred from an
+// import, and it goes when resolve assembles a descriptor (#38) and the whole
+// CLI puts one through this module in the ordinary way.
 func TestTheCLIConsumesThePublishedIRModule(t *testing.T) {
 	d := &irpb.Descriptor{Version: irpb.IrVersion_IR_VERSION_1}
 
