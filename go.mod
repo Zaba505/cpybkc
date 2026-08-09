@@ -10,6 +10,20 @@ require github.com/Zaba505/cpybkc/irpb v0.0.0
 
 require google.golang.org/protobuf v1.36.11
 
+// The COBOL underneath everything this project resolves. `picture` parses a
+// PICTURE character-string into the attributes that follow from it and
+// `copybook` turns a copybook into a record with a byte width and a byte offset
+// on every item, both per codec/SPEC.md — so the storage widths are read once,
+// here, rather than a second time beside cobol-go's for the two repositories to
+// disagree about. docs/ir/SPEC.md's "Dereferencing is not recomputation" is the
+// rule that makes doing it once the whole point.
+//
+// Pinned to a commit because cobol-go carries no tag yet. It moves to a version
+// as soon as one exists: a pseudo-version is a commit an adopter cannot reason
+// about, and this is a dependency of the module `go install` builds the CLI
+// from.
+require github.com/Zaba505/cobol-go v0.0.0-20260807050409-dbcadd3bdb8a
+
 // The grammar underneath the layout format. docs/layout/SPEC.md delegates the
 // lexis and the parse of a layout file to it — what a symbol is, where a number
 // ends, what a comment attaches to, and the line and column every diagnostic is
