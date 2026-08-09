@@ -6,11 +6,11 @@
 package layout
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	sexpr "github.com/z5labs/sexpr-go"
 )
 
@@ -57,11 +57,11 @@ func Parse(name string, r io.Reader) (*File, error) {
 		file.Forms = append(file.Forms, form)
 	}
 
-	if len(read.errs) > 0 {
+	if read.Failed() {
 		// The half-built file is dropped rather than returned beside the
 		// errors. A layout that was rejected has no AST anything downstream
 		// should be reading, and handing one back invites a caller to read it.
-		return nil, errors.Join(read.errs...)
+		return nil, read.Err()
 	}
 
 	return file, nil
@@ -70,19 +70,14 @@ func Parse(name string, r io.Reader) (*File, error) {
 // reader holds the state one parse accumulates: the name every position carries
 // and the faults found so far.
 type reader struct {
+	diag.List
+
 	name string
-	errs []error
 }
 
 // pos lifts a grammar position into a layout one by naming the file it is in.
 func (r *reader) pos(pos sexpr.Pos) Pos {
 	return Pos{File: r.name, Line: pos.Line, Column: pos.Column}
-}
-
-// fail records a fault. Parsing continues after one, because the point of
-// collecting them is to report the second.
-func (r *reader) fail(err error) {
-	r.errs = append(r.errs, err)
 }
 
 // topLevel converts one of the layout's top-level nodes, which may only be a
@@ -94,7 +89,7 @@ func (r *reader) topLevel(node sexpr.Node) (Form, bool) {
 
 	list, ok := node.(sexpr.List)
 	if !ok {
-		r.fail(&NotAFormError{Pos: r.pos(positionOfNode(node)), Found: describe(node)})
+		r.Fail(&NotAFormError{Pos: r.pos(positionOfNode(node)), Found: describe(node)})
 
 		return Form{}, false
 	}
@@ -118,7 +113,7 @@ func (r *reader) form(list sexpr.List) (Form, bool) {
 
 	tag, ok := list.Elements[0].(sexpr.Symbol)
 	if !ok {
-		r.fail(&UntaggedFormError{
+		r.Fail(&UntaggedFormError{
 			Pos:   r.pos(positionOfNode(list.Elements[0])),
 			Found: describe(list.Elements[0]),
 		})
@@ -171,7 +166,7 @@ func (r *reader) node(node sexpr.Node) (Node, bool) {
 		// and reported rather than dropped if that ever stops being true: a
 		// node kind nobody has heard of is exactly what this package must not
 		// pass over in silence.
-		r.fail(&NotAFormError{Pos: r.pos(positionOfNode(node)), Found: describe(node)})
+		r.Fail(&NotAFormError{Pos: r.pos(positionOfNode(node)), Found: describe(node)})
 
 		return nil, false
 	}
@@ -188,20 +183,20 @@ func (r *reader) node(node sexpr.Node) (Node, bool) {
 func (r *reader) admissible(node sexpr.Node) bool {
 	switch node := node.(type) {
 	case sexpr.Quote:
-		r.fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructQuoteShorthand})
+		r.Fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructQuoteShorthand})
 	case sexpr.Nil:
-		r.fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructNil})
+		r.Fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructNil})
 	case sexpr.Bool:
-		r.fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructBoolean})
+		r.Fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructBoolean})
 	case sexpr.List:
 		if len(node.Elements) == 0 {
-			r.fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructEmptyList})
+			r.Fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructEmptyList})
 
 			return false
 		}
 
 		if node.Tail != nil {
-			r.fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructImproperList})
+			r.Fail(&ConstructError{Pos: r.pos(node.Pos), Construct: ConstructImproperList})
 
 			return false
 		}

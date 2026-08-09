@@ -76,6 +76,12 @@
 // wrong in the same way in many places at once, and a reader that reports one
 // fault per run is a reader run once per fault.
 //
+// The accumulation is [github.com/Zaba505/cpybkc/internal/diag.List], which
+// every reader in this repository shares so that "keep reading after a fault"
+// is decided once, and
+// [github.com/Zaba505/cpybkc/internal/diag.Render] is what turns the joined
+// result into what an adopter reads.
+//
 // A reader that found a fault returns no model. A half-built value is one a
 // caller can read, and there is no reading of a layout that was rejected.
 package layoutmodel

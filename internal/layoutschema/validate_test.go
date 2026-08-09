@@ -40,7 +40,7 @@ func TestValidLayoutsValidate(t *testing.T) {
 
 	for _, name := range layouts(t, "valid") {
 		t.Run(name, func(t *testing.T) {
-			diagnostics, err := schema.Validate(bytes.NewReader(layout(t, "valid", name)))
+			diagnostics, err := schema.Validate(name, bytes.NewReader(layout(t, "valid", name)))
 			if err != nil {
 				t.Fatalf("validate: %v", err)
 			}
@@ -71,7 +71,7 @@ func TestInvalidLayoutsAreRejected(t *testing.T) {
 				t.Fatalf("%s carries no `;; want:` line saying which diagnostic it expects", name)
 			}
 
-			diagnostics, err := schema.Validate(bytes.NewReader(source))
+			diagnostics, err := schema.Validate(name, bytes.NewReader(source))
 			if err != nil {
 				t.Fatalf("validate: %v", err)
 			}
@@ -103,7 +103,7 @@ func TestInvalidLayoutsAreRejected(t *testing.T) {
 func TestTheSpecsWorkedExampleValidates(t *testing.T) {
 	example := fencedBlock(t, section(t, "## Appendix: A layout, end to end"))
 
-	diagnostics, err := publishedSchema(t).Validate(strings.NewReader(example))
+	diagnostics, err := publishedSchema(t).Validate("SPEC.md", strings.NewReader(example))
 	if err != nil {
 		t.Fatalf("validate the SPEC's example: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestADiagnosticPointsAtTheSubFormThatIsWrong(t *testing.T) {
   (float-format hfp))
 `
 
-	diagnostics, err := publishedSchema(t).Validate(strings.NewReader(source))
+	diagnostics, err := publishedSchema(t).Validate("orders.sexpr", strings.NewReader(source))
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -140,13 +140,49 @@ func TestADiagnosticPointsAtTheSubFormThatIsWrong(t *testing.T) {
 
 		found = true
 
-		if diagnostic.Pos.Line != 4 {
-			t.Errorf("the diagnostic points at line %d, want line 4 — the sub-form that is wrong", diagnostic.Pos.Line)
+		if diagnostic.Span.Line != 4 {
+			t.Errorf("the diagnostic points at line %d, want line 4 — the sub-form that is wrong", diagnostic.Span.Line)
 		}
 	}
 
 	if !found {
 		t.Errorf("no diagnostic about the byte-order axis; got:\n%s", strings.Join(messages(diagnostics), "\n"))
+	}
+}
+
+// TestADiagnosticNamesTheFileItIsIn is the other half of the span SPEC.md
+// requires. A line and a column say where in a file, and an adopter checking a
+// layout against a copybook is holding two of them — so a diagnostic that
+// cannot say which file it is in stops being usable exactly when it matters.
+//
+// The name is the caller's, which is why it is a parameter rather than
+// something this package invents: a layout validated out of a stream has
+// whatever name the caller knows it by.
+func TestADiagnosticNamesTheFileItIsIn(t *testing.T) {
+	const source = `(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order sideways)
+  (float-format hfp))
+`
+
+	diagnostics, err := publishedSchema(t).Validate("orders.sexpr", strings.NewReader(source))
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	if len(diagnostics) == 0 {
+		t.Fatal("the schema accepted an axis value outside the closed set")
+	}
+
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Span.File != "orders.sexpr" {
+			t.Errorf("a diagnostic is in file %q, want the name the layout was checked under", diagnostic.Span.File)
+		}
+
+		if !strings.HasPrefix(diagnostic.String(), "orders.sexpr:") {
+			t.Errorf("a diagnostic renders as %q, which does not open with the file", diagnostic)
+		}
 	}
 }
 
@@ -161,7 +197,7 @@ func TestValidateReportsEveryFaultRatherThanTheFirst(t *testing.T) {
   (float-format hfp))
 `
 
-	diagnostics, err := publishedSchema(t).Validate(strings.NewReader(source))
+	diagnostics, err := publishedSchema(t).Validate("orders.sexpr", strings.NewReader(source))
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -184,7 +220,7 @@ func TestValidateReportsEveryFaultRatherThanTheFirst(t *testing.T) {
 // and leaves no layout to check, so reporting it as one finding among a list
 // would claim a coverage the call does not have.
 func TestValidateFailsOnSourceThatIsNotSExpressions(t *testing.T) {
-	if _, err := publishedSchema(t).Validate(strings.NewReader("(encoding")); err == nil {
+	if _, err := publishedSchema(t).Validate("orders.sexpr", strings.NewReader("(encoding")); err == nil {
 		t.Error("Validate accepted source the grammar cannot parse")
 	}
 }

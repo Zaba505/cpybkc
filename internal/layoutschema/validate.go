@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	sexpr "github.com/z5labs/sexpr-go"
 )
 
@@ -22,36 +23,55 @@ import (
 // the schema describes what a layout may be, so everything reported here is a
 // layout the schema does not admit.
 type Diagnostic struct {
-	Pos     sexpr.Pos
+	// Span is where the fault is: the file the layout was checked under, and
+	// the line and the column within it.
+	//
+	// The file is carried rather than left to the caller because a diagnostic
+	// naming a line and a column alone stops being usable the moment there are
+	// two files, which is what
+	// [github.com/Zaba505/cpybkc/internal/diag]'s cross-file spans are about.
+	Span diag.Span
+
 	Message string
 }
 
 // String renders a diagnostic as one line, opening with the position for the
 // reason every compiler does: the file an adopter has to edit is the first
 // thing they need from it.
+//
+// It renders through [github.com/Zaba505/cpybkc/internal/diag] rather than
+// formatting a line of its own, so that a fault the schema found and a fault a
+// reader found read the same in a terminal.
 func (d Diagnostic) String() string {
-	return fmt.Sprintf("%s: %s", at(d.Pos), d.Message)
+	return diag.Diagnostic{Message: d.Message, Spans: []diag.Span{d.Span}}.String()
 }
 
-// Validate parses a layout from r and checks it against the schema.
+// Validate parses a layout from r and checks it against the schema, under the
+// name name.
+//
+// The name is what every diagnostic carries — a path, or something else naming
+// the source — for the same reason
+// [github.com/Zaba505/cpybkc/internal/layout.Parse] takes one: a check reads
+// bytes and has no name to attach to them, and a fault an adopter can act on
+// names the file they have to open.
 //
 // A parse failure is an error rather than a diagnostic. It comes from the
 // grammar this format delegates to, carries that package's own position, and
 // stops there being a layout to check at all — so reporting it beside a list of
 // forms the checker never saw would claim a coverage this call does not have.
-func (s *Schema) Validate(r io.Reader) ([]Diagnostic, error) {
+func (s *Schema) Validate(name string, r io.Reader) ([]Diagnostic, error) {
 	file, err := sexpr.Parse(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse the layout: %w", err)
 	}
 
-	return s.Check(file), nil
+	return s.Check(name, file), nil
 }
 
 // Check holds a parsed layout to the schema and returns every diagnostic it
 // finds, in the order the layout states the forms they are about.
-func (s *Schema) Check(file *sexpr.File) []Diagnostic {
-	check := &checker{schema: s, declared: make(map[string][]string)}
+func (s *Schema) Check(name string, file *sexpr.File) []Diagnostic {
+	check := &checker{schema: s, name: name, declared: make(map[string][]string)}
 
 	check.collectReferents(file)
 	check.topLevel(file)
@@ -64,6 +84,10 @@ type checker struct {
 	schema      *Schema
 	diagnostics []Diagnostic
 
+	// name is what the layout was checked under, and is on every span the
+	// check reports.
+	name string
+
 	// declared holds, per reference sort, the names that sort may name. It is
 	// gathered from the whole layout before anything is checked, so that a
 	// reference to a record defined further down the file resolves — the forms
@@ -73,7 +97,13 @@ type checker struct {
 
 // report records a diagnostic.
 func (c *checker) report(pos sexpr.Pos, format string, args ...any) {
-	c.diagnostics = append(c.diagnostics, Diagnostic{Pos: pos, Message: fmt.Sprintf(format, args...)})
+	c.diagnostics = append(c.diagnostics, Diagnostic{Span: c.span(pos), Message: fmt.Sprintf(format, args...)})
+}
+
+// span lifts a grammar position into a diagnostic one by naming the file it is
+// in.
+func (c *checker) span(pos sexpr.Pos) diag.Span {
+	return diag.Span{File: c.name, Line: pos.Line, Column: pos.Column}
 }
 
 // collectReferents gathers the names every reference sort may name.

@@ -13,24 +13,6 @@ import (
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
-// faults is the fault list a layer reader accumulates.
-//
-// Every reader here collects rather than returning the first, for the reason
-// [github.com/Zaba505/cpybkc/internal/layout]'s parser gives: a generated layout
-// is generated wrong in the same way in many places at once, and a reader that
-// reports one fault per run is a reader run once per fault. It is one type
-// rather than a field on each reader so that "keep reading after a fault" is
-// decided once.
-type faults struct {
-	errs []error
-}
-
-// fail records a fault. Reading continues after one, because the point of
-// collecting them is to report the second.
-func (f *faults) fail(err error) {
-	f.errs = append(f.errs, err)
-}
-
 // ProfileCountError is a layout that does not carry exactly one `encoding` form.
 //
 // Both halves are faults an adopter can act on and neither has a default:
