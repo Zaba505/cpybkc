@@ -646,7 +646,7 @@ name and any [rename](#a-rename-substitutes-a-name-and-keeps-the-original)
 beside it, never this one.
 
 The `copybook` child names a path and a top-level item within it, and both are
-required, and the top-level item is the copybook's `01`-level of that name. A
+required. The top-level item is the copybook's `01`-level of that name. A
 copybook holding exactly one `01`-level does not make the second argument
 redundant: a copybook that gains a second one later would otherwise change what
 every layout naming it means, silently and in a file none of those layouts is
@@ -720,11 +720,11 @@ statement about the file.
 The format declines to do the joining itself for a reason that is not economy
 of vocabulary. **Two `01`-levels laid end to end are not a COBOL construct, so
 nothing says what the bytes at the seam are.** A `SYNCHRONIZED` item aligns
-against the start of the record containing it, and under composition there is
-no record containing it until something invents one — so cpybkc would be
-deciding slack at a seam COBOL never defines, for a record no compiler ever
-laid out (#34). That is `codec/SPEC.md`'s subject and not this document's ([Out
-of Scope](#also-out-of-scope)). Written as `COPY`, the seam is inside one
+against the start of the record containing it. Under composition there is no
+record containing it until something invents one, so cpybkc would be deciding
+slack at a seam COBOL never defines, for a record no compiler ever laid out
+(#34). That is `codec/SPEC.md`'s subject and not this document's ([Out of
+Scope](#also-out-of-scope)). Written as `COPY`, the seam is inside one
 `01`-level and every byte of it is the compiler's answer, unchanged.
 
 Two smaller costs fall out of the same place. A composed record needs a

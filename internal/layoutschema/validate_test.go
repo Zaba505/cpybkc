@@ -21,11 +21,13 @@ import (
 // Between them the three framings cover every top-level form, every closed
 // value set, every discrimination strategy, every sequencing operator and all
 // three literal spellings — which is what makes "the schema covers every layer"
-// a claim this suite tests rather than one it asserts. shared-copybook is the
-// fourth and is not a fourth framing: it is the spellings SPEC.md's "Many
-// records may name one copybook, and two may name one item" admits, and it
-// fails if the schema ever grows a uniqueness rule over `copybook` that the
-// document does not state.
+// a claim this suite tests rather than one it asserts.
+//
+// The fourth file is not a fourth framing. It carries the spellings SPEC.md's
+// "Many records may name one copybook, and two may name one item" admits: two
+// records over one `01`-level, and a record bound to a copybook that composes a
+// shared header with a body. It fails if the schema ever grows a uniqueness
+// rule over `copybook` that the document does not state.
 func TestValidLayoutsValidate(t *testing.T) {
 	schema := publishedSchema(t)
 

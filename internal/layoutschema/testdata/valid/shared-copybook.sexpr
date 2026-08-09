@@ -1,6 +1,6 @@
-;; One copybook behind three records: two of them the same `01`-level twice,
-;; told apart by where they sit and by a count, and a third bound to a copybook
-;; that composes a shared header with a body in COBOL's own `COPY`.
+;; Three records over two copybooks: two of them are one `01`-level named twice
+;; and told apart by where they sit and by a count, and the third is bound to a
+;; copybook that composes a shared header with a body in COBOL's own `COPY`.
 (encoding
   (charset cp037)
   (sign-convention ebcdic)
