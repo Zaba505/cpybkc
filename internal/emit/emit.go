@@ -113,7 +113,17 @@ const (
 //
 // The bytes are deterministic; see the package documentation for what that
 // covers and what it leaves to the producer of the descriptor.
+//
+// A nil descriptor is an error. protobuf encodes one to zero bytes and reports
+// no failure, which would put an empty file where a descriptor was asked for
+// and leave the mistake to be found by whoever tries to decode it — a producer
+// that failed to build a descriptor and did not say so is the one thing this
+// package can still turn back into a failure.
 func Marshal(d *irpb.Descriptor) ([]byte, error) {
+	if d == nil {
+		return nil, fmt.Errorf("there is no descriptor to encode")
+	}
+
 	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(d)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode the descriptor: %w", err)
@@ -135,6 +145,10 @@ func Marshal(d *irpb.Descriptor) ([]byte, error) {
 // parent is far more often a typo than an intention, and the caller that does
 // want a tree made — a pipeline naming an output path in a container filesystem
 // it owns — is the one place that knows it.
+//
+// Nothing is created or truncated until d has encoded, so a call that fails
+// leaves whatever was at dest alone rather than replacing a good descriptor
+// with a short one.
 func Write(dest string, out io.Writer, d *irpb.Descriptor) error {
 	if dest == "" {
 		return fmt.Errorf("--%s: name a file to write the descriptor to, or %q for standard output", Flag, Stdout)

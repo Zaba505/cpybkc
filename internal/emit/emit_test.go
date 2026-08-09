@@ -350,6 +350,37 @@ func TestWriteRejectsBadDestinations(t *testing.T) {
 	}
 }
 
+// TestNoDescriptorIsAnError covers the one input protobuf would accept and
+// encode to nothing at all. An emission that produced a zero-length file and
+// reported success would send whoever ran it looking at their consumer, and the
+// existing file it replaced on the way would already be gone — so the second
+// half asserts that dest is untouched as well.
+func TestNoDescriptorIsAnError(t *testing.T) {
+	if _, err := emit.Marshal(nil); err == nil {
+		t.Error("encoding no descriptor succeeded")
+	}
+
+	dest := filepath.Join(t.TempDir(), "ir.binpb")
+
+	seed := bytes.Repeat([]byte{0xff}, 16)
+	if err := os.WriteFile(dest, seed, 0o644); err != nil {
+		t.Fatalf("seed %s: %v", dest, err)
+	}
+
+	if err := emit.Write(dest, io.Discard, nil); err == nil {
+		t.Fatalf("writing no descriptor to %s succeeded", dest)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read %s: %v", dest, err)
+	}
+
+	if !bytes.Equal(got, seed) {
+		t.Errorf("the failed write replaced %s anyway: %d bytes where %d were", dest, len(got), len(seed))
+	}
+}
+
 // TestWriteReportsAStreamItCannotWrite covers the redirection that fails —
 // a full disk, a closed pipe — which is the failure mode the stdout operand
 // adds and the one a caller redirecting into a file has to hear about.
