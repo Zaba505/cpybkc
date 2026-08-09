@@ -11,6 +11,7 @@ import (
 	"github.com/Zaba505/cobol-go/copybook"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
+	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
@@ -32,6 +33,25 @@ type Options struct {
 	// here for the reason `cobol-go` gives it none: a wrong layout setting is
 	// not visible in the result.
 	Dialect copybook.Dialect
+
+	// Framing is the layout's physical framing, or nil where the caller has
+	// none to state. What is read here is what the dataset requires of a
+	// record's extent and nothing else: [layoutmodel.Framing.LRECLBound],
+	// and the `lrecl` behind it.
+	//
+	// The rest of the framing is not this package's. A delimiter, a block
+	// size and a maximum segment describe the bytes around a record or the
+	// dataset it came out of, and neither moves an item inside one; they
+	// reach the file node, which is #38's. The whole value is taken all the
+	// same, because the bound is derived from the record format and the
+	// `lrecl` together and a caller decomposing it here would be a second
+	// reading of docs/layout/SPEC.md's table.
+	//
+	// It is a pointer because a layout that states no framing at all is a
+	// layout this package still resolves: nothing about a record's members
+	// depends on one, and the check below is simply not run. A zero
+	// [layoutmodel.Framing] states no `lrecl` and means the same thing.
+	Framing *layoutmodel.Framing
 
 	// Redefines says how each REDEFINES inside a repeating group is told
 	// apart. A redefine outside one needs no entry: its alternatives become
@@ -133,6 +153,15 @@ type Alternative struct {
 // four is refused before the walk starts, and nothing that leaves here states
 // fewer.
 //
+// Every byte of a record that no item occupies is a slack node in the
+// containment order, whatever left it uncovered — the gap ahead of a
+// SYNCHRONIZED item, the storage a REDEFINES alternative does not fill, the
+// padding between one occurrence of a table and the next, and the tail of a
+// record whose items stop short of the `lrecl` [Options.Framing] states. One
+// node per maximal run: two of those that abut are one node of the summed
+// width, and the one edge a run does not cross is an arm's (docs/ir/SPEC.md,
+// "Slack is a node, not a rule").
+//
 // Every fault it finds is reported, joined with [errors.Join] and assertable
 // with [errors.As], rather than the first: a copybook and the layout over it go
 // wrong in the same way in several places at once. A record it found a fault in
@@ -179,11 +208,119 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 		})
 	}
 
+	r.frame(records)
 	r.assertResolved(records)
 	if r.faults.Failed() {
 		return nil, r.faults.Err()
 	}
 	return records, nil
+}
+
+// frame holds each resolved record to what the dataset's framing requires of its
+// extent, and carries the difference as slack where that is what the requirement
+// means.
+//
+// Two rules, and they are keyed on different things. The variable-extent
+// rejection is keyed on the framing being **unframed**, because it holds
+// whatever `lrecl` a layout states and whether or not it states one; the extent
+// check is keyed on [layoutmodel.Framing.LRECLBound], which is the `lrecl` and
+// the record format read together (docs/layout/SPEC.md, "`lrecl` and `blksize`
+// describe the dataset, not the stream").
+//
+// Under [layoutmodel.LRECLExact] a record type accounts for all of LRECL, so a
+// record type whose items stop short carries the difference as a trailing slack
+// node — the fourth producer of slack, beside an alignment gap, a REDEFINES tail
+// and a table's stride padding, and indistinguishable from any of them once
+// emitted (#26, #34). It is appended through [mergeSlack] for that reason: a
+// record whose last member is already slack ends in one run of the summed width
+// and not in two nodes that abut.
+func (r *resolver) frame(records []*Record) {
+	framing := r.opts.Framing
+	if framing == nil {
+		return
+	}
+
+	fixedLength := framing.Kind() == layoutmodel.Unframed
+	bound, lrecl := framing.LRECLBound(), int(framing.LRECL.Value)
+
+	for _, record := range records {
+		if node, item := variableTerm(record); fixedLength && node != nil {
+			// One fault per record: a record type that does not fit the
+			// dataset at all has no extent for the check below to be
+			// about.
+			r.faults.Fail(&VariableExtentError{
+				Pos:    framingSpan(framing.Pos),
+				Item:   r.span(item),
+				Record: r.record.Name,
+				RECFM:  framing.RECFM,
+				Table:  itemName(item),
+				Count:  itemName(node.Repetition.DependingOn),
+			})
+			continue
+		}
+
+		if bound == layoutmodel.LRECLUnstated {
+			continue
+		}
+
+		extent := record.Extent()
+		switch {
+		case extent > lrecl:
+			r.faults.Fail(&LRECLExtentError{
+				Pos:          framingSpan(framing.LRECL.Pos),
+				Item:         r.span(r.record),
+				Record:       r.record.Name,
+				Alternatives: alternativeNames(record),
+				Bound:        bound,
+				Extent:       extent,
+				LRECL:        lrecl,
+			})
+		case extent < lrecl && bound == layoutmodel.LRECLExact:
+			// A record type shorter than LRECL is padded rather than
+			// reported: the bytes are in the file whatever the copybook
+			// says, and the next record begins after them.
+			members := record.Root.Members
+			record.Root.Members = mergeSlack(append(members[:len(members):len(members)], slackNode(lrecl-extent)))
+		}
+	}
+}
+
+// variableTerm returns the first node of the record whose repetition count is
+// read out of the record rather than written in the copybook, together with the
+// copybook item it stands for. Both are nil where the record's extent is a
+// constant.
+//
+// The item is not always the node's own. An elementary item padded out to its
+// stride is wrapped in a group this package introduced, and it is the wrapper
+// that carries the repetition while the field inside it carries the name.
+func variableTerm(record *Record) (*Node, *copybook.Field) {
+	var found *Node
+	var item *copybook.Field
+
+	record.Walk(func(node *Node) {
+		if found != nil || !node.Repetition.Reference() {
+			return
+		}
+
+		found = node
+		item = node.Field
+		if item == nil && len(node.Members) > 0 {
+			item = node.Members[0].Field
+		}
+	})
+	return found, item
+}
+
+// alternativeNames is what the record's alternatives are called, so that a
+// diagnostic about one alternative of a copybook says which. It is empty for a
+// copybook holding no REDEFINES outside a repeating group, where the record's
+// own name is already unambiguous.
+func alternativeNames(record *Record) []string {
+	out := make([]string, 0, len(record.Alternatives))
+	for _, alternative := range record.Alternatives {
+		out = append(out, itemName(alternative))
+	}
+	return out
 }
 
 // assertResolved holds every field of the records to docs/ir/SPEC.md's "The
@@ -559,6 +696,16 @@ func (r *resolver) redefine(field *copybook.Field) *Redefine {
 		}
 	}
 	return nil
+}
+
+// framingSpan is where in the layout a framing form is.
+//
+// It is the other file a fault about a record's extent implicates: the number
+// comes from the dataset the adopter wrote down and the extent from a copybook
+// they may not own, so a diagnostic naming only one of the two names the one
+// they cannot change (docs/layout/SPEC.md, "Every diagnostic carries a span").
+func framingSpan(pos layout.Pos) diag.Span {
+	return diag.Span{File: pos.File, Line: pos.Line, Column: pos.Column}
 }
 
 // span is where in the copybook a field is.

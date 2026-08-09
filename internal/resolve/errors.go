@@ -332,6 +332,131 @@ func (e *UnresolvedEncodingError) Diagnostic() diag.Diagnostic {
 	}
 }
 
+// LRECLExtentError is a record type whose extent the dataset's `lrecl` does not
+// admit.
+//
+// It is only ever the record that is too long. A record type that stops short of
+// an exact `lrecl` is padded rather than reported — those bytes are in the file
+// whatever the copybook says, and carrying them as slack is what makes the next
+// record start where the dataset puts it — so what is left here is a record type
+// with more bytes than the dataset has room for, which no slack node can take
+// away.
+//
+// The two bounds are one error and not two because an adopter fixes them the
+// same way, and the message says which it is: under an exact bound every record
+// type accounts for all of `lrecl`, and under a maximum one the dataset admits
+// anything up to it.
+//
+// It carries two spans, and the first is the layout's. The number comes from the
+// dataset the adopter wrote down and the extent from a copybook they may not
+// own, so a diagnostic naming only the copybook names the half they cannot
+// change.
+type LRECLExtentError struct {
+	// Pos is the `lrecl` form in the layout.
+	Pos diag.Span
+
+	// Item is the record's entry in the copybook.
+	Item diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Alternatives are the alternatives chosen at each redefine outside a
+	// repeating group, and are empty for a copybook holding none. They are
+	// what tells one resolution of a record from another, which share a name.
+	Alternatives []string
+
+	// Bound is what the framing requires of the extent.
+	Bound layoutmodel.LRECLBound
+
+	// Extent is the bytes the record type occupies, and LRECL the length the
+	// dataset states.
+	Extent int
+	LRECL  int
+}
+
+// Error implements the error interface.
+func (e *LRECLExtentError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *LRECLExtentError) Diagnostic() diag.Diagnostic {
+	requirement := "and a record type of a fixed-length dataset accounts for all of it and no more"
+	if e.Bound == layoutmodel.LRECLMaximum {
+		requirement = "and the dataset admits no record longer than that"
+	}
+
+	item := e.Item
+	item.Note = fmt.Sprintf("%s is declared here", e.Record)
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"record %s occupies %d bytes, the dataset's lrecl is %d, %s",
+			recordNamed(e.Record, e.Alternatives), e.Extent, e.LRECL, requirement),
+		Spans: []diag.Span{e.Pos, item},
+	}
+}
+
+// VariableExtentError is a record type whose extent moves with a count, on a
+// fixed-length dataset.
+//
+// On such a dataset the next record begins a fixed distance on whatever the
+// record was, so a record type has one extent and not one per count. A record
+// type of a fixed part, a table and a pad meets that at one count and misses it
+// at every other, and the pad cannot take up the difference because a slack node
+// carries a width (docs/ir/SPEC.md, "A variable record does not fit a
+// fixed-length dataset", #92).
+//
+// It names the record and the repeating item, which that section asks for by
+// name rather than a generic framing error: the adopter's way out is a record
+// type per count value, and finding it starts at the table.
+//
+// It is keyed on the framing rather than on the `lrecl`, because the rule holds
+// whether or not a layout states one. Under RECFM F and FB a layout must state
+// one, so in practice the two arrive together; the check does not depend on it.
+type VariableExtentError struct {
+	// Pos is the `framing` form in the layout.
+	Pos diag.Span
+
+	// Item is the repeating item's entry in the copybook.
+	Item diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// RECFM is the record format the layout writes, which is what makes the
+	// dataset fixed-length.
+	RECFM layoutmodel.RECFM
+
+	// Table is the repeating item, and Count the item its count is read from.
+	Table string
+	Count string
+}
+
+// Error implements the error interface.
+func (e *VariableExtentError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *VariableExtentError) Diagnostic() diag.Diagnostic {
+	item := e.Item
+	item.Note = fmt.Sprintf("%s is declared here", e.Table)
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"in record %s, %s occurs a number of times read from %s, and under recfm %s every record of the dataset is the same length",
+			e.Record, e.Table, e.Count, e.RECFM),
+		Spans: []diag.Span{e.Pos, item},
+	}
+}
+
+// recordNamed is what a message calls a record, with the alternatives that tell
+// one resolution of it from another where the copybook has any.
+func recordNamed(record string, alternatives []string) string {
+	if len(alternatives) == 0 {
+		return record
+	}
+	return fmt.Sprintf("%s, reading %s", record, joinAnd(alternatives))
+}
+
 // axisNames is what a message calls a list of axes: the tag a layout writes each
 // one as, which is the word an adopter would have typed.
 func axisNames(axes []layoutmodel.Axis) []string {
