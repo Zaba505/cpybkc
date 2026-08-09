@@ -298,6 +298,7 @@ diagnostic naming the tag and its position.
 | `copybook-reading` | 0..1 | record definitions |
 | `rename` | 0..n | record definitions |
 | `discriminate` | one per `record` | discrimination |
+| `discriminate-variant` | one per variant | discrimination |
 | `sequence` | 1 | sequencing |
 
 ### An item reference
@@ -842,6 +843,15 @@ record with none is a diagnostic, and so is a second one naming the same record.
 Requiring it of every record is what makes "this record carries nothing to test"
 a statement an adopter made rather than a gap in the file.
 
+Discrimination is stated in **two** scopes and the strategies are one closed set
+lowering into both. A `discriminate` chooses a record; a
+[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table) chooses
+an alternative inside one occurrence of a table, where a copybook redefines an
+item inside a repeating group (#90). The strategies below are the set for both,
+minus the one member the second scope has no use for; what differs between the
+scopes is what the item reference **MUST** satisfy, and that difference is
+stated where each scope is.
+
 ### Three strategies, and the set is closed for v1
 
 | Strategy | Written | What it says |
@@ -850,11 +860,29 @@ a statement an adopter made rather than a gap in the file.
 | `one-of` | `(one-of <item-ref> <literal> …)` | the item's value is one of the literals |
 | `single-record-type` | `single-record-type` | the record carries nothing a predicate may test |
 
-The set is closed. A fourth strategy is a fourth member of the IR's predicate
-set, which is a breaking change under
-[`ir/SPEC.md`](../ir/SPEC.md#versioning-and-compatibility), so the set is
-settled before the first release rather than grown afterwards; the corresponding
-IR membership lands with the implementation (#28).
+The set is closed. `equals` and `one-of` lower into the two members of the IR's
+predicate set — `bytes-equal` and `bytes-one-of`, settled in
+[`ir/SPEC.md`](../ir/SPEC.md#discriminator-predicates) with these strategies
+(#28) — and `single-record-type` lowers into the absence of a predicate. A
+fourth strategy is therefore a fourth member of a closed set in the IR, which is
+a breaking change under
+[`ir/SPEC.md`](../ir/SPEC.md#versioning-and-compatibility), *and* a change to
+what a layout may say, which advances [the schema
+version](#the-version-is-in-the-file-and-it-moves-with-the-format). Both prices
+are paid at once, by everything that reads either interface, which is why the
+set is settled before the first release rather than grown afterwards.
+
+Both members are decidable by a writer, which is the other bound on what may
+join them. A generator emitting records walks the same automaton a reader does
+and evaluates a predicate against the record it is about to emit, from that
+record's bytes and its own position in the automaton, rather than inverting one
+into a value to fill in
+([`ir/SPEC.md`](../ir/SPEC.md#a-writer-evaluates-a-predicate-it-never-inverts-one),
+#79). Testing a field's bytes against one literal, or against a set of them, is
+answerable from bytes the writer already holds. A strategy testing anything the
+writer learns *after* the record is written is not, and [the strategies that are
+not in the set](#the-strategies-that-are-not-in-the-set-and-where-each-one-went)
+is where the one that fails on exactly that is refused.
 
 Closed because a closed set can be *checked*. Overlap between two records that
 may appear at the same point, exhaustiveness, and whether the item named exists
@@ -889,14 +917,77 @@ miss, and the IR refuses the reading in as many words, because a state offering
 two transitions that can both apply is a layout that was rejected before a
 consumer saw it.
 
+### The strategies that are not in the set, and where each one went
+
+Five ways of telling record types apart were proposed for this format (#28).
+Three of them are above, and the two shapes that name a field — a type code at a
+fixed offset, and a type code in a header copybook every alternative includes —
+are one strategy for the reason the paragraph above gives. The other two are not
+in the set, and neither is an omission to be closed later.
+
+**A record's length is not something a strategy may test**, and there is nowhere
+in this format to write one. It is refused in the IR rather than here
+([`ir/SPEC.md`](../ir/SPEC.md#a-predicate-always-names-a-field), #80): under
+**descriptor-word** and **segmented** a length is in hand when discrimination
+runs and it is a framing byte's value, which no predicate ever sees, and under
+**unframed** and **delimited** there is no length to see at all, because a
+record's end is its extent and the extent follows from the record type a
+discriminator has not chosen yet. What refusing costs an adopter is a file whose
+record types agree on every byte and differ only in how long they are, and
+[`ir/SPEC.md`](../ir/SPEC.md#a-record-told-apart-only-by-its-length) states that
+as an exclusion rather than leaving it to be found.
+
+**Position is the sequencing expression's, not a strategy's.** A record type
+that is a file's first is written as the first thing
+[`sequence`](#sequencing)'s expression admits, and `resolve` compiles a start
+state no transition re-enters
+([`ir/SPEC.md`](../ir/SPEC.md#a-predicate-always-names-a-field), #36). Nothing
+is written to say so and nothing needs to be: a record's position is which state
+the automaton is in, which is what an automaton is for, and a strategy spelling
+it would be a second statement of what the expression already said.
+
+**Positional *last* is refused outright**, and the reason is the writer's rather
+than the reader's. A writer walks the same automaton and evaluates a predicate
+against the record it is about to emit
+([`ir/SPEC.md`](../ir/SPEC.md#a-writer-evaluates-a-predicate-it-never-inverts-one),
+#79) — and *last* is not a property of that record's bytes or of the writer's
+position in the automaton. It becomes true only when the caller says there are
+no more records, which is after the record has been written; the only way to
+decide it at the moment of writing is to hold the record back until the next
+call arrives, and buffering a record is exactly the streaming property a
+file-level writer is required to keep (#52). A reader could decide it and a
+writer could not, so the two would disagree about a file neither of them is
+wrong about, and
+[`ir/SPEC.md`](../ir/SPEC.md#the-last-record-of-a-stream) refuses the whole
+notion at the layer where both are specified. An adopter whose trailer is
+distinguishable by content writes `equals` on it; one whose trailer is not is
+describing a file whose last record is knowable only by running out of input.
+
 ### What the item reference must satisfy
 
 The item **MUST** be contained in the record the strategy is written on, at any
-depth. It **MUST NOT** repeat and **MUST NOT** sit inside a group that repeats
-(#84). And no item ahead of it in the record **MAY** carry a repetition whose
-count is a reference: its position **MUST** be constant within the record, and
-`resolve` rejects a layout whose discriminator sits behind a variable item,
-naming the record, the item and the variable item in front of it (#37, #84).
+depth. Its reference is therefore rooted at that record's own name, which is the
+half of the rule the layout reader checks: a `discriminate` on `ORDER-DETAIL`
+whose item reference opens with `ORDER-HEADER` is a diagnostic naming both,
+reported without a copybook because nothing in a copybook could make it true.
+The other half — that the path names an item of that record at all — needs one
+and is `resolve`'s (#31).
+
+It **MUST NOT** repeat and **MUST NOT** sit inside a group that repeats (#84).
+And no item ahead of it in the record **MAY** carry a repetition whose count is
+a reference: its position **MUST** be constant within the record, and `resolve`
+rejects a layout whose discriminator sits behind a variable item, naming the
+record, the item and the variable item in front of it (#37, #84). A target must
+also lie inside the shortest record its point in the sequence can put in front
+of a consumer, which is `resolve`'s too and is
+[`ir/SPEC.md`](../ir/SPEC.md#a-predicate-never-reads-past-the-record-in-front-of-it)'s
+(#94).
+
+Every rule in this subsection binds a strategy chosen for a *record*, which is
+what lowers into a transition's predicate. A strategy chosen for an arm is
+bounded differently and in one case oppositely, and [A discriminator for a
+redefine inside a table](#a-discriminator-for-a-redefine-inside-a-table) states
+which rules it keeps.
 
 The reason is the read loop's order and it is
 [`ir/SPEC.md`](../ir/SPEC.md#discriminator-predicates)'s: a discriminator is
@@ -904,6 +995,111 @@ evaluated *before* its record has been admitted, so a target whose position
 depends on a count obliges a consumer to decode that count out of bytes it has
 not identified. It costs a discriminator nothing it was using — the position of
 a type code is a property of a record's shape rather than of its data.
+
+### A discriminator for a redefine inside a table
+
+```
+(discriminate-variant <item-ref>
+  (arm <name> <predicate>)
+  (arm <name> <predicate>)
+  …)
+```
+
+A `REDEFINES` is ordinarily resolved away: each alternative a discriminator can
+select becomes its own record type, chosen by its own `discriminate`
+([`ir/SPEC.md`](../ir/SPEC.md#members-never-overlap-and-redefines-is-resolved-away)).
+That resolution cannot reach a redefine **inside a repeating group**, because
+the alternative is chosen once per occurrence rather than once per record, and
+ten entries choosing between two alternatives are not two record types
+([`ir/SPEC.md`](../ir/SPEC.md#a-variant-is-chosen-once-per-occurrence), #90).
+This form is where that choice is stated, and it is the only place a layout says
+anything about a redefine at all.
+
+The argument names the **variant**: an item reference to the item the copybook
+redefines — the first alternative, the one every `REDEFINES` of it names. Each
+`arm` names one alternative, by the name the copybook gives it, and the strategy
+that selects it. Which names are alternatives at that position, and that the
+group containing them repeats, are the copybook's and are `resolve`'s (#31,
+#35); what is written here is the choice.
+
+| Position | Sort | Arity | What it says |
+|---|---|---|---|
+| variant | item reference | 1 | the redefined item, inside a repeating group |
+| `arm` | `(arm <name> <predicate>)` | 2..n | an alternative, and what selects it |
+
+A `<predicate>` is `equals` or `one-of` — the same two strategies, testing the
+same [literals](#literals), and no third. `single-record-type` is not among
+them and there is no arm carrying nothing: an arm selected by nothing at all is
+a default arm, and
+[`ir/SPEC.md`](../ir/SPEC.md#a-predicate-on-an-arm-reads-one-occurrence) refuses
+one in as many words. An occurrence matching no arm is reported by the
+consumer, with a diagnostic distinguishable from a record no transition matched,
+and an adopter whose entries carry a code the alternatives do not cover writes
+an arm for it.
+
+**An arm's target sits inside the occurrence, which is the mirror of the rule
+above and not an exception to it.** The target **MUST** be contained, at any
+depth, in the innermost repeating group containing the variant — the entry the
+arm is being chosen for — and **MUST NOT** sit inside an arm that does not also
+contain the variant, which rules out the variant's own alternatives and a
+sibling variant's while admitting an enclosing one, where a copybook redefines a
+redefinition. `resolve` rejects either, naming the record, the repeating group,
+the variant and the target (#37, #90).
+
+Two of the record-scope restrictions do **not** bind it, and both for their own
+reasons. The target **MAY** repeat and **MAY** sit inside a group that repeats:
+[`ir/SPEC.md`](../ir/SPEC.md#a-reference-names-a-field-not-an-occurrence-of-one)
+refuses a reference carrying no occurrence to be read in, and an arm's predicate
+is evaluated in the occurrence being walked, so it carries one (#84, #90). And
+its position need not be constant: an arm runs against a record already
+admitted, so a target behind an item whose extent moves with a count the record
+carries is a target a consumer can already locate.
+
+The layout reader checks the halves that need no copybook, and they are the ones
+an adopter gets wrong while holding the copybook open. The variant reference and
+every arm's target **MUST** be rooted at the same `record`. Every target
+**MUST** stand under the same outermost group as the variant, which is what
+"outside the occurrence" looks like from here — a target reaching into a header
+elsewhere in the record shares no group with the variant and would select the
+same arm in every occurrence, a choice made once per record and so a record's to
+make. No target **MAY** descend through the variant or through any of its arms.
+No two arms **MAY** name one alternative. And no two arms of one variant **MAY**
+name one target and one literal, which is the smallest overlap and the one
+decidable from the layout alone. Everything else about overlap is `resolve`'s,
+because `"01"` and `(bytes "F0F1")` are the same bytes only once a charset and a
+width have been applied.
+
+**Two arms that can both match are refused, and nothing exempts a pair.** Arms
+are checked against each other, over the alternatives of one variant, rather
+than against the transitions of a state
+([`ir/SPEC.md`](../ir/SPEC.md#a-predicate-on-an-arm-reads-one-occurrence)): they
+are the choices at one position inside one occurrence, and no record type is
+involved. There is no guard on an arm and no way to write one — a guard reads a
+register, a register holds one value for the whole of a record's read, and a
+value that is the same in every occurrence selects a record rather than an arm —
+so the exemption a counted run of records relies on has no counterpart here, and
+two overlapping arms are always a diagnostic.
+
+One `discriminate-variant` **MUST** name each variant, and two naming one item
+is a diagnostic like a second `discriminate` on one record. A variant that
+nothing names is a diagnostic too, and it is `resolve`'s: a redefine inside a
+repeating group is a fact about a copybook, and nothing in the layout says one
+is there.
+
+```
+;; Each entry of a policy carries its own kind and a body redefined two ways.
+;; The alternative is chosen once per occurrence, so it is not two record types.
+(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)
+  (arm PL-BODY-MOTOR    (equals (item POLICY PL-ENTRIES PL-KIND) "M"))
+  (arm PL-BODY-PROPERTY (one-of (item POLICY PL-ENTRIES PL-KIND) "P" "H")))
+```
+
+It is a form of its own rather than a second spelling of `discriminate` because
+the two say different things about different subjects: one names a record and
+carries one strategy, this names an item and carries an ordered list of them. A
+single form taking either would make the arity rule — one per `record` — a rule
+about which of two shapes was written, and the schema could not state even the
+half of it that it states today.
 
 ### Literals
 
@@ -1104,6 +1300,15 @@ first release rather than grown afterwards. An edit changing no declaration — 
 comment, a reordering — leaves the version alone, because nothing a generator or
 a reader can observe has changed.
 
+Version 1 is the format as it first ships, and it stands at 1 while that version
+is being assembled. There is nothing to advance *from*: the number exists so
+that a consumer holding a schema can refuse one it does not understand, and no
+consumer holds a schema that was never released. A change to what a layout may
+say, made before the first release, is the settling this section asks for rather
+than an exception to it, and it is the standing
+[`ir/SPEC.md`](../ir/SPEC.md#the-version-field) gives its own closed sets under
+`IR_VERSION_1` (#28).
+
 The version is not this document's. A spec carries no version number
 ([CONVENTIONS.md](../CONVENTIONS.md)); what is versioned is the interface, and
 the schema is where that number lives for this one.
@@ -1125,8 +1330,10 @@ describing their file as something else. What rejects them, with the diagnostic
 each is owed, is the reader.
 
 **Rules counting one form against another.** Exactly one `discriminate` per
-`record`, every `record` appearing somewhere in the sequencing expression, an
-`encoding-override` naming at least one axis. A declaration is about one form
+`record`, one `discriminate-variant` per variant, two arms of one variant that
+do not name one alternative, every `record` appearing somewhere in the
+sequencing expression, an `encoding-override` naming at least one axis. A
+declaration is about one form
 and its positions, so a rule relating two of them is the reader's. The one
 cross-form statement the schema does make is the reference, and it is the
 important one: a position declared to name a `record` **MUST** name one the
@@ -1153,7 +1360,12 @@ lexical or grammatical error, from `sexpr-go`; an unknown top-level tag, an
 unknown child, a repeated child whose arity forbids it, a missing required child
 or form; a value outside a closed set — a `recfm`, a `placement`, a strategy,
 an axis value; a duplicate record name; a record with no `discriminate` form or
-two; a record name in the sequencing expression that no `record` form defines,
+two; a discriminator whose item reference is rooted at a record other than the
+one it discriminates; a second `discriminate-variant` naming one variant; two
+arms of one variant naming one alternative, or naming one target and one
+literal; an arm whose target is rooted at another record, stands under another
+outermost group than the variant, or descends through the variant or one of its
+arms; a record name in the sequencing expression that no `record` form defines,
 and a `record` the expression never names; a `blksize`, `lrecl`, `max-segment`
 or `delimiter` under a spelling that does not admit it; and the framing
 spellings rejected by name — `U`, a carriage-control suffix,
@@ -1169,8 +1381,12 @@ compared against; a `times` or `when` whose item is not admitted strictly
 earlier on every path; a record type whose extent does not account for `lrecl`
 under `F` or `FB`, or exceeds it under the others; a variable-extent record type
 on a fixed-length dataset; a copybook carrying an `OCCURS DEPENDING ON` with no
-`copybook-reading` form to read it under; and two records at one point in the
-sequence whose discriminators can both match.
+`copybook-reading` form to read it under; two records at one point in the
+sequence whose discriminators can both match; an arm's target outside the
+innermost repeating group containing the variant, or inside an arm that does not
+also contain it; two arms of one variant whose predicates can both match one
+occurrence; and a redefine inside a repeating group that no
+`discriminate-variant` names.
 
 The split is not a policy. A check that needs a copybook cannot run before one
 has been read, and a check that does not **SHOULD** run in the reader, so that a
@@ -1239,6 +1455,14 @@ disagree about, which is the outcome depending on `cobol-go` exists to prevent.
 per-type body; [Composition is the
 copybook's](#composition-is-the-copybooks-and-copy-is-where-it-is-written) is
 why the joining is not a layout form.
+
+`REDEFINES` is part of it too, and the one thing a layout says about a redefine
+is which alternative to read — never what a redefine is, where its bytes are, or
+which items overlay which. A redefine whose alternatives are whole record types
+is told apart by an ordinary `discriminate`; one inside a repeating group is
+told apart by
+[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table), and
+both name items the copybook declared and nothing the copybook did not.
 
 ### The S-expression grammar
 

@@ -65,8 +65,18 @@
 ;; What `when` tests a value against: one literal, or one of several.
 (sort match literal (form one-of))
 
-;; A discrimination strategy. The set is closed for v1.
-(sort strategy (form equals) (form one-of) (symbol single-record-type))
+;; What lowers into a predicate: a test on an item's bytes. The set is closed
+;; for v1, and it is the whole of what an arm may be selected by — an arm
+;; selected by nothing at all would be a default arm, and there is none.
+(sort predicate (form equals) (form one-of))
+
+;; A discrimination strategy: a predicate, or the record that carries nothing to
+;; test. `single-record-type` lowers into the absence of a predicate rather than
+;; into a member of the set above, which is why the two sorts are not one.
+(sort strategy predicate (symbol single-record-type))
+
+;; One alternative of a variant, and what selects it.
+(sort variant-arm (form arm))
 
 ;; A sequencing expression: a record name, or one of the seven operators. The
 ;; set is closed for the same reason the strategies are.
@@ -198,13 +208,29 @@
   (argument record record-name exactly-one)
   (argument strategy strategy exactly-one))
 
-(form equals (in strategy)
+(form equals (in predicate)
   (argument item item-ref exactly-one)
   (argument value literal exactly-one))
 
-(form one-of (in strategy)
+(form one-of (in predicate)
   (argument item item-ref exactly-one)
   (argument value literal one-or-more))
+
+;; A redefine inside a repeating group: the alternative is chosen once per
+;; occurrence, so it is a variant rather than a set of record types. The
+;; argument names the item the copybook redefines; each arm names one
+;; alternative and the predicate selecting it.
+;;
+;; That each arm names an alternative the copybook declares at that position,
+;; that the group containing it repeats, and where an arm's target may sit are
+;; all `resolve`'s: every one of them needs the copybook.
+(form discriminate-variant (in top-level) (arity zero-or-more) (layer discrimination)
+  (argument variant item-ref exactly-one)
+  (argument arm variant-arm two-or-more))
+
+(form arm (in variant-arm)
+  (argument alternative symbol exactly-one)
+  (argument predicate predicate exactly-one))
 
 ;;; Sequencing ----------------------------------------------------------------
 

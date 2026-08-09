@@ -2397,19 +2397,20 @@ type Predicate struct {
 	//
 	// The set is closed so that it can be checked for overlap and for
 	// exhaustiveness, and so that the IR stays data rather than carrying source
-	// only one language could run. Its membership lands with the layout
-	// format's discriminator strategies (#22, #28), which are what lower into it;
-	// until then it holds the one test those strategies all reduce to. Every
-	// member that lands MUST be decidable by a writer against the record it is
-	// about to emit, from that record's bytes and its own position in the
-	// automaton, at the moment it emits it — see docs/ir/SPEC.md, "A writer
-	// evaluates a predicate, it never inverts one". Adding one advances
-	// IrVersion, which is why the set is settled before the first release rather
-	// than grown afterwards.
+	// only one language could run. Its membership is these two, settled with the
+	// layout format's discriminator strategies (#22, #28), which are what lower
+	// into it: `equals` becomes BytesEqual and `one-of` becomes BytesOneOf, while
+	// `single-record-type` becomes no predicate at all. Every member MUST be
+	// decidable by a writer against the record it is about to emit, from that
+	// record's bytes and its own position in the automaton, at the moment it
+	// emits it — see docs/ir/SPEC.md, "A writer evaluates a predicate, it never
+	// inverts one". Adding one advances IrVersion, which is why the set is
+	// settled before the first release rather than grown afterwards.
 	//
 	// Types that are valid to be assigned to Test:
 	//
 	//	*Predicate_BytesEqual
+	//	*Predicate_BytesOneOf
 	Test          isPredicate_Test `protobuf_oneof:"test"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2468,6 +2469,15 @@ func (x *Predicate) GetBytesEqual() *BytesEqual {
 	return nil
 }
 
+func (x *Predicate) GetBytesOneOf() *BytesOneOf {
+	if x != nil {
+		if x, ok := x.Test.(*Predicate_BytesOneOf); ok {
+			return x.BytesOneOf
+		}
+	}
+	return nil
+}
+
 type isPredicate_Test interface {
 	isPredicate_Test()
 }
@@ -2476,7 +2486,13 @@ type Predicate_BytesEqual struct {
 	BytesEqual *BytesEqual `protobuf:"bytes,2,opt,name=bytes_equal,json=bytesEqual,proto3,oneof"`
 }
 
+type Predicate_BytesOneOf struct {
+	BytesOneOf *BytesOneOf `protobuf:"bytes,3,opt,name=bytes_one_of,json=bytesOneOf,proto3,oneof"`
+}
+
 func (*Predicate_BytesEqual) isPredicate_Test() {}
+
+func (*Predicate_BytesOneOf) isPredicate_Test() {}
 
 // BytesEqual is satisfied when the target field's bytes are the carried
 // literal.
@@ -2530,6 +2546,71 @@ func (x *BytesEqual) GetValue() []byte {
 	return nil
 }
 
+// BytesOneOf is satisfied when the target field's bytes are one of the carried
+// literals.
+//
+// A member of its own rather than a shorthand a producer expands into several
+// BytesEqual predicates: a transition carries at most one predicate and an arm
+// carries exactly one, so a strategy admitting three type codes has nowhere to
+// put three of them, and splitting it into three transitions to one state would
+// turn a set of values into a set of edges for the overlap rule to forgive. Two
+// of these overlap when their literal sets intersect, which is the same
+// question about bytes that BytesEqual asks.
+type BytesOneOf struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The literals, each padded by the producer to the target field's width, in
+	// the order the layout wrote them. A producer MUST carry at least two and
+	// MUST NOT carry the same literal twice: one literal is BytesEqual's work,
+	// and a repeated one is a value tested twice and a producer that did not
+	// check its own overlap.
+	//
+	// The order decides nothing — a consumer stopping at the first that matches
+	// and one comparing them all report the same thing, because the literals are
+	// distinct. It is preserved so that two producers handed one layout emit one
+	// descriptor, which is what "identical inputs produce byte-identical IR"
+	// requires of every repeated field here.
+	Values        [][]byte `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BytesOneOf) Reset() {
+	*x = BytesOneOf{}
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BytesOneOf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BytesOneOf) ProtoMessage() {}
+
+func (x *BytesOneOf) ProtoReflect() protoreflect.Message {
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BytesOneOf.ProtoReflect.Descriptor instead.
+func (*BytesOneOf) Descriptor() ([]byte, []int) {
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *BytesOneOf) GetValues() [][]byte {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 // State is a state of the record automaton. Sequencing reaches a generator
 // compiled: no consumer parses a grammar and no generator author implements
 // one. See docs/ir/SPEC.md, "The sequencing automaton".
@@ -2554,7 +2635,7 @@ type State struct {
 
 func (x *State) Reset() {
 	*x = State{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2566,7 +2647,7 @@ func (x *State) String() string {
 func (*State) ProtoMessage() {}
 
 func (x *State) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2579,7 +2660,7 @@ func (x *State) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use State.ProtoReflect.Descriptor instead.
 func (*State) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{20}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *State) GetAccepts() bool {
@@ -2647,7 +2728,7 @@ type Transition struct {
 
 func (x *Transition) Reset() {
 	*x = Transition{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2659,7 +2740,7 @@ func (x *Transition) String() string {
 func (*Transition) ProtoMessage() {}
 
 func (x *Transition) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2672,7 +2753,7 @@ func (x *Transition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transition.ProtoReflect.Descriptor instead.
 func (*Transition) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{21}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Transition) GetRecordId() uint64 {
@@ -2727,7 +2808,7 @@ type Register struct {
 
 func (x *Register) Reset() {
 	*x = Register{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2739,7 +2820,7 @@ func (x *Register) String() string {
 func (*Register) ProtoMessage() {}
 
 func (x *Register) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2752,7 +2833,7 @@ func (x *Register) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Register.ProtoReflect.Descriptor instead.
 func (*Register) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{22}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Register) GetKind() RegisterKind {
@@ -2785,7 +2866,7 @@ type Binding struct {
 
 func (x *Binding) Reset() {
 	*x = Binding{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2797,7 +2878,7 @@ func (x *Binding) String() string {
 func (*Binding) ProtoMessage() {}
 
 func (x *Binding) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2810,7 +2891,7 @@ func (x *Binding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Binding.ProtoReflect.Descriptor instead.
 func (*Binding) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{23}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Binding) GetRegisterId() uint64 {
@@ -2882,7 +2963,7 @@ type Decrement struct {
 
 func (x *Decrement) Reset() {
 	*x = Decrement{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2894,7 +2975,7 @@ func (x *Decrement) String() string {
 func (*Decrement) ProtoMessage() {}
 
 func (x *Decrement) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2907,7 +2988,7 @@ func (x *Decrement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Decrement.ProtoReflect.Descriptor instead.
 func (*Decrement) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{24}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{25}
 }
 
 // Guard reads a register and decides whether the transition carrying it is
@@ -2939,7 +3020,7 @@ type Guard struct {
 
 func (x *Guard) Reset() {
 	*x = Guard{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2951,7 +3032,7 @@ func (x *Guard) String() string {
 func (*Guard) ProtoMessage() {}
 
 func (x *Guard) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2964,7 +3045,7 @@ func (x *Guard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Guard.ProtoReflect.Descriptor instead.
 func (*Guard) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{25}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Guard) GetRegisterId() uint64 {
@@ -3049,7 +3130,7 @@ type Literal struct {
 
 func (x *Literal) Reset() {
 	*x = Literal{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3061,7 +3142,7 @@ func (x *Literal) String() string {
 func (*Literal) ProtoMessage() {}
 
 func (x *Literal) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3074,7 +3155,7 @@ func (x *Literal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Literal.ProtoReflect.Descriptor instead.
 func (*Literal) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{26}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Literal) GetValue() isLiteral_Value {
@@ -3132,7 +3213,7 @@ type LiteralSet struct {
 
 func (x *LiteralSet) Reset() {
 	*x = LiteralSet{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3144,7 +3225,7 @@ func (x *LiteralSet) String() string {
 func (*LiteralSet) ProtoMessage() {}
 
 func (x *LiteralSet) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3157,7 +3238,7 @@ func (x *LiteralSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LiteralSet.ProtoReflect.Descriptor instead.
 func (*LiteralSet) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{27}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *LiteralSet) GetValues() []*Literal {
@@ -3177,7 +3258,7 @@ type GreaterThanZero struct {
 
 func (x *GreaterThanZero) Reset() {
 	*x = GreaterThanZero{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3189,7 +3270,7 @@ func (x *GreaterThanZero) String() string {
 func (*GreaterThanZero) ProtoMessage() {}
 
 func (x *GreaterThanZero) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3202,7 +3283,7 @@ func (x *GreaterThanZero) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GreaterThanZero.ProtoReflect.Descriptor instead.
 func (*GreaterThanZero) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{28}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{29}
 }
 
 var File_cpybkc_ir_v1_ir_proto protoreflect.FileDescriptor
@@ -3302,15 +3383,20 @@ const file_cpybkc_ir_v1_ir_proto_rawDesc = "" +
 	"\x05Names\x12\x1a\n" +
 	"\boriginal\x18\x01 \x01(\tR\boriginal\x12(\n" +
 	"\roverride_name\x18\x02 \x01(\tH\x00R\foverrideName\x88\x01\x01B\x10\n" +
-	"\x0e_override_name\"k\n" +
+	"\x0e_override_name\"\xa9\x01\n" +
 	"\tPredicate\x12\x19\n" +
 	"\bfield_id\x18\x01 \x01(\x04R\afieldId\x12;\n" +
 	"\vbytes_equal\x18\x02 \x01(\v2\x18.cpybkc.ir.v1.BytesEqualH\x00R\n" +
-	"bytesEqualB\x06\n" +
+	"bytesEqual\x12<\n" +
+	"\fbytes_one_of\x18\x03 \x01(\v2\x18.cpybkc.ir.v1.BytesOneOfH\x00R\n" +
+	"bytesOneOfB\x06\n" +
 	"\x04test\"\"\n" +
 	"\n" +
 	"BytesEqual\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\fR\x05value\"z\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value\"$\n" +
+	"\n" +
+	"BytesOneOf\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\fR\x06values\"z\n" +
 	"\x05State\x12\x18\n" +
 	"\aaccepts\x18\x01 \x01(\bR\aaccepts\x120\n" +
 	"\x14acceptance_guard_ids\x18\x02 \x03(\x04R\x12acceptanceGuardIds\x12%\n" +
@@ -3422,7 +3508,7 @@ func file_cpybkc_ir_v1_ir_proto_rawDescGZIP() []byte {
 }
 
 var file_cpybkc_ir_v1_ir_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_cpybkc_ir_v1_ir_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_cpybkc_ir_v1_ir_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_cpybkc_ir_v1_ir_proto_goTypes = []any{
 	(IrVersion)(0),          // 0: cpybkc.ir.v1.IrVersion
 	(DelimiterPlacement)(0), // 1: cpybkc.ir.v1.DelimiterPlacement
@@ -3454,15 +3540,16 @@ var file_cpybkc_ir_v1_ir_proto_goTypes = []any{
 	(*Names)(nil),           // 27: cpybkc.ir.v1.Names
 	(*Predicate)(nil),       // 28: cpybkc.ir.v1.Predicate
 	(*BytesEqual)(nil),      // 29: cpybkc.ir.v1.BytesEqual
-	(*State)(nil),           // 30: cpybkc.ir.v1.State
-	(*Transition)(nil),      // 31: cpybkc.ir.v1.Transition
-	(*Register)(nil),        // 32: cpybkc.ir.v1.Register
-	(*Binding)(nil),         // 33: cpybkc.ir.v1.Binding
-	(*Decrement)(nil),       // 34: cpybkc.ir.v1.Decrement
-	(*Guard)(nil),           // 35: cpybkc.ir.v1.Guard
-	(*Literal)(nil),         // 36: cpybkc.ir.v1.Literal
-	(*LiteralSet)(nil),      // 37: cpybkc.ir.v1.LiteralSet
-	(*GreaterThanZero)(nil), // 38: cpybkc.ir.v1.GreaterThanZero
+	(*BytesOneOf)(nil),      // 30: cpybkc.ir.v1.BytesOneOf
+	(*State)(nil),           // 31: cpybkc.ir.v1.State
+	(*Transition)(nil),      // 32: cpybkc.ir.v1.Transition
+	(*Register)(nil),        // 33: cpybkc.ir.v1.Register
+	(*Binding)(nil),         // 34: cpybkc.ir.v1.Binding
+	(*Decrement)(nil),       // 35: cpybkc.ir.v1.Decrement
+	(*Guard)(nil),           // 36: cpybkc.ir.v1.Guard
+	(*Literal)(nil),         // 37: cpybkc.ir.v1.Literal
+	(*LiteralSet)(nil),      // 38: cpybkc.ir.v1.LiteralSet
+	(*GreaterThanZero)(nil), // 39: cpybkc.ir.v1.GreaterThanZero
 }
 var file_cpybkc_ir_v1_ir_proto_depIdxs = []int32{
 	0,  // 0: cpybkc.ir.v1.Descriptor.version:type_name -> cpybkc.ir.v1.IrVersion
@@ -3474,11 +3561,11 @@ var file_cpybkc_ir_v1_ir_proto_depIdxs = []int32{
 	21, // 6: cpybkc.ir.v1.Node.field:type_name -> cpybkc.ir.v1.Field
 	24, // 7: cpybkc.ir.v1.Node.slack:type_name -> cpybkc.ir.v1.Slack
 	28, // 8: cpybkc.ir.v1.Node.predicate:type_name -> cpybkc.ir.v1.Predicate
-	30, // 9: cpybkc.ir.v1.Node.state:type_name -> cpybkc.ir.v1.State
-	31, // 10: cpybkc.ir.v1.Node.transition:type_name -> cpybkc.ir.v1.Transition
-	32, // 11: cpybkc.ir.v1.Node.register:type_name -> cpybkc.ir.v1.Register
-	33, // 12: cpybkc.ir.v1.Node.binding:type_name -> cpybkc.ir.v1.Binding
-	35, // 13: cpybkc.ir.v1.Node.guard:type_name -> cpybkc.ir.v1.Guard
+	31, // 9: cpybkc.ir.v1.Node.state:type_name -> cpybkc.ir.v1.State
+	32, // 10: cpybkc.ir.v1.Node.transition:type_name -> cpybkc.ir.v1.Transition
+	33, // 11: cpybkc.ir.v1.Node.register:type_name -> cpybkc.ir.v1.Register
+	34, // 12: cpybkc.ir.v1.Node.binding:type_name -> cpybkc.ir.v1.Binding
+	36, // 13: cpybkc.ir.v1.Node.guard:type_name -> cpybkc.ir.v1.Guard
 	13, // 14: cpybkc.ir.v1.File.unframed:type_name -> cpybkc.ir.v1.Unframed
 	14, // 15: cpybkc.ir.v1.File.descriptor_word:type_name -> cpybkc.ir.v1.DescriptorWord
 	15, // 16: cpybkc.ir.v1.File.segmented:type_name -> cpybkc.ir.v1.Segmented
@@ -3501,17 +3588,18 @@ var file_cpybkc_ir_v1_ir_proto_depIdxs = []int32{
 	8,  // 33: cpybkc.ir.v1.Picture.sign_position:type_name -> cpybkc.ir.v1.SignPosition
 	26, // 34: cpybkc.ir.v1.Repetition.variable:type_name -> cpybkc.ir.v1.VariableCount
 	29, // 35: cpybkc.ir.v1.Predicate.bytes_equal:type_name -> cpybkc.ir.v1.BytesEqual
-	9,  // 36: cpybkc.ir.v1.Register.kind:type_name -> cpybkc.ir.v1.RegisterKind
-	34, // 37: cpybkc.ir.v1.Binding.decrement:type_name -> cpybkc.ir.v1.Decrement
-	36, // 38: cpybkc.ir.v1.Guard.equals:type_name -> cpybkc.ir.v1.Literal
-	37, // 39: cpybkc.ir.v1.Guard.one_of:type_name -> cpybkc.ir.v1.LiteralSet
-	38, // 40: cpybkc.ir.v1.Guard.greater_than_zero:type_name -> cpybkc.ir.v1.GreaterThanZero
-	36, // 41: cpybkc.ir.v1.LiteralSet.values:type_name -> cpybkc.ir.v1.Literal
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	30, // 36: cpybkc.ir.v1.Predicate.bytes_one_of:type_name -> cpybkc.ir.v1.BytesOneOf
+	9,  // 37: cpybkc.ir.v1.Register.kind:type_name -> cpybkc.ir.v1.RegisterKind
+	35, // 38: cpybkc.ir.v1.Binding.decrement:type_name -> cpybkc.ir.v1.Decrement
+	37, // 39: cpybkc.ir.v1.Guard.equals:type_name -> cpybkc.ir.v1.Literal
+	38, // 40: cpybkc.ir.v1.Guard.one_of:type_name -> cpybkc.ir.v1.LiteralSet
+	39, // 41: cpybkc.ir.v1.Guard.greater_than_zero:type_name -> cpybkc.ir.v1.GreaterThanZero
+	37, // 42: cpybkc.ir.v1.LiteralSet.values:type_name -> cpybkc.ir.v1.Literal
+	43, // [43:43] is the sub-list for method output_type
+	43, // [43:43] is the sub-list for method input_type
+	43, // [43:43] is the sub-list for extension type_name
+	43, // [43:43] is the sub-list for extension extendee
+	0,  // [0:43] is the sub-list for field type_name
 }
 
 func init() { file_cpybkc_ir_v1_ir_proto_init() }
@@ -3554,18 +3642,19 @@ func file_cpybkc_ir_v1_ir_proto_init() {
 	file_cpybkc_ir_v1_ir_proto_msgTypes[17].OneofWrappers = []any{}
 	file_cpybkc_ir_v1_ir_proto_msgTypes[18].OneofWrappers = []any{
 		(*Predicate_BytesEqual)(nil),
+		(*Predicate_BytesOneOf)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[21].OneofWrappers = []any{}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[23].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[22].OneofWrappers = []any{}
+	file_cpybkc_ir_v1_ir_proto_msgTypes[24].OneofWrappers = []any{
 		(*Binding_FieldId)(nil),
 		(*Binding_Decrement)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[25].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[26].OneofWrappers = []any{
 		(*Guard_Equals)(nil),
 		(*Guard_OneOf)(nil),
 		(*Guard_GreaterThanZero)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[26].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[27].OneofWrappers = []any{
 		(*Literal_BytesValue)(nil),
 		(*Literal_Integer)(nil),
 	}
@@ -3575,7 +3664,7 @@ func file_cpybkc_ir_v1_ir_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cpybkc_ir_v1_ir_proto_rawDesc), len(file_cpybkc_ir_v1_ir_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   29,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

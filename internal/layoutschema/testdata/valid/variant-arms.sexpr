@@ -1,0 +1,38 @@
+;; A redefine inside a repeating group: each entry of a policy carries its own
+;; kind and a body redefined two ways, so the alternative is chosen once per
+;; occurrence rather than once per record. The record-level discriminators are
+;; ordinary; what this file is for is the second scope a discriminator is
+;; written in.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm VB)
+  (lrecl 1024)
+  (blksize 27998))
+
+(record POLICY-HEADER (copybook "cpy/policy.cpy" POLICY-HEADER-REC))
+(record POLICY        (copybook "cpy/policy.cpy" POLICY-REC))
+
+(discriminate POLICY-HEADER (equals (item POLICY-HEADER PH-REC-TYPE) "00"))
+(discriminate POLICY        (one-of (item POLICY P-REC-TYPE) "10" "11"))
+
+;; The variant is the item the copybook redefines. Each arm names one
+;; alternative and the predicate selecting it, and both targets sit inside the
+;; entry the arm is being chosen for — a position a record-level discriminator
+;; may not name, and the only position an arm's may.
+(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)
+  (arm PL-BODY-MOTOR    (equals (item POLICY PL-ENTRIES PL-KIND) "M"))
+  (arm PL-BODY-PROPERTY (one-of (item POLICY PL-ENTRIES PL-KIND) "P" "H")))
+
+;; A second variant in the same record, told apart by a byte string rather than
+;; by text: the flag byte carries a bit pattern and no PICTURE anybody trusts.
+(discriminate-variant (item POLICY PL-ENTRIES PL-EXTRA-CASH)
+  (arm PL-EXTRA-CASH  (equals (item POLICY PL-ENTRIES PL-EXTRA-FLAG) (bytes "40")))
+  (arm PL-EXTRA-CHECK (equals (item POLICY PL-ENTRIES PL-EXTRA-FLAG) (bytes "5C"))))
+
+(sequence
+  (seq POLICY-HEADER (+ POLICY)))

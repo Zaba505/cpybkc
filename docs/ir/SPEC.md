@@ -1906,10 +1906,11 @@ consumer that decides differently in each language.
 
 Three tests, and no fourth. Conjunction is the list, disjunction is a second
 transition leaving the same state, and a state already *is* a disjunction — so
-the set needs neither. Its membership is settled here rather than deferred the
-way the predicate set's is (#22, #28), because a guard reads a value this
-document's own machinery put in a register: there is no layout-side strategy
-list for it to follow and nothing to wait for.
+the set needs neither. Its membership was settled here rather than with a
+layout-side strategy list, the way the [predicate
+set](#discriminator-predicates)'s was (#22, #28), because a guard reads a value
+this document's own machinery put in a register: there was no strategy list for
+it to follow and nothing to wait for.
 
 **A register is read only where it has been written.** A register is read in
 three places, and every one of them reads the register file as it stood on entry
@@ -2074,14 +2075,11 @@ constant offset removes both, and costs a discriminator nothing it was using:
 the position of a type code is a property of the record's shape, not of its
 data.
 
-Neither restriction is known to cost the strategies anything. The ones proposed
-for the layout format that name a field name a type code at a fixed offset, or
-one in a header copybook every alternative includes, and neither shape repeats
-or sits behind a variable item. The ones that name no field do not lower into a
-predicate at all, which is [A predicate always names a
-field](#a-predicate-always-names-a-field)'s (#80). That set is #28's to settle
-and is not settled here, so this is a check against the strategies as proposed
-rather than a claim about a closed set (#22, #28).
+Neither restriction costs the strategies anything. The two that name a field
+name a type code at a fixed offset, or one in a header copybook every
+alternative includes, and neither shape repeats or sits behind a variable item.
+The ones that name no field do not lower into a predicate at all, which is [A
+predicate always names a field](#a-predicate-always-names-a-field)'s (#80).
 
 A predicate and a guard divide the two things a transition can be selected on,
 and neither reaches into the other's half. A predicate **MUST NOT** name a
@@ -2108,22 +2106,55 @@ ordinary layout rather than a special case.
 The set is closed for the reason `layout/SPEC.md` gives when it closes the
 strategies that lower into it — a closed set can be checked for overlap and for
 exhaustiveness, and it is what lets the IR stay data instead of carrying source
-that only one language could run. Its membership is settled when those
-strategies are (#22, #28) and lands in this section in that change, the way the
-layout format's grammar joins its governing sources when its syntax is chosen.
-It is settled before the first release rather than grown afterwards, because
-under [Versioning and compatibility](#versioning-and-compatibility) a new member
-is a breaking change. What may land is bounded from two sides while it waits: by
-[A writer evaluates a predicate, it never inverts
-one](#a-writer-evaluates-a-predicate-it-never-inverts-one), which requires a
-member to be decidable by a writer, and by the subsection below, which requires
-one to name a field.
+that only one language could run. Its membership is settled here, with those
+strategies (#22, #28), and it is **two** tests:
+
+| Test | Satisfied when |
+|---|---|
+| **bytes equal** | the target's bytes are the carried literal |
+| **bytes one of** | the target's bytes are one of the carried literals |
+
+Both carry their literals as bytes, already padded by the producer to the
+target's width, so that a consumer compares the whole of the target rather than
+a prefix of it and never applies a COBOL comparison rule of its own. A test
+carrying no literal at all does not exist, and a test carrying the same literal
+twice is a producer emitting one member's work as another's; neither is a member
+here.
+
+**bytes one of** is a member rather than a shorthand a producer expands. A
+transition carries at most one predicate and an arm carries exactly one, so a
+strategy admitting three type codes has nowhere to put three predicates — and
+splitting it into three transitions to the same state would make a set of values
+into a set of edges, which the overlap rule would then have to be taught to
+forgive. One member with a list is decidable by exactly the same test as one
+member with a literal: two of them overlap when their literal sets intersect,
+which is a question about bytes and stays a question about bytes.
+
+Three tests were proposed and refused, and each is refused where its reason is:
+a record's length and where a record sits in the stream by [A predicate always
+names a field](#a-predicate-always-names-a-field), and selecting on nothing at
+all by [A transition may carry no
+predicate](#a-transition-may-carry-no-predicate), which makes it the absence of
+a predicate rather than a member. `layout/SPEC.md`'s `single-record-type` is
+that absence and is not spelled here.
+
+Both members meet the two bounds a member has to meet. Each names a field, which
+the subsection below requires. And each is decidable by a writer against the
+record it is about to emit ([A writer evaluates a predicate, it never inverts
+one](#a-writer-evaluates-a-predicate-it-never-inverts-one), #79): the target is
+a field of the record in the writer's hands, and comparing its bytes to a
+literal — or to a list of them — asks nothing of what the writer will be handed
+next.
+
+A third member is a breaking change under [Versioning and
+compatibility](#versioning-and-compatibility), which is why the set is settled
+before the first release rather than grown afterwards.
 
 ### A predicate always names a field
 
-A predicate names a field node and tests its bytes. Every member of the closed
-set does, whatever the set turns out to contain (#22, #28), and there is no
-other thing about a record a transition can be selected on (#80).
+A predicate names a field node and tests its bytes. Both members of the closed
+set do (#22, #28), and there is no other thing about a record a transition can
+be selected on (#80).
 
 Three of the strategies proposed for the layout format test something else, and
 each is refused on its own terms rather than by an appeal to tidiness.
@@ -2666,9 +2697,10 @@ places: a record no transition matched is a record type the layout is missing,
 while an occurrence no arm matched is a record the layout does describe carrying
 an entry it does not. An adopter sent to the first for the second spends the day
 on a record type they already have. One whose entries carry a code the
-alternatives do not cover writes an arm for the residue, and whether the closed
-set can spell one is that set's membership question rather than this
-subsection's (#22, #28).
+alternatives do not cover writes an arm for the residue, spelled as the test
+over the codes it covers — the set carries no member matching whatever is left,
+and [Discriminator predicates](#discriminator-predicates) is where that is
+settled (#22, #28).
 
 ## Writing a file
 
@@ -2836,12 +2868,14 @@ change, and the bytes emitted are still the ones the caller holds. Ergonomics
 over the contract are the generator's, the way [Names](#names) leaves identifier
 munging to it.
 
-The set's membership lands with the strategies that lower into it (#22, #28),
-and this is the requirement it lands against. Every member **MUST** be decidable
-by a writer against the record it is about to emit, from that record's bytes and
-the writer's own position in the automaton, at the moment it emits it. Weaker
-than invertibility, stricter than nothing, and it is what a writer can actually
-meet.
+The set's membership landed with the strategies that lower into it (#22, #28),
+and this is the requirement it landed against. Every member **MUST** be
+decidable by a writer against the record it is about to emit, from that record's
+bytes and the writer's own position in the automaton, at the moment it emits it.
+Weaker than invertibility, stricter than nothing, and it is what a writer can
+actually meet. Both members meet it by comparing the target's bytes against
+literals the descriptor carries, which asks the writer for nothing it does not
+already hold — and the shape below is the one that would not have.
 
 One shape fails it, and it is worth naming because it is the shape a
 discriminator by position takes: a test for the *last* record in a stream. A

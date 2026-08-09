@@ -578,6 +578,419 @@ func (e *ByteStringError) Error() string {
 	)
 }
 
+// What a strategy was written for, which is the half of a diagnostic about one
+// that says which set the position takes.
+const (
+	subjectRecord = "a record"
+	subjectArm    = "an arm"
+)
+
+// DiscriminateFormError is a `discriminate` that is not
+// `(discriminate <record-name> <strategy>)`.
+//
+// It is about the shape alone. Whether the record is one the layout defines is
+// an [UnknownRecordError], and whether the strategy is one of the three is a
+// [StrategyError]: both need the form to have been read first.
+type DiscriminateFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *DiscriminateFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a discriminator is written (discriminate <record-name> <strategy>), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// UnknownRecordError is a form naming a record no `record` form defines.
+//
+// docs/layout/SPEC.md files it under the rules relating one form to another: the
+// published schema states it as a reference, and this package states it again
+// because it assumes nothing about the schema. A discriminator on a record
+// nobody defined tells nothing apart — it is the unreachable half of the layer's
+// completeness rule, the other half being a record nobody discriminated.
+type UnknownRecordError struct {
+	// Pos is the name, not the form carrying it.
+	Pos layout.Pos
+
+	// Record is what was named.
+	Record string
+
+	// Form is the tag it was named under, so that the message says which
+	// statement is about a record that is not there.
+	Form string
+}
+
+// Error implements the error interface.
+func (e *UnknownRecordError) Error() string {
+	return fmt.Sprintf(
+		"%s: form %s names record %s, and the layout defines no record of that name",
+		e.Pos, quote(e.Form), quote(e.Record),
+	)
+}
+
+// DuplicateDiscriminatorError is a second `discriminate` naming a record another
+// one already named.
+//
+// It carries both positions for [DuplicateOverrideError]'s reason: either form
+// is a perfectly good discriminator on its own, and what an adopter has to
+// decide is which of the two they meant. Nothing orders a layout's forms, so
+// there is no first one to prefer.
+type DuplicateDiscriminatorError struct {
+	// Pos is the second discriminator.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Record is the record both name.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *DuplicateDiscriminatorError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s is discriminated twice, and is discriminated first at %s; "+
+			"a record carries exactly one discriminator",
+		e.Pos, quote(e.Record), e.First,
+	)
+}
+
+// MissingDiscriminatorError is a `record` no `discriminate` names.
+//
+// docs/layout/SPEC.md requires one of every record, and the reason is what the
+// requirement buys: it makes "this record carries nothing to test" a statement
+// an adopter made — `single-record-type`, written out — rather than a gap in the
+// file that reads the same way.
+type MissingDiscriminatorError struct {
+	// Pos is the `record` form, which is the record an adopter has to write a
+	// discriminator for. A form a layout is missing has no position of its own.
+	Pos layout.Pos
+
+	// Record is its name.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *MissingDiscriminatorError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s carries no discriminator; a record that carries nothing to test says so, "+
+			"with %s",
+		e.Pos, quote(e.Record), quote(string(SingleRecordType)),
+	)
+}
+
+// ForeignTargetError is a record's discriminator testing an item of another
+// record.
+//
+// It is the half of docs/layout/SPEC.md's "The item MUST be contained in the
+// record the strategy is written on" that needs no copybook: an item reference
+// is rooted at a record name, and a reference rooted at another record names
+// bytes this discriminator will never be evaluated against, whatever the
+// copybooks turn out to hold.
+type ForeignTargetError struct {
+	// Pos is the item reference.
+	Pos layout.Pos
+
+	// Item is the reference.
+	Item ItemRef
+
+	// Record is the record being discriminated.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *ForeignTargetError) Error() string {
+	return fmt.Sprintf(
+		"%s: the discriminator on record %s tests %s, and a discriminator tests an item of the record it discriminates",
+		e.Pos, quote(e.Record), e.Item,
+	)
+}
+
+// StrategyError is something written where a strategy belongs that is not one of
+// the set that position admits.
+//
+// The two sets differ by one member and the message names the one that applies:
+// a record admits `single-record-type` and an arm does not, because an arm
+// selected by nothing at all is the default arm docs/ir/SPEC.md refuses.
+type StrategyError struct {
+	// Pos is what was written, or the tag of the form that was.
+	Pos layout.Pos
+
+	// Subject is what the strategy would have selected.
+	Subject string
+
+	// Found names what was written.
+	Found string
+
+	// Admits is the set the position takes.
+	Admits []string
+}
+
+// Error implements the error interface.
+func (e *StrategyError) Error() string {
+	return fmt.Sprintf("%s: %s is selected by %s, and this is %s", e.Pos, e.Subject, and(e.Admits), e.Found)
+}
+
+// StrategyFormError is a strategy form that does not carry an item and the
+// literals it takes.
+//
+// `(equals)` states nothing, `(equals (item R F))` names an item and no value to
+// compare it against, and `(equals (item R F) "1" "2")` is two literals in the
+// position that takes one — which is `one-of`, spelled as `equals`.
+type StrategyFormError struct {
+	// Pos is the form, or the element standing where nothing belongs.
+	Pos layout.Pos
+
+	// Kind is the strategy it states.
+	Kind StrategyKind
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *StrategyFormError) Error() string {
+	takes := "one item reference and one literal"
+	if e.Kind == OneOf {
+		takes = "one item reference and at least one literal"
+	}
+
+	return fmt.Sprintf("%s: form %s takes %s, and this one has %s", e.Pos, quote(string(e.Kind)), takes, e.Found)
+}
+
+// LiteralError is something written where a literal belongs that is none of the
+// three spellings.
+//
+// A byte string with something wrong inside it is a [ByteStringError] instead:
+// the position plainly holds a literal, and the fault is what it says.
+type LiteralError struct {
+	// Pos is what was written.
+	Pos layout.Pos
+
+	// Found names it.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *LiteralError) Error() string {
+	return fmt.Sprintf(
+		"%s: a literal is text, a number or (bytes \"<hex>\"), and this is %s",
+		e.Pos, e.Found,
+	)
+}
+
+// VariantFormError is a `discriminate-variant` that names no item at all.
+//
+// A reference that is written and wrong is an [ItemReferenceError]; this is the
+// form carrying nothing where the variant belongs.
+type VariantFormError struct {
+	// Pos is the form.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *VariantFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a variant discriminator is written (discriminate-variant <item-ref> (arm <name> <predicate>) ...), "+
+			"and this is %s",
+		e.Pos, e.Found,
+	)
+}
+
+// VariantDepthError is a variant reference that cannot name one.
+//
+// A variant sits inside a group that repeats. A reference carrying a single name
+// names an item directly under the record's top-level item, whose only ancestor
+// is that item — and a record does not repeat, so no copybook can make such a
+// reference name a variant. A redefine at that depth is told apart by an
+// ordinary `discriminate`, because its alternatives are whole record types.
+type VariantDepthError struct {
+	// Pos is the reference.
+	Pos layout.Pos
+
+	// Variant is what was written.
+	Variant ItemRef
+}
+
+// Error implements the error interface.
+func (e *VariantDepthError) Error() string {
+	return fmt.Sprintf(
+		"%s: %s names an item directly under record %s's top-level item, and a variant sits inside a group "+
+			"that repeats; a redefine whose alternatives are whole record types is told apart by discriminate",
+		e.Pos, e.Variant, quote(e.Variant.Record),
+	)
+}
+
+// DuplicateVariantError is a second `discriminate-variant` naming an item
+// another one already named.
+//
+// It is [DuplicateDiscriminatorError] at the other scope and for the same
+// reason: two statements of which arm an occurrence takes would leave the order
+// they were written in deciding the answer.
+type DuplicateVariantError struct {
+	// Pos is the second variant discriminator.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Variant is the item both name.
+	Variant ItemRef
+}
+
+// Error implements the error interface.
+func (e *DuplicateVariantError) Error() string {
+	return fmt.Sprintf(
+		"%s: %s is discriminated twice, and is discriminated first at %s; a variant carries exactly one discriminator",
+		e.Pos, e.Variant, e.First,
+	)
+}
+
+// VariantArmCountError is a variant discriminator carrying fewer than two arms.
+//
+// A variant is an alternation, and an alternation with one arm is the redefine
+// every occurrence of which takes one alternative — which docs/ir/SPEC.md
+// resolves to that alternative's items with no variant at all.
+type VariantArmCountError struct {
+	// Pos is the `discriminate-variant` form.
+	Pos layout.Pos
+
+	// Variant is the item it names.
+	Variant ItemRef
+
+	// Count is how many arms it carries. It counts the arms that were read, so
+	// a variant whose second arm is malformed is reported against that arm and
+	// against this rule, and not twice against this one.
+	Count int
+}
+
+// Error implements the error interface.
+func (e *VariantArmCountError) Error() string {
+	return fmt.Sprintf(
+		"%s: the variant at %s carries %d arms, and a variant carries at least two; "+
+			"a redefine every occurrence of which takes one alternative is not a variant",
+		e.Pos, e.Variant, e.Count,
+	)
+}
+
+// ArmFormError is an arm that is not `(arm <name> <predicate>)`.
+type ArmFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ArmFormError) Error() string {
+	return fmt.Sprintf("%s: an arm is written (arm <name> <predicate>), and this has %s", e.Pos, e.Found)
+}
+
+// DuplicateArmError is two arms of one variant naming one alternative.
+//
+// Two arms over one alternative are two statements of when to read the same
+// bytes the same way, and which of them applies would be decided by the order
+// they were written in.
+type DuplicateArmError struct {
+	// Pos is the second arm.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Variant is the variant both are arms of.
+	Variant ItemRef
+
+	// Alternative is the name both give.
+	Alternative string
+}
+
+// Error implements the error interface.
+func (e *DuplicateArmError) Error() string {
+	return fmt.Sprintf(
+		"%s: the variant at %s names alternative %s twice, and names it first at %s",
+		e.Pos, e.Variant, quote(e.Alternative), e.First,
+	)
+}
+
+// ArmTargetError is an arm's target standing where an arm's target may not.
+//
+// docs/layout/SPEC.md's rule is that the target sits inside the innermost
+// repeating group containing the variant, and not inside an arm that does not
+// also contain it. The halves needing a copybook are `resolve`'s; the ones this
+// reports are the ones an adopter gets wrong while holding the copybook open — a
+// target in another record, a target in a header elsewhere in this one, and a
+// target inside the alternatives themselves.
+type ArmTargetError struct {
+	// Pos is the item reference.
+	Pos layout.Pos
+
+	// Alternative is the arm it selects.
+	Alternative string
+
+	// Item is the target.
+	Item ItemRef
+
+	// Variant is the variant the arm belongs to.
+	Variant ItemRef
+
+	// Found says where the target stands instead.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ArmTargetError) Error() string {
+	return fmt.Sprintf(
+		"%s: the arm on %s tests %s, which is %s; an arm's target sits inside the occurrence it is chosen for",
+		e.Pos, quote(e.Alternative), e.Item, e.Found,
+	)
+}
+
+// ArmOverlapError is two arms of one variant testing one item for one literal.
+//
+// It is the smallest overlap and the only one decidable from the layout alone.
+// Two arms that can both match one occurrence are refused because there is
+// nothing to break the tie: an arm carries no guard, the order arms are written
+// in decides nothing, and there is no default arm to fall through to.
+type ArmOverlapError struct {
+	// Pos is the literal on the second arm.
+	Pos layout.Pos
+
+	// First is the same literal on the first.
+	First layout.Pos
+
+	// Variant is the variant both are arms of.
+	Variant ItemRef
+
+	// Arms are the two alternatives, in the order the layout writes them.
+	Arms [2]string
+
+	// Item is the target both test.
+	Item ItemRef
+
+	// Literal is the value both admit.
+	Literal Literal
+}
+
+// Error implements the error interface.
+func (e *ArmOverlapError) Error() string {
+	return fmt.Sprintf(
+		"%s: arms %s and %s of the variant at %s both admit %s on %s, and is admitted first at %s; "+
+			"two arms that can both match one occurrence have nothing to tell them apart",
+		e.Pos, quote(e.Arms[0]), quote(e.Arms[1]), e.Variant, e.Literal, e.Item, e.First,
+	)
+}
+
 // axisNames is the four axes as a layout spells them, for a message that has to
 // list them.
 func axisNames() []string {

@@ -1,0 +1,24 @@
+;; want: predicate of form "arm" is
+;;
+;; `single-record-type` is a strategy and not a predicate: it lowers into the
+;; absence of a predicate, and an arm selected by nothing at all would be the
+;; default arm neither this format nor the IR has.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm VB)
+  (lrecl 1024))
+
+(record POLICY (copybook "cpy/policy.cpy" POLICY-REC))
+
+(discriminate POLICY single-record-type)
+
+(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)
+  (arm PL-BODY-MOTOR    (equals (item POLICY PL-ENTRIES PL-KIND) "M"))
+  (arm PL-BODY-PROPERTY single-record-type))
+
+(sequence (+ POLICY))
