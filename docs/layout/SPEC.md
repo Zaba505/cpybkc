@@ -646,15 +646,133 @@ name and any [rename](#a-rename-substitutes-a-name-and-keeps-the-original)
 beside it, never this one.
 
 The `copybook` child names a path and a top-level item within it, and both are
-required. A copybook holding exactly one `01`-level does not make the second
-argument redundant: a copybook that gains a second one later would otherwise
-change what every layout naming it means, silently and in a file none of those
-layouts is stored beside.
+required, and the top-level item is the copybook's `01`-level of that name. A
+copybook holding exactly one `01`-level does not make the second argument
+redundant: a copybook that gains a second one later would otherwise change what
+every layout naming it means, silently and in a file none of those layouts is
+stored beside.
 
 How the path resolves — which directories are searched, what an include path is
 — is a CLI concern and not a property of the layout; see [Out of
 Scope](#out-of-scope). What the copybook may contain is `cobol-go`'s and is not
 restated here.
+
+### Many records may name one copybook, and two may name one item
+
+Two `record` forms **MAY** name the same path, and **MAY** name the same path
+and the same top-level item. Only the record name is unique. Several records
+over one copybook is the ordinary case — a shop keeps the record types of one
+file in one copybook, an `01`-level apiece, and the
+[appendix](#appendix-a-layout-end-to-end) is four of them — and nothing in this
+document is decided by counting how many records a path is named by.
+
+Two records over one *item* is the less obvious half, and it is admitted for a
+file this document already describes: a header and a detail built to the same
+`01`-level, told apart by where they sit and by a count
+([Discrimination](#three-strategies-and-the-set-is-closed-for-v1)). Those are
+two record types in every way this format has for telling record types apart —
+each carries its own name, its own `discriminate` form and its own positions in
+the sequencing expression — and refusing the spelling would leave that file
+describable only by copying the `01`-level under a second name in the copybook,
+so that a duplicate existed for the layout's benefit.
+
+What makes it safe is that [an item reference](#an-item-reference) is rooted at
+a **record name** and never at a copybook path. `(item ORDER-DETAIL OD-KEY)`
+names the item as it is reached through `ORDER-DETAIL`, so two records over one
+`01`-level are discriminated, renamed and encoding-overridden independently and
+neither reaches the other. [A
+rename](#a-rename-substitutes-a-name-and-keeps-the-original)'s at-most-one rule
+counts per record for that reason: the item it may name once is the item
+reached through the record it names, not the copybook item behind it.
+
+Whether two paths name one copybook is a question about the files they resolve
+to rather than about how they are spelled, and the resolving is the CLI's. No
+rule here is stated over `copybook` children carrying equal strings.
+
+### Composition is the copybook's, and `COPY` is where it is written
+
+Many real files pair a shared header with a per-type body: every record opens
+with the same handful of fields, and what follows them differs by record type.
+The two halves commonly live in two copybooks, and this format does **not**
+join them. A `record` form carries exactly one `copybook` child, there is no
+second one, and a layout **MUST NOT** be read as concatenating anything.
+
+What joins them is COBOL's own `COPY`, in a copybook the adopter writes:
+
+```
+01  ORDER-DETAIL-REC.
+    COPY STDHDR.
+    COPY ORDDTL.
+```
+
+which the layout then binds like any other item:
+
+```
+(record ORDER-DETAIL (copybook "cpy/order-detail.cpy" ORDER-DETAIL-REC))
+```
+
+Three lines, once per record type, in the language the composition is already
+written in. Where a shop's composition lives in a program's `FD` rather than in
+a copybook — which is where it usually lives, an `FD` being this text under
+another heading — those lines are a copy of ones that exist rather than a new
+statement about the file.
+
+The format declines to do the joining itself for a reason that is not economy
+of vocabulary. **Two `01`-levels laid end to end are not a COBOL construct, so
+nothing says what the bytes at the seam are.** A `SYNCHRONIZED` item aligns
+against the start of the record containing it, and under composition there is
+no record containing it until something invents one — so cpybkc would be
+deciding slack at a seam COBOL never defines, for a record no compiler ever
+laid out (#34). That is `codec/SPEC.md`'s subject and not this document's ([Out
+of Scope](#also-out-of-scope)). Written as `COPY`, the seam is inside one
+`01`-level and every byte of it is the compiler's answer, unchanged.
+
+Two smaller costs fall out of the same place. A composed record needs a
+top-level item no copybook declares, and
+[`ir/SPEC.md`](../ir/SPEC.md#the-node-kinds) gives a record node exactly one
+whose name is the original COBOL name spelled as the copybook spells it
+([Names](../ir/SPEC.md#names)) — which a synthesized group has not got, and the
+record's own layout name is explicitly not it. And [an item
+reference](#an-item-reference) omits the top-level item's name because the
+`record` form has already stated it; with two of them a path would have to name
+which, so the rule would hold for a record naming one copybook and not for a
+record naming two, and the [published schema](#the-published-schema) could not
+state the difference.
+
+None of this makes the shared header invisible. It is a group inside each
+record type rather than something standing outside them, which is the reading
+[Discrimination](#three-strategies-and-the-set-is-closed-for-v1) already takes:
+a type code in a header every alternative includes is an `equals` on an item
+reference, written once per record because the reference is rooted at the
+record.
+
+### A copybook that is not there, and an item that is not in it
+
+Both checks need the copybook, so both are `resolve`'s (#32) rather than the
+layout reader's, and both are diagnostics this section requires by name.
+
+A `copybook` child whose path names no file `resolve` can read is a diagnostic.
+It **MUST** name the path as the layout spells it, and it carries a span into
+the layout, at that child. It carries **no** second span: there is no file to
+point into, and a span invented for one would point at nothing. Where the path
+was looked for is the CLI's to explain, for the same reason the resolving is
+the CLI's.
+
+A copybook that reads and does not declare the top-level item the record names
+is a diagnostic carrying two spans (#31): one into the layout at the `copybook`
+child, and one into the copybook. It **MUST** name the item as the layout
+spells it. The second span points at what is *there* — the `01`-levels the
+copybook does declare — because an absent item has no position, and the list an
+adopter needs in order to fix the record is the list of the ones they could
+have meant. A file declaring no `01`-level at all has nothing to point at but
+itself, and the span is the file.
+
+Neither is satisfied by reporting that a record failed to resolve, and neither
+is satisfied by naming only the layout. They are the two failures that arrive
+before any item reference has been looked at, so they are also the two where a
+generic message is likeliest to send a reader to the wrong file — which is the
+whole of what [Every diagnostic carries a
+span](#every-diagnostic-carries-a-span-and-some-carry-two) is protecting.
 
 ### A rename substitutes a name, and keeps the original
 
@@ -1042,7 +1160,9 @@ spellings rejected by name — `U`, a carriage-control suffix,
 `(blocks in-stream)`.
 
 **`resolve`** (#32–#38) has the copybooks too, and reports everything that needs
-them: an item reference naming no item or more than one; a reference that
+them: a `copybook` child naming a file it cannot read, and one naming a
+top-level item the copybook it read does not declare (#27); an item reference
+naming no item or more than one; a reference that
 repeats or sits inside a repeating group where the position forbids it; a
 discriminator behind a variable item; a literal wider than the item it is
 compared against; a `times` or `when` whose item is not admitted strictly
@@ -1114,6 +1234,11 @@ Reason: they are `cobol-go`'s, cited above. A layout file binds a record name to
 a copybook and an `01`-level inside it and stops there. Restating any of the
 copybook language would be a second reading of COBOL for the two repositories to
 disagree about, which is the outcome depending on `cobol-go` exists to prevent.
+
+`COPY` is part of that language, and it is where a shared header is joined to a
+per-type body; [Composition is the
+copybook's](#composition-is-the-copybooks-and-copy-is-where-it-is-written) is
+why the joining is not a layout form.
 
 ### The S-expression grammar
 

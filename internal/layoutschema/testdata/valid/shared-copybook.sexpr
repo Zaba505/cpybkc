@@ -1,0 +1,41 @@
+;; One copybook behind three records: two of them the same `01`-level twice,
+;; told apart by where they sit and by a count, and a third bound to a copybook
+;; that composes a shared header with a body in COBOL's own `COPY`.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80)
+  (blksize 27920))
+
+;; ORDER-OPEN and ORDER-CLOSE are one item named twice. Nothing in their bytes
+;; separates them, so each carries `single-record-type` and the sequence is what
+;; tells them apart.
+(record ORDER-OPEN  (copybook "cpy/orders.cpy" ORDER-REC))
+(record ORDER-CLOSE (copybook "cpy/orders.cpy" ORDER-REC))
+
+;; The composition is the copybook's: cpy/order-audit.cpy is one `01`-level over
+;; a COPY of the shared header and a COPY of the audit body, and the layout
+;; binds it like any other item.
+(record ORDER-AUDIT (copybook "cpy/order-audit.cpy" ORDER-AUDIT-REC))
+
+;; A reference is rooted at a record, so the two records over one item are
+;; renamed independently and neither reaches the other.
+(rename (item ORDER-OPEN  O-KEY O-NO) "OpeningOrderNumber")
+(rename (item ORDER-CLOSE O-KEY O-NO) "ClosingOrderNumber")
+
+(discriminate ORDER-OPEN  single-record-type)
+(discriminate ORDER-CLOSE single-record-type)
+
+;; The shared header is a group inside ORDER-AUDIT rather than something
+;; standing outside it, so its type code is an ordinary item reference.
+(discriminate ORDER-AUDIT (equals (item ORDER-AUDIT STD-HDR HDR-TYPE) "99"))
+
+(sequence
+  (seq ORDER-OPEN
+       (times ORDER-AUDIT (item ORDER-OPEN O-AUDIT-COUNT))
+       ORDER-CLOSE))
