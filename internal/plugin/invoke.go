@@ -219,6 +219,18 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, invocations []Invo
 
 // invoke runs one generator to completion and reports how it ended.
 func (r *Runner) invoke(ctx context.Context, invocation Invocation, descriptor []byte) error {
+	// docs/plugin/SPEC.md requires --out to be passed absolute, and this is
+	// where a relative one written in a manifest becomes so. It is resolved
+	// before the descriptor is written rather than after, so that a failure
+	// here is reported as what it is and leaves nothing behind to remove: the
+	// only way it fails is the process having no working directory to resolve
+	// against, which is not something a descriptor could be at fault for.
+	out, err := filepath.Abs(invocation.Out)
+	if err != nil {
+		return fmt.Errorf("the generator %s could not be given an absolute path to %s: %w",
+			quote(invocation.Name), invocation.Out, err)
+	}
+
 	// docs/plugin/SPEC.md, "The descriptor's location and lifetime": the
 	// descriptor goes in a directory cpybkc creates for this one invocation and
 	// nothing else, is never shared between two generators or two runs, and is
@@ -239,11 +251,6 @@ func (r *Runner) invoke(ctx context.Context, invocation Invocation, descriptor [
 	}()
 
 	path, err := writeDescriptor(dir, descriptor)
-	if err != nil {
-		return &DescriptorError{Name: invocation.Name, Err: err}
-	}
-
-	out, err := filepath.Abs(invocation.Out)
 	if err != nil {
 		return &DescriptorError{Name: invocation.Name, Err: err}
 	}
