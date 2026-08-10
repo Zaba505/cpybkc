@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/plugin"
@@ -34,12 +35,24 @@ import (
 
 // generator writes an executable plugin named for name, running body, and hands
 // back the [Generator] that lands what it writes in out.
+//
+// The script is written under [syscall.ForkLock], held for reading, which is
+// the lock's purpose: a fork made anywhere in this process while the script is
+// open for writing hands the child a copy of that descriptor, and the child
+// holds it until it execs — so an exec of the script inside that window fails
+// with ETXTBSY (golang/go#22315). The tests here write scripts and fork them at
+// the same time, all in one process, so the window is real; it is CI, with more
+// tests running than the machine has cores, that finds it.
 func generator(t *testing.T, name, body, out string) Generator {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), plugin.Filename(name))
 
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+	syscall.ForkLock.RLock()
+	err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755)
+	syscall.ForkLock.RUnlock()
+
+	if err != nil {
 		t.Fatalf("writing %s: %v", path, err)
 	}
 
