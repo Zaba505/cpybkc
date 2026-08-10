@@ -412,3 +412,26 @@ func TestADescriptorCarryingNoRecordWritesNoMethods(t *testing.T) {
 		t.Errorf("a descriptor carrying no record node wrote %s", codecFile)
 	}
 }
+
+// TestAWidthIsSummedForAMalformedVariantWithoutPanicking is the same refusal
+// from the other side.
+//
+// Every other path reaches a variant through the arms' fields, which are
+// refused before a width is ever summed. This one does not have to: a consumer
+// that wants a record's length evaluates no arm at all, so the sum is the one
+// place a variant carrying fewer than two arms would be answered with a panic
+// rather than with a diagnostic.
+func TestAWidthIsSummedForAMalformedVariantWithoutPanicking(t *testing.T) {
+	t.Parallel()
+
+	c := &coder{emitter: &emitter{
+		nodes: map[uint64]*irpb.Node{
+			1: group(1, "ENTRY", constant(2), 2),
+			2: variant(2),
+		},
+	}}
+
+	if _, err := c.width(2, "x.Entry[i0]", decoding); err == nil {
+		t.Error("a variant carrying no arm was given a width")
+	}
+}

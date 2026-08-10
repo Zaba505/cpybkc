@@ -155,6 +155,15 @@ func (c *coder) width(id uint64, expr string, dir direction) (extent, error) {
 
 		return c.occurrences(one, kind.Group.GetRepetition(), at, dir)
 	case *irpb.Node_Variant:
+		// Checked here as well as where the arms become fields, because a
+		// width is summed for a record whose length is all a consumer wants
+		// and this is the one place that would answer with a panic rather than
+		// a diagnostic.
+		if len(kind.Variant.GetArms()) < 2 {
+			return extent{}, malformed(fmt.Sprintf("a variant carries %d arms", len(kind.Variant.GetArms())),
+				"a producer must not emit a variant carrying fewer than two arms; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
+		}
+
 		// Every arm covers the same bytes, so the variant's width is any arm's
 		// and a consumer that wants a record's length evaluates no predicate at
 		// all.
