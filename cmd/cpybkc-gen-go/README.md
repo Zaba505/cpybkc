@@ -56,11 +56,14 @@ cpybkc chooses and varies between runs. A package name taken from either would
 make the output a function of a path, which is what the contract's *Determinism*
 forbids.
 
-The vocabulary grows with what this generator emits: the rename overrides and
-identifier munging are [#50](https://github.com/Zaba505/cpybkc/issues/50), and
-the method receiver the manifest example in the root `README.md` shows arrives
-with the decode and encode methods in
-[#51](https://github.com/Zaba505/cpybkc/issues/51).
+The vocabulary grows with what this generator emits: the method receiver the
+manifest example in the root `README.md` shows arrives with the decode and
+encode methods in [#51](https://github.com/Zaba505/cpybkc/issues/51).
+
+Renaming an item is **not** an option here. A rename is a property of one item
+of one copybook, it names its target fully qualified, and it is written in the
+layout beside the item it is about — where cpybkc resolves it and carries it
+into the IR for every generator to see. See [Names](#names).
 
 ## The IR version check
 
@@ -117,14 +120,15 @@ beside them, each in a file of its own.
 One exported struct per record, in the order the descriptor's node list carries
 them. A group *inside* a record is an anonymous struct inside its record's, so
 that the whole of a record is one declaration and this generator names nothing
-the copybook did not: a nested type would need a name, and a name a copybook
-never wrote is a name an adopter cannot predict and a later copybook edit can
-move.
+the copybook or the layout did not: a nested type would need a name, and a name
+neither of them wrote is a name an adopter cannot predict and a later copybook
+edit can move.
 
 ```go
 type OrderRecord struct {
-	// OrderId is ORDER-ID — numeric, DISPLAY, 5 digits, unsigned, 5 bytes.
-	OrderId int32
+	// OrderID is ORDER-ID — numeric, DISPLAY, 5 digits, unsigned, 5 bytes.
+	// The layout renames it to OrderID.
+	OrderID int32
 
 	// LineItem is LINE-ITEM — a group of 3 members, OCCURS 3.
 	LineItem [3]struct {
@@ -134,12 +138,61 @@ type OrderRecord struct {
 }
 ```
 
-Field names are the copybook's, with the separators dropped and each word
-capitalised. Two names that come out the same are an **error** rather than a
-silent disambiguation, and so is a name with no Go identifier in it at all —
-one beginning with a digit, say. Applying a layout's rename overrides, and the
-rest of what munging owes an adopter, is
-[#50](https://github.com/Zaba505/cpybkc/issues/50).
+### Names
+
+An identifier is munged from the item's **rename override** where the layout
+gave it one, and from the copybook's own name otherwise. The override is munged
+rather than taken as written, so one rule decides what an identifier looks like
+whatever it was spelled from — and so a rename is not a hole in the two refusals
+below.
+
+Munging drops the separators and opens every word with a capital. What happens
+to the rest of each word turns on whether the name was written in one case
+throughout:
+
+| The name | The identifier | Why |
+|---|---|---|
+| `ORDER-ID` | `OrderId` | one case throughout, so the tail is lowered |
+| `order_id` | `OrderId` | the same, from the other case |
+| `ADDRESS-2ND-LINE` | `Address2ndLine` | a digit opens a word and stands as it is |
+| `CustomerID` | `CustomerID` | more than one case, so the tail is kept |
+| `custId` | `CustId` | only the first letter is made a capital |
+
+A name written in one case throughout — every copybook name, and most renames —
+carries no casing of its own, so this supplies it. A name written in more than
+one carries the casing somebody chose, so this keeps it.
+
+That second row is what makes the rename override a control over the identifier
+rather than another string to be flattened, and it is the whole of this
+generator's answer to Go's initialisms. There is **no** table of them here and
+there is deliberately not going to be one: a table is a list of words this
+generator has heard of, `OrderId` and `OrderID` would then differ by whether
+`ID` made the list, and a name an adopter cannot predict is the thing this
+generator refuses to produce everywhere else. If you want `OrderID`, rename the
+item to `OrderID` and you get exactly that.
+
+Reserved words need no handling and get none. Every identifier this generator
+produces is exported, so it opens with a capital, and every Go keyword is
+lowercase; there is no name that munges to one.
+
+Two things are an **error** rather than something quietly worked around:
+
+- **A collision.** Two names that munge to one identifier — two records of a
+  descriptor, or two items of one group — are refused, and the refusal names
+  both, and the rename where a rename is what was munged. A generator that
+  appended a number would put an identifier in your source that your copybook
+  does not contain and that a later copybook edit would move from one item to
+  the other, with nothing failing while it happened.
+- **A name with no Go identifier in it**, one beginning with a digit say. The
+  refusal is about the rename where you have already written one, because
+  telling you to rename an item you have just renamed sends you to a line you
+  have already written.
+
+Whichever name the identifier came from, the **copybook's** name is in the
+field's doc comment, and a renamed item's comment also says what the layout
+renamed it to. That is what keeps the generated source traceable back to the
+copybook: an identifier your copybook does not contain is one you would
+otherwise have no way to connect to the item it stands for.
 
 ### COBOL to Go
 
