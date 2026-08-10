@@ -43,6 +43,12 @@ func TestEveryFaultReadsTheSameThroughEitherEnd(t *testing.T) {
 		},
 		&MergeError{Name: "go", Dest: "gen", Err: errors.New("permission denied")},
 		&MergeError{Name: "go", Path: "orders.go", Dest: "gen/orders.go", Err: errors.New("permission denied")},
+		&RecordError{Path: "/src/" + RecordName, Err: errors.New("unexpected end of JSON input")},
+		&RecordError{Path: "/src/" + RecordName, Fault: "it declares version 2, and this cpybkc writes and reads version 1"},
+		&RecordError{Path: "/src/" + RecordName, Writing: true, Err: errors.New("no space left on device")},
+		&PruneError{Path: "gen/orders.go", Dest: "/src/gen/orders.go", Err: errors.New("permission denied")},
+		&UnrecordableError{Name: "go", Path: "orders.go", Dest: "/elsewhere/orders.go", Root: "/src"},
+		&UnrecordableError{Name: "go", Path: RecordName, Dest: "/src/" + RecordName, Root: "/src"},
 	}
 
 	for _, fault := range faults {
@@ -204,5 +210,111 @@ func TestAMergeFailureSaysHowFarTheRunGot(t *testing.T) {
 		if got := diag.Render(test.fault); got != test.want {
 			t.Errorf("%s renders as\n%s\nwant\n%s", test.about, got, test.want)
 		}
+	}
+}
+
+// TestARecordFaultSaysWhoseFileItIs is what a person needs from a fault about a
+// file they have never heard of and did not write. It leads with the direction
+// — a record read against a record written, which fail for entirely unrelated
+// reasons — and it says who keeps the file and what deleting it costs, because
+// that is the fix for every fault in this list that is not a full disk.
+func TestARecordFaultSaysWhoseFileItIs(t *testing.T) {
+	t.Parallel()
+
+	const provenance = "  cpybkc writes this file itself at the end of every run and reads it at the start of the next, to remove what it generated before and no longer does; deleting it is safe and costs one run's worth of stale files"
+
+	tests := []struct {
+		about string
+		fault *RecordError
+		want  string
+	}{
+		{
+			about: "a record that would not parse",
+			fault: &RecordError{Path: "/src/cpybkc.gen.json", Err: errors.New("unexpected end of JSON input")},
+			want: `/src/cpybkc.gen.json: the record of what the last run generated could not be read: unexpected end of JSON input
+` + provenance,
+		},
+		{
+			about: "a record from a cpybkc that has not been written yet",
+			fault: &RecordError{
+				Path:  "/src/cpybkc.gen.json",
+				Fault: "it declares version 2, and this cpybkc writes and reads version 1",
+			},
+			want: `/src/cpybkc.gen.json: the record of what the last run generated is not one this cpybkc wrote: it declares version 2, and this cpybkc writes and reads version 1
+` + provenance,
+		},
+		{
+			about: "a record that could not be written",
+			fault: &RecordError{
+				Path:    "/src/cpybkc.gen.json",
+				Writing: true,
+				Err:     errors.New("no space left on device"),
+			},
+			want: `/src/cpybkc.gen.json: the record of what this run generated could not be written: no space left on device
+` + provenance,
+		},
+	}
+
+	for _, test := range tests {
+		if got := diag.Render(test.fault); got != test.want {
+			t.Errorf("%s renders as\n%s\nwant\n%s", test.about, got, test.want)
+		}
+	}
+}
+
+// TestOutputThatCannotBeRecordedSaysWhichOfTheTwoWaysItIs keeps the two shapes
+// apart, because they have different fixes: one is an output directory to move
+// and the other is a filename to change.
+func TestOutputThatCannotBeRecordedSaysWhichOfTheTwoWaysItIs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		about string
+		fault *UnrecordableError
+		want  string
+	}{
+		{
+			about: "output outside the project",
+			fault: &UnrecordableError{Name: "go", Path: "orders.go", Dest: "/elsewhere/orders.go", Root: "/src"},
+			want: `the generator "go" produced "orders.go", which lands outside the project and cannot be recorded
+  /elsewhere/orders.go: this is where it was to be written
+  cpybkc records what it generated beneath "/src" so that a later run can remove what it no longer generates, and a file outside that could never be recorded or removed: land this generator's output inside the project`,
+		},
+		{
+			about: "the record's own file",
+			fault: &UnrecordableError{
+				Name: "go", Path: "cpybkc.gen.json",
+				Dest: "/src/cpybkc.gen.json", Root: "/src",
+			},
+			want: `the generator "go" produced "cpybkc.gen.json", which is the file cpybkc keeps its own record of a run in
+  /src/cpybkc.gen.json: this is where it was to be written
+  cpybkc rewrites that file at the end of every run, so what a generator put there would be thrown away: have it produce some other path`,
+		},
+	}
+
+	for _, test := range tests {
+		if got := diag.Render(test.fault); got != test.want {
+			t.Errorf("%s renders as\n%s\nwant\n%s", test.about, got, test.want)
+		}
+	}
+}
+
+// TestAStaleFileThatCouldNotBeRemovedNamesItAsTheRecordSpellsIt. A person
+// holding this fault is looking at their record and at their diff, and both of
+// them spell the path relative to the project's root.
+func TestAStaleFileThatCouldNotBeRemovedNamesItAsTheRecordSpellsIt(t *testing.T) {
+	t.Parallel()
+
+	fault := &PruneError{
+		Path: "gen/pkg/orders.go",
+		Dest: "/src/gen/pkg/orders.go",
+		Err:  errors.New("permission denied"),
+	}
+
+	want := `"gen/pkg/orders.go", which a previous run generated and this one does not, could not be removed: permission denied
+  /src/gen/pkg/orders.go: this is the file it is`
+
+	if got := diag.Render(fault); got != want {
+		t.Errorf("it renders as\n%s\nwant\n%s", got, want)
 	}
 }

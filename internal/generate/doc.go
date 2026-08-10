@@ -30,7 +30,50 @@
 // plugin has to maintain, and no bookkeeping asked of a plugin author at all —
 // which is what lets the contract stay small enough for a generator to be a
 // shell script. Cross-generator collision detection rests on that equality, and
-// so will stale-file pruning (#45), which is not here yet.
+// so does stale-file pruning.
+//
+// # The record of a previous run
+//
+// A record is removed from a layout, so a generator stops producing the file it
+// produced for it, and that file has to disappear rather than linger and keep
+// compiling. Which means this package has to know which files it generated, and
+// the only honest way to know is to have written it down: [Runner.Root] names
+// the project, [RecordName] is the file the run leaves there, and it holds the
+// version it was written under and every path the run generated — relative to
+// the root, slash-separated, and sorted, so that two runs producing one set of
+// files produce one set of bytes and a record in a diff means something
+// changed.
+//
+// Everything about pruning follows from the record being the *only* source:
+//
+//   - A run that finds no record prunes nothing. It does not decide for itself
+//     which files look generated, from a naming convention or a marker in a
+//     comment. A missing record costs one stale file one more run; a guess
+//     costs somebody a file they wrote.
+//   - An output directory shared with hand-written source therefore works,
+//     which is what lets a generator be pointed at `.`.
+//   - Only a regular file is removed. A recorded path that is now a directory
+//     or a symlink is left where it is and reported: a person who replaced a
+//     generated file has taken it over, and cpybkc's claim on a path ends
+//     there.
+//   - A directory pruning empties is removed, up to but never including the
+//     project's root — and never one this run is about to write into, which
+//     would be churn rather than tidying.
+//
+// The record is a committed file rather than a `DO NOT EDIT` marker inside each
+// generated file, and that is the load-bearing choice. Not every format a
+// generator emits has a comment syntax; a marker would ask every plugin for the
+// bookkeeping docs/plugin/SPEC.md deliberately refuses to ask for; and it would
+// make ownership a property of a file's contents, which a person copies into a
+// hand-written file the first time they start one from a generated example. One
+// record spanning every generator is also what lets a generator *removed* from
+// the manifest have its output pruned — there is nothing left to ask.
+//
+// A record this package cannot read fails the run rather than pruning nothing.
+// The two are indistinguishable to a person, and only one of them is honest:
+// pruning silently from a list that has been damaged is how a stale file
+// becomes permanent, and the fix — delete the file — is one the diagnostic can
+// state.
 //
 // # Why a collision is the run's fault and not a generator's
 //
@@ -98,7 +141,9 @@
 // plugin writes into a scratch directory with whatever umask the process — or
 // the container — it ran in happened to have, so carrying its modes through
 // would make the permissions in a checked-out project depend on where the
-// generator ran.
+// generator ran. The run's own record goes through the same call: it is a file
+// in a person's project and it lands in their commit, so a record they cannot
+// edit is the same fault as generated output they cannot edit.
 //
 // [Runner.Owner] is the same decision for ownership, and exists for one case:
 // cpybkc running as root in a container over a bind mount, where without it a

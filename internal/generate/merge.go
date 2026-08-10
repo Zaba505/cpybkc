@@ -6,6 +6,7 @@
 package generate
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -68,17 +69,41 @@ type entry struct {
 }
 
 // merge puts what the generators left in their scratch directories into the
-// project's tree.
+// project's tree, and takes out what a previous run put there and this one does
+// not produce.
 //
 // Two passes, and the split is the point. The first reads every generator's
 // directory and refuses everything it will not merge — what cannot be merged at
-// all, and what two generators both produced — with nothing written; the second
-// writes. A single pass would have the first generator's files in the project's
-// tree by the time the second generator's symlink was found, which is the
-// half-generated tree the whole arrangement exists to avoid.
-func (r *Runner) merge(generators []Generator, invocations []plugin.Invocation, root string) error {
+// all, what two generators both produced, and what this run could produce but
+// could never record — with nothing written; the second writes. A single pass
+// would have the first generator's files in the project's tree by the time the
+// second generator's symlink was found, which is the half-generated tree the
+// whole arrangement exists to avoid.
+//
+// Pruning goes between the two, which is the one place it fits: everything
+// refusable has been refused, so nothing that deletes a file can still turn out
+// to be a run that fails for a reason of its own; and nothing has been written,
+// so a path that was a file last run and is a directory this one — or the other
+// way about — has the stale entry taken out from under it before the merge ever
+// meets it.
+func (r *Runner) merge(
+	ctx context.Context,
+	ledger *ledger,
+	generators []Generator,
+	invocations []plugin.Invocation,
+	root string,
+) error {
 	planned, err := plan(generators, invocations)
 	if err != nil {
+		return err
+	}
+
+	generated, err := ledger.generated(planned)
+	if err != nil {
+		return err
+	}
+
+	if err := ledger.prune(ctx, planned, generated); err != nil {
 		return err
 	}
 
@@ -100,7 +125,14 @@ func (r *Runner) merge(generators []Generator, invocations []plugin.Invocation, 
 		}
 	}
 
-	return nil
+	// Last, so that a record is only ever written for a merge that finished.
+	// One that failed partway leaves the previous run's record in place, which
+	// still names every file this package has ever put in the tree — the ones
+	// pruning has already removed have simply gone, and a recorded path that is
+	// not there prunes nothing and says nothing. So the next run's list is
+	// complete, and re-running after fixing whatever the filesystem objected to
+	// is what repairs the tree.
+	return ledger.write(m, generated)
 }
 
 // plan reads what every generator produced, in the order they were declared,
@@ -398,7 +430,16 @@ func (m *merger) write(e entry) error {
 		return err
 	}
 
-	return m.copy(e.source, e.dest, e.exec)
+	from, err := os.Open(e.source)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = from.Close()
+	}()
+
+	return m.copy(from, e.dest, e.exec)
 }
 
 // mkdirAll makes sure there is a directory at path, which is the generator's
@@ -498,16 +539,15 @@ func (m *merger) create(path string) error {
 }
 
 // copy puts one file in the project's tree.
-func (m *merger) copy(source, dest string, exec bool) error {
-	from, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_ = from.Close()
-	}()
-
+//
+// A reader rather than a path, because this run puts two kinds of file there:
+// what a generator produced, opened out of its scratch directory, and the run's
+// own record, which is bytes in hand and never a file anywhere else. Everything
+// below is the same for both — a destination removed rather than opened, an
+// exclusive create, a mode settled through the descriptor — and the one thing
+// this package must not have two of is the place a file enters a project's
+// tree.
+func (m *merger) copy(from io.Reader, dest string, exec bool) error {
 	// Whatever is at the destination is removed rather than opened. A previous
 	// run's file would be truncated either way; a *symlink* left there by a
 	// person, or by something else that writes into this directory, would be
@@ -537,7 +577,7 @@ func (m *merger) copy(source, dest string, exec bool) error {
 }
 
 // fill writes the file's contents and settles what it is.
-func (m *merger) fill(to *os.File, from *os.File, exec bool) error {
+func (m *merger) fill(to *os.File, from io.Reader, exec bool) error {
 	if _, err := io.Copy(to, from); err != nil {
 		return err
 	}
