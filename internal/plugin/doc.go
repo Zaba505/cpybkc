@@ -3,14 +3,48 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package plugin finds the generator executables cpybkc runs.
+// Package plugin finds the generator executables cpybkc runs, and runs them.
 //
 // A generator has a name — the `<name>` a manifest asks for — and that name is
 // the whole of how it is identified. docs/plugin/SPEC.md's "Discovery" is the
 // contract: the executable is named `cpybkc-gen-<name>`, and cpybkc resolves a
 // name to one by searching PATH for exactly that filename. [Resolve] is that
-// search and nothing else; what a discovered executable is then handed, and
-// what it may do with the directory it writes into, is #42's and #43's.
+// search and nothing else.
+//
+// [Runner.Run] is the other half — "Invocation" and "Exit codes and
+// diagnostics": each generator is started once with the descriptor and the
+// directory it writes into, they run concurrently, what they write is surfaced
+// as they write it, and one that fails fails the run. What may be *in* the
+// directory afterwards, and how it reaches the project's output tree, is #43's
+// and #44's; this package hands a generator a path and reads its verdict.
+//
+// # Why running is here rather than beside the caller
+//
+// The argument vector is the contract. A third party implements against
+// docs/plugin/SPEC.md's "Invocation" and nothing else, so the vector is written
+// once, in the package that also spells the executable's name, and there is no
+// second place for a flag to be added to or a path to be left relative in. The
+// same reasoning puts the descriptor's lifetime here: the file's creation, its
+// mode and its removal are three halves of one promise to a plugin author, and
+// a caller holding any of them could keep two.
+//
+// # What a run is a function of
+//
+// A descriptor, a list of invocations, and an environment — and the first two
+// are arguments while the third is a field, for the reason PATH is an argument
+// to [Resolve]. The bytes a generator is handed are
+// [github.com/Zaba505/cpybkc/internal/emit.Marshal]'s, which is the function
+// --emit-ir writes, so "the descriptor a plugin got is the descriptor --emit-ir
+// writes" is true by there being one encoder rather than by two agreeing.
+//
+// # Concurrency, and what it does not buy
+//
+// Generators run at the same time because they are independent processes with
+// disjoint output directories and no reason to queue. What that does not change
+// is the run's answer: every generator is run to completion even after one has
+// failed, and the failures are reported in the order the invocations were
+// declared, so the same inputs fail the same way twice. A run that stopped at
+// the first failure would report whichever generator lost a race.
 //
 // This is not the standard library's plugin package and has nothing to do with
 // it. A cpybkc generator is a process with an argument vector, not a shared
@@ -31,7 +65,10 @@
 // It also reads no environment. The PATH to search is an argument, because a
 // package that read one would be a second place the search could come from,
 // and a test of it would have to move the process's own environment to say
-// anything.
+// anything. [Runner.Env] is the same rule at the other end: docs/plugin/SPEC.md
+// requires cpybkc's own environment to reach a generator unchanged, and the
+// pass-through a nil Env asks for is [os/exec]'s rather than a set of variables
+// read and rebuilt here.
 //
 // # Why not exec.LookPath
 //
