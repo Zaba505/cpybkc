@@ -146,15 +146,79 @@ func kind(mode fs.FileMode) string {
 	}
 }
 
+// CollisionError is one place in a project's tree that two generators both
+// produced.
+//
+// docs/plugin/SPEC.md: two generators producing the same output path is an
+// error cpybkc raises before anything is merged, naming both, and a collision
+// fails the run with nothing merged. Merging one of them would make what the
+// project holds a function of which generator the merge reached last — and
+// since a plugin is told nothing about the others and MUST NOT coordinate with
+// them, neither of the two is the one that meant it.
+//
+// It is found in the same pass as an [UnmergeableError] and before anything is
+// written, so a collision costs the run and never half a tree.
+type CollisionError struct {
+	// First and Second are the generators that produced it, in the order the
+	// run declared them rather than the order they finished in: generators run
+	// concurrently, and a fault naming whichever of them lost a race would
+	// report the same inputs differently on different runs.
+	First, Second string
+
+	// FirstPath and SecondPath are what each of them called it, relative to the
+	// directory that generator was handed — the name each plugin's author will
+	// recognise.
+	//
+	// They are the same path except where the two output directories overlap
+	// rather than coincide: a generator landing in `gen` that produced
+	// `pkg/orders.go` and one landing in `gen/pkg` that produced `orders.go`
+	// have produced one file between them.
+	FirstPath, SecondPath string
+
+	// Dest is where both were to land, in the project's tree.
+	Dest string
+}
+
+// Error implements the error interface.
+func (e *CollisionError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+//
+// The last span is the rule rather than a place, for the reason
+// [UnmergeableError.Diagnostic] gives: nothing in this repository decided this,
+// and what a reader needs is what to do about two executables that disagree.
+func (e *CollisionError) Diagnostic() diag.Diagnostic {
+	message := fmt.Sprintf("the generators %s and %s both produced %s, and nothing was merged",
+		strconv.Quote(e.First), strconv.Quote(e.Second), strconv.Quote(e.FirstPath))
+
+	// Where the output directories overlap, the two names are two names for one
+	// path, and a message quoting either alone would send half of its readers
+	// looking for something their plugin never wrote.
+	if e.FirstPath != e.SecondPath {
+		message = fmt.Sprintf("%s, from the generator %s, and %s, from the generator %s, land in the same place, and nothing was merged",
+			strconv.Quote(e.FirstPath), strconv.Quote(e.First),
+			strconv.Quote(e.SecondPath), strconv.Quote(e.Second))
+	}
+
+	return diag.Diagnostic{
+		Message: message,
+		Spans: []diag.Span{
+			{},
+			{File: e.Dest, Note: "this is where both were to land"},
+			{Note: "a path in a project's tree is one generator's, so cpybkc refuses the run rather than merging whichever it reached last: stop one of them producing it, or land the two in directories that do not overlap"},
+		},
+	}
+}
+
 // MergeError is output that could not be put into the project's tree.
 //
-// Everything the merge refuses of its own accord is an [UnmergeableError] and
-// is reported before anything is written, so this is the filesystem: a full
-// disk, a directory that is not writable, a path in the project's tree where a
-// file stands and a directory has to go. Unlike a refusal, it can be raised
-// with part of the run's output already merged — which is why it names both the
-// generator's own path and where that path was landing, so that a person can
-// see how far the run got.
+// Everything the merge refuses of its own accord is an [UnmergeableError] or a
+// [CollisionError] and is reported before anything is written, so this is the
+// filesystem: a full disk, a directory that is not writable, a path in the
+// project's tree where a file stands and a directory has to go. Unlike a
+// refusal, it can be raised with part of the run's output already merged —
+// which is why it names both the generator's own path and where that path was
+// landing, so that a person can see how far the run got.
 type MergeError struct {
 	// Name is the generator whose output it was.
 	Name string

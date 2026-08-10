@@ -29,8 +29,24 @@
 // directory afterwards". No marker inside a generated file, no manifest a
 // plugin has to maintain, and no bookkeeping asked of a plugin author at all —
 // which is what lets the contract stay small enough for a generator to be a
-// shell script. Cross-generator collision detection (#44) and stale-file
-// pruning (#45) both rest on that equality; neither is here yet.
+// shell script. Cross-generator collision detection rests on that equality, and
+// so will stale-file pruning (#45), which is not here yet.
+//
+// # Why a collision is the run's fault and not a generator's
+//
+// Two generators producing one path in the project's tree fails the run with
+// nothing merged (docs/plugin/SPEC.md, "What a plugin does not own"), and
+// neither of them is the one that was wrong. A plugin is told nothing about the
+// others, cannot coordinate with them, and is entitled to produce the files its
+// options asked for; what is wrong is the pair, and the fix is a manifest that
+// stops asking two executables for one file.
+//
+// So the fault names both, and it is found in the pass that plans the merge
+// rather than as each generator finishes. A check made per generator would let
+// the first one's files land before the second was known about, and would then
+// name whichever of them lost a race — so identical inputs would fail
+// differently on different runs, which is the one thing generated output cannot
+// do.
 //
 // # Why the merge waits for every generator
 //
