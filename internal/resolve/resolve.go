@@ -205,7 +205,7 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 		return nil, err
 	}
 
-	r := &resolver{opts: opts, record: record}
+	r := &resolver{opts: opts, record: record, layout: layout}
 
 	items := layout.Items()
 	if odo := tables(items); len(odo) > 0 {
@@ -410,6 +410,11 @@ type resolver struct {
 	opts   Options
 	record *copybook.Field
 	faults diag.List
+
+	// layout is the record laid out, which is what an arm's predicate target
+	// is resolved against: a reference names a path of data names and only the
+	// layout says which item that is, at what offset and of what width.
+	layout *copybook.Layout
 }
 
 // option is one resolution of one item: the node it became, and the alternatives
@@ -623,6 +628,8 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 	extent := redefined.Total()
 
 	arms := make([]Arm, 0, len(spec.Alternatives))
+	targets := make([]*copybook.Item, 0, len(spec.Alternatives))
+
 	for _, alternative := range spec.Alternatives {
 		member := c.find(alternative.Name)
 		if member == nil {
@@ -672,11 +679,25 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 			continue
 		}
 
+		// A redefine with one alternative chooses nothing, so its strategy is
+		// ignored rather than compiled: there is no arm for a predicate to
+		// select and a target held to an arm's rules would be held to rules
+		// about a choice nobody is making.
+		var predicate *Predicate
+		var target *copybook.Item
+
+		if len(spec.Alternatives) > 1 {
+			if predicate, target = r.armPredicate(c, table, alternative); predicate == nil {
+				continue
+			}
+		}
+
 		arms = append(arms, Arm{
 			Alternative: alternative.Name,
-			Predicate:   alternative.Predicate,
+			Predicate:   predicate,
 			Body:        armBody(r.first(member, in), extent),
 		})
+		targets = append(targets, target)
 	}
 
 	switch {
@@ -708,6 +729,8 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 		// variant short of them would be a second, less useful one.
 		return r.base(c, in)
 	}
+
+	r.checkArmOverlap(c, table, arms, targets, spec)
 
 	return run{nodes: pad(&Node{Kind: KindVariant, Arms: arms}, c.extent())}
 }

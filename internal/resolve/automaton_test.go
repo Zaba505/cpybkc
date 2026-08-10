@@ -94,7 +94,12 @@ func compileLayout(t *testing.T, source string, copybooks map[string]string) (*A
 		t.Fatalf("reading the discrimination layer: %v", err)
 	}
 
-	opts := Sequencing{Sequence: sequence, Dialect: copybook.IBMEnterprise()}
+	opts := Sequencing{
+		Sequence: sequence,
+		Dialect:  copybook.IBMEnterprise(),
+		Reading:  layoutmodel.ODOSlide,
+		Encoding: mainframe(),
+	}
 	for _, discriminator := range discrimination.Records {
 		src, bound := copybooks[discriminator.Record]
 		if !bound {
@@ -177,11 +182,7 @@ func renderTransition(t *Transition) string {
 		parts = append(parts, "when "+renderGuards(t.Guards))
 	}
 
-	if t.Predicate == nil {
-		parts = append(parts, "on no predicate")
-	} else {
-		parts = append(parts, "on "+renderStrategy(*t.Predicate))
-	}
+	parts = append(parts, "on "+t.Predicate.String())
 
 	parts = append(parts, "admit "+t.Record)
 
@@ -196,16 +197,6 @@ func renderTransition(t *Transition) string {
 	}
 
 	return strings.Join(parts, ", ") + fmt.Sprintf(", go to %d", t.To.ID)
-}
-
-// renderStrategy draws a discriminator the way a layout writes one.
-func renderStrategy(s layoutmodel.Strategy) string {
-	literals := make([]string, 0, len(s.Literals))
-	for _, literal := range s.Literals {
-		literals = append(literals, literal.String())
-	}
-
-	return "(" + string(s.Kind) + " " + s.Item.String() + " " + strings.Join(literals, " ") + ")"
 }
 
 // assertRendering fails with the whole graph where it is not the one wanted.
@@ -242,17 +233,17 @@ func TestTheCountedRunOfTheAppendix(t *testing.T) {
 register 1 integer from (item HEADER DTL-COUNT)
 register 2 bytes from (item HEADER SUM-FLAG)
 state 0
-  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+  on bytes-equal HDR-TYPE "H", admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
 state 1 accepts when (item HEADER DTL-COUNT) equal to 0
-  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
-  when (item HEADER DTL-COUNT) equal to 0 and (item HEADER SUM-FLAG) equal to "Y", on (equals (item SUMMARY SUM-TYPE) "S"), admit SUMMARY, go to 3
-  when (item HEADER DTL-COUNT) equal to 0, on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+  when (item HEADER DTL-COUNT) above zero, on bytes-equal DTL-TYPE "D", admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+  when (item HEADER DTL-COUNT) equal to 0 and (item HEADER SUM-FLAG) equal to "Y", on bytes-equal SUM-TYPE "S", admit SUMMARY, go to 3
+  when (item HEADER DTL-COUNT) equal to 0, on bytes-equal HDR-TYPE "H", admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
 state 2 accepts when (item HEADER DTL-COUNT) equal to 0
-  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
-  when (item HEADER DTL-COUNT) equal to 0 and (item HEADER SUM-FLAG) equal to "Y", on (equals (item SUMMARY SUM-TYPE) "S"), admit SUMMARY, go to 3
-  when (item HEADER DTL-COUNT) equal to 0, on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+  when (item HEADER DTL-COUNT) above zero, on bytes-equal DTL-TYPE "D", admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+  when (item HEADER DTL-COUNT) equal to 0 and (item HEADER SUM-FLAG) equal to "Y", on bytes-equal SUM-TYPE "S", admit SUMMARY, go to 3
+  when (item HEADER DTL-COUNT) equal to 0, on bytes-equal HDR-TYPE "H", admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
 state 3 accepts
-  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
+  on bytes-equal HDR-TYPE "H", admit HEADER, bind (item HEADER DTL-COUNT), bind (item HEADER SUM-FLAG), go to 1
 `)
 }
 
@@ -362,7 +353,7 @@ func TestTheFailuresACountedRunDetects(t *testing.T) {
 			t.Fatalf("the summary transition is guarded by %s, want the flag among them", renderGuards(summary.Guards))
 		}
 
-		if flag.Test != GuardEquals || len(flag.Literals) != 1 || flag.Literals[0].Text != "Y" {
+		if flag.Test != GuardEquals || len(flag.Values) != 1 || flag.Values[0].Literal.Text != "Y" {
 			t.Errorf("the flag guard is %s, want it equal to \"Y\"", renderGuard(*flag))
 		}
 	})
@@ -454,11 +445,11 @@ func TestACountedRunIsOneRegisterAndOneGuard(t *testing.T) {
 	assertRendering(t, compiled(t, source, copybooks), `
 register 1 integer from (item HEADER DTL-COUNT)
 state 0
-  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, bind (item HEADER DTL-COUNT), go to 1
+  on bytes-equal HDR-TYPE "H", admit HEADER, bind (item HEADER DTL-COUNT), go to 1
 state 1 accepts when (item HEADER DTL-COUNT) equal to 0
-  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+  when (item HEADER DTL-COUNT) above zero, on bytes-equal DTL-TYPE "D", admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
 state 2 accepts when (item HEADER DTL-COUNT) equal to 0
-  when (item HEADER DTL-COUNT) above zero, on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
+  when (item HEADER DTL-COUNT) above zero, on bytes-equal DTL-TYPE "D", admit DETAIL, take one off (item HEADER DTL-COUNT), go to 2
 `)
 }
 
@@ -783,8 +774,8 @@ func TestAFlagGoverningTheRecordHoldingItBecomesABranch(t *testing.T) {
 
 	assertRendering(t, automaton, `
 state 0
-  on (equals (item HEADER HDR-TYPE) "H"), admit HEADER, go to 1
-  on (equals (item DETAIL DTL-TYPE) "D"), admit DETAIL, go to 2
+  on bytes-equal HDR-TYPE "H", admit HEADER, go to 1
+  on bytes-equal DTL-TYPE "D", admit DETAIL, go to 2
 state 1 accepts
 state 2 accepts
 `)

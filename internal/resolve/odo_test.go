@@ -665,6 +665,7 @@ func TestASlidingTableInsideAnArmIsStillRefused(t *testing.T) {
 	src := `01 R.
    05 N PIC 9(2).
    05 T OCCURS 2 TIMES.
+      10 K PIC X.
       10 A PIC X(12).
       10 B REDEFINES A.
          15 CELL OCCURS 1 TO 3 TIMES DEPENDING ON N PIC X(4).
@@ -680,8 +681,8 @@ func TestASlidingTableInsideAnArmIsStillRefused(t *testing.T) {
 			Redefines: []Redefine{{
 				Item: fieldNamed(t, field, "A"),
 				Alternatives: []Alternative{
-					{Name: "A", Predicate: selects("A")},
-					{Name: "B", Predicate: selects("B")},
+					{Name: "A", Predicate: selects("A", "T", "K")},
+					{Name: "B", Predicate: selects("B", "T", "K")},
 				},
 			}},
 		})

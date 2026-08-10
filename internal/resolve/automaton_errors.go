@@ -406,18 +406,18 @@ func renderGuard(guard Guard) string {
 	case GuardPositive:
 		return guard.Register.String() + " above zero"
 	case GuardOneOf:
-		literals := make([]string, 0, len(guard.Literals))
-		for _, literal := range guard.Literals {
-			literals = append(literals, literal.String())
+		values := make([]string, 0, len(guard.Values))
+		for _, value := range guard.Values {
+			values = append(values, value.String())
 		}
 
-		return guard.Register.String() + " one of " + strings.Join(literals, ", ")
+		return guard.Register.String() + " one of " + strings.Join(values, ", ")
 	case GuardEquals:
-		if len(guard.Literals) == 0 {
+		if len(guard.Values) == 0 {
 			return guard.Register.String() + " equal to nothing"
 		}
 
-		return guard.Register.String() + " equal to " + guard.Literals[0].String()
+		return guard.Register.String() + " equal to " + guard.Values[0].String()
 	}
 
 	return guard.Register.String() + " tested by nothing"

@@ -133,15 +133,41 @@
 // copybook's items rather than on the resolved nodes, so a copybook with four
 // REDEFINES alternatives reports each fault once rather than four times.
 //
+// # A discriminator is compiled, in two scopes and one closed set
+//
+// Discrimination reaches a generator compiled too, and a [Predicate] is what a
+// layout's strategy becomes: one member of a closed set of two tests, naming the
+// field node it tests and carrying its literals as the bytes a consumer
+// compares. A consumer evaluates one knowing no COBOL and knowing nothing about
+// what the strategy was called in a layout file (#37).
+//
+// Two things select on bytes and they share the node kind and the set. A
+// [Transition] chooses a record, and an [Arm] of a variant chooses an
+// alternative inside one occurrence of a table. What differs is where a target
+// may sit, and every difference follows from when the predicate runs: a
+// transition's runs before its record is admitted, so its target sits outside
+// every repeating group and ahead of every item whose extent moves with a count,
+// while an arm's runs inside an occurrence already located, so its target sits
+// *inside* the repeating group and carries neither restriction (docs/ir/SPEC.md,
+// "Discriminator predicates", "A predicate on an arm reads one occurrence", #84,
+// #90).
+//
+// Three strategies name no field and none of them lowers into a member testing
+// nothing. `single-record-type` is the absence of a predicate, positional
+// *first* is the start state, and a record's length and positional *last* are
+// refused with a diagnostic each (#80).
+//
+// The literals are resolved here and nowhere else. A [Guard] over a bytes
+// register carries the same resolution for the same reason: one reading of what
+// `"01"` is in a file is one answer for a consumer to act on, and two would be
+// two.
+//
 // # What this package leaves to the stories after it
 //
-// Compiling a layout's discriminator strategies into predicate nodes is #37's,
-// and assembling nodes into a
-// [github.com/Zaba505/cpybkc/irpb.Descriptor] with identifiers on them is #38's.
-// A [Repetition] here therefore names a [github.com/Zaba505/cobol-go/copybook.Field]
-// rather than an identifier, an [Arm] carries the
-// [github.com/Zaba505/cpybkc/internal/layoutmodel.Strategy] a layout wrote
-// rather than a compiled predicate, and a [Transition] carries one too.
+// Assembling nodes into a [github.com/Zaba505/cpybkc/irpb.Descriptor] with
+// identifiers on them is #38's. A [Repetition], a [Binding] and a [Predicate]
+// here therefore name a
+// [github.com/Zaba505/cobol-go/copybook.Field] rather than an identifier.
 //
 // A count that lives in another record never reaches [Resolve] at all, and that
 // is the division rather than a gap: a DEPENDING ON phrase names an item of the

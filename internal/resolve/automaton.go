@@ -284,26 +284,48 @@ type Guard struct {
 	// Test is the test.
 	Test GuardTest
 
-	// Literals are what the register is compared against, in the order the
+	// Values are what the register is compared against, in the order the
 	// layout writes them: exactly one under [GuardEquals], at least one under
 	// [GuardOneOf], and none under [GuardPositive].
 	//
-	// They are the layout's literals rather than the bytes a consumer
-	// compares, for the reason [Arm.Predicate] carries a strategy: resolving
-	// a literal to bytes through an item's charset, PICTURE and width is
-	// #37's, and doing it in two places is two answers.
-	Literals []layoutmodel.Literal
+	// They are resolved rather than the layout's own spellings. A guard over a
+	// bytes register compares bytes, so its values are the source field's
+	// width and already padded to it — no consumer decides whether `Y` matches
+	// `Y `, which is the same comparison [Predicate] refuses to leave open. A
+	// guard over an integer register compares a number, and carries one.
+	Values []Value
 }
 
 // key is what makes two guards the same guard, so that composing an expression
 // out of its parts cannot put one test on a transition twice.
 func (g Guard) key() string {
-	parts := make([]string, 0, len(g.Literals)+2)
+	parts := make([]string, 0, len(g.Values)+2)
 	parts = append(parts, strconv.Itoa(g.Register.ID), g.Test.String())
-	for _, literal := range g.Literals {
-		parts = append(parts, literal.Identity())
+	for _, value := range g.Values {
+		parts = append(parts, value.Identity())
 	}
 	return strings.Join(parts, " ")
+}
+
+// Holds reports whether the guard holds of the value the register carries.
+//
+// The register file is the consumer's, so what is handed over is the one value
+// the guard reads rather than the whole of it: a guard is a test of one
+// register, and a consumer evaluating one already has it (docs/ir/SPEC.md, "The
+// automaton remembers, in registers").
+func (g Guard) Holds(held Value) bool {
+	switch g.Test {
+	case GuardPositive:
+		return held.Bytes == nil && held.Number > 0
+	case GuardEquals, GuardOneOf:
+		for _, value := range g.Values {
+			if sameValue(value, held) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // Transition is one edge of the automaton: it consumes exactly one record, and
@@ -327,9 +349,13 @@ type Transition struct {
 	// predicate and not a member of the set testing nothing
 	// (docs/ir/SPEC.md, "A transition may carry no predicate", #80).
 	//
-	// It is the layout's strategy rather than a compiled predicate node, for
-	// [Arm.Predicate]'s reason: lowering one is #37's.
-	Predicate *layoutmodel.Strategy
+	// It is carried on every transition admitting a record whose discriminator
+	// names a field, even at a state where the guards alone would select it.
+	// That is docs/ir/SPEC.md's **SHOULD** kept rather than optimised away: a
+	// predicate the automaton does not need in order to choose is the only
+	// detection such a state has, and a group two records short would
+	// otherwise be absorbed by reading the next group's header as a detail.
+	Predicate *Predicate
 
 	// Guards are the tests that make this transition eligible, all of which
 	// must hold. A transition carrying none is always eligible.
@@ -429,6 +455,29 @@ type Sequencing struct {
 	// inside a group that repeats.
 	Dialect copybook.Dialect
 
+	// Reading is which of the two vendor readings of `OCCURS DEPENDING ON` the
+	// layout says its file was written under, for [Options.Reading]'s reason.
+	//
+	// It is read for one rule and nothing else: a discriminator's target must
+	// sit at a constant position within its record, and whether an item ahead
+	// of it has an extent that moves is a question only the reading answers.
+	// Under `noodoslide` the same clause is a fixed table and nothing moves,
+	// so a layout stating no reading is one this half never has to ask.
+	Reading layoutmodel.Reading
+
+	// Encoding is the layout's encoding profile, and EncodingOverrides the
+	// per-item overrides over it: the four axes a literal is resolved to bytes
+	// through.
+	//
+	// They reach the automaton for the reason they reach [Resolve]: a
+	// discriminator's literal and a `when`'s are compared against a field's
+	// bytes, and what those bytes are is the item's charset and width. A
+	// layout stating fewer than four axes is refused while it is being read
+	// and again as a record is resolved, so what arrives here is complete or
+	// the caller never got this far.
+	Encoding          layoutmodel.Axes
+	EncodingOverrides []EncodingOverride
+
 	// Records are the record types the expression may name, in the order the
 	// layout defines them.
 	Records []SequencedRecord
@@ -486,10 +535,11 @@ func CompileSequence(opts Sequencing) (*Automaton, error) {
 	}
 
 	c := &compiler{
-		opts:    opts,
-		follow:  make(map[int][]entry),
-		byItem:  make(map[string]*Register),
-		layouts: make(map[string]*copybook.Layout),
+		opts:       opts,
+		follow:     make(map[int][]entry),
+		byItem:     make(map[string]*Register),
+		predicates: make(map[string]*Predicate),
+		layouts:    make(map[string]*copybook.Layout),
 	}
 
 	top := c.expression(opts.Sequence.Expression)
@@ -500,6 +550,7 @@ func CompileSequence(opts Sequencing) (*Automaton, error) {
 	automaton := c.assemble(top)
 
 	c.prove(automaton)
+	c.checkDiscrimination(automaton)
 	c.checkAmbiguity(automaton)
 	if c.faults.Failed() {
 		return nil, c.faults.Err()
@@ -518,9 +569,9 @@ type appearance struct {
 	// this appearance points at.
 	pos layout.Pos
 
-	// predicate is the discriminator of that record, or nil where its
-	// strategy is `single-record-type` and lowers into no predicate.
-	predicate *layoutmodel.Strategy
+	// predicate is the discriminator of that record, compiled, or nil where
+	// its strategy lowers into no predicate at all.
+	predicate *Predicate
 }
 
 // entry is one way into a position: the guards a transition into it carries and
@@ -578,6 +629,13 @@ type compiler struct {
 	// the transitions admitting the record it is read from, so two `when`s
 	// over one item are two guards over one value.
 	byItem map[string]*Register
+
+	// predicates are the compiled discriminator of each record, keyed by the
+	// record's name and holding nil for a record whose strategy lowers into
+	// none. A record named twice in the expression is compiled once, so a
+	// discriminator that cannot be resolved is one fault and not one per
+	// appearance.
+	predicates map[string]*Predicate
 
 	// layouts are the copybook layouts, one per record, built on demand: a
 	// layout is what answers whether an item repeats or sits in a group that
@@ -638,10 +696,14 @@ func (c *compiler) name(e layoutmodel.Expression) facts {
 		return facts{first: []entry{{at: at}}, last: []exit{{at: at}}}
 	}
 
-	var predicate *layoutmodel.Strategy
-	if record.Discriminator.Predicate() {
-		selects := record.Discriminator
-		predicate = &selects
+	// One appearance of a record name is one position, and every appearance of
+	// one record carries the same predicate: the discriminator is a property
+	// of the record and not of where it stands in the expression. It is
+	// compiled once per record for that reason, and the compiled node shared.
+	predicate, already := c.predicates[e.Record]
+	if !already {
+		predicate = c.discriminator(record)
+		c.predicates[e.Record] = predicate
 	}
 
 	c.positions = append(c.positions, appearance{record: e.Record, pos: e.Pos, predicate: predicate})
@@ -748,7 +810,11 @@ func (c *compiler) times(e layoutmodel.Expression) facts {
 	done := Guard{
 		Register: register,
 		Test:     GuardEquals,
-		Literals: []layoutmodel.Literal{{Pos: e.Item.Pos, Kind: layoutmodel.NumberLiteral, Number: "0"}},
+		Values: []Value{number(layoutmodel.Literal{
+			Pos:    e.Item.Pos,
+			Kind:   layoutmodel.NumberLiteral,
+			Number: "0",
+		})},
 	}
 	less := []Binding{{Register: register, Value: BindLessOne}}
 
@@ -781,7 +847,7 @@ func (c *compiler) when(e layoutmodel.Expression) facts {
 	body := c.sequence(c.subexpressions(e))
 	register := c.register(e, RegisterBytes)
 
-	holds := Guard{Register: register, Test: GuardEquals, Literals: e.Match.Literals}
+	holds := Guard{Register: register, Test: GuardEquals, Values: c.guardValues(e, register)}
 	if e.Match.Kind == layoutmodel.OneOf {
 		holds.Test = GuardOneOf
 	}
