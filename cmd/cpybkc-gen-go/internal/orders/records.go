@@ -6,8 +6,9 @@ import "math/big"
 
 // OrderRecord is the ORDER-RECORD record, as docs/ir/SPEC.md resolved it.
 type OrderRecord struct {
-	// OrderId is ORDER-ID — numeric, DISPLAY, 5 digits, unsigned, 5 bytes.
-	OrderId int32
+	// OrderID is ORDER-ID — numeric, DISPLAY, 5 digits, unsigned, 5 bytes.
+	// The layout renames it to OrderID.
+	OrderID int32
 
 	// CustomerName is CUSTOMER-NAME — alphanumeric, DISPLAY, 20 bytes.
 	CustomerName string

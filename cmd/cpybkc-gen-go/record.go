@@ -61,7 +61,7 @@ func records(d *irpb.Descriptor, opts options) (string, error) {
 
 	var decls []string
 
-	declared := make(map[string]string)
+	declared := make(map[string]colliding)
 
 	for _, node := range d.GetNodes() {
 		record := node.GetRecord()
@@ -77,22 +77,22 @@ func records(d *irpb.Descriptor, opts options) (string, error) {
 		if first, dup := declared[name]; dup {
 			return "", &collisionError{
 				Go:    name,
-				Cobol: []string{first, record.GetNames().GetOriginal()},
+				Cobol: []colliding{first, namedBy(record.GetNames())},
 				Where: "the generated package",
 			}
 		}
 
-		declared[name] = record.GetNames().GetOriginal()
+		declared[name] = namedBy(record.GetNames())
 
 		body, err := e.structType(record.GetRootId())
 		if err != nil {
 			return "", err
 		}
 
-		decl := fmt.Sprintf("// %s is the %s record, as docs/ir/SPEC.md resolved it.\ntype %s %s",
-			name, record.GetNames().GetOriginal(), name, body)
+		doc := fmt.Sprintf("%s is the %s record, as docs/ir/SPEC.md resolved it.%s",
+			name, record.GetNames().GetOriginal(), renameNote(record.GetNames()))
 
-		decls = append(decls, decl)
+		decls = append(decls, commentLines(doc)+fmt.Sprintf("type %s %s", name, body))
 	}
 
 	if len(decls) == 0 {
@@ -196,7 +196,7 @@ func (e *emitter) structType(id uint64) (string, error) {
 
 	var (
 		fields []string
-		named  = make(map[string]string)
+		named  = make(map[string]colliding)
 		slack  int
 	)
 
@@ -227,12 +227,12 @@ func (e *emitter) structType(id uint64) (string, error) {
 		if first, dup := named[name]; dup {
 			return "", &collisionError{
 				Go:    name,
-				Cobol: []string{first, originalOf(member)},
+				Cobol: []colliding{first, namedBy(namesOf(member))},
 				Where: "the " + group.GetNames().GetOriginal() + " group",
 			}
 		}
 
-		named[name] = originalOf(member)
+		named[name] = namedBy(namesOf(member))
 
 		fields = append(fields, field)
 	}
@@ -269,7 +269,7 @@ func (e *emitter) member(node *irpb.Node) (string, string, error) {
 			return "", "", err
 		}
 
-		return comment(name, kind.Group.GetNames().GetOriginal(), summary) + name + " " + typ, name, nil
+		return comment(name, kind.Group.GetNames(), summary) + name + " " + typ, name, nil
 	case *irpb.Node_Field:
 		name, err := identifier("field", kind.Field.GetNames())
 		if err != nil {
@@ -291,7 +291,7 @@ func (e *emitter) member(node *irpb.Node) (string, string, error) {
 			return "", "", err
 		}
 
-		return comment(name, kind.Field.GetNames().GetOriginal(), summary) + name + " " + typ, name, nil
+		return comment(name, kind.Field.GetNames(), summary) + name + " " + typ, name, nil
 	default:
 		return "", "", malformed(fmt.Sprintf("node %d is not something a group may contain", node.GetId()),
 			"a member list names a group, variant, field or slack node; see docs/ir/SPEC.md, \"The node kinds\"")
@@ -599,10 +599,24 @@ func slackDeclaration(runs int) string {
 
 // comment is a struct field's doc comment, opening with the Go name Go's own
 // convention wants there and naming the copybook's word for it.
-func comment(name, original, summary string) string {
+//
+// The copybook's name is in it whether or not the layout renamed the item, and
+// that is what makes the identifier traceable: a reader holding the generated
+// source can get back to the item in the copybook without holding the layout as
+// well. Where a rename is what produced the identifier, [renameNote] says so
+// beneath, because otherwise the name in the comment is one this generator's
+// munging visibly did not produce and there is nothing on the page to say why.
+func comment(name string, names *irpb.Names, summary string) string {
+	return commentLines(fmt.Sprintf("%s is %s — %s%s", name, names.GetOriginal(), summary, renameNote(names)))
+}
+
+// commentLines is a doc comment's text as the lines of one, each line of it
+// commented in turn so that a sentence added beneath is a sentence rather than
+// source.
+func commentLines(text string) string {
 	var b strings.Builder
 
-	for _, line := range strings.Split(fmt.Sprintf("%s is %s — %s", name, original, summary), "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		b.WriteString("// ")
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -611,13 +625,29 @@ func comment(name, original, summary string) string {
 	return b.String()
 }
 
-// identifier is the exported Go identifier for a node's names.
+// renameNote is the sentence a renamed item's doc comment carries, or the empty
+// string where the layout renamed nothing.
 //
-// The original COBOL name and nothing else: the rename override is #50's, along
-// with the rest of what munging owes an adopter — the traceability tag and what
-// a collision after munging is. What is here is the least that turns a copybook
-// name into an identifier, and it refuses rather than invents where that is not
-// enough.
+// It names the override as the layout spells it rather than as this generator
+// munged it, so that the sentence points at a line the adopter can go and edit.
+func renameNote(names *irpb.Names) string {
+	if names.GetOverrideName() == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("\nThe layout renames it to %s.", names.GetOverrideName())
+}
+
+// identifier is the exported Go identifier for a node's names: the override
+// where the layout gave one and the copybook's own name otherwise, munged.
+//
+// The override is munged rather than taken as written, so that one rule decides
+// what an identifier looks like whatever it was spelled from — an adopter who
+// writes `customer_id` in a layout gets the identifier they would have got from
+// a copybook item spelled that way. Being munged is also what keeps a rename
+// from being a hole in the rest of this: a name that cannot become an exported
+// identifier is refused wherever it came from, and two names that arrive at one
+// identifier collide whether or not a rename put them there.
 func identifier(kind string, names *irpb.Names) (string, error) {
 	original := names.GetOriginal()
 
@@ -631,22 +661,59 @@ func identifier(kind string, names *irpb.Names) (string, error) {
 			"record, group and field nodes each carry the name the copybook spells; see docs/ir/SPEC.md, \"The node kinds\"")
 	}
 
-	munged := munge(original)
+	// An override that is present and empty is the same kind of bug, one step
+	// further along: a rename substitutes a name, and the empty string is not
+	// one. Falling back to the original would generate from a layout line that
+	// silently did nothing.
+	if names.OverrideName != nil && names.GetOverrideName() == "" {
+		return "", malformed(fmt.Sprintf("the %s named %s carries an empty rename override", kind, original),
+			"a rename substitutes a name for the copybook's, and there is no name in the empty string; see docs/ir/SPEC.md, \"Names\"")
+	}
+
+	spelled := original
+	if names.GetOverrideName() != "" {
+		spelled = names.GetOverrideName()
+	}
+
+	munged := munge(spelled)
 
 	if munged == "" {
-		return "", &unmungeableError{Kind: kind, Cobol: original}
+		return "", &unmungeableError{Kind: kind, Cobol: original, Override: names.GetOverrideName()}
 	}
 
 	if unicode.IsDigit(rune(munged[0])) {
-		return "", &unmungeableError{Kind: kind, Cobol: original}
+		return "", &unmungeableError{Kind: kind, Cobol: original, Override: names.GetOverrideName()}
 	}
 
 	return munged, nil
 }
 
-// munge turns a COBOL name into an exported Go identifier: each run of letters
-// and digits becomes one word, capitalised, and the separators between them go.
+// munge turns a name into an exported Go identifier: each run of letters and
+// digits becomes one word, the separators between them go, and every word opens
+// with a capital.
+//
+// What happens to the rest of each word turns on whether the name was written
+// in one case throughout. A name that is — `ORDER-ID` as a copybook spells one,
+// or `order_id` as an adopter might spell a rename — carries no casing of its
+// own, so this supplies it and lowercases the tail: `OrderId`. A name written in
+// more than one case carries the casing somebody chose, so this keeps it and
+// only ensures the first letter is a capital: `CustomerID` stays `CustomerID`,
+// and `custId` becomes `CustId`.
+//
+// That second half is what makes the rename override a control over the
+// identifier rather than another string to be flattened. There is no table of
+// initialisms here and there is deliberately not going to be one: a table is a
+// list of words this generator has heard of, `OrderId` and `OrderID` would then
+// differ by whether `ID` made the list, and a name an adopter cannot predict is
+// the thing this generator refuses to produce everywhere else. An adopter who
+// wants `OrderID` renames the item to `OrderID` and gets exactly that.
+//
+// Reserved words need no handling and get none: every identifier this produces
+// is exported, so its first letter is a capital, and every Go keyword is
+// lowercase. There is no COBOL name that munges to one.
 func munge(name string) string {
+	uniform := uniformCase(name)
+
 	var b strings.Builder
 
 	boundary := true
@@ -654,10 +721,13 @@ func munge(name string) string {
 	for _, r := range name {
 		switch {
 		case unicode.IsLetter(r):
-			if boundary {
+			switch {
+			case boundary:
 				b.WriteRune(unicode.ToUpper(r))
-			} else {
+			case uniform:
 				b.WriteRune(unicode.ToLower(r))
+			default:
+				b.WriteRune(r)
 			}
 
 			boundary = false
@@ -673,19 +743,50 @@ func munge(name string) string {
 	return b.String()
 }
 
-// originalOf is a node's COBOL name, for a diagnostic about it. A node the
-// copybook gives no name — a slack node, a state, a register — has none.
-func originalOf(node *irpb.Node) string {
+// uniformCase is whether a name is written in one case throughout, which is
+// what says its casing carries no information for [munge] to keep.
+//
+// A name with no letter in it at all counts as uniform; it has no tail for the
+// answer to change, and it is refused a line later for having no identifier in
+// it.
+func uniformCase(name string) bool {
+	var upper, lower bool
+
+	for _, r := range name {
+		switch {
+		case unicode.IsUpper(r):
+			upper = true
+		case unicode.IsLower(r):
+			lower = true
+		}
+	}
+
+	return !(upper && lower)
+}
+
+// namesOf is what a node is called: the copybook's name for it and the rename
+// the layout asked for beside it. A node the copybook gives no name — a slack
+// node, a state, a register — carries none, and nil is what those are called.
+func namesOf(node *irpb.Node) *irpb.Names {
 	switch kind := node.GetKind().(type) {
 	case *irpb.Node_Record:
-		return kind.Record.GetNames().GetOriginal()
+		return kind.Record.GetNames()
 	case *irpb.Node_Group:
-		return kind.Group.GetNames().GetOriginal()
+		return kind.Group.GetNames()
 	case *irpb.Node_Field:
-		return kind.Field.GetNames().GetOriginal()
+		return kind.Field.GetNames()
 	default:
-		return ""
+		return nil
 	}
+}
+
+// originalOf is a node's COBOL name, for a diagnostic about it.
+func originalOf(node *irpb.Node) string { return namesOf(node).GetOriginal() }
+
+// namedBy is what a set of names collides as: both of them, so that a collision
+// a rename caused names the rename.
+func namedBy(names *irpb.Names) colliding {
+	return colliding{Original: names.GetOriginal(), Override: names.GetOverrideName()}
 }
 
 // plural is a count and its unit, with the unit pluralised.

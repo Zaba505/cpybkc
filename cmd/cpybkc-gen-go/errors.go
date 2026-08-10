@@ -43,7 +43,31 @@ func (e *malformedError) Error() string {
 // Notes is what follows it as a `note:` diagnostic.
 func (e *malformedError) Notes() []string { return []string{e.Rule} }
 
-// collisionError is two COBOL names that munge to one Go identifier.
+// colliding is one of the two items a collision is between: the copybook's name
+// for it, and the rename the layout gave it where it gave one.
+//
+// The rename is carried because it is what was munged, and a collision naming
+// only the copybook's two names would send an adopter to look at a copybook
+// whose names do not collide — the rename in their layout is the half they can
+// edit, and it is the half that has to be on the page.
+type colliding struct {
+	// Original is the name as the copybook spells it.
+	Original string
+
+	// Override is the rename, empty where the layout renamed nothing.
+	Override string
+}
+
+// String is the item as a diagnostic names it.
+func (c colliding) String() string {
+	if c.Override == "" {
+		return c.Original
+	}
+
+	return fmt.Sprintf("%s (renamed %s)", c.Original, c.Override)
+}
+
+// collisionError is two names that munge to one Go identifier.
 //
 // Reported rather than resolved. A generator that disambiguated silently would
 // put a name in an adopter's source that their copybook does not contain and
@@ -53,9 +77,9 @@ type collisionError struct {
 	// Go is the identifier both names produced.
 	Go string
 
-	// Cobol is the two copybook names that produced it, in the order the
-	// descriptor carries them.
-	Cobol []string
+	// Cobol is the two items that produced it, in the order the descriptor
+	// carries them.
+	Cobol []colliding
 
 	// Where is what the two names collide inside, as a phrase.
 	Where string
@@ -74,24 +98,42 @@ func (e *collisionError) Notes() []string {
 	}
 }
 
-// unmungeableError is a COBOL name this generator's munging does not turn into
-// an exported Go identifier: one with no letter or digit in it at all, or one
-// whose first is a digit.
+// unmungeableError is a name this generator's munging does not turn into an
+// exported Go identifier: one with no letter or digit in it at all, or one whose
+// first is a digit.
 type unmungeableError struct {
 	// Kind is what sort of node carries the name — a record, a group, a field.
 	Kind string
 
 	// Cobol is the name as the copybook spells it.
 	Cobol string
+
+	// Override is the rename the layout gave it, empty where it gave none.
+	//
+	// It is what was munged where it is set, so it is what the diagnostic is
+	// about: an adopter told to rename an item they have already renamed has
+	// been sent somewhere they have been.
+	Override string
 }
 
 // Error implements the error interface.
 func (e *unmungeableError) Error() string {
+	if e.Override != "" {
+		return fmt.Sprintf("%s is the rename of the %s named %s, and there is no exported Go identifier in it",
+			e.Override, e.Kind, e.Cobol)
+	}
+
 	return fmt.Sprintf("%s is the name of a %s, and there is no exported Go identifier in it", e.Cobol, e.Kind)
 }
 
 // Notes is what follows it as a `note:` diagnostic.
 func (e *unmungeableError) Notes() []string {
+	if e.Override != "" {
+		return []string{
+			"a Go identifier begins with a letter; the rename in your layout is the name this generator munges, so it is the one to change",
+		}
+	}
+
 	return []string{
 		"a Go identifier begins with a letter; rename the item in the layout so that the name this generator munges does too",
 	}

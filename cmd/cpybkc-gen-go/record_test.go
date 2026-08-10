@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/Zaba505/cpybkc/irpb"
 )
 
@@ -196,13 +198,15 @@ func TestAVariantIsRefusedRatherThanEmittedWithoutItsArms(t *testing.T) {
 	}
 }
 
-// TestTwoNamesThatMungeToOneIdentifierAreRefused covers both places a collision
-// lands: two records of one descriptor, and two items of one group.
+// TestTwoNamesThatMungeToOneIdentifierAreRefused covers every place a collision
+// lands: two records of one descriptor, two items of one group, and a rename
+// that lands on a name something else already munges to.
 //
 // Refused rather than disambiguated. A generator that appended a number would
 // put an identifier in an adopter's source that their copybook does not contain
 // and that a later copybook edit would move from one item to the other, with
-// nothing failing while it happened.
+// nothing failing while it happened. A rename is no exception: it is munged like
+// any other name, so it collides like any other name.
 func TestTwoNamesThatMungeToOneIdentifierAreRefused(t *testing.T) {
 	t.Parallel()
 
@@ -225,6 +229,24 @@ func TestTwoNamesThatMungeToOneIdentifierAreRefused(t *testing.T) {
 				alphanumeric(4, "ORDER_ID", 4),
 			},
 		},
+		"a rename onto the name of the item beside it": {
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3, 4),
+				alphanumeric(3, "ORDER-ID", 4),
+				renamed(alphanumeric(4, "CUSTOMER-NAME", 20), "order_id"),
+			},
+		},
+		"a rename onto the name of the record beside it": {
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil),
+				renamed(record(3, "TRAILER-RECORD", 4), "order-record"),
+				group(4, "TRAILER-RECORD", nil),
+			},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -237,15 +259,187 @@ func TestTwoNamesThatMungeToOneIdentifierAreRefused(t *testing.T) {
 			}
 
 			if len(collision.Cobol) != 2 {
-				t.Fatalf("the collision names %d copybook names, want the two that produced it", len(collision.Cobol))
+				t.Fatalf("the collision names %d items, want the two that produced it", len(collision.Cobol))
 			}
 
+			// Both halves of what an adopter needs: the copybook's name, which
+			// says which item it is, and the rename where a rename is what was
+			// munged, which says which line of the layout to go and edit.
 			for _, want := range collision.Cobol {
-				if !strings.Contains(collision.Error(), want) {
-					t.Errorf("the collision reads %q and does not name %s", collision.Error(), want)
+				if !strings.Contains(collision.Error(), want.Original) {
+					t.Errorf("the collision reads %q and does not name %s", collision.Error(), want.Original)
+				}
+
+				if want.Override != "" && !strings.Contains(collision.Error(), want.Override) {
+					t.Errorf("the collision reads %q and does not name the rename %s", collision.Error(), want.Override)
 				}
 			}
 		})
+	}
+}
+
+// TestARenameIsTheIdentifierAndTheCopybookNameIsStillOnThePage is what a rename
+// override buys an adopter, on all three of the named node kinds.
+//
+// Two properties, and the second is the one a story about names could lose
+// without noticing: the identifier is the rename's, and the copybook's own name
+// is still in the generated source. An adopter reading the struct has to be able
+// to get back to the item in the copybook, and a generator that substituted the
+// name would leave them holding an identifier that appears nowhere in the
+// copybook and nothing to connect the two.
+func TestARenameIsTheIdentifierAndTheCopybookNameIsStillOnThePage(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			renamed(record(1, "ORDER-RECORD", 2), "purchase_order"),
+			group(2, "ORDER-RECORD", nil, 3, 4, 5),
+			renamed(alphanumeric(3, "CUST-NM", 20), "CustomerName"),
+			alphanumeric(4, "SKU", 8),
+			renamed(group(5, "LINE-ITEM", constant(2), 6), "Lines"),
+			alphanumeric(6, "ITEM-CODE", 8),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsFile]
+
+	for _, want := range []string{
+		// The record, the field and the group each take the rename.
+		"type PurchaseOrder struct",
+		"CustomerName string",
+		"Lines [2]struct",
+
+		// And each says what the copybook calls it, and that the name it is
+		// declared under came from the layout rather than from munging.
+		"// PurchaseOrder is the ORDER-RECORD record",
+		"// The layout renames it to purchase_order.",
+		"// CustomerName is CUST-NM —",
+		"// The layout renames it to CustomerName.",
+		"// Lines is LINE-ITEM —",
+		"// The layout renames it to Lines.",
+
+		// The item the layout said nothing about keeps the copybook's name and
+		// carries no note about a rename that did not happen.
+		"// Sku is SKU — alphanumeric, DISPLAY, 8 bytes.\n\tSku string",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not contain %q\n%s", recordsFile, want, source)
+		}
+	}
+
+	for _, unwanted := range []string{"OrderRecord", "CustNm", "LineItem "} {
+		if strings.Contains(source, unwanted) {
+			t.Errorf("%s declares %s, and the layout renamed it", recordsFile, unwanted)
+		}
+	}
+}
+
+// TestMungingIsWhatTheReadmeDocuments walks the rule an adopter is told, from
+// both sides of it.
+//
+// A name written in one case throughout carries no casing of its own, so munging
+// supplies it. A name written in more than one carries somebody's choice, so
+// munging keeps it — which is what makes the rename override a control over the
+// identifier rather than another string to be flattened, and what stands in for
+// the table of initialisms this generator deliberately does not carry.
+func TestMungingIsWhatTheReadmeDocuments(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]string{
+		// One case throughout: each word capitalised, the rest lowered.
+		"ORDER-ID":         "OrderId",
+		"order_id":         "OrderId",
+		"CUSTOMER NAME":    "CustomerName",
+		"ADDRESS-2ND-LINE": "Address2ndLine",
+
+		// More than one: the tail is left as it was written, and only the first
+		// letter of each word is made a capital.
+		"CustomerID": "CustomerID",
+		"custId":     "CustId",
+		"XMLDoc":     "XMLDoc",
+		"order-ID":   "OrderID",
+	} {
+		if got := munge(name); got != want {
+			t.Errorf("%s munges to %s, want %s", name, got, want)
+		}
+	}
+}
+
+// TestARenameWithNoGoIdentifierInItIsRefusedAndSaysSo is the unmungeable name
+// again, one step along: the adopter has already renamed the item, and the
+// rename is the name that will not munge.
+//
+// The diagnostic has to be about the rename. Telling somebody to rename an item
+// they have just renamed sends them to a line they have already written and
+// leaves them looking for a second one.
+func TestARenameWithNoGoIdentifierInItIsRefusedAndSaysSo(t *testing.T) {
+	t.Parallel()
+
+	for _, override := range []string{"1st_address_line", "___"} {
+		d := &irpb.Descriptor{
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3),
+				renamed(alphanumeric(3, "ADDRESS-LINE", 30), override),
+			},
+		}
+
+		err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+		var unmungeable *unmungeableError
+		if !errors.As(err, &unmungeable) {
+			t.Fatalf("generate returned %v for the rename %s, want a refusal", err, override)
+		}
+
+		if unmungeable.Override != override {
+			t.Errorf("the refusal is about the rename %q, want %s", unmungeable.Override, override)
+		}
+
+		if !strings.Contains(unmungeable.Error(), override) || !strings.Contains(unmungeable.Error(), "ADDRESS-LINE") {
+			t.Errorf("the refusal reads %q, and names neither the rename nor the item", unmungeable.Error())
+		}
+
+		if len(unmungeable.Notes()) == 0 {
+			t.Error("the refusal says nothing about what to change")
+		}
+	}
+}
+
+// TestARenameToNothingIsMalformedRatherThanIgnored is a descriptor carrying an
+// override that is present and empty.
+//
+// A rename substitutes a name and the empty string is not one, so this is a bug
+// in the producer rather than a layout an adopter can fix. Falling back to the
+// copybook's name would generate from a rename that silently did nothing.
+func TestARenameToNothingIsMalformedRatherThanIgnored(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3),
+			renamed(alphanumeric(3, "ADDRESS-LINE", 30), ""),
+		},
+	}
+
+	err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+	var refusal *malformedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("generate returned %v, want a malformed descriptor", err)
+	}
+
+	if !strings.Contains(refusal.Error(), "ADDRESS-LINE") {
+		t.Errorf("the refusal reads %q and does not name the item carrying the override", refusal.Error())
 	}
 }
 
@@ -567,7 +761,7 @@ func ordersDescriptor() *irpb.Descriptor {
 
 			record(10, "ORDER-RECORD", 11),
 			group(11, "ORDER-RECORD", nil, 12, 13, 14, 15, 16, 22, 23),
-			zoned(12, "ORDER-ID", 5, 5, 0, false),
+			renamed(zoned(12, "ORDER-ID", 5, 5, 0, false), "OrderID"),
 			alphanumeric(13, "CUSTOMER-NAME", 20),
 			slack(14, 2),
 			packed(15, "ORDER-TOTAL", 4, 7, 2, true),
@@ -597,6 +791,14 @@ func ordersDescriptor() *irpb.Descriptor {
 			}}},
 		},
 	}
+}
+
+// renamed is a node the layout gave a substitute name for, which is the name
+// this generator munges into an identifier.
+func renamed(node *irpb.Node, override string) *irpb.Node {
+	namesOf(node).OverrideName = proto.String(override)
+
+	return node
 }
 
 // record is a record node whose top level is the group root names.
@@ -679,20 +881,6 @@ func resolvedEncoding() *irpb.Encoding {
 		SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 		ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
 		FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
-	}
-}
-
-// namesOf is a node's names, for a test that has one in hand.
-func namesOf(node *irpb.Node) *irpb.Names {
-	switch kind := node.GetKind().(type) {
-	case *irpb.Node_Record:
-		return kind.Record.GetNames()
-	case *irpb.Node_Group:
-		return kind.Group.GetNames()
-	case *irpb.Node_Field:
-		return kind.Field.GetNames()
-	default:
-		return nil
 	}
 }
 
