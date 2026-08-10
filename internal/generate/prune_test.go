@@ -441,6 +441,8 @@ func TestARecordThisCpybkcDidNotWriteFailsTheRunBeforeAnythingStarts(t *testing.
 		{about: "not JSON at all", held: "{"},
 		{about: "a version nobody here knows", held: `{"version": 2, "files": []}`},
 		{about: "a field nobody here writes", held: `{"version": 1, "files": [], "pruned": true}`},
+		{about: "more than the one object a record is", held: `{"version": 1, "files": []}{"version": 1, "files": []}`},
+		{about: "something appended to the record", held: `{"version": 1, "files": []}` + "\n<<<<<<< HEAD\n"},
 		{about: "a path out of the project", held: `{"version": 1, "files": ["../../etc/passwd"]}`},
 		{about: "an absolute path", held: `{"version": 1, "files": ["/etc/passwd"]}`},
 	}

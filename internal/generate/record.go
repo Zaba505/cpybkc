@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -131,6 +132,18 @@ func readRecord(path string) ([]string, error) {
 
 	if err := decoder.Decode(&held); err != nil {
 		return nil, &RecordError{Path: path, Err: err}
+	}
+
+	// A record is one JSON object and nothing else. [encoding/json] stops at
+	// the end of the first value it reads, so without this a second object
+	// concatenated onto the file — or anything at all after it — would be read
+	// past in silence, and a file that has been appended to is exactly the file
+	// this run must not be deleting from.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, &RecordError{
+			Path:  path,
+			Fault: "it holds more than the one JSON object a record is",
+		}
 	}
 
 	if held.Version != recordVersion {
