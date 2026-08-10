@@ -33,12 +33,11 @@
 //
 // # What this command does not do yet
 //
-// The descriptor's record nodes are read and become Go structs; nothing else in
-// the node list is. The decode and encode methods, the file-level reader and
-// writer, and the codec version assertions are #51–#53, and each lands as a
-// file beside the two this program writes today. The one shape of a record it
-// refuses rather than emits is a variant, for the reason README.md's "What is
-// not emitted yet" gives.
+// The descriptor's record nodes become Go structs, those types read and write
+// their own bytes, and the file node and the automaton become a file-level
+// reader and writer. What is left of the node list is the codec version
+// assertions, #53, which land as a file beside the four this program writes
+// today.
 //
 // # The version check
 //

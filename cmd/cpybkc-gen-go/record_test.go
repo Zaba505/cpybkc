@@ -780,14 +780,44 @@ func ordersDescriptor() *irpb.Descriptor {
 	return &irpb.Descriptor{
 		Version: supportedIRVersion,
 		Nodes: []*irpb.Node{
+			// Descriptor-word rather than unframed, because two of these record
+			// types have an extent that moves with a count and a fixed-length
+			// dataset has no single number of bytes to pad one out to. See
+			// docs/ir/SPEC.md, "A variable record does not fit a fixed-length
+			// dataset".
 			{
 				Id: 1,
 				Kind: &irpb.Node_File{File: &irpb.File{
-					Framing:      &irpb.File_Unframed{Unframed: &irpb.Unframed{}},
+					Framing:      &irpb.File_DescriptorWord{DescriptorWord: &irpb.DescriptorWord{}},
 					StartStateId: 2,
 				}},
 			},
-			{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{Accepts: true}}},
+
+			// A record apiece, in a fixed order, each state offering the one
+			// transition that carries no predicate. Nothing in these records
+			// says which they are — the copybooks carry no type code — so the
+			// automaton is what tells them apart, which is the shape
+			// docs/ir/SPEC.md's "A transition may carry no predicate" admits.
+			{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{90}}}},
+			{Id: 3, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{91}}}},
+			{Id: 4, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{92}}}},
+			{Id: 5, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{93}}}},
+			{Id: 6, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{94}}}},
+			{Id: 7, Kind: &irpb.Node_State{State: &irpb.State{Accepts: true}}},
+
+			admits(90, 10, 3),
+			admits(91, 50, 4),
+
+			// The one transition of the five that carries a predicate, so that
+			// a framing stating a record's length has a predicate to bound:
+			// a target outside the record the framing bounds does not match.
+			{Id: 92, Kind: &irpb.Node_Transition{Transition: &irpb.Transition{
+				RecordId: 40, NextStateId: 5, PredicateId: proto.Uint64(95),
+			}}},
+			equals(95, 42, "\xe8"),
+
+			admits(93, 60, 6),
+			admits(94, 30, 7),
 
 			record(10, "ORDER-RECORD", 11),
 			group(11, "ORDER-RECORD", nil, 12, 13, 14, 15, 16, 22, 23),
@@ -875,6 +905,14 @@ func renamed(node *irpb.Node, override string) *irpb.Node {
 	namesOf(node).OverrideName = proto.String(override)
 
 	return node
+}
+
+// admits is a transition node carrying no predicate and no guards: it admits
+// the record and moves to the state.
+func admits(id, record, next uint64) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Transition{Transition: &irpb.Transition{
+		RecordId: record, NextStateId: next,
+	}}}
 }
 
 // record is a record node whose top level is the group root names.

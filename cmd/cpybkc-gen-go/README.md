@@ -107,17 +107,18 @@ run has succeeded. Two runs given the same descriptor and the same options
 produce byte-identical files: nothing in the output comes from the clock, the
 environment, the host, the user or the paths in the argument vector.
 
-So far that is three files. `doc.go` carries the package clause and nothing
+So far that is four files. `doc.go` carries the package clause and nothing
 else, `records.go` carries [the record structs](#the-record-structs) — one per
-record the descriptor describes — and `codec.go` carries
-[the decode and encode methods](#decoding-and-encoding). A descriptor carrying
-no record node produces only the first, because a file holding a package clause
-and no declaration says nothing `doc.go` does not.
+record the descriptor describes — `codec.go` carries
+[the decode and encode methods](#decoding-and-encoding), and `file.go` carries
+[the file-level reader and writer](#reading-and-writing-a-file). A descriptor
+carrying no record node produces only the first, because a file holding a
+package clause and no declaration says nothing `doc.go` does not, and one whose
+automaton admits no record produces no `file.go` for the same reason.
 
-The file-level reader and writer
-([#52](https://github.com/Zaba505/cpybkc/issues/52)) and the codec version
-assertions ([#53](https://github.com/Zaba505/cpybkc/issues/53)) land beside
-them, each in a file of its own.
+The codec version assertions
+([#53](https://github.com/Zaba505/cpybkc/issues/53)) land beside them, in a
+file of their own.
 
 ## The record structs
 
@@ -370,3 +371,121 @@ of a record already read, so the value is the automaton's — the file-level
 reader ([#52](https://github.com/Zaba505/cpybkc/issues/52)) sizes the table and
 then hands the record over. The bounds the copybook declared are checked here
 either way, because those are the copybook's.
+
+## Reading and writing a file
+
+`file.go` is the file node and the automaton: the framing around a record, and
+the order records come in. Nothing in it is a table this generator interprets at
+run time — the states, their transitions and the predicates selecting them are
+emitted as Go, so what you read is the walk your layout describes rather than an
+engine with your descriptor inside it.
+
+```go
+r, err := orders.NewReader(f, orders.Encoding())
+
+for {
+	rec, err := r.Next()
+	if errors.Is(err, io.EOF) {
+		break
+	}
+	if err != nil {
+		return err
+	}
+
+	switch rec := rec.(type) {
+	case *orders.OrderRecord:
+		...
+	}
+}
+```
+
+`Next` returns `io.EOF` and only `io.EOF` when the file is complete. A file that
+was cut short is an error of its own and never wraps `io.EOF`, so the two are
+told apart with `errors.Is` rather than by reading the message.
+
+`Record` is the interface both directions take, and it is `codec.Unmarshaler`
+and `codec.Marshaler` together rather than a method this generator invented —
+every record type here already implements both, and a marker method would be an
+identifier neither your copybook nor your layout wrote. `Reader`, `Writer`,
+`Record`, `NewReader` and `NewWriter` are the five identifiers this file
+occupies at package scope, and a record whose name munges to one of them is a
+**collision** and an error, exactly as two items that munge alike are.
+
+Writing is the same walk in the other direction, and it ends with a `Close` that
+is not the file's:
+
+```go
+w, err := orders.NewWriter(f, orders.Encoding())
+
+for _, rec := range records {
+	if err := w.Write(rec); err != nil {
+		return err
+	}
+}
+
+return w.Close()
+```
+
+`Close` reports a current state that does not accept, or whose acceptance guards
+do not all hold, rather than closing the file — a group that promised four
+details and was given three is caught there. It does not close the `io.Writer`
+you handed it, which is yours.
+
+Neither direction holds more than one record. A count in a header is never
+back-filled from the records behind it: holding a group to count it gives up the
+streaming property, and a writer that has emitted a record cannot reach back
+into a stream it does not own.
+
+### What the framing does
+
+`ir/SPEC.md`'s [Physical framing](../../docs/ir/SPEC.md) settles all of this and
+this generator implements it rather than restating it. Three consequences are
+worth knowing before you read the generated code:
+
+- **A record's end comes from its extent**, never from a search of the input.
+  `0x15` sits inside any `COMP-3` field holding a value like `+152.50`, so a
+  reader scanning for a delimiter cuts the record there and fails three records
+  later, somewhere the corruption did not happen.
+- **The framing is checked against that extent**, and a disagreement is reported
+  at the record it happened on: a descriptor word whose length is not the
+  record's extent, or a delimiter that is not where the extent ends. **unframed**
+  buys none of that, which is a property of the dataset rather than a choice
+  made here.
+- **End of input is tested at a record boundary and nowhere else**, so a file
+  whose last record carries a well-formed trailing delimiter is complete rather
+  than holding a record the layout does not describe.
+
+A file is not byte-identical in two cases, and both are deliberate. Under
+**optional terminator** the writer emits the final delimiter rather than
+choosing whether to, because two writers left to decide produce two different
+files from one descriptor and one set of records. And under **segmented** it
+lays each record into as few segments as the file node's largest allows,
+whatever the input did. A *record* is byte-identical either way.
+
+### What the automaton remembers
+
+Where the descriptor carries registers, both directions carry a register file:
+guards are checked before a transition's predicate, and its bindings are applied
+after the record is admitted or emitted. Three things follow that a caller
+meets:
+
+- A record a **guard** excluded is reported as that, naming the register the
+  descriptor carries it under, rather than as a record the layout does not
+  describe. The two send you to different places — one is a record that does not
+  belong at this point in the file, the other a record type your layout is
+  missing.
+- A transition carrying **no predicate** matches every record. It is not a
+  fall-through: it is evaluated in the order the state carries it like every
+  other transition, and a guard-excluded one never displaces the
+  undescribed-record diagnostic, because it would have matched whatever was
+  there and so says nothing about the bytes in hand.
+- A table whose count is a **register** is sized from that register by the
+  reader and checked against it by the writer, and a caller supplying a
+  different number is reported. Where two tables of one record name that one
+  register, each is checked: neither of them sets it, so there is nothing to
+  pick between.
+
+A writer never derives a discriminating value. It evaluates the predicate of the
+transition it would take against the bytes it is about to emit and reports a
+record satisfying none, naming the record — see `ir/SPEC.md`'s *A writer
+evaluates a predicate, it never inverts one*.
