@@ -106,7 +106,8 @@ type filer struct {
 var fileImports = []string{"bufio", "bytes", "errors", "fmt", "io", codecImport}
 
 // fileMachine is the source of [fileMachineFile] for this descriptor, or the
-// empty string where the descriptor carries no file node.
+// empty string where this descriptor's automaton admits no record — because it
+// carries no file node, or because no state offers a transition.
 //
 // The reader walks the automaton over a record stream and the writer walks the
 // same automaton in the other direction. Neither is a table this generator

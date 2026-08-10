@@ -367,16 +367,21 @@ func (w *Writer) writeLineRecord(rec *LineRecord) error {
 // refuse is what a writer says when no transition leaving the state it is in
 // took the record it was asked to write.
 //
-// The record does not belong at this point in the file with the values it has,
-// and the value a predicate tests is the caller's: a writer checks it and
-// reports it when it is wrong rather than deriving one that would satisfy the
-// test and storing it into the field.
+// Two things bring a caller here and the message covers both, because the
+// writer's walk is narrowed before any predicate runs: the state may admit no
+// record of this type at all, which is a record written out of order, or it may
+// admit one and be selected by a predicate this record's values do not satisfy.
+//
+// Either way the record does not belong at this point in the file with the
+// values it has, and the value a predicate tests is the caller's: a writer
+// checks it and reports it when it is wrong rather than deriving one that would
+// satisfy the test and storing it into the field.
 func (w *Writer) refuse(record string, excluded string) error {
 	if excluded != "" {
 		return fmt.Errorf("record %d is a %s and does not belong here: %s", w.ordinal+1, record, excluded)
 	}
 
-	return fmt.Errorf("record %d is a %s and no transition leaving the state the automaton is in admits one whose values satisfy that transition's predicate, so it is reported rather than emitted", w.ordinal+1, record)
+	return fmt.Errorf("record %d is a %s and no transition leaving the state the automaton is in takes it: that state admits no %s here, or one it admits is selected by a predicate this record's values do not satisfy. It is reported rather than emitted", w.ordinal+1, record, record)
 }
 
 // emit writes one record's bytes with this file's framing around them.
