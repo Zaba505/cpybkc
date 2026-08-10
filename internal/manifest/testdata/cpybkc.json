@@ -1,0 +1,11 @@
+{
+  "inputs": ["cpy/orders.cpy"],
+  "layout": "orders.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "gen",
+      "options": {"package_name": "orders"}
+    }
+  ]
+}

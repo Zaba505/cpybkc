@@ -38,6 +38,63 @@ schema](docs/layout/SPEC.md#the-published-schema) is what it is and what it
 deliberately leaves to the reader; `schema/layout.sexpr` is the same file in
 this repository.
 
+## The project manifest
+
+A project is driven by a `cpybkc.json` checked in beside the files it names, so
+that generator selection and options are diffable, reviewable and the same on a
+laptop as in CI:
+
+```json
+{
+  "inputs": ["cpy/orders.cpy"],
+  "layout": "orders.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "gen",
+      "inputs": ["cpy/orders-go.cpy"],
+      "options": {"package_name": "orders", "receiver": "o"}
+    },
+    {
+      "name": "json-schema",
+      "out": "schema"
+    }
+  ]
+}
+```
+
+| Field | Scope | Required | What it is |
+|---|---|---|---|
+| `inputs` | top-level | no | The copybooks every generator reads. |
+| `layout` | top-level | yes | The [layout file](docs/layout/SPEC.md) the run resolves against. There is one of it: a project resolving against two layouts is two runs. |
+| `generators` | top-level | yes | The generators to run, in order, at least one of them. |
+| `name` | generator | yes | Resolves to the `cpybkc-gen-<name>` executable on `PATH`. It is the whole of how a generator is identified — there is no `source` and no `version` beside it. |
+| `out` | generator | yes | The directory this generator's output lands in. |
+| `inputs` | generator | no | Copybooks this generator reads **in addition to** the top-level `inputs`; a path named in both is read once. |
+| `options` | generator | no | The generator's own options, each handed to it as one `--opt k=v`, **in the order this object writes them**. A key carries no `=`; a value is text, and may be empty. |
+
+Four rules are worth knowing before a manifest is written, because each of them
+is a fault rather than something cpybkc works around:
+
+- **An unknown field is reported, never ignored.** A manifest is a file a person
+  wrote, so a misspelled field is a typo they want told about rather than a line
+  that reads as configuration and silently does nothing. The same goes for a
+  field written twice, a copybook named twice in one list, and an empty string
+  where a path or a name belongs.
+- **A path is used as written.** cpybkc resolves nothing against anything on
+  your behalf; a relative path is relative to the manifest.
+- **Every fault is reported at once**, each with the line and column in
+  `cpybkc.json` it is at — a manifest with three things wrong with it is one run,
+  not three.
+- **Malformed JSON stops the read**, since there is no way to know where the
+  value that failed to parse was meant to end.
+
+The manifest is deliberately **not** one of the four specs above: a plugin never
+reads one, and receives the options it selected already resolved on its command
+line. [The `cpybkc.json` project
+manifest](docs/plugin/SPEC.md#the-cpybkcjson-project-manifest) is where the
+plugin contract says so, and why.
+
 ## Contributing
 
 `dagger call ci` runs fmt, vet, lint and `go test -race` — the same call CI
