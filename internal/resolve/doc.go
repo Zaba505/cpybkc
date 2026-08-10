@@ -165,8 +165,9 @@
 // # What this package leaves to the stories after it
 //
 // Assembling nodes into a [github.com/Zaba505/cpybkc/irpb.Descriptor] with
-// identifiers on them is #38's. A [Repetition], a [Binding] and a [Predicate]
-// here therefore name a
+// identifiers on them is #38's, and
+// [github.com/Zaba505/cpybkc/internal/assemble] is where it landed. A
+// [Repetition], a [Binding] and a [Predicate] here therefore name a
 // [github.com/Zaba505/cobol-go/copybook.Field] rather than an identifier.
 //
 // A count that lives in another record never reaches [Resolve] at all, and that
