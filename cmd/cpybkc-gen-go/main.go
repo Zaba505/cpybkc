@@ -33,11 +33,12 @@
 //
 // # What this command does not do yet
 //
-// Nothing is read out of the descriptor's node list. Structs, decode and encode
-// methods, the file-level reader and writer, and the codec version assertions
-// are #49–#53; what is here is the scaffold they land in — the argument vector,
-// the descriptor read, the version check every plugin owes its user, and one
-// generated file carrying the package clause.
+// The descriptor's record nodes are read and become Go structs; nothing else in
+// the node list is. The decode and encode methods, the file-level reader and
+// writer, and the codec version assertions are #51–#53, and each lands as a
+// file beside the two this program writes today. The one shape of a record it
+// refuses rather than emits is a variant, for the reason README.md's "What is
+// not emitted yet" gives.
 //
 // # The version check
 //
@@ -108,10 +109,9 @@ func run(args []string, stdin io.Reader) error {
 		return &unsupportedVersionError{Descriptor: version}
 	}
 
-	// Decoded here and its nodes left alone: reading them is #49–#53's. The
-	// decode is not deferred with them, because a descriptor whose bytes are
-	// not a cpybkc IR message is a failure to report rather than one to
-	// discover after a file has been written.
+	// Decoded once the version has been read off the wire, and not before: a
+	// descriptor whose bytes are not a cpybkc IR message is a failure to report
+	// rather than one to discover after a file has been written.
 	var d irpb.Descriptor
 	if err := proto.Unmarshal(descriptor, &d); err != nil {
 		return fmt.Errorf("the descriptor is not a cpybkc IR message: %w", err)
