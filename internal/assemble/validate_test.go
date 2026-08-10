@@ -334,6 +334,27 @@ func TestARecordWithNoItemsIsRefused(t *testing.T) {
 	refused(t, d, "holds no items")
 }
 
+// TestARecordRootedAtTheWrongKindIsOneFault holds the emptiness check to being
+// about a record whose top level really is a group.
+//
+// A root naming some other kind reads as holding no members whatever it is, so
+// reporting both would report the reference fault twice — once as itself and
+// once as a consequence a reader would go looking for separately.
+func TestARecordRootedAtTheWrongKindIsOneFault(t *testing.T) {
+	d := valid()
+	node(t, d, 1).GetRecord().RootId = 3
+
+	refused(t, d, "a field node, and admits only group")
+
+	// The reference, the top level nothing now contains, and the field the
+	// record and its group both name. Every one of those is what the root
+	// being wrong did; a fourth about the record holding no items would be a
+	// consequence a reader would go looking for separately.
+	if rendered := diag.Render(Validate(d)); strings.Contains(rendered, "holds no items") {
+		t.Errorf("the pass also reported the record as holding no items:\n%s", rendered)
+	}
+}
+
 // TestAVariantCarriesArmsAndEachArmCarriesBoth holds the one place an
 // alternation survives resolution to being a choice a consumer can make.
 func TestAVariantCarriesArmsAndEachArmCarriesBoth(t *testing.T) {
@@ -456,6 +477,32 @@ func TestTheAutomatonsMemoryIsWellFormed(t *testing.T) {
 		node(t, d, 7).GetGuard().Test = &irpb.Guard_Equals{Equals: &irpb.Literal{}}
 
 		refused(t, d, "carries no value")
+	})
+
+	t.Run("a literal of the kind the register does not hold", func(t *testing.T) {
+		d := memory()
+		node(t, d, 7).GetGuard().Test = &irpb.Guard_Equals{Equals: &irpb.Literal{
+			Value: &irpb.Literal_BytesValue{BytesValue: []byte{0xe8}},
+		}}
+
+		refused(t, d, "carries bytes, and the register it is compared against holds an integer")
+	})
+
+	t.Run("a number compared against a register holding bytes", func(t *testing.T) {
+		d := memory()
+		node(t, d, 6).GetRegister().Kind = irpb.RegisterKind_REGISTER_KIND_BYTES
+		node(t, d, 7).GetGuard().Test = &irpb.Guard_OneOf{OneOf: &irpb.LiteralSet{
+			Values: []*irpb.Literal{{Value: &irpb.Literal_Integer{Integer: 3}}},
+		}}
+
+		refused(t, d, "carries a number, and the register it is compared against holds bytes")
+	})
+
+	t.Run("a bytes register tested for being greater than zero", func(t *testing.T) {
+		d := memory()
+		node(t, d, 6).GetRegister().Kind = irpb.RegisterKind_REGISTER_KIND_BYTES
+
+		refused(t, d, "for being greater than zero, and only an integer is a number")
 	})
 
 	t.Run("a binding that writes nothing", func(t *testing.T) {

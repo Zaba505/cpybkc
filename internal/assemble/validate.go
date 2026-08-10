@@ -276,7 +276,12 @@ func (v *validator) record(id uint64, record *irpb.Record) {
 	v.names(id, record.GetNames(), true)
 	v.contain(id, "the record's top level", record.GetRootId(), "group")
 
-	if top, found := v.nodes[record.GetRootId()]; found && len(top.GetGroup().GetMemberIds()) == 0 {
+	// Only where the top level really is a group. A root naming some other
+	// kind is already reported by the reference above, and an empty member
+	// list read off a node that has none would report that fault a second time
+	// under a description that is not what is wrong with it.
+	if top, found := v.nodes[record.GetRootId()]; found && top.GetGroup() != nil &&
+		len(top.GetGroup().GetMemberIds()) == 0 {
 		v.fault(id, "holds no items, and no transition may admit a record whose extent is zero")
 	}
 }
@@ -424,12 +429,29 @@ func (v *validator) binding(id uint64, binding *irpb.Binding) {
 	}
 }
 
+// guard holds a guard to reading a register the descriptor carries, and to a
+// test that agrees with what that register holds.
+//
+// The agreement is checked here rather than left to a consumer, because a
+// mismatch is a comparison nothing can run: a bytes literal against a register
+// holding a number has no reading at all, and *greater than zero* has none
+// against a register holding bytes.
 func (v *validator) guard(id uint64, guard *irpb.Guard) {
 	v.reference(id, "the register it tests", guard.GetRegisterId(), "register")
 
+	// The unspecified kind stands for "not known here", which covers the
+	// register naming no node and the register that does not say what it
+	// holds. Both are already reported against the node they are wrong on, and
+	// a second fault about the literals that read them would be that fault
+	// again under a description of something else.
+	held := irpb.RegisterKind_REGISTER_KIND_UNSPECIFIED
+	if register, found := v.nodes[guard.GetRegisterId()]; found {
+		held = register.GetRegister().GetKind()
+	}
+
 	switch test := guard.GetTest().(type) {
 	case *irpb.Guard_Equals:
-		v.literal(id, "the literal it compares against", test.Equals)
+		v.literal(id, "the literal it compares against", test.Equals, held)
 	case *irpb.Guard_OneOf:
 		values := test.OneOf.GetValues()
 		if len(values) == 0 {
@@ -437,21 +459,29 @@ func (v *validator) guard(id uint64, guard *irpb.Guard) {
 		}
 
 		for at, value := range values {
-			v.literal(id, fmt.Sprintf("literal %d", at+1), value)
+			v.literal(id, fmt.Sprintf("literal %d", at+1), value, held)
+		}
+	case *irpb.Guard_GreaterThanZero:
+		if held == irpb.RegisterKind_REGISTER_KIND_BYTES {
+			v.fault(id, "tests a register holding bytes for being greater than zero, and only an integer is a number")
 		}
 	case nil:
 		v.fault(id, "carries no test, and the set of three has no member testing nothing")
 	}
 }
 
-// literal holds a guard's literal to carrying a value at all.
-//
-// Which of the two members it carries **MUST** match the kind of the register
-// tested, and that is checked here rather than left to a consumer: a bytes
-// literal against an integer register is a comparison nothing can run.
-func (v *validator) literal(id uint64, position string, literal *irpb.Literal) {
+// literal holds a guard's literal to carrying a value, and to carrying the one
+// the register it is compared against holds.
+func (v *validator) literal(id uint64, position string, literal *irpb.Literal, held irpb.RegisterKind) {
 	switch literal.GetValue().(type) {
-	case *irpb.Literal_BytesValue, *irpb.Literal_Integer:
+	case *irpb.Literal_BytesValue:
+		if held == irpb.RegisterKind_REGISTER_KIND_INTEGER {
+			v.fault(id, "%s carries bytes, and the register it is compared against holds an integer", position)
+		}
+	case *irpb.Literal_Integer:
+		if held == irpb.RegisterKind_REGISTER_KIND_BYTES {
+			v.fault(id, "%s carries a number, and the register it is compared against holds bytes", position)
+		}
 	default:
 		v.fault(id, "%s carries no value", position)
 	}
