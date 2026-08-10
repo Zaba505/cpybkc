@@ -16,13 +16,21 @@ Nothing imports it. It is `internal/` so that nothing outside this command can,
 and it holds no hand-written **declaration** — one added here by hand would fail
 the golden test, which is the right answer.
 
-`roundtrip_test.go` is the exception and is not one of those: it is a test file,
-so it is not part of the package the golden pins, and `written` skips a
-`_test.go` file for that reason. It is *inside* the package rather than beside
-it because two of #51's criteria cannot be stated from outside — the bytes
-retained for a slack node are unexported, so a run of the wrong length is
-something only code in this package can hand a writer, and an absent run and an
-empty one are told apart in a field nobody else can set.
+`roundtrip_test.go` and `file_test.go` are the exceptions and are not those:
+they are test files, so they are not part of the package the golden pins, and
+`written` skips a `_test.go` file for that reason. They are *inside* the package
+rather than beside it because some of the criteria cannot be stated from
+outside — the bytes retained for a slack node are unexported, so a run of the
+wrong length is something only code in this package can hand a writer, an absent
+run and an empty one are told apart in a field nobody else can set, and holding
+a record across a later read and asserting that it still carries its own slack
+reaches the same field.
+
+The two divide by layer. `roundtrip_test.go` asserts a *record* reading and
+writing its own bytes; `file_test.go` asserts the layer above — the framing
+around a record, the order records come in, and the two ends of a file. The
+other five packages beside this one are the same assertions under the other
+framings; [`../README.md`](../README.md) says which is which.
 
 Regenerate it whenever the emitter changes: the failure prints the whole of both
 sides, so the new bytes come out of the test's own output.

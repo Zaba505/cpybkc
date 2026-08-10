@@ -21,10 +21,10 @@ import (
 // package that compiles, which is what makes the output something a user can
 // point cpybkc at rather than a program that is not finished.
 //
-// The record structs land beside it in [recordsFile] and the decode and encode
-// methods in [codecFile]. The file-level reader and writer and the codec
-// version assertions are #52 and #53, and each lands as a file of its own for
-// the same reason.
+// The record structs land beside it in [recordsFile], the decode and encode
+// methods in [codecFile], and the file-level reader and writer in
+// [fileMachineFile]. The codec version assertions are #53, and land as a file
+// of their own for the same reason.
 const generatedFile = "doc.go"
 
 // generatedBy is the line Go's own tooling reads to know a file was not written
@@ -73,6 +73,19 @@ func generate(descriptor *irpb.Descriptor, out string, opts options) error {
 	// nothing.
 	if methods != "" {
 		sources[codecFile] = methods
+	}
+
+	machine, err := fileMachine(descriptor, opts)
+	if err != nil {
+		return err
+	}
+
+	// Absent where the descriptor's automaton admits no record, which is a
+	// descriptor describing no record stream: there is no framing to consume
+	// and no walk to make, so a reader and a writer would be a pair of types
+	// with nothing to read or write.
+	if machine != "" {
+		sources[fileMachineFile] = machine
 	}
 
 	names := make([]string, 0, len(sources))
