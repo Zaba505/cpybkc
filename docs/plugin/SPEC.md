@@ -283,8 +283,13 @@ convenient place to put it, and it costs a plugin one branch.
 
 ### The environment
 
-cpybkc passes its own environment through to a generator unchanged, except as
-[Determinism](#determinism) requires of `SOURCE_DATE_EPOCH` (#47).
+cpybkc passes its own environment through to a generator unchanged, and that
+pass-through **is** the propagation of `SOURCE_DATE_EPOCH` that
+[Determinism](#determinism) requires (#47): cpybkc adds no variable of its own,
+removes none, and names none, so that variable reaches a generator for the same
+reason every other one does. A plugin therefore sees exactly what cpybkc was
+started with, and a build that sets `SOURCE_DATE_EPOCH` for its other tools has
+already set it for every generator cpybkc runs.
 
 A plugin **MUST NOT** require an environment variable to be set in order to do
 its normal work; everything that configures its output arrives as `--opt`. The
@@ -503,14 +508,18 @@ several. When it is not set, a plugin **SHOULD** omit the timestamp rather than
 fall back to the clock: a missing generation date costs a reader nothing, and a
 present one costs every regeneration a diff.
 
-The requirement is checked rather than asserted — a pipeline stage generates
-twice and byte-compares, failing on any difference (#47) — because determinism
-is the kind of property that holds until nobody is looking. Repetition catches
-output ordered by map iteration, because Go randomises that on every range. It
-cannot catch a clock read, since two runs a moment apart agree on the date, so
-the generators in this repository are additionally held to the rule by a check
-on their source; a third-party plugin is bound by the requirement above however
-it chooses to meet it.
+The requirement is checked rather than asserted — the pipeline generates
+repeatedly, from runs that deliberately disagree about every surrounding named
+above and agree only about `SOURCE_DATE_EPOCH`, and byte-compares the trees,
+failing on any difference (#47) — because determinism is the kind of property
+that holds until nobody is looking. Repetition catches output ordered by map
+iteration, because Go randomises that on every range. It cannot catch a clock
+read, since two runs a moment apart agree on the date, so the generators in this
+repository are additionally held to the rule by a check on their source, which
+parses every package that decides what a run writes and refuses a call that
+reads the clock, the environment, the working directory, the host, the user or a
+random value. A third-party plugin is bound by the requirement above however it
+chooses to meet it.
 
 ## The version check, and why there is no handshake
 
