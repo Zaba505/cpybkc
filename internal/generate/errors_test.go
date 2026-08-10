@@ -26,6 +26,21 @@ func TestEveryFaultReadsTheSameThroughEitherEnd(t *testing.T) {
 		&UnmergeableError{Name: "go", Path: "orders.go", Mode: fs.ModeSymlink, Target: "/etc/passwd"},
 		&UnmergeableError{Name: "go", Path: "orders.go", Mode: fs.ModeNamedPipe},
 		&UnmergeableError{Name: "go", Path: ".", Mode: fs.ModeSymlink},
+		&CollisionError{
+			First: "go", FirstPath: "orders.go",
+			Second: "docs", SecondPath: "orders.go",
+			Dest: "gen/orders.go",
+		},
+		&CollisionError{
+			First: "go", FirstPath: "gen/orders.go",
+			Second: "docs", SecondPath: "orders.go",
+			Dest: "gen/orders.go",
+		},
+		&CollisionError{
+			First: "go", FirstPath: "gen",
+			Second: "docs", SecondPath: ".",
+			Dest: "gen",
+		},
 		&MergeError{Name: "go", Dest: "gen", Err: errors.New("permission denied")},
 		&MergeError{Name: "go", Path: "orders.go", Dest: "gen/orders.go", Err: errors.New("permission denied")},
 	}
@@ -79,6 +94,72 @@ func TestARefusalSaysWhatWasLeftAndWhyItWasNotMerged(t *testing.T) {
 			fault: &UnmergeableError{Name: "go", Path: "orders.go", Mode: fs.ModeNamedPipe},
 			want: `the generator "go" left a named pipe at "orders.go", and its output was not merged
   a generator's output is the files and the directories it leaves beneath the directory it was handed, and cpybkc merges nothing else`,
+		},
+	}
+
+	for _, test := range tests {
+		if got := diag.Render(test.fault); got != test.want {
+			t.Errorf("%s renders as\n%s\nwant\n%s", test.about, got, test.want)
+		}
+	}
+}
+
+// TestACollisionNamesBothGeneratorsAndWhatTheyProduced is what #44 asks of the
+// message. A person reading it has two plugins and one path, neither plugin is
+// the one that was wrong, and what they have to change is the manifest that
+// asked both for it — so the fault names both, names the path each of them
+// called it, and says where the two would have landed.
+func TestACollisionNamesBothGeneratorsAndWhatTheyProduced(t *testing.T) {
+	t.Parallel()
+
+	const rule = "  a path in a project's tree is one generator's, so cpybkc refuses the run rather than merging whichever it reached last: stop one of them producing it, or land the two in directories that do not overlap"
+
+	tests := []struct {
+		about string
+		fault *CollisionError
+		want  string
+	}{
+		{
+			about: "two generators landing in one directory",
+			fault: &CollisionError{
+				First: "go", FirstPath: "pkg/orders.go",
+				Second: "docs", SecondPath: "pkg/orders.go",
+				Dest: "/src/gen/pkg/orders.go",
+			},
+			want: `the generators "go" and "docs" both claim "/src/gen/pkg/orders.go", and nothing was merged
+  the generator "go" produced it as "pkg/orders.go"
+  the generator "docs" produced it as "pkg/orders.go"
+` + rule,
+		},
+		{
+			// Neither plugin's author would recognise the other's name for it,
+			// so a message quoting one alone would send half the readers looking
+			// for a path their generator never wrote.
+			about: "output directories that overlap",
+			fault: &CollisionError{
+				First: "go", FirstPath: "pkg/orders.go",
+				Second: "docs", SecondPath: "orders.go",
+				Dest: "/src/gen/pkg/orders.go",
+			},
+			want: `the generators "go" and "docs" both claim "/src/gen/pkg/orders.go", and nothing was merged
+  the generator "go" produced it as "pkg/orders.go"
+  the generator "docs" produced it as "orders.go"
+` + rule,
+		},
+		{
+			// One of the two never produced anything at that path: it is where
+			// the manifest told it to land its output, and a message saying it
+			// produced a directory there would be describing a plugin's doing.
+			about: "a file where the other was told to land its output",
+			fault: &CollisionError{
+				First: "go", FirstPath: "pkg",
+				Second: "docs", SecondPath: ".",
+				Dest: "/src/gen/pkg",
+			},
+			want: `the generators "go" and "docs" both claim "/src/gen/pkg", and nothing was merged
+  the generator "go" produced it as "pkg"
+  it has to be a directory for the generator "docs" to land its output
+` + rule,
 		},
 	}
 

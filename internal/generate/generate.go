@@ -53,10 +53,8 @@ type Generator struct {
 	// as the path in the argument vector is.
 	//
 	// Two generators may name the same directory, and a project that generates
-	// a package from two of them usually does. What happens when two of them
-	// also produce the same path *within* it is #44's; until that lands they
-	// are merged in the order they were declared, which is at least the same
-	// order twice.
+	// a package from two of them usually does. Two that also produce the same
+	// path *within* it fail the run with nothing merged; see [CollisionError].
 	Out string
 
 	// Options are the options to pass, in the order they are to be passed —
@@ -127,10 +125,13 @@ type Runner struct {
 // ran and failed is a fault about that generator and not about the merge that
 // never happened.
 //
-// What the merge itself refuses is [UnmergeableError], reported for every entry
-// it refused rather than for the first: a plugin that emits symlinks emits them
-// by the directory, and a run that named one of them would be run once per
-// symlink.
+// What the merge itself refuses is [UnmergeableError] — something a generator
+// left that is neither a file nor a directory — and [CollisionError], one place
+// in the project's tree that two generators both produced. Both are reported
+// for every entry refused rather than for the first: a plugin that emits
+// symlinks emits them by the directory, and a run that named one of them would
+// be run once per symlink. Both are decided before anything is written, so
+// either costs the run and never half a tree.
 //
 // The context bounds the generators, exactly as it bounds
 // [github.com/Zaba505/cpybkc/internal/plugin.Runner.Run]. It does not interrupt

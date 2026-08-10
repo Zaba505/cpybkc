@@ -301,6 +301,214 @@ func TestAnythingThatIsNotAFileOrADirectoryIsRefused(t *testing.T) {
 	}
 }
 
+func TestTwoGeneratorsProducingOnePathFailTheRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		about string
+
+		// scenario is the generators of one run, landing beneath project, and
+		// the fault the run is to report. It is built inside the test because
+		// every path in it is the test's own temporary directory's.
+		scenario func(t *testing.T, project string) ([]Generator, CollisionError)
+	}{
+		{
+			about: "two generators landing in one directory",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `echo A > "$4/orders.go"`, out),
+						generator(t, "two", `echo B > "$4/orders.go"`, out),
+					}, CollisionError{
+						First: "one", FirstPath: "orders.go",
+						Second: "two", SecondPath: "orders.go",
+						Dest: filepath.Join(out, "orders.go"),
+					}
+			},
+		},
+		{
+			// The two plugins agree about nothing: one of them produced
+			// `gen/orders.go` and the other `orders.go`, and they are one file
+			// because the directories the manifest gave them overlap.
+			about: "output directories that overlap rather than coincide",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `mkdir "$4/gen"
+echo A > "$4/gen/orders.go"`, project),
+						generator(t, "two", `echo B > "$4/orders.go"`, out),
+					}, CollisionError{
+						First: "one", FirstPath: "gen/orders.go",
+						Second: "two", SecondPath: "orders.go",
+						Dest: filepath.Join(out, "orders.go"),
+					}
+			},
+		},
+		{
+			// Not a file against a file, and still one path two generators both
+			// produced: merging either would decide for a plugin what its own
+			// output is.
+			about: "a file where the other generator produced a directory",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `echo A > "$4/pkg"`, out),
+						generator(t, "two", `mkdir "$4/pkg"
+echo B > "$4/pkg/orders.go"`, out),
+					}, CollisionError{
+						First: "one", FirstPath: "pkg",
+						Second: "two", SecondPath: "pkg",
+						Dest: filepath.Join(out, "pkg"),
+					}
+			},
+		},
+		{
+			// The second generator produced nothing at that path and could not
+			// have: it is the output directory the manifest gave it, which the
+			// merge creates on its behalf. Compared as produced entries alone,
+			// the two would agree right up until the merge tried to make a
+			// directory of the first generator's file — with that file written.
+			about: "a file where the other was told to land its output",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `echo A > "$4/pkg"`, out),
+						generator(t, "two", `echo B > "$4/orders.go"`, filepath.Join(out, "pkg")),
+					}, CollisionError{
+						First: "one", FirstPath: "pkg",
+						Second: "two", SecondPath: ".",
+						Dest: filepath.Join(out, "pkg"),
+					}
+			},
+		},
+		{
+			// The same fault a directory further up: what the merge has to
+			// create to reach an output directory is every directory above it,
+			// and a file standing in the way of one of those fails just as late.
+			about: "a file where the other's output directory has to be reached through",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `echo A > "$4/pkg"`, out),
+						generator(t, "two", `echo B > "$4/orders.go"`, filepath.Join(out, "pkg", "orders")),
+					}, CollisionError{
+						First: "one", FirstPath: "pkg",
+						Second: "two", SecondPath: ".",
+						Dest: filepath.Join(out, "pkg"),
+					}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.about, func(t *testing.T) {
+			t.Parallel()
+
+			project := filepath.Join(t.TempDir(), "project")
+			generators, want := test.scenario(t, project)
+
+			err := run(t, runner(t), generators...)
+
+			var collision *CollisionError
+			if !errors.As(err, &collision) {
+				t.Fatalf("the run failed with %v, want a CollisionError", err)
+			}
+
+			if *collision != want {
+				t.Errorf("the fault is %+v, want %+v", *collision, want)
+			}
+
+			// Refused before anything was written. A run that merged what did
+			// not collide and then stopped would leave the half-generated tree
+			// the two passes exist to prevent, and would leave it differently
+			// depending on which generator got there first.
+			if exists(t, project) {
+				t.Errorf("%s was created by a refused run: %v", project, tree(t, project))
+			}
+		})
+	}
+}
+
+func TestTwoGeneratorsMayProduceOneDirectory(t *testing.T) {
+	t.Parallel()
+
+	// A directory carries nothing for two generators to disagree about, and two
+	// of them landing in one place ordinarily both need `pkg`. What is one
+	// generator's each is the files inside it.
+	out := filepath.Join(t.TempDir(), "project", "gen")
+
+	if err := run(t, runner(t),
+		generator(t, "one", `mkdir "$4/pkg"
+echo A > "$4/pkg/orders.go"`, out),
+		generator(t, "two", `mkdir "$4/pkg"
+echo B > "$4/pkg/invoices.go"`, out),
+	); err != nil {
+		t.Fatalf("running the generators: %v", err)
+	}
+
+	same(t, out, map[string]string{
+		"pkg":             "<dir>",
+		"pkg/orders.go":   "A\n",
+		"pkg/invoices.go": "B\n",
+	})
+}
+
+func TestEveryCollisionIsReported(t *testing.T) {
+	t.Parallel()
+
+	project := filepath.Join(t.TempDir(), "project")
+	out := filepath.Join(project, "gen")
+
+	// Two generators that produce one path usually produce a directory of them
+	// — a manifest that asked both for the same package asked for every file in
+	// it — and a run that named one would be a run made once per file.
+	err := run(t, runner(t),
+		generator(t, "one", `echo A > "$4/orders.go"
+echo A > "$4/invoices.go"`, out),
+		generator(t, "two", `echo B > "$4/orders.go"
+echo B > "$4/invoices.go"`, out),
+	)
+
+	if got, want := len(diag.Diagnostics(err)), 2; got != want {
+		t.Errorf("the run reported %d faults, want %d:\n%s", got, want, diag.Render(err))
+	}
+
+	if exists(t, project) {
+		t.Errorf("%s was created by a refused run: %v", project, tree(t, project))
+	}
+}
+
+func TestACollisionNamesTheGeneratorsInTheOrderTheyWereDeclared(t *testing.T) {
+	t.Parallel()
+
+	out := filepath.Join(t.TempDir(), "project")
+
+	// Generators run concurrently, so the one that produced a path first is not
+	// the one that finished first. A fault naming whichever of them lost the
+	// race would report the same unchanged inputs differently on different runs
+	// — so the generator the run declared first is named first, however long it
+	// takes to produce anything.
+	err := run(t, runner(t),
+		generator(t, "slow", `sleep 1
+echo A > "$4/orders.go"`, out),
+		generator(t, "quick", `echo B > "$4/orders.go"`, out),
+	)
+
+	var collision *CollisionError
+	if !errors.As(err, &collision) {
+		t.Fatalf("the run failed with %v, want a CollisionError", err)
+	}
+
+	if got, want := collision.First, "slow"; got != want {
+		t.Errorf("the fault names %q first, want %q, which the run declared first", got, want)
+	}
+}
+
 func TestARerunReplacesWhatItProducedAndNeverWritesThroughALink(t *testing.T) {
 	t.Parallel()
 

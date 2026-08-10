@@ -71,10 +71,11 @@ type entry struct {
 // project's tree.
 //
 // Two passes, and the split is the point. The first reads every generator's
-// directory and refuses everything it will not merge, with nothing written; the
-// second writes. A single pass would have the first generator's files in the
-// project's tree by the time the second generator's symlink was found, which is
-// the half-generated tree the whole arrangement exists to avoid.
+// directory and refuses everything it will not merge — what cannot be merged at
+// all, and what two generators both produced — with nothing written; the second
+// writes. A single pass would have the first generator's files in the project's
+// tree by the time the second generator's symlink was found, which is the
+// half-generated tree the whole arrangement exists to avoid.
 func (r *Runner) merge(generators []Generator, invocations []plugin.Invocation, root string) error {
 	planned, err := plan(generators, invocations)
 	if err != nil {
@@ -103,7 +104,8 @@ func (r *Runner) merge(generators []Generator, invocations []plugin.Invocation, 
 }
 
 // plan reads what every generator produced, in the order they were declared,
-// and refuses what cannot be merged.
+// refuses what cannot be merged, and refuses what two of them produced between
+// them.
 //
 // Every fault is collected rather than the first returned: a plugin that emits
 // symlinks emits them by the directory, and a run that named one of them would
@@ -112,6 +114,7 @@ func plan(generators []Generator, invocations []plugin.Invocation) ([]entry, err
 	var (
 		faults  diag.List
 		planned []entry
+		claims  []entry
 	)
 
 	for i, generator := range generators {
@@ -124,6 +127,17 @@ func plan(generators []Generator, invocations []plugin.Invocation) ([]entry, err
 
 		produced, err := produced(generator.Name, invocations[i].Out, out)
 		faults.Fail(err)
+
+		// The claims are the entries plus the directories the merge has to
+		// create to reach them, in one list and in the run's own order, because
+		// a generator's hold on the project's tree is wider than the files it
+		// produced. They are kept apart from the plan rather than merged into
+		// it: a directory the merge creates on the way to an entry is created
+		// because that entry needs it, and a generator that produced nothing at
+		// all leaves the project exactly as it was.
+		claims = append(claims, required(generator.Name, out)...)
+		claims = append(claims, produced...)
+
 		planned = append(planned, produced...)
 	}
 
@@ -131,7 +145,102 @@ func plan(generators []Generator, invocations []plugin.Invocation) ([]entry, err
 		return nil, faults.Err()
 	}
 
+	// After the refusals rather than beside them. A generator whose output was
+	// refused contributed no entries to compare against, so a collision report
+	// built from what is left would be a claim about a run this one is not: the
+	// paths of a refused generator are unknown here, not absent. Nothing is lost
+	// by reporting one fault at a time — the run fails either way, and it fails
+	// before anything is written either way.
+	if err := collide(claims); err != nil {
+		return nil, err
+	}
+
 	return planned, nil
+}
+
+// required is the directories one generator needs there to be before any of its
+// output can land: the output directory the manifest gave it, and every
+// directory above that.
+//
+// They are claims on the project's tree as much as a produced file is, and
+// leaving them out leaves a hole exactly where the merge cannot recover from
+// one. A generator landing in `gen` that produces the *file* `pkg`, beside one
+// landing in `gen/pkg`, is two generators disagreeing about what `gen/pkg` is —
+// and with only produced entries compared, nothing would notice until
+// [merger.mkdirRoot] met the file, with the first generator's output already
+// written.
+//
+// Every directory above the output directory and not only the directory itself,
+// because [merger.mkdirRoot] creates those too, and a file standing where one of
+// them has to go fails the merge in the same way and just as late.
+func required(name, out string) []entry {
+	var claims []entry
+
+	for path := out; ; path = filepath.Dir(path) {
+		claims = append(claims, entry{generator: name, root: out, dest: path, path: ".", dir: true})
+
+		if parent := filepath.Dir(path); parent == path {
+			return claims
+		}
+	}
+}
+
+// collide is every place in the project's tree that two generators both claim.
+//
+// docs/plugin/SPEC.md: cpybkc MUST have resolved every generator's output
+// before it writes any of it, and a collision MUST fail the run with nothing
+// merged. Both halves are this function's position rather than its content: it
+// runs over every generator's claims at once, which is the only place the second
+// claimant of a path is knowable, and it runs before [merger.write] has been
+// called at all.
+//
+// The key is the destination and not the path a generator chose, because the
+// two are different questions. One relative path under two output directories
+// is two files, and two relative paths under directories that overlap are one;
+// what would actually be written over is the destination, so the destination is
+// what is compared.
+//
+// Every collision is reported rather than the first, for the reason every
+// refusal is: two generators that produce one path usually produce a directory
+// of them, and a run naming one would be a run made once per file.
+func collide(claims []entry) error {
+	var faults diag.List
+
+	// Walked in the order the claims were made — the order the run declared the
+	// generators, and lexical within each — so the pair a collision names is the
+	// same pair on every run of the same inputs. Generators run concurrently,
+	// and naming the one that lost a race is the one thing generated output
+	// cannot do.
+	claimed := make(map[string]entry, len(claims))
+
+	for _, e := range claims {
+		held, taken := claimed[e.dest]
+		if !taken {
+			claimed[e.dest] = e
+
+			continue
+		}
+
+		// Two generators asking for one directory is not a collision, and is
+		// what two of them landing in the same place ordinarily do: a directory
+		// carries nothing to disagree about, and the files inside it are
+		// compared here in their own right. A directory against a *file* is a
+		// collision — one of the two would have to stop being what its plugin
+		// made it.
+		if held.dir && e.dir {
+			continue
+		}
+
+		faults.Fail(&CollisionError{
+			First:      held.generator,
+			FirstPath:  held.path,
+			Second:     e.generator,
+			SecondPath: e.path,
+			Dest:       e.dest,
+		})
+	}
+
+	return faults.Err()
 }
 
 // produced is everything one generator left beneath scratch, as entries landing
