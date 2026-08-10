@@ -104,9 +104,9 @@ the companion Dagger module, whose stages run in Linux containers whatever the
 host they were invoked from. Neither path puts a Windows host in the position of
 running a generator executable, so the machinery that would have to sit behind
 discovery there — a second executable test, an `.exe` suffix to strip before a
-generator's name could be read — would be surface with nobody behind it. The
-cost of the decision is that the `PATH` search below is written once, in the
-terms POSIX already defines, instead of twice.
+generator's name could be read — would be surface area with nobody behind it.
+The cost of the decision is that the `PATH` search below is written once, in
+the terms POSIX already defines, instead of twice.
 
 macOS and the other Unixes are targets in the sense that matters here: nothing
 in this document distinguishes them from Linux. What is excluded is the
@@ -461,7 +461,7 @@ in a way its author did not anticipate.
 The levels are `error:` to error, `warning:` to warning and `note:` to info. A
 line that is not a diagnostic is recorded at **warning**, one level above the
 `note:` a plugin writes deliberately — info is where a log is ordinarily
-threshold-ed, so a handler configured a notch above it would drop exactly the
+thresholded, so a handler configured a notch above it would drop exactly the
 panic this rule exists to surface, and a line cpybkc could not classify is not
 one to file under the mildest severity it has.
 
