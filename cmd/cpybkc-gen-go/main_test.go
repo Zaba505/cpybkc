@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,9 +72,13 @@ func TestTheRefusalNamesBothVersionsAndThisGeneratorsOwn(t *testing.T) {
 
 	written := stderr.String()
 
+	// Derived from the two versions rather than written out, so that this
+	// asserts the refusal names the numbers it was built from whatever
+	// supportedIRVersion becomes. A literal here would pass on the wrong
+	// numbers the day that constant moves.
 	for _, want := range []string{
-		"descriptor IR version 2",
-		"implements IR version 1",
+		fmt.Sprintf("descriptor IR version %d", int32(ahead)),
+		fmt.Sprintf("implements IR version %d", int32(supportedIRVersion)),
 		pluginName,
 		pluginVersion,
 	} {

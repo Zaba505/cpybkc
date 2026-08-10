@@ -66,8 +66,13 @@ const (
 // [irpb.IrVersion_IR_VERSION_UNSPECIFIED], which is a version this generator
 // does not implement and is refused like any other. The last value wins where
 // the field appears more than once, which is protobuf's own rule for a scalar
-// field; a version field carrying some other wire type is not a version this
-// reader can take, and the descriptor then reads as stating none.
+// field.
+//
+// A version field carrying some other wire type is skipped like any field this
+// reader is not looking for, so a readable varint occurrence elsewhere in the
+// message still decides the version — again the decoder's own rule, which is
+// what keeps this read and a decode of the same bytes from disagreeing. With no
+// readable occurrence at all, the descriptor reads as stating no version.
 func versionOf(descriptor []byte) (irpb.IrVersion, error) {
 	stated := irpb.IrVersion_IR_VERSION_UNSPECIFIED
 

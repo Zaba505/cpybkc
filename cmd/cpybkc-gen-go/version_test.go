@@ -65,7 +65,10 @@ func TestAVersionStatedTwiceIsTheLastOne(t *testing.T) {
 
 	var message []byte
 
-	for _, version := range []uint64{2, uint64(supportedIRVersion)} {
+	// The first value is derived rather than written out, so that the two
+	// stated versions differ whatever supportedIRVersion becomes — a literal
+	// here would one day state the same version twice and assert nothing.
+	for _, version := range []uint64{uint64(int32(supportedIRVersion) + 1), uint64(supportedIRVersion)} {
 		message = protowire.AppendTag(message, versionField, protowire.VarintType)
 		message = protowire.AppendVarint(message, version)
 	}
