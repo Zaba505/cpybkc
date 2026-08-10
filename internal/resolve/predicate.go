@@ -225,6 +225,27 @@ func (v Value) Identity() string {
 	return "bytes " + hex.EncodeToString(v.Bytes)
 }
 
+// sameValue reports what [Value.Identity] equality reports, without building
+// either identity.
+//
+// The two answers agree by construction — a number and a run of bytes are never
+// the same value, two numbers are the same value exactly when the numbers are,
+// and two runs exactly when the bytes are. It exists because the identities are
+// strings: [Guard.Holds] runs inside the consumer's selection loop, and
+// rendering hex there allocates twice on every transition a consumer considers
+// to answer a question about equality alone.
+func sameValue(one, other Value) bool {
+	if (one.Bytes == nil) != (other.Bytes == nil) {
+		return false
+	}
+
+	if one.Bytes == nil {
+		return one.Number == other.Number
+	}
+
+	return slices.Equal(one.Bytes, other.Bytes)
+}
+
 // String renders the value as the layout wrote it.
 func (v Value) String() string { return v.Literal.String() }
 
@@ -405,7 +426,7 @@ func overlap(first *Predicate, at stretch, second *Predicate, against stretch) b
 
 	return slices.ContainsFunc(first.Values, func(one Value) bool {
 		return slices.ContainsFunc(second.Values, func(other Value) bool {
-			return one.Identity() == other.Identity()
+			return sameValue(one, other)
 		})
 	})
 }

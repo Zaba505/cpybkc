@@ -698,3 +698,45 @@ func TestAGuardExcludedTransitionIsReportedByItsRegister(t *testing.T) {
 		t.Errorf("the diagnostic does not name the register the guard tested: %s", excluded.Error())
 	}
 }
+
+// Value equality is asserted in one place because two of them read it. The
+// identity string is what `key` and the diagnostics render, and `sameValue` is
+// what the consumer's selection loop asks so that answering an equality does not
+// build two strings per transition; the two are only trustworthy while they
+// agree, so the agreement is the test rather than either answer alone.
+func TestValueEqualityDoesNotDependOnWhichAnswerIsAsked(t *testing.T) {
+	t.Parallel()
+
+	bytesValue := func(b string) Value { return Value{Bytes: []byte(b)} }
+	numberValue := func(n int64) Value { return Value{Number: n} }
+
+	pairs := []struct {
+		name string
+		one  Value
+		othr Value
+	}{
+		{"the same bytes", bytesValue("\xC8"), bytesValue("\xC8")},
+		{"different bytes", bytesValue("\xC8"), bytesValue("\xC4")},
+		{"bytes of different widths", bytesValue("\xC8"), bytesValue("\xC8\xC8")},
+		{"one run empty", bytesValue(""), bytesValue("\xC8")},
+		{"both runs empty", bytesValue(""), bytesValue("")},
+		{"the same number", numberValue(3), numberValue(3)},
+		{"different numbers", numberValue(3), numberValue(0)},
+		{"a number beside bytes", numberValue(0), bytesValue("\xC8")},
+	}
+
+	for _, pair := range pairs {
+		t.Run(pair.name, func(t *testing.T) {
+			t.Parallel()
+
+			want := pair.one.Identity() == pair.othr.Identity()
+			if got := sameValue(pair.one, pair.othr); got != want {
+				t.Errorf("sameValue says %v and the identities say %v, for %s and %s",
+					got, want, pair.one.Identity(), pair.othr.Identity())
+			}
+			if got := sameValue(pair.othr, pair.one); got != want {
+				t.Errorf("sameValue is not symmetric: %v the other way round, want %v", got, want)
+			}
+		})
+	}
+}

@@ -319,7 +319,7 @@ func (g Guard) Holds(held Value) bool {
 		return held.Bytes == nil && held.Number > 0
 	case GuardEquals, GuardOneOf:
 		for _, value := range g.Values {
-			if value.Identity() == held.Identity() {
+			if sameValue(value, held) {
 				return true
 			}
 		}
