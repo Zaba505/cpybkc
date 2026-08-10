@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -105,6 +106,32 @@ type Runner struct {
 	// Owner, when set, is the user and group given to every file and directory
 	// the merge creates. Nil leaves them as the merging process's.
 	Owner *Owner
+
+	// Root is the project's root: the directory this run keeps its record of
+	// what it generated in, and the directory every path in that record is
+	// relative to. It may be relative, and is resolved against the working
+	// directory the run is made from, exactly as a generator's Out is.
+	//
+	// Empty keeps no record and prunes nothing. That is the zero value, and it
+	// is the honest answer rather than a degraded one: the record is a file at
+	// a project's root, and a run that has not been told where that is must not
+	// guess — a wrong guess is a run that deletes something a person wrote.
+	// Whatever found the project's cpybkc.json knows where its root is, and
+	// that is the one place the answer exists.
+	Root string
+
+	// Log is where pruning is reported: a file a previous run generated and
+	// this one did not, removed, and a recorded path a person has since taken
+	// over, left alone. Nil is [log/slog.Default] read at the moment of the
+	// run, so that a caller that configures logging after building a Runner is
+	// still heard.
+	//
+	// It is separate from the logger the generators' own output is surfaced
+	// through, which is
+	// [github.com/Zaba505/cpybkc/internal/plugin.Runner.Log]'s: a line here is
+	// cpybkc saying what it did to a project's tree, and a line there is a
+	// generator talking.
+	Log *slog.Logger
 }
 
 // Run runs every generator against d, each in a private empty directory of its
@@ -159,6 +186,15 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 		return invalid.Err()
 	}
 
+	// Read here, before a generator has been started, for the same reason: a
+	// record this cpybkc cannot read is a fault in the project rather than in
+	// the output, and finding it after the run would mean discovering it once
+	// the work was done.
+	ledger, err := r.ledger()
+	if err != nil {
+		return err
+	}
+
 	root, err := os.MkdirTemp(r.TempDir, scratchPattern)
 	if err != nil {
 		return &ScratchError{Err: err}
@@ -188,7 +224,7 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 		return err
 	}
 
-	return r.merge(generators, invocations, root)
+	return r.merge(ctx, ledger, generators, invocations, root)
 }
 
 // scratch gives each generator its own empty directory and hands back the
@@ -229,4 +265,13 @@ func (r *Runner) plugins() *plugin.Runner {
 	}
 
 	return &plugin.Runner{}
+}
+
+// logger is where this run says what it did to the project's tree.
+func (r *Runner) logger() *slog.Logger {
+	if r.Log != nil {
+		return r.Log
+	}
+
+	return slog.Default()
 }

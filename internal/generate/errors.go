@@ -8,6 +8,7 @@ package generate
 import (
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strconv"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
@@ -131,8 +132,15 @@ func (e *UnmergeableError) Diagnostic() diag.Diagnostic {
 // reader has to already know. The default is deliberately vague rather than
 // exhaustive — what a reader does about anything in this list is the same, and
 // the list is the operating system's to extend.
+//
+// A directory is in the list for pruning's sake rather than the merge's: a
+// directory is something the merge makes and never something it refuses, but a
+// recorded path that has *become* one is left alone and said so about, and the
+// sentence saying so has to name what it found.
 func kind(mode fs.FileMode) string {
 	switch {
+	case mode.IsDir():
+		return "a directory"
 	case mode&fs.ModeSymlink != 0:
 		return "a symlink"
 	case mode&fs.ModeDevice != 0:
@@ -265,5 +273,172 @@ func (e *MergeError) Diagnostic() diag.Diagnostic {
 		Message: fmt.Sprintf("%s, from the generator %s, could not be merged: %v",
 			strconv.Quote(e.Path), strconv.Quote(e.Name), e.Err),
 		Spans: []diag.Span{{}, {File: e.Dest, Note: "this is where it was to be written"}},
+	}
+}
+
+// RecordError is the record of what a run generated, which could not be read,
+// could not be written, or is not one this cpybkc wrote.
+//
+// The record is what makes pruning safe: only a file some run recorded is ever
+// removed, so the list is the whole of what cpybkc claims to own. That is why a
+// record it cannot read is a failed run rather than a run that quietly prunes
+// nothing — the two look identical to a person and only one of them is honest,
+// and the fix is one file to delete, which the diagnostic says.
+//
+// A record that is simply *not there* is not this: a first run has none, and a
+// person who deleted theirs has said cpybkc owns nothing in their tree yet. It
+// prunes nothing and says nothing.
+type RecordError struct {
+	// Path is the record file, as this run named it.
+	Path string
+
+	// Fault is what is wrong with the record itself — a version this cpybkc
+	// does not know, a path it could not have written. Empty where what went
+	// wrong is [RecordError.Err].
+	Fault string
+
+	// Err is what the filesystem or [encoding/json] returned. Nil where the
+	// file was read perfectly well and [RecordError.Fault] says what it holds.
+	Err error
+
+	// Writing reports whether the run was writing this run's record rather
+	// than reading the last one's. It is the direction and not the fault: the
+	// two fail for entirely different reasons — a record nobody can parse
+	// against a disk with nothing left on it — and a message that did not say
+	// which would send a reader to look at the wrong one.
+	Writing bool
+}
+
+// Error implements the error interface.
+func (e *RecordError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap is the underlying error, so that a caller can ask what kind of failure
+// it was. It is nil where the record was read and is the record that is wrong.
+func (e *RecordError) Unwrap() error { return e.Err }
+
+// Diagnostic is what the error says, and where.
+//
+// The last span is the file's provenance rather than a second place, because
+// the thing a reader most needs to know about this file is that it is not one
+// of theirs: it is cpybkc's, it is rewritten by every run, and deleting it
+// costs a stale file one more run and nothing else.
+func (e *RecordError) Diagnostic() diag.Diagnostic {
+	message := fmt.Sprintf("the record of what the last run generated could not be read: %v", e.Err)
+
+	switch {
+	case e.Writing:
+		message = fmt.Sprintf("the record of what this run generated could not be written: %v", e.Err)
+	case e.Fault != "":
+		message = "the record of what the last run generated is not one this cpybkc wrote: " + e.Fault
+	}
+
+	return diag.Diagnostic{
+		Message: message,
+		Spans: []diag.Span{
+			{File: e.Path},
+			{Note: "cpybkc writes this file itself at the end of every run and reads it at the start of the next, to remove what it generated before and no longer does; deleting it is safe and costs one run's worth of stale files"},
+		},
+	}
+}
+
+// PruneError is a file a previous run generated, which this run does not, and
+// which could not be removed.
+//
+// Everything pruning declines to remove of its own accord — a recorded path
+// that is now a directory, a symlink, or gone already — is reported to the user
+// and is not a fault. This is the filesystem: a directory that is not writable,
+// a file somebody else's process holds. It fails the run rather than being
+// carried, because the alternative is a project whose record no longer
+// describes it and a stale file nothing will ever mention again.
+type PruneError struct {
+	// Path is the file as the record spells it: relative to the project's root
+	// and slash-separated, which is how a person reading their record and their
+	// diff will find it.
+	Path string
+
+	// Dest is where that path is, in the project's tree.
+	Dest string
+
+	// Err is what went wrong, from the filesystem.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *PruneError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap is the filesystem's error, so that a caller can ask what kind of
+// failure it was.
+func (e *PruneError) Unwrap() error { return e.Err }
+
+// Diagnostic is what the error says, and where.
+func (e *PruneError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("%s, which a previous run generated and this one does not, could not be removed: %v",
+			strconv.Quote(e.Path), e.Err),
+		Spans: []diag.Span{{}, {File: e.Dest, Note: "this is the file it is"}},
+	}
+}
+
+// UnrecordableError is output a run produced that it cannot record, and so
+// could never prune.
+//
+// Two ways to get one, and neither is a plugin's doing. A generator pointed at
+// a directory outside the project's root lands files the record has no way to
+// name — the record holds paths beneath the root, so that it means the same
+// thing in a checkout as it did on the machine that wrote it. And a generator
+// that produces the record's own file is producing something the end of the run
+// overwrites.
+//
+// It fails the run before anything is written, rather than being merged and
+// left out of the record. A file cpybkc generates and does not record is one no
+// later run will ever remove, which is the single failure pruning exists to
+// prevent — and it would be invisible, because the output would be perfectly
+// correct on the run that produced it.
+type UnrecordableError struct {
+	// Name is the generator that produced it.
+	Name string
+
+	// Path is what that generator called it, relative to the directory it was
+	// handed.
+	Path string
+
+	// Dest is where it was to land, in the project's tree.
+	Dest string
+
+	// Root is the project's root, which is what the record's paths are
+	// relative to and what the destination has to be beneath.
+	Root string
+}
+
+// Error implements the error interface.
+func (e *UnrecordableError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+//
+// Two shapes, because the two faults have different fixes: one is an output
+// directory to move and the other is a filename to change. The last span is the
+// rule rather than a place, for the reason [UnmergeableError.Diagnostic] gives.
+func (e *UnrecordableError) Diagnostic() diag.Diagnostic {
+	if e.Dest == filepath.Join(e.Root, RecordName) {
+		return diag.Diagnostic{
+			Message: fmt.Sprintf("the generator %s produced %s, which is the file cpybkc keeps its own record of a run in",
+				strconv.Quote(e.Name), strconv.Quote(e.Path)),
+			Spans: []diag.Span{
+				{},
+				{File: e.Dest, Note: "this is where it was to be written"},
+				{Note: "cpybkc rewrites that file at the end of every run, so what a generator put there would be thrown away: have it produce some other path"},
+			},
+		}
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the generator %s produced %s, which lands outside the project and cannot be recorded",
+			strconv.Quote(e.Name), strconv.Quote(e.Path)),
+		Spans: []diag.Span{
+			{},
+			{File: e.Dest, Note: "this is where it was to be written"},
+			{Note: fmt.Sprintf("cpybkc records what it generated beneath %s so that a later run can remove what it no longer generates, and a file outside that could never be recorded or removed: land this generator's output inside the project",
+				strconv.Quote(e.Root))},
+		},
 	}
 }
