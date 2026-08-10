@@ -1,0 +1,358 @@
+// Copyright (c) 2026 Richard Carson Derr
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+package generate
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"syscall"
+	"testing"
+
+	"github.com/Zaba505/cpybkc/internal/diag"
+)
+
+// mode is the mode of whatever is at path, without following a link to it.
+func mode(t *testing.T, path string) fs.FileMode {
+	t.Helper()
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	return info.Mode()
+}
+
+// owner is the user and the group of whatever is at path.
+func owner(t *testing.T, path string) Owner {
+	t.Helper()
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	// cpybkc targets POSIX hosts and nothing else; see docs/plugin/SPEC.md,
+	// "Host platform". A test that went through a portable interface would be
+	// asserting against one that does not carry an owner.
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatalf("%s reports ownership as %T, want a syscall.Stat_t", path, info.Sys())
+	}
+
+	return Owner{UID: int(stat.Uid), GID: int(stat.Gid)}
+}
+
+// umask is a mask to hand a [Runner], stated rather than read: the process's own
+// is a process-wide setting, and a test that moved it would move it for every
+// other test running beside it.
+func umask(mask fs.FileMode) *fs.FileMode { return &mask }
+
+// tight is a generator that writes under a umask of its own, so that what lands
+// in the project's tree is visibly not what the plugin created.
+const tight = `umask 077
+echo A > "$4/orders.go"
+echo B > "$4/generate.sh"
+chmod 700 "$4/generate.sh"
+mkdir "$4/pkg"`
+
+func TestTheModesAreThisRunsRatherThanThePlugins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		about string
+		mask  fs.FileMode
+		want  map[string]fs.FileMode
+	}{
+		{
+			about: "the usual mask",
+			mask:  0o022,
+			want: map[string]fs.FileMode{
+				".":             0o755,
+				"orders.go":     0o644,
+				"generate.sh":   0o755,
+				"pkg":           0o755,
+				"pkg/orders.go": 0o644,
+			},
+		},
+		{
+			about: "a mask that keeps the output to its owner",
+			mask:  0o077,
+			want: map[string]fs.FileMode{
+				".":             0o700,
+				"orders.go":     0o600,
+				"generate.sh":   0o700,
+				"pkg":           0o700,
+				"pkg/orders.go": 0o600,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.about, func(t *testing.T) {
+			t.Parallel()
+
+			r := runner(t)
+			r.Umask = umask(test.mask)
+
+			out := filepath.Join(t.TempDir(), "project", "gen")
+
+			if err := run(t, r, generator(t, "go", tight+`
+echo C > "$4/pkg/orders.go"`, out)); err != nil {
+				t.Fatalf("running the generator: %v", err)
+			}
+
+			for path, want := range test.want {
+				if got := mode(t, filepath.Join(out, path)).Perm(); got != want {
+					t.Errorf("%s came out %o, want %o", path, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestWithNoMaskStatedThisProcessesOwnIsWhatApplies(t *testing.T) {
+	t.Parallel()
+
+	// The mask is not read by setting it — see probeUmask — so the assertion is
+	// against what this process gets when it creates a file the ordinary way.
+	// That is the same question asked of the same kernel, and it holds whatever
+	// mask the machine running the tests happens to have.
+	reference := filepath.Join(t.TempDir(), "reference")
+
+	created, err := os.OpenFile(reference, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
+	if err != nil {
+		t.Fatalf("creating %s: %v", reference, err)
+	}
+
+	if err := created.Close(); err != nil {
+		t.Fatalf("closing %s: %v", reference, err)
+	}
+
+	out := filepath.Join(t.TempDir(), "project")
+
+	if err := run(t, runner(t), generator(t, "go", tight, out)); err != nil {
+		t.Fatalf("running the generator: %v", err)
+	}
+
+	if got, want := mode(t, filepath.Join(out, "orders.go")).Perm(), mode(t, reference).Perm(); got != want {
+		t.Errorf("the merged file came out %o, want the %o this process creates a file with", got, want)
+	}
+}
+
+func TestOwnershipIsGivenToEverythingTheMergeCreates(t *testing.T) {
+	t.Parallel()
+
+	// Somebody this process can give a file to. Where the tests run as root —
+	// which is how the pipeline runs them — that is anybody, and asking for a
+	// user this process is not makes the claim a real one; where they run as a
+	// person, the only user they can give a file to is themselves.
+	want := Owner{UID: os.Geteuid(), GID: os.Getegid()}
+	if want.UID == 0 {
+		want = Owner{UID: 65534, GID: 65534}
+	}
+
+	r := runner(t)
+	r.Owner = &want
+
+	out := filepath.Join(t.TempDir(), "project", "gen")
+
+	if err := run(t, r, generator(t, "go", `mkdir "$4/pkg"
+echo A > "$4/pkg/orders.go"`, out)); err != nil {
+		t.Fatalf("running the generator: %v", err)
+	}
+
+	// The output directory, the directory the plugin made beneath it, and the
+	// file: everything the merge created and nothing it did not.
+	for _, path := range []string{".", "pkg", "pkg/orders.go"} {
+		if got := owner(t, filepath.Join(out, path)); got != want {
+			t.Errorf("%s came out owned by %d:%d, want %d:%d", path, got.UID, got.GID, want.UID, want.GID)
+		}
+	}
+}
+
+func TestADirectoryThatWasAlreadyThereKeepsItsMode(t *testing.T) {
+	t.Parallel()
+
+	// A merge adds to a project's tree; it does not restate what the person who
+	// made the directory decided about it.
+	out := t.TempDir()
+
+	if err := os.Chmod(out, 0o777); err != nil {
+		t.Fatalf("setting the mode of %s: %v", out, err)
+	}
+
+	r := runner(t)
+	r.Umask = umask(0o022)
+
+	if err := run(t, r, generator(t, "go", `echo A > "$4/orders.go"`, out)); err != nil {
+		t.Fatalf("running the generator: %v", err)
+	}
+
+	if got, want := mode(t, out).Perm(), fs.FileMode(0o777); got != want {
+		t.Errorf("the directory that was already there came out %o, want the %o it was left at", got, want)
+	}
+}
+
+func TestASymlinkIsRefusedRatherThanFollowed(t *testing.T) {
+	t.Parallel()
+
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.go")
+
+	if err := os.WriteFile(elsewhere, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatalf("writing the file outside the run: %v", err)
+	}
+
+	tests := []struct {
+		about string
+		body  string
+	}{
+		{
+			about: "one pointing out of the directory it was handed",
+			body:  `ln -s ` + elsewhere + ` "$4/orders.go"`,
+		},
+		{
+			about: "one pointing inside it",
+			body: `echo A > "$4/real.go"
+ln -s real.go "$4/orders.go"`,
+		},
+		{
+			about: "one in place of the directory it was handed",
+			body: `rmdir "$4"
+ln -s ` + filepath.Dir(elsewhere) + ` "$4"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.about, func(t *testing.T) {
+			t.Parallel()
+
+			out := filepath.Join(t.TempDir(), "project")
+
+			err := run(t, runner(t), generator(t, "go", test.body, out))
+
+			var refused *UnmergeableError
+			if !errors.As(err, &refused) {
+				t.Fatalf("the run failed with %v, want an UnmergeableError", err)
+			}
+
+			if refused.Mode&fs.ModeSymlink == 0 {
+				t.Errorf("what was refused is reported as %s, want a symlink", refused.Mode)
+			}
+
+			// Refused, and refused before anything was written: a run that
+			// merged the files beside the link and then stopped would be the
+			// half-generated tree the scratch directory exists to prevent.
+			if exists(t, out) {
+				t.Errorf("%s was created by a refused run: %v", out, tree(t, out))
+			}
+
+			if got := contents(t, elsewhere); got != "untouched\n" {
+				t.Errorf("the file outside the run reads %q, want it untouched", got)
+			}
+		})
+	}
+}
+
+func TestEveryEntryTheMergeRefusesIsReported(t *testing.T) {
+	t.Parallel()
+
+	out := filepath.Join(t.TempDir(), "project")
+
+	// A plugin that emits symlinks emits them by the directory. A run that
+	// named one of them would be a run made once per symlink.
+	err := run(t, runner(t),
+		generator(t, "one", `ln -s /etc/passwd "$4/a.go"
+ln -s /etc/passwd "$4/b.go"`, out),
+		generator(t, "two", `ln -s /etc/passwd "$4/c.go"`, out),
+	)
+
+	if got, want := len(diag.Diagnostics(err)), 3; got != want {
+		t.Errorf("the run reported %d faults, want %d:\n%s", got, want, diag.Render(err))
+	}
+}
+
+func TestAnythingThatIsNotAFileOrADirectoryIsRefused(t *testing.T) {
+	t.Parallel()
+
+	out := filepath.Join(t.TempDir(), "project")
+
+	// A named pipe is the one of these a test can make without privileges, and
+	// what it stands for is the rule: the merge takes files and directories and
+	// leaves everything else where it found it.
+	err := run(t, runner(t), generator(t, "go", `mkfifo "$4/orders.go"`, out))
+
+	var refused *UnmergeableError
+	if !errors.As(err, &refused) {
+		t.Fatalf("the run failed with %v, want an UnmergeableError", err)
+	}
+
+	if got, want := refused.Path, "orders.go"; got != want {
+		t.Errorf("the fault names %q, want %q", got, want)
+	}
+
+	if exists(t, out) {
+		t.Errorf("%s was created by a refused run: %v", out, tree(t, out))
+	}
+}
+
+func TestARerunReplacesWhatItProducedAndNeverWritesThroughALink(t *testing.T) {
+	t.Parallel()
+
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.go")
+
+	if err := os.WriteFile(elsewhere, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatalf("writing the file outside the run: %v", err)
+	}
+
+	out := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(out, "orders.go"), []byte("the run before\n"), 0o644); err != nil {
+		t.Fatalf("writing the previous run's output: %v", err)
+	}
+
+	// A link where a generated file goes, left by a person or by something else
+	// that writes into this directory. Opening it would write the run's output
+	// through it, into a file nobody named.
+	if err := os.Symlink(elsewhere, filepath.Join(out, "order.go")); err != nil {
+		t.Fatalf("writing the link: %v", err)
+	}
+
+	if err := run(t, runner(t), generator(t, "go", `echo new > "$4/orders.go"
+echo new > "$4/order.go"`, out)); err != nil {
+		t.Fatalf("running the generator: %v", err)
+	}
+
+	same(t, out, map[string]string{"orders.go": "new\n", "order.go": "new\n"})
+
+	if got := contents(t, elsewhere); got != "untouched\n" {
+		t.Errorf("the file the link pointed at reads %q, want it untouched", got)
+	}
+}
+
+func TestAFileWhereADirectoryHasToGoIsAFaultAndNotASilence(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(out, "pkg"), []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatalf("writing the file in the way: %v", err)
+	}
+
+	err := run(t, runner(t), generator(t, "go", `mkdir "$4/pkg"
+echo A > "$4/pkg/orders.go"`, out))
+
+	var merge *MergeError
+	if !errors.As(err, &merge) {
+		t.Fatalf("the run failed with %v, want a MergeError", err)
+	}
+
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Errorf("the fault is %v, want it to carry the filesystem's own", err)
+	}
+}
