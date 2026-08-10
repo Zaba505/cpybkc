@@ -35,11 +35,15 @@ import (
 // this repository reports what an adopter has to fix and has no channel for
 // advice they may take or leave.
 //
-// The wording deliberately matches
-// [github.com/Zaba505/cpybkc/internal/manifest.GeneratorNameError], which
-// refuses the same two names earlier and with the line in cpybkc.json they were
-// written at. An adopter should not be able to tell from the sentence which of
-// the two stopped them; see the package comment for why both exist.
+// [github.com/Zaba505/cpybkc/internal/manifest] refuses both names earlier, and
+// with the line in cpybkc.json they were written at, but as two faults rather
+// than one: a name carrying a `/` is its
+// [github.com/Zaba505/cpybkc/internal/manifest.GeneratorNameError], and an
+// empty one is the
+// [github.com/Zaba505/cpybkc/internal/manifest.EmptyValueError] every field
+// that has to carry something raises. The wording here deliberately matches the
+// first of those, which is the one whose sentence is about a generator name;
+// see the package comment for why both packages check at all.
 type InvalidNameError struct {
 	// Name is what was asked for.
 	Name string
@@ -89,8 +93,8 @@ type NotFoundError struct {
 	// Name is the generator that was asked for.
 	Name string
 
-	// File is the executable that would have been it, which is
-	// [Filename](Name).
+	// File is the executable that would have been it: Name under [Prefix], as
+	// [Filename] spells it.
 	File string
 
 	// Searched are the PATH elements the search looked in, in order, as PATH

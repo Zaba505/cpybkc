@@ -29,8 +29,8 @@ const Prefix = "cpybkc-gen-"
 func Filename(name string) string { return Prefix + name }
 
 // Resolve finds the executable name resolves to by searching searchPath for
-// [Filename](name), and hands back the first one that is a regular file
-// carrying an execute bit.
+// the filename [Filename] spells it, and hands back the first one that is a
+// regular file carrying an execute bit.
 //
 // searchPath is a PATH — the value of the environment variable, colon-separated
 // on the POSIX hosts this project targets. It is passed rather than read, so

@@ -107,8 +107,10 @@
 //
 // docs/plugin/SPEC.md requires a name to be non-empty and to contain no `/`,
 // because the name is a filename component. [github.com/Zaba505/cpybkc/internal/manifest]
-// already reports both, with the line in cpybkc.json the name is written at,
-// and this package reports them again with no position at all.
+// already reports both, with the line in cpybkc.json the name is written at —
+// a name carrying a `/` as a fault of its own, and an empty one as the fault
+// every field that has to carry something raises. This package reports them
+// again, as one fault and with no position at all.
 //
 // That is two enforcements of one MUST for two audiences rather than a
 // duplicated check. A name reaches [Resolve] from wherever a caller had one — a
