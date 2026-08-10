@@ -3615,7 +3615,7 @@ records offer them.
 
 | Section | Implemented by |
 |---|---|
-| [Structure](#structure) | #17, #80, #90 `ir` |
+| [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve` |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir` |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
@@ -3630,5 +3630,6 @@ records offer them.
 | The schema itself | #17 `ir` — [`proto/cpybkc/ir/v1/ir.proto`](../../proto/cpybkc/ir/v1/ir.proto) |
 | The schema, as Go | #18 `ir` — [`irpb/`](../../irpb), a module of its own |
 | The published artifacts | #19 `ir` — [`irpb/descriptor_set.go`](../../irpb/descriptor_set.go) computes the set, [`internal/tools/`](../../internal/tools) writes both files, `.dagger/main.go` builds them and `.github/workflows/release.yaml` attaches them |
+| Assembling the IR | #38 `resolve` — [`internal/assemble/`](../../internal/assemble) turns a framing, a compiled automaton and one resolved record type per `record` form into one descriptor, assigning the identifiers by the traversal [Identity, ordering and determinism](#identity-ordering-and-determinism) asks for, and holds the result to a completeness pass before any generator is invoked |
 | Emitting the IR | #20, #21 `ir` — [`internal/emit/`](../../internal/emit) encodes a descriptor deterministically, in either form, and writes it where `--emit-ir` names, a path or `-` for standard output |
 | Conventions this document follows | #15 `setup` |
