@@ -21,16 +21,22 @@ import (
 // and the same options produce the same set of relative paths with
 // byte-identical contents, whatever the machine underneath. The requirement is
 // checked rather than asserted, and this is where the checking happens: the run
-// below is made repeatedly, from surroundings that disagree about everything the
-// spec says output must not vary with, and every tree is compared against the
-// first.
+// below is made repeatedly, from surroundings that disagree about everything a
+// generator can see of its machine through its environment and about every path
+// it is handed, and every tree is compared against the first.
+//
+// What this half cannot vary is the same facts read through a call rather than
+// through the environment — os.Hostname, os/user, os.Getwd, the clock. Two runs
+// in one process share all of those, and varying them would mean a container
+// per run for a property a comparison is the wrong instrument for anyway. The
+// source scan in internal/plugin's determinism_test.go is what covers them, by
+// refusing the calls outright, and neither half sees the whole thing.
 //
 // Repetition is what catches an order decided by a map iteration, because Go
 // randomises that on every range — the record this package writes is a list of
 // every file the run produced, and a list assembled from a map would come out
-// in a different order most times it was written. It cannot catch a clock read,
-// since two runs a moment apart agree on the date; that is the source scan in
-// internal/plugin's determinism_test.go, and neither half sees the whole thing.
+// in a different order most times it was written. It cannot catch a clock read
+// either, since two runs a moment apart agree on the date.
 
 // runs is how many times the project below is generated. Enough that an order
 // left to Go's map iteration would have to be unlucky many times over to come
@@ -62,9 +68,13 @@ const emitsItsHostname = `echo "$HOSTNAME" > "$4/host"`
 // machine is a runner whose surroundings are stated rather than inherited, so
 // that two runs can genuinely disagree about all of them: the user, the host,
 // the home directory, the temporary directory, the time zone, the locale and
-// the working directory a plugin would find in its environment, plus the
-// scratch space and the plugin's own path, which differ because every directory
-// here is the test's own.
+// the working directory, each as a generator finds it in its environment, plus
+// the scratch space and the plugin's own path, which differ because every
+// directory here is the test's own.
+//
+// Environment-visible throughout, which is the limit of what a run in this
+// process can vary; see the note at the top of this file for what covers the
+// same facts read through a call.
 //
 // Everything varies with n except SOURCE_DATE_EPOCH, which is an input to
 // generation rather than an accident of the machine: docs/plugin/SPEC.md makes

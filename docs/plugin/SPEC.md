@@ -509,17 +509,23 @@ fall back to the clock: a missing generation date costs a reader nothing, and a
 present one costs every regeneration a diff.
 
 The requirement is checked rather than asserted — the pipeline generates
-repeatedly, from runs that deliberately disagree about every surrounding named
-above and agree only about `SOURCE_DATE_EPOCH`, and byte-compares the trees,
+repeatedly, from runs that deliberately disagree about every surrounding a
+generator can see through its environment and about the paths in its argument
+vector, agreeing only about `SOURCE_DATE_EPOCH`, and byte-compares the trees,
 failing on any difference (#47) — because determinism is the kind of property
 that holds until nobody is looking. Repetition catches output ordered by map
-iteration, because Go randomises that on every range. It cannot catch a clock
-read, since two runs a moment apart agree on the date, so the generators in this
+iteration, because Go randomises that on every range.
+
+It catches neither a clock read, since two runs a moment apart agree on the
+date, nor the same surroundings read through a call rather than through the
+environment, since two runs on one machine share the hostname, the user and the
+working directory whatever their environments say. So the generators in this
 repository are additionally held to the rule by a check on their source, which
 parses every package that decides what a run writes and refuses a call that
 reads the clock, the environment, the working directory, the host, the user or a
-random value. A third-party plugin is bound by the requirement above however it
-chooses to meet it.
+random value. The two checks are disjoint on purpose: one varies what can be
+varied, the other forbids what cannot. A third-party plugin is bound by the
+requirement above however it chooses to meet it.
 
 ## The version check, and why there is no handshake
 
