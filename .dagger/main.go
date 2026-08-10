@@ -12,12 +12,16 @@
 // would show up as this repository disagreeing with every other one for reasons
 // nobody wrote down. Wrapping costs one dependency and keeps that impossible.
 //
-// GoLib rather than GoApp because cpybkc is a library: there is no main package
-// to compile, so the multi-platform image build and the publish half of the
-// standard have nothing to act on. When a command lands under cmd/, the
-// archetype moves to GoApp and Ci gains the build and publish stages with it;
-// that is a change to which factory this file calls, not a change to what the
-// pipeline is.
+// GoLib rather than GoApp, even now that cmd/cpybkc-gen-go is a main package
+// (#48). What GoApp adds over GoLib is the multi-platform image build and the
+// publish half of the standard, and both of those are what #54 and #55 specify
+// and build — the base-image contract decides what is in the image, which
+// platforms it carries and where it is published, and switching factories ahead
+// of those stories would produce an image nothing had described and a publish
+// stage with nowhere to publish to. The four check stages are what gate a pull
+// request, and they cover cmd/ under either archetype because they run over
+// ./... . The move to GoApp lands with the image, in #55: a change to which
+// factory this file calls, not a change to what the pipeline is.
 //
 // # Why the stage functions exist alongside it
 //

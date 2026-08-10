@@ -70,15 +70,20 @@ func TestSourceDateEpochReachesAGeneratorFromCpybkcsOwnEnvironment(t *testing.T)
 // handed to the bytes that land in a project's tree.
 //
 // docs/plugin/SPEC.md holds "the generators in this repository" to the rule, and
-// this repository ships none yet — cpybkc-gen-go is #48–#53. Until it does, the
-// packages below are what plays that part, and a generator's package joins this
-// list when it lands — TestEveryGeneratorThisRepositoryShipsIsOnThatList is
-// what makes that happen rather than something to remember.
+// cpybkc-gen-go is the first of them (#48); what it generates from the
+// descriptor is #49–#53, and it is on this list from the commit that scaffolded
+// it rather than from the one that gave it something to emit. The internal
+// packages beside it are the rest of the path a run's bytes take, from the
+// descriptor a generator is handed to what lands in a project's tree.
+//
+// TestEveryGeneratorThisRepositoryShipsIsOnThatList is what adds the next
+// generator here, rather than somebody remembering to.
 //
 // A list rather than a scan of everything, because a command that resolves a
 // plugin against PATH has to read the environment to do it, and a check that
 // had to exempt cpybkc's own command is a check nobody would trust.
 var decidesOutput = []string{
+	"cmd/cpybkc-gen-go",
 	"internal/assemble",
 	"internal/emit",
 	"internal/generate",
@@ -135,8 +140,9 @@ func TestEveryGeneratorThisRepositoryShipsIsOnThatList(t *testing.T) {
 
 	entries, err := os.ReadDir(commands)
 	if err != nil {
-		// There is no cmd/ yet, and a generator is #48–#53. A missing
-		// directory is nothing to report; anything else about it is.
+		// cmd/ holds cpybkc-gen-go (#48) and will hold whatever ships beside
+		// it, but a missing directory is nothing to report — the check is
+		// about generators that exist. Anything else about it is.
 		if !os.IsNotExist(err) {
 			t.Fatalf("reading %s: %v", commands, err)
 		}
