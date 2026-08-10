@@ -621,6 +621,16 @@ func comment(name, original, summary string) string {
 func identifier(kind string, names *irpb.Names) (string, error) {
 	original := names.GetOriginal()
 
+	// A node the copybook named and the descriptor did not is a bug in the
+	// producer rather than a name an adopter can do anything about, so it is
+	// reported as the malformed descriptor it is. Telling them to rename an
+	// item in their layout would send them looking for a name that is not
+	// missing from anything they wrote.
+	if original == "" {
+		return "", malformed(fmt.Sprintf("a %s node carries no name", kind),
+			"record, group and field nodes each carry the name the copybook spells; see docs/ir/SPEC.md, \"The node kinds\"")
+	}
+
 	munged := munge(original)
 
 	if munged == "" {

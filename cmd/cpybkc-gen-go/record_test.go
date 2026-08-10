@@ -392,6 +392,14 @@ func TestAMalformedDescriptorIsReportedRatherThanGeneratedFrom(t *testing.T) {
 				group(2, "OTHER-RECORD", nil),
 			},
 		},
+		"an item the descriptor carries no name for": {
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3),
+				alphanumeric(3, "", 4),
+			},
+		},
 		"an OCCURS DEPENDING ON counted by nothing": {
 			Version: supportedIRVersion,
 			Nodes: []*irpb.Node{
