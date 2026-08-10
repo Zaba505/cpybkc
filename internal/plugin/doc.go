@@ -15,8 +15,9 @@
 // diagnostics": each generator is started once with the descriptor and the
 // directory it writes into, they run concurrently, what they write is surfaced
 // as they write it, and one that fails fails the run. What may be *in* the
-// directory afterwards, and how it reaches the project's output tree, is #43's
-// and #44's; this package hands a generator a path and reads its verdict.
+// directory afterwards, and how it reaches the project's output tree, is
+// [github.com/Zaba505/cpybkc/internal/generate]'s (#43, #44); this package
+// hands a generator a path and reads its verdict.
 //
 // # Why running is here rather than beside the caller
 //
