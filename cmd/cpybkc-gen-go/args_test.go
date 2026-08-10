@@ -35,6 +35,37 @@ func TestParseReadsTheVectorCpybkcEmits(t *testing.T) {
 	if inv.options.packageName != "orders" {
 		t.Errorf("%s is %q", packageNameOption, inv.options.packageName)
 	}
+
+	// The receiver is optional, so a vector that names none is a vector that
+	// takes the default rather than one that fails.
+	if inv.options.receiverName() != defaultReceiver {
+		t.Errorf("%s is %q, want %q", receiverOption, inv.options.receiverName(), defaultReceiver)
+	}
+}
+
+// TestParseReadsTheReceiver is the one option that changes the generated
+// source without changing what it does.
+//
+// Go's convention for a receiver is a shop's rather than a generator's — one
+// letter, the same letter on every method of a type — so it is stated in the
+// manifest rather than derived from each record's own name, which would give
+// one package a different receiver per type.
+func TestParseReadsTheReceiver(t *testing.T) {
+	t.Parallel()
+
+	inv, err := parse([]string{
+		descriptorFlag, "/tmp/one",
+		outFlag, "/tmp/two",
+		optFlag, packageNameOption + "=orders",
+		optFlag, receiverOption + "=o",
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if inv.options.receiverName() != "o" {
+		t.Errorf("%s is %q, want o", receiverOption, inv.options.receiverName())
+	}
 }
 
 // TestParseAcceptsTheStandardInputForm covers `--descriptor -`, which cpybkc
@@ -103,6 +134,7 @@ func TestParseRefusesAVectorThisContractCannotProduce(t *testing.T) {
 	descriptor := []string{descriptorFlag, "/tmp/one"}
 	out := []string{outFlag, "/tmp/two"}
 	pkg := []string{optFlag, packageNameOption + "=orders"}
+	receiver := []string{optFlag, receiverOption + "=o"}
 
 	testCases := []struct {
 		name string
@@ -124,7 +156,11 @@ func TestParseRefusesAVectorThisContractCannotProduce(t *testing.T) {
 		{name: "an operand after the delimiter", args: join(descriptor, out, pkg, []string{endOfOptions, "orders.cpy"})},
 		{name: "an option that is not k=v", args: join(descriptor, out, []string{optFlag, packageNameOption})},
 		{name: "an option with no key", args: join(descriptor, out, []string{optFlag, "=orders"})},
-		{name: "an unrecognised option", args: join(descriptor, out, pkg, []string{optFlag, "receiver=o"})},
+		{name: "an unrecognised option", args: join(descriptor, out, pkg, []string{optFlag, "method_prefix=Read"})},
+		{name: "the receiver twice", args: join(descriptor, out, pkg, receiver, receiver)},
+		{name: "a receiver that is exported", args: join(descriptor, out, pkg, []string{optFlag, receiverOption + "=X"})},
+		{name: "a receiver that is blank", args: join(descriptor, out, pkg, []string{optFlag, receiverOption + "=_"})},
+		{name: "a receiver that is not an identifier", args: join(descriptor, out, pkg, []string{optFlag, receiverOption + "=the record"})},
 		{name: "a package name that is a keyword", args: join(descriptor, out, []string{optFlag, packageNameOption + "=range"})},
 		{name: "a package name that is blank", args: join(descriptor, out, []string{optFlag, packageNameOption + "=_"})},
 		{name: "a package name that is init", args: join(descriptor, out, []string{optFlag, packageNameOption + "=init"})},

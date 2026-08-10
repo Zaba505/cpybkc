@@ -21,9 +21,10 @@ import (
 // package that compiles, which is what makes the output something a user can
 // point cpybkc at rather than a program that is not finished.
 //
-// The record structs land beside it in [recordsFile]. The decode and encode
-// methods, the file-level reader and writer and the codec assertions are
-// #51–#53, and each lands as a file of its own for the same reason.
+// The record structs land beside it in [recordsFile] and the decode and encode
+// methods in [codecFile]. The file-level reader and writer and the codec
+// version assertions are #52 and #53, and each lands as a file of its own for
+// the same reason.
 const generatedFile = "doc.go"
 
 // generatedBy is the line Go's own tooling reads to know a file was not written
@@ -61,6 +62,17 @@ func generate(descriptor *irpb.Descriptor, out string, opts options) error {
 	// file that doc.go does not already say.
 	if structs != "" {
 		sources[recordsFile] = structs
+	}
+
+	methods, err := codecMethods(descriptor, opts)
+	if err != nil {
+		return err
+	}
+
+	// Absent for the same reason and by the same test: methods on no types are
+	// nothing.
+	if methods != "" {
+		sources[codecFile] = methods
 	}
 
 	names := make([]string, 0, len(sources))

@@ -70,3 +70,91 @@ type TrailerRecord struct {
 	// PrintedTotal is PRINTED-TOTAL — numeric-edited, DISPLAY, 12 bytes, OCCURS 2.
 	PrintedTotal [2]string
 }
+
+// SyncRecord is the SYNC-RECORD record, as docs/ir/SPEC.md resolved it.
+type SyncRecord struct {
+	// SyncFlag is SYNC-FLAG — alphanumeric, DISPLAY, 1 byte.
+	SyncFlag string
+
+	// SyncCounter is SYNC-COUNTER — numeric, BINARY, 9 digits, signed, 4 bytes.
+	SyncCounter int32
+
+	// slack is the bytes retained for the slack nodes among this item's
+	// members, in the order those nodes occupy the record: one run each, as
+	// they stood when the record was read, and one set of them per occurrence
+	// of this struct. A nil run is one the record does not carry; an empty run
+	// is a run of no bytes, and the two are not the same.
+	//
+	// They travel with the record and there is nothing here for a caller to do.
+	// See docs/ir/SPEC.md, "Slack survives a read".
+	slack [2][]byte
+}
+
+// TableRecord is the TABLE-RECORD record, as docs/ir/SPEC.md resolved it.
+type TableRecord struct {
+	// PairCount is PAIR-COUNT — numeric, DISPLAY, 2 digits, unsigned, 2 bytes.
+	PairCount int32
+
+	// LeftItem is LEFT-ITEM — a group of 1 member, OCCURS 0 TO 4 DEPENDING ON PAIR-COUNT.
+	LeftItem []struct {
+		// LeftText is LEFT-TEXT — alphanumeric, DISPLAY, 3 bytes.
+		LeftText string
+	}
+
+	// RightItem is RIGHT-ITEM — a group of 1 member, OCCURS 0 TO 4 DEPENDING ON PAIR-COUNT.
+	RightItem []struct {
+		// RightText is RIGHT-TEXT — alphanumeric, DISPLAY, 2 bytes.
+		RightText string
+	}
+
+	// Block is BLOCK — a group of 1 member, OCCURS 0 TO 4 DEPENDING ON PAIR-COUNT.
+	Block []struct {
+		// BlockItem is BLOCK-ITEM — a group of 1 member, OCCURS 0 TO 4 DEPENDING ON PAIR-COUNT.
+		BlockItem []struct {
+			// BlockText is BLOCK-TEXT — alphanumeric, DISPLAY, 1 byte.
+			BlockText string
+		}
+	}
+}
+
+// EntryRecord is the ENTRY-RECORD record, as docs/ir/SPEC.md resolved it.
+type EntryRecord struct {
+	// Entry is ENTRY — a group of 2 members, OCCURS 3.
+	Entry [3]struct {
+		// EntryType is ENTRY-TYPE — alphanumeric, DISPLAY, 1 byte.
+		EntryType string
+
+		// EntryDetail is ENTRY-DETAIL — a group of 2 members.
+		//
+		// It is one alternative over one run of bytes, beside EntrySummary: exactly one of
+		// them is non-nil in an occurrence, and it is the one the record holds.
+		// See docs/ir/SPEC.md, "A variant is chosen once per occurrence".
+		EntryDetail *struct {
+			// DetailSku is DETAIL-SKU — alphanumeric, DISPLAY, 4 bytes.
+			DetailSku string
+
+			// DetailQty is DETAIL-QTY — numeric, BINARY, 4 digits, signed, 2 bytes.
+			DetailQty int16
+		}
+
+		// EntrySummary is ENTRY-SUMMARY — a group of 2 members.
+		//
+		// It is one alternative over one run of bytes, beside EntryDetail: exactly one of
+		// them is non-nil in an occurrence, and it is the one the record holds.
+		// See docs/ir/SPEC.md, "A variant is chosen once per occurrence".
+		EntrySummary *struct {
+			// SummaryText is SUMMARY-TEXT — alphanumeric, DISPLAY, 4 bytes.
+			SummaryText string
+
+			// slack is the bytes retained for the slack nodes among this item's
+			// members, in the order those nodes occupy the record: one run each, as
+			// they stood when the record was read, and one set of them per occurrence
+			// of this struct. A nil run is one the record does not carry; an empty run
+			// is a run of no bytes, and the two are not the same.
+			//
+			// They travel with the record and there is nothing here for a caller to do.
+			// See docs/ir/SPEC.md, "Slack survives a read".
+			slack [1][]byte
+		}
+	}
+}

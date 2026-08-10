@@ -20,8 +20,9 @@ import (
 // A file of its own rather than more of doc.go, because the files this
 // generator writes divide by what produced them: doc.go is the package clause
 // and nothing else, and this is everything the descriptor's record nodes
-// produced. The decode and encode methods (#51) and the file-level reader and
-// writer (#52) land in files of their own for the same reason.
+// produced. The decode and encode methods land in [codecFile] and the
+// file-level reader and writer (#52) land in a file of their own for the same
+// reason.
 const recordsFile = "records.go"
 
 // slackField is the name of the unexported field a struct carries for the
@@ -206,7 +207,7 @@ func (e *emitter) structType(id uint64) (string, error) {
 			return "", unresolved(memberID)
 		}
 
-		switch member.GetKind().(type) {
+		switch kind := member.GetKind().(type) {
 		case *irpb.Node_Slack:
 			// A width and nothing else, so it contributes no member field: the
 			// bytes it stands for live in the one unexported field below,
@@ -216,10 +217,31 @@ func (e *emitter) structType(id uint64) (string, error) {
 
 			continue
 		case *irpb.Node_Variant:
-			return "", &unsupportedShapeError{Node: memberID}
+			// One field per arm rather than one field for the alternation, so
+			// that this generator still names nothing the copybook did not.
+			arms, err := e.armFields(kind.Variant)
+			if err != nil {
+				return "", err
+			}
+
+			for _, arm := range arms {
+				if first, dup := named[arm.name]; dup {
+					return "", &collisionError{
+						Go:    arm.name,
+						Cobol: []colliding{first, arm.cobol},
+						Where: "the " + group.GetNames().GetOriginal() + " group",
+					}
+				}
+
+				named[arm.name] = arm.cobol
+
+				fields = append(fields, arm.decl)
+			}
+
+			continue
 		}
 
-		field, name, err := e.member(member)
+		field, name, err := e.member(member, false)
 		if err != nil {
 			return "", err
 		}
@@ -246,7 +268,17 @@ func (e *emitter) structType(id uint64) (string, error) {
 
 // member is one field of a struct: the declaration with its doc comment, and
 // the Go name it declares.
-func (e *emitter) member(node *irpb.Node) (string, string, error) {
+//
+// pointer is what an arm of a variant takes and nothing else: an arm is one of
+// several alternatives over one run of bytes, and a pointer is what says which
+// of them an occurrence holds without this generator inventing a discriminant
+// identifier the copybook never wrote.
+func (e *emitter) member(node *irpb.Node, pointer bool) (string, string, error) {
+	star := ""
+	if pointer {
+		star = "*"
+	}
+
 	switch kind := node.GetKind().(type) {
 	case *irpb.Node_Group:
 		name, err := identifier("group", kind.Group.GetNames())
@@ -269,7 +301,7 @@ func (e *emitter) member(node *irpb.Node) (string, string, error) {
 			return "", "", err
 		}
 
-		return comment(name, kind.Group.GetNames(), summary) + name + " " + typ, name, nil
+		return comment(name, kind.Group.GetNames(), summary) + name + " " + star + typ, name, nil
 	case *irpb.Node_Field:
 		name, err := identifier("field", kind.Field.GetNames())
 		if err != nil {
@@ -291,11 +323,142 @@ func (e *emitter) member(node *irpb.Node) (string, string, error) {
 			return "", "", err
 		}
 
-		return comment(name, kind.Field.GetNames(), summary) + name + " " + typ, name, nil
+		return comment(name, kind.Field.GetNames(), summary) + name + " " + star + typ, name, nil
 	default:
 		return "", "", malformed(fmt.Sprintf("node %d is not something a group may contain", node.GetId()),
 			"a member list names a group, variant, field or slack node; see docs/ir/SPEC.md, \"The node kinds\"")
 	}
+}
+
+// armField is one arm of a variant as a field of the struct the variant's group
+// became.
+type armField struct {
+	// decl is the declaration with its doc comment.
+	decl string
+
+	// name is the Go identifier it declares.
+	name string
+
+	// cobol is what the copybook calls the arm's body, for a collision
+	// diagnostic.
+	cobol colliding
+}
+
+// armFields is the fields a variant contributes to the struct of the group
+// containing it: one per arm, each a pointer to the arm's body.
+//
+// A pointer per arm rather than a discriminant beside them. Go has no sum type,
+// so an occurrence of such a table is a choice among alternatives and something
+// has to say which one it holds (docs/ir/SPEC.md, "A variant is chosen once per
+// occurrence") — and every other shape wants an identifier neither the copybook
+// nor the layout wrote. A variant carries no name of its own, so a discriminant
+// field, a discriminant type or a constant per arm would each be a name this
+// generator invented, which is exactly what it refuses to do everywhere else.
+// Nil and non-nil say the same thing and say it in names the copybook already
+// spells: exactly one arm of an occurrence is non-nil.
+func (e *emitter) armFields(v *irpb.Variant) ([]armField, error) {
+	if len(v.GetArms()) < 2 {
+		return nil, malformed(fmt.Sprintf("a variant carries %d arms", len(v.GetArms())),
+			"a producer must not emit a variant carrying fewer than two arms; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
+	}
+
+	bodies := make([]*irpb.Node, 0, len(v.GetArms()))
+
+	for _, arm := range v.GetArms() {
+		body, err := e.armBody(arm)
+		if err != nil {
+			return nil, err
+		}
+
+		bodies = append(bodies, body)
+	}
+
+	names := make([]string, 0, len(bodies))
+
+	for _, body := range bodies {
+		name, err := identifier("arm", namesOf(body))
+		if err != nil {
+			return nil, err
+		}
+
+		names = append(names, name)
+	}
+
+	fields := make([]armField, 0, len(bodies))
+
+	for i, body := range bodies {
+		decl, name, err := e.member(body, true)
+		if err != nil {
+			return nil, err
+		}
+
+		fields = append(fields, armField{
+			decl:  armNote(decl, names, i),
+			name:  name,
+			cobol: namedBy(namesOf(body)),
+		})
+	}
+
+	return fields, nil
+}
+
+// armBody is the group or field node an arm's body names.
+func (e *emitter) armBody(arm *irpb.Arm) (*irpb.Node, error) {
+	var id uint64
+
+	switch body := arm.GetBody().(type) {
+	case *irpb.Arm_GroupId:
+		id = body.GroupId
+	case *irpb.Arm_FieldId:
+		id = body.FieldId
+	default:
+		return nil, malformed("an arm of a variant names no body",
+			"each arm names the predicate that selects it and the group or field that is its body; see docs/ir/SPEC.md, \"The node kinds\"")
+	}
+
+	node, ok := e.nodes[id]
+	if !ok {
+		return nil, unresolved(id)
+	}
+
+	switch node.GetKind().(type) {
+	case *irpb.Node_Group, *irpb.Node_Field:
+		return node, nil
+	default:
+		return nil, malformed(fmt.Sprintf("node %d is the body of an arm and is neither a group nor a field", id),
+			"an arm names the group or field that is its body; see docs/ir/SPEC.md, \"The node kinds\"")
+	}
+}
+
+// armNote is an arm's declaration with the sentence that says it is one, added
+// beneath the doc comment the member itself produced.
+func armNote(decl string, names []string, i int) string {
+	others := make([]string, 0, len(names)-1)
+
+	for j, name := range names {
+		if j != i {
+			others = append(others, name)
+		}
+	}
+
+	note := commentLines(fmt.Sprintf(
+		"It is one alternative over one run of bytes, beside %s: exactly one of\nthem is non-nil in an occurrence, and it is the one the record holds.\nSee docs/ir/SPEC.md, \"A variant is chosen once per occurrence\".",
+		english(others)))
+
+	// The doc comment is the run of lines opening the declaration that are
+	// comments; the declaration itself begins at the first line that is not,
+	// and the type may carry lines of its own behind that.
+	end := 0
+
+	for _, line := range strings.SplitAfter(decl, "\n") {
+		if !strings.HasPrefix(line, "//") {
+			break
+		}
+
+		end += len(line)
+	}
+
+	return decl[:end] + "//\n" + note + decl[end:]
 }
 
 // repeated wraps a member's type in what its repetition makes of it.

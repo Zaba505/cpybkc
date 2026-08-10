@@ -5,7 +5,11 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Zaba505/cpybkc/irpb"
+)
 
 // malformedError is a descriptor that does not say what docs/ir/SPEC.md says a
 // descriptor says.
@@ -139,27 +143,58 @@ func (e *unmungeableError) Notes() []string {
 	}
 }
 
-// unsupportedShapeError is a node this generator does not yet give a Go shape.
+// unsupportedCharsetError is a charset the IR names and cobol-go's codec has no
+// table for.
 //
-// A refusal rather than a struct missing an item's data. The one node in that
-// position is a variant — what a REDEFINES inside a repeating group resolves to
-// — and the shape a caller sees for one is the generator's to choose (#90),
-// chosen by the story that decodes and encodes it (#51) rather than guessed at
-// here by the story that lays out the struct.
-type unsupportedShapeError struct {
-	// Node is the identifier of the node with no Go shape yet.
-	Node uint64
+// Refused on sight rather than substituted, which is the posture the IR schema
+// takes for the same reason: the charset decides what an alphanumeric field's
+// bytes spell and which byte values a digit and a separate sign take, and every
+// one of those fails silently when wrong. A generator that emitted CP037 for a
+// descriptor naming CP500 would produce a package that reads most of a file
+// correctly.
+type unsupportedCharsetError struct {
+	// Charset is the charset the descriptor names.
+	Charset irpb.Charset
 }
 
 // Error implements the error interface.
-func (e *unsupportedShapeError) Error() string {
-	return fmt.Sprintf("node %d is a variant, and this generator does not emit a Go shape for one yet", e.Node)
+func (e *unsupportedCharsetError) Error() string {
+	return fmt.Sprintf("the descriptor's items are in %s, and cobol-go's codec ships no table for it", charsetName(e.Charset))
 }
 
 // Notes is what follows it as a `note:` diagnostic.
-func (e *unsupportedShapeError) Notes() []string {
+func (e *unsupportedCharsetError) Notes() []string {
 	return []string{
-		"a variant is what a REDEFINES inside a repeating group resolves to; the shape it takes in Go arrives with the decode and encode methods",
-		"every other record in this descriptor is generatable, so a layout without such a REDEFINES generates today",
+		"codec ships ASCII and cp037; a Charset is an interface, so cp500, cp1047 and cp1140 are an implementation away, and this generator will emit against one as soon as codec names it",
+		"generating cp037 for another EBCDIC code page would read most of a file correctly and the bracket, currency and accent characters wrongly",
+	}
+}
+
+// mixedEncodingError is a descriptor whose items do not agree on the four
+// encoding axes.
+//
+// codec carries an Encoding per Reader and per Writer rather than per field —
+// the axes are properties of the file in hand — so a descriptor whose items
+// disagree describes a file this generator has no single Encoding to read with.
+// It is a shape resolve does not produce today, and refusing it is what keeps
+// the generated Encoding a fact of the descriptor rather than of whichever item
+// happened to be walked first.
+type mixedEncodingError struct {
+	// Axis is the axis two items disagree on.
+	Axis string
+
+	// First and Second are the items, as the copybook names them.
+	First, Second string
+}
+
+// Error implements the error interface.
+func (e *mixedEncodingError) Error() string {
+	return fmt.Sprintf("%s and %s do not agree on the %s of the file they are in", e.First, e.Second, e.Axis)
+}
+
+// Notes is what follows it as a `note:` diagnostic.
+func (e *mixedEncodingError) Notes() []string {
+	return []string{
+		"the four axes are properties of the file rather than of an item, and codec carries them on the Reader and the Writer; see docs/ir/SPEC.md, \"The encoding profile, applied\"",
 	}
 }

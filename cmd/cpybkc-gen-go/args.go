@@ -157,6 +157,25 @@ func twice(flag string) error {
 // the output a function of a path, which is exactly what "Determinism" forbids.
 const packageNameOption = "package_name"
 
+// receiverOption is the identifier the decode and encode methods declare their
+// receiver under.
+//
+// Optional, and it is an option rather than something derived from the record's
+// own name because Go's convention for a receiver is a shop's rather than a
+// generator's — one letter, the same letter on every method of a type, and
+// which letter is the sort of thing a house style states once. Deriving it from
+// each record's identifier would give one package a different receiver per
+// type, which is the one shape the convention rules out.
+const receiverOption = "receiver"
+
+// defaultReceiver is what the methods take where the manifest says nothing.
+//
+// A name rather than a letter, and deliberately not the initial of anything:
+// the receiver is the same identifier in every method of the generated package,
+// so it cannot be a mnemonic for a particular record, and a letter that happens
+// to be one reads as though it were.
+const defaultReceiver = "x"
+
 // options are the `--opt k=v` pairs this generator understands.
 //
 // The vocabulary is this generator's own: docs/plugin/SPEC.md has cpybkc pass
@@ -168,6 +187,20 @@ const packageNameOption = "package_name"
 type options struct {
 	// packageName is the package clause every generated file carries.
 	packageName string
+
+	// receiver is the identifier the decode and encode methods declare their
+	// receiver under, empty where the invocation named none.
+	receiver string
+}
+
+// receiverName is the receiver the methods take, which is [defaultReceiver]
+// where the invocation named none.
+func (o options) receiverName() string {
+	if o.receiver == "" {
+		return defaultReceiver
+	}
+
+	return o.receiver
 }
 
 // set applies one `--opt` argument.
@@ -194,8 +227,20 @@ func (o *options) set(pair string) error {
 		}
 
 		o.packageName = value
+	case receiverOption:
+		if o.receiver != "" {
+			return fmt.Errorf("%s %s was passed more than once", optFlag, key)
+		}
+
+		if !isReceiverName(value) {
+			return fmt.Errorf(
+				"%s=%q is not a Go method receiver: it must be an unexported identifier that is not a blank",
+				receiverOption, value)
+		}
+
+		o.receiver = value
 	default:
-		return fmt.Errorf("this generator has no option %q; it takes %s", key, packageNameOption)
+		return fmt.Errorf("this generator has no option %q; it takes %s and %s", key, packageNameOption, receiverOption)
 	}
 
 	return nil
@@ -224,4 +269,14 @@ func (o *options) check() error {
 // identifiers this generator invents are held to a convention.
 func isPackageName(s string) bool {
 	return token.IsIdentifier(s) && s != "_" && s != "init"
+}
+
+// isReceiverName reports whether s can stand as a method receiver.
+//
+// An identifier, not the blank identifier, and unexported — because every
+// identifier this generator munges from a name is exported, so an unexported
+// receiver is one that cannot collide with a field of the record it is a
+// receiver for, whatever the copybook spells.
+func isReceiverName(s string) bool {
+	return token.IsIdentifier(s) && s != "_" && !token.IsExported(s)
 }

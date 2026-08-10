@@ -118,13 +118,20 @@ func TestARecordCarryingSlackHoldsARunForEveryNodeOfIt(t *testing.T) {
 
 	source := written(t, goldenDir)[recordsFile]
 
-	// Two slack nodes in ordersDescriptor: one among the record's own members
-	// and one among the members of the group that repeats. Neither is a field a
-	// caller can reach, and each is an array of exactly the runs its group's
-	// slack nodes need.
-	for _, want := range []string{slackField + " [1][]byte"} {
-		if strings.Count(source, want) != 2 {
-			t.Errorf("%s declares %q %d times, want 2", recordsFile, want, strings.Count(source, want))
+	// Neither is a field a caller can reach, and each is an array of exactly
+	// the runs its group's slack nodes need.
+	for want, times := range map[string]int{
+		// One among ORDER-RECORD's own members, one among the members of the
+		// group that repeats, and one inside the arm of the variant that is
+		// shorter than its sibling.
+		slackField + " [1][]byte": 3,
+
+		// SYNC-RECORD carries two: the alignment gap ahead of its binary item
+		// and the tail its items stop short of.
+		slackField + " [2][]byte": 1,
+	} {
+		if got := strings.Count(source, want); got != times {
+			t.Errorf("%s declares %q %d times, want %d", recordsFile, want, got, times)
 		}
 	}
 }
@@ -153,15 +160,46 @@ func TestADescriptorCarryingNoRecordWritesOnlyTheDocFile(t *testing.T) {
 	}
 }
 
-// TestAVariantIsRefusedRatherThanEmittedWithoutItsArms is the one shape this
-// generator declines.
+// TestAVariantIsOneFieldPerArmAndNoInventedName is the shape this generator
+// chose for a REDEFINES inside a repeating group, which docs/ir/SPEC.md leaves
+// to it.
 //
-// The failure it exists to avoid is a struct that looks complete and is missing
-// an arm's items: the caller reads the generated source, finds no field for the
-// alternative their copybook declares, and has no way to tell that from a
-// copybook that does not declare one. What shape a variant takes in Go is the
-// generator's to choose (#90) and the story that decodes one chooses it (#51).
-func TestAVariantIsRefusedRatherThanEmittedWithoutItsArms(t *testing.T) {
+// Go has no sum type, so something has to say which alternative an occurrence
+// holds. Every other spelling of that — a discriminant field, a type for it, a
+// constant per arm — wants an identifier neither the copybook nor the layout
+// wrote, and a name an adopter cannot predict is what this generator refuses to
+// produce everywhere else. A pointer per arm says the same thing in names the
+// copybook already spells.
+func TestAVariantIsOneFieldPerArmAndNoInventedName(t *testing.T) {
+	t.Parallel()
+
+	source := written(t, goldenDir)[recordsFile]
+
+	for _, want := range []string{
+		"EntryDetail *struct",
+		"EntrySummary *struct",
+		"// EntryDetail is ENTRY-DETAIL",
+		"// EntrySummary is ENTRY-SUMMARY",
+		"exactly one of",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not contain %q", recordsFile, want)
+		}
+	}
+
+	// The alternation itself has no name in the copybook, so it has none here:
+	// nothing in the generated source is called after the choice rather than
+	// after one of the things chosen between.
+	for _, unwanted := range []string{"Which", "Arm ", "Discriminant"} {
+		if strings.Contains(source, unwanted) {
+			t.Errorf("%s declares %s, which no copybook and no layout named", recordsFile, unwanted)
+		}
+	}
+}
+
+// TestAVariantCarryingOneArmIsRefused is the producer bug the shape above
+// cannot express: a choice between one thing.
+func TestAVariantCarryingOneArmIsRefused(t *testing.T) {
 	t.Parallel()
 
 	d := &irpb.Descriptor{
@@ -169,12 +207,8 @@ func TestAVariantIsRefusedRatherThanEmittedWithoutItsArms(t *testing.T) {
 		Nodes: []*irpb.Node{
 			record(1, "ENTRY-RECORD", 2),
 			group(2, "ENTRY-RECORD", nil, 3),
-			{Id: 3, Kind: &irpb.Node_Group{Group: &irpb.Group{
-				Names:      &irpb.Names{Original: "ENTRY"},
-				MemberIds:  []uint64{4},
-				Repetition: constant(2),
-			}}},
-			{Id: 4, Kind: &irpb.Node_Variant{Variant: &irpb.Variant{}}},
+			group(3, "ENTRY", constant(2), 4),
+			variant(4),
 		},
 	}
 
@@ -182,13 +216,9 @@ func TestAVariantIsRefusedRatherThanEmittedWithoutItsArms(t *testing.T) {
 
 	err := generate(d, out, options{packageName: goldenPackage})
 
-	var refusal *unsupportedShapeError
+	var refusal *malformedError
 	if !errors.As(err, &refusal) {
-		t.Fatalf("generate returned %v, want a refusal of the variant", err)
-	}
-
-	if refusal.Node != 4 {
-		t.Errorf("the refusal is about node %d, want node 4", refusal.Node)
+		t.Fatalf("generate returned %v, want a malformed descriptor", err)
 	}
 
 	if entries, err := os.ReadDir(out); err != nil {
@@ -789,6 +819,52 @@ func ordersDescriptor() *irpb.Descriptor {
 				Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC_EDITED, Digits: 7, Scale: 2},
 				Names:   &irpb.Names{Original: "PRINTED-TOTAL"}, Repetition: constant(2),
 			}}},
+
+			// A record that is nothing but slack and the two items around it:
+			// an alignment gap ahead of a SYNCHRONIZED binary item, and the
+			// tail of a fixed-length record whose items stop short of LRECL.
+			// The IR tells the two apart nowhere and deliberately — one slack
+			// node per maximal run of uncovered bytes, whatever produced it.
+			record(40, "SYNC-RECORD", 41),
+			group(41, "SYNC-RECORD", nil, 42, 43, 44, 45),
+			alphanumeric(42, "SYNC-FLAG", 1),
+			slack(43, 3),
+			binary(44, "SYNC-COUNTER", 4, 9, true),
+			slack(45, 8),
+
+			// One count sizing three tables, one of which is inside a group
+			// repeating on that same count. The last is why a writer's
+			// comparison is over every repetition naming a count rather than
+			// over a pair: it contributes one number per occurrence of BLOCK.
+			record(50, "TABLE-RECORD", 51),
+			group(51, "TABLE-RECORD", nil, 52, 53, 55, 57),
+			zoned(52, "PAIR-COUNT", 2, 2, 0, false),
+			group(53, "LEFT-ITEM", depending(52, 0, 4), 54),
+			alphanumeric(54, "LEFT-TEXT", 3),
+			group(55, "RIGHT-ITEM", depending(52, 0, 4), 56),
+			alphanumeric(56, "RIGHT-TEXT", 2),
+			group(57, "BLOCK", depending(52, 0, 4), 58),
+			group(58, "BLOCK-ITEM", depending(52, 0, 4), 59),
+			alphanumeric(59, "BLOCK-TEXT", 1),
+
+			// A REDEFINES inside a repeating group: a table of entries whose
+			// body is one of two alternatives, chosen per occurrence by the
+			// type code beside it. The second alternative is shorter than the
+			// first, so it carries the slack that makes the two arms cover the
+			// same bytes.
+			record(60, "ENTRY-RECORD", 61),
+			group(61, "ENTRY-RECORD", nil, 62),
+			group(62, "ENTRY", constant(3), 63, 64),
+			alphanumeric(63, "ENTRY-TYPE", 1),
+			variant(64, armOf(65, 67), armOf(66, 70)),
+			equals(65, 63, "\xc4"),
+			equals(66, 63, "\xe2"),
+			group(67, "ENTRY-DETAIL", nil, 68, 69),
+			alphanumeric(68, "DETAIL-SKU", 4),
+			binary(69, "DETAIL-QTY", 2, 4, true),
+			group(70, "ENTRY-SUMMARY", nil, 71, 72),
+			alphanumeric(71, "SUMMARY-TEXT", 4),
+			slack(72, 2),
 		},
 	}
 }
@@ -818,6 +894,26 @@ func group(id uint64, name string, rep *irpb.Repetition, members ...uint64) *irp
 // slack is a slack node of that many bytes.
 func slack(id uint64, width uint32) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Slack{Slack: &irpb.Slack{Width: width}}}
+}
+
+// variant is a variant node: an ordered list of arms over one run of bytes.
+func variant(id uint64, arms ...*irpb.Arm) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Variant{Variant: &irpb.Variant{Arms: arms}}}
+}
+
+// armOf is one alternative of a variant: the predicate that selects it and the
+// group that is its body.
+func armOf(predicate, body uint64) *irpb.Arm {
+	return &irpb.Arm{PredicateId: predicate, Body: &irpb.Arm_GroupId{GroupId: body}}
+}
+
+// equals is a predicate node satisfied when a field's bytes are the literal,
+// which the producer has already padded to the field's width.
+func equals(id, field uint64, value string) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Predicate{Predicate: &irpb.Predicate{
+		FieldId: field,
+		Test:    &irpb.Predicate_BytesEqual{BytesEqual: &irpb.BytesEqual{Value: []byte(value)}},
+	}}}
 }
 
 // alphanumeric is a PIC X(width) DISPLAY item.
@@ -884,7 +980,13 @@ func resolvedEncoding() *irpb.Encoding {
 	}
 }
 
-// written is every Go file in a directory, by name.
+// written is every generated Go file in a directory, by name.
+//
+// A `_test.go` file is not one. The golden package is output checked in byte
+// for byte and holds no hand-written declaration, but a test binary is not the
+// package — and the round-trip assertions over the generated methods have to
+// run *inside* it, because the bytes retained for a slack node are unexported
+// and a wrong-length run is a thing only code in the package can hand a writer.
 func written(t *testing.T, dir string) map[string]string {
 	t.Helper()
 
@@ -896,7 +998,7 @@ func written(t *testing.T, dir string) map[string]string {
 	files := make(map[string]string, len(entries))
 
 	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) != ".go" {
+		if filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
 

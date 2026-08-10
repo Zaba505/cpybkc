@@ -42,6 +42,7 @@ them:
 | Key | Required | What it is |
 |---|---|---|
 | `package_name` | yes | The Go package the generated files declare. It must be a Go identifier that is neither a keyword, the blank identifier, nor `init`. |
+| `receiver` | no | The identifier the decode and encode methods declare their receiver under. It must be an unexported Go identifier that is not a blank. Defaults to `x`. |
 
 An option this generator does not recognise is an **error**, not something
 ignored — as is a `package_name` given twice, or one that is not a package name.
@@ -56,9 +57,12 @@ cpybkc chooses and varies between runs. A package name taken from either would
 make the output a function of a path, which is what the contract's *Determinism*
 forbids.
 
-The vocabulary grows with what this generator emits: the method receiver the
-manifest example in the root `README.md` shows arrives with the decode and
-encode methods in [#51](https://github.com/Zaba505/cpybkc/issues/51).
+`receiver` is an option rather than something derived from each record's name
+because Go's convention for a receiver is a shop's rather than a generator's —
+one letter, the same letter on every method of a type. Deriving it would give
+one package a different receiver per type, which is the one shape the convention
+rules out. It is required to be unexported, and that is what keeps it clear of
+every identifier munged from a copybook name, all of which are exported.
 
 Renaming an item is **not** an option here. A rename is a property of one item
 of one copybook, it names its target fully qualified, and it is written in the
@@ -103,17 +107,17 @@ run has succeeded. Two runs given the same descriptor and the same options
 produce byte-identical files: nothing in the output comes from the clock, the
 environment, the host, the user or the paths in the argument vector.
 
-So far that is two files. `doc.go` carries the package clause and nothing else,
-and `records.go` carries [the record structs](#the-record-structs) — one per
-record the descriptor describes. A descriptor carrying no record node produces
-only the first, because a file holding a package clause and no declaration says
-nothing `doc.go` does not.
+So far that is three files. `doc.go` carries the package clause and nothing
+else, `records.go` carries [the record structs](#the-record-structs) — one per
+record the descriptor describes — and `codec.go` carries
+[the decode and encode methods](#decoding-and-encoding). A descriptor carrying
+no record node produces only the first, because a file holding a package clause
+and no declaration says nothing `doc.go` does not.
 
-The decode and encode methods
-([#51](https://github.com/Zaba505/cpybkc/issues/51)), the file-level reader and
-writer ([#52](https://github.com/Zaba505/cpybkc/issues/52)) and the codec
-version assertions ([#53](https://github.com/Zaba505/cpybkc/issues/53)) land
-beside them, each in a file of its own.
+The file-level reader and writer
+([#52](https://github.com/Zaba505/cpybkc/issues/52)) and the codec version
+assertions ([#53](https://github.com/Zaba505/cpybkc/issues/53)) land beside
+them, each in a file of its own.
 
 ## The record structs
 
@@ -216,7 +220,8 @@ only for `DISPLAY`.
 | `INDEX`, `POINTER`, `NATIONAL` | `[]byte` |
 
 The integer widths are the ones cobol-go's `codec` reads an item into, so the
-type an item takes here is the type the accessor #51 will call already returns.
+type an item takes here is the type the accessor `codec.go` calls already
+returns.
 The narrowest that holds every value the PICTURE admits, and no narrower: an
 item's declared digits are what a COBOL program may store in it, whatever the
 data happens to contain.
@@ -266,18 +271,102 @@ An adopter who wants to see those bytes is asking for something this generator
 does not offer yet; they are not lost, and surfacing them is an addition rather
 than a change to how they survive.
 
-### What is not emitted yet
+### A `REDEFINES` inside a table
 
-A **variant** — what a `REDEFINES` inside a repeating group resolves to — is
-refused rather than emitted, and the refusal names the node. Go has no sum type,
-so an occurrence of such a table is a discriminant beside its arms rather than a
-flat set of fields; which shape a caller sees is this generator's to choose
-([#90](https://github.com/Zaba505/cpybkc/issues/90)), and it is chosen by the
-story that decodes and encodes one
-([#51](https://github.com/Zaba505/cpybkc/issues/51)) rather than guessed at by
-the one that lays the struct out. A struct that quietly left an arm's items out
-would look complete, and an adopter reading it has no way to tell a missing
-field from a copybook that never declared one.
+A **variant** — what a `REDEFINES` inside a repeating group resolves to — is one
+field per alternative, each a pointer, and exactly one of them is non-nil in an
+occurrence:
 
-Every other record in a descriptor carrying one is generatable, so this bites
-only a layout with such a `REDEFINES` in it.
+```go
+	Entry [3]struct {
+		// EntryType is ENTRY-TYPE — alphanumeric, DISPLAY, 1 byte.
+		EntryType string
+
+		// EntryDetail is ENTRY-DETAIL — a group of 2 members.
+		EntryDetail *struct{ ... }
+
+		// EntrySummary is ENTRY-SUMMARY — a group of 2 members.
+		EntrySummary *struct{ ... }
+	}
+```
+
+Go has no sum type, so something has to say which alternative an occurrence
+holds, and `ir/SPEC.md` deliberately leaves the spelling to the generator. Every
+other spelling wants an identifier neither your copybook nor your layout wrote:
+a discriminant field needs a name, a type for it needs a name, and a constant
+per arm needs one at package scope. The alternation itself has no name in the
+copybook — the redefined item is the first arm and carries its own — so nil and
+non-nil say the same thing in names you already have.
+
+Decoding fills exactly one of them, per occurrence, and leaves the others nil.
+Encoding writes the one that is non-nil; an occurrence holding none, or more
+than one, is an error naming the record, the table and which occurrence it was.
+
+## Decoding and encoding
+
+Every record type gets two methods, and they are `codec`'s own interfaces:
+
+```go
+func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error
+func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error
+```
+
+So a record is a `codec.Unmarshaler` and a `codec.Marshaler`, which is what
+`codec.Unmarshal` and `codec.Marshal` take. Nothing in them is byte-level: the
+widths, the digit counts, the sign position and the signedness come out of the
+resolved IR and every byte is `codec`'s, which is the same arrangement
+`avroc-gen-go` has with `avro-go`. There is no reflection.
+
+### The four axes
+
+Neither method chooses an `Encoding`. The character set, the zoned sign
+convention, the byte order and the floating-point format are properties of the
+*file in hand* rather than of an item, so `codec` carries them on the `Reader`
+and the `Writer` and the caller states them once:
+
+```go
+r, err := codec.NewReader(f, orders.Encoding())
+```
+
+`Encoding()` is generated from the descriptor, so what it returns is what your
+layout declared. It is a value you pass rather than one anything applies on its
+own — the same records converted to another character set are read by passing a
+different `Encoding`, not by regenerating. A charset `codec` ships no table for
+is an **error** rather than a substitution: generating `cp037` for a descriptor
+naming `cp500` would read most of a file correctly and the bracket, currency and
+accent characters wrongly.
+
+### What the writer supplies, and what it refuses to
+
+`ir/SPEC.md`'s *What the descriptor determines, a writer supplies* makes exactly
+two values the descriptor's rather than yours.
+
+An **`OCCURS DEPENDING ON` count** is emitted as the number of occurrences
+written, whatever you left in the count field: the field's value *is* that
+number, and a count disagreeing with what follows it is a record this reader
+cannot walk. Where more than one table names one count — which is ordinary, and
+IBM documents it — the numbers have to agree, and where they do not the writer
+**reports** rather than picking. Picking would size one of the tables by a
+number that was never about it and slide every item behind it, out of a
+descriptor saying nothing is wrong.
+
+**Slack** is emitted as [what was retained for it](#where-the-slack-goes), and
+as zero bytes only where the record carries none, because its caller built it
+rather than read it. A retained run whose length is not the slack node's is
+reported rather than truncated or padded.
+
+Everything else is yours, including the value a discriminator tests. A writer
+*evaluates* a predicate against the record it is about to emit and never derives
+a satisfying value to store into the predicate's target — see `ir/SPEC.md`'s
+*A writer evaluates a predicate, it never inverts one*, which is why that field
+is still a field you fill.
+
+### A table counted by a register
+
+Where a table's count is a register rather than a field of the record, decoding
+reads as many occurrences as the record it was handed already carries, and
+encoding writes exactly that many. A register holds what a transition bound out
+of a record already read, so the value is the automaton's — the file-level
+reader ([#52](https://github.com/Zaba505/cpybkc/issues/52)) sizes the table and
+then hands the record over. The bounds the copybook declared are checked here
+either way, because those are the copybook's.
