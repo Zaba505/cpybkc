@@ -365,6 +365,44 @@ echo B > "$4/pkg/orders.go"`, out),
 					}
 			},
 		},
+		{
+			// The second generator produced nothing at that path and could not
+			// have: it is the output directory the manifest gave it, which the
+			// merge creates on its behalf. Compared as produced entries alone,
+			// the two would agree right up until the merge tried to make a
+			// directory of the first generator's file — with that file written.
+			about: "a file where the other was told to land its output",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `echo A > "$4/pkg"`, out),
+						generator(t, "two", `echo B > "$4/orders.go"`, filepath.Join(out, "pkg")),
+					}, CollisionError{
+						First: "one", FirstPath: "pkg",
+						Second: "two", SecondPath: ".",
+						Dest: filepath.Join(out, "pkg"),
+					}
+			},
+		},
+		{
+			// The same fault a directory further up: what the merge has to
+			// create to reach an output directory is every directory above it,
+			// and a file standing in the way of one of those fails just as late.
+			about: "a file where the other's output directory has to be reached through",
+			scenario: func(t *testing.T, project string) ([]Generator, CollisionError) {
+				out := filepath.Join(project, "gen")
+
+				return []Generator{
+						generator(t, "one", `echo A > "$4/pkg"`, out),
+						generator(t, "two", `echo B > "$4/orders.go"`, filepath.Join(out, "pkg", "orders")),
+					}, CollisionError{
+						First: "one", FirstPath: "pkg",
+						Second: "two", SecondPath: ".",
+						Dest: filepath.Join(out, "pkg"),
+					}
+			},
+		},
 	}
 
 	for _, test := range tests {

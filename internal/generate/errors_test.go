@@ -36,6 +36,11 @@ func TestEveryFaultReadsTheSameThroughEitherEnd(t *testing.T) {
 			Second: "docs", SecondPath: "orders.go",
 			Dest: "gen/orders.go",
 		},
+		&CollisionError{
+			First: "go", FirstPath: "gen",
+			Second: "docs", SecondPath: ".",
+			Dest: "gen",
+		},
 		&MergeError{Name: "go", Dest: "gen", Err: errors.New("permission denied")},
 		&MergeError{Name: "go", Path: "orders.go", Dest: "gen/orders.go", Err: errors.New("permission denied")},
 	}
@@ -121,22 +126,39 @@ func TestACollisionNamesBothGeneratorsAndWhatTheyProduced(t *testing.T) {
 				Second: "docs", SecondPath: "pkg/orders.go",
 				Dest: "/src/gen/pkg/orders.go",
 			},
-			want: `the generators "go" and "docs" both produced "pkg/orders.go", and nothing was merged
-  /src/gen/pkg/orders.go: this is where both were to land
+			want: `the generators "go" and "docs" both claim "/src/gen/pkg/orders.go", and nothing was merged
+  the generator "go" produced it as "pkg/orders.go"
+  the generator "docs" produced it as "pkg/orders.go"
 ` + rule,
 		},
 		{
 			// Neither plugin's author would recognise the other's name for it,
-			// so quoting one alone would send half the readers looking for a
-			// path their generator never wrote.
+			// so a message quoting one alone would send half the readers looking
+			// for a path their generator never wrote.
 			about: "output directories that overlap",
 			fault: &CollisionError{
 				First: "go", FirstPath: "pkg/orders.go",
 				Second: "docs", SecondPath: "orders.go",
 				Dest: "/src/gen/pkg/orders.go",
 			},
-			want: `"pkg/orders.go", from the generator "go", and "orders.go", from the generator "docs", land in the same place, and nothing was merged
-  /src/gen/pkg/orders.go: this is where both were to land
+			want: `the generators "go" and "docs" both claim "/src/gen/pkg/orders.go", and nothing was merged
+  the generator "go" produced it as "pkg/orders.go"
+  the generator "docs" produced it as "orders.go"
+` + rule,
+		},
+		{
+			// One of the two never produced anything at that path: it is where
+			// the manifest told it to land its output, and a message saying it
+			// produced a directory there would be describing a plugin's doing.
+			about: "a file where the other was told to land its output",
+			fault: &CollisionError{
+				First: "go", FirstPath: "pkg",
+				Second: "docs", SecondPath: ".",
+				Dest: "/src/gen/pkg",
+			},
+			want: `the generators "go" and "docs" both claim "/src/gen/pkg", and nothing was merged
+  the generator "go" produced it as "pkg"
+  it has to be a directory for the generator "docs" to land its output
 ` + rule,
 		},
 	}

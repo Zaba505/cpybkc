@@ -147,7 +147,7 @@ func kind(mode fs.FileMode) string {
 }
 
 // CollisionError is one place in a project's tree that two generators both
-// produced.
+// claim.
 //
 // docs/plugin/SPEC.md: two generators producing the same output path is an
 // error cpybkc raises before anything is merged, naming both, and a collision
@@ -159,8 +159,8 @@ func kind(mode fs.FileMode) string {
 // It is found in the same pass as an [UnmergeableError] and before anything is
 // written, so a collision costs the run and never half a tree.
 type CollisionError struct {
-	// First and Second are the generators that produced it, in the order the
-	// run declared them rather than the order they finished in: generators run
+	// First and Second are the generators that claim it, in the order the run
+	// declared them rather than the order they finished in: generators run
 	// concurrently, and a fault naming whichever of them lost a race would
 	// report the same inputs differently on different runs.
 	First, Second string
@@ -173,9 +173,14 @@ type CollisionError struct {
 	// rather than coincide: a generator landing in `gen` that produced
 	// `pkg/orders.go` and one landing in `gen/pkg` that produced `orders.go`
 	// have produced one file between them.
+	//
+	// Either is `.` where what that generator claims is not something it
+	// produced at all but the output directory it was given, or a directory
+	// above it — a path the merge has to create for the generator to land
+	// anything, and the one claim on a project's tree a plugin had no say in.
 	FirstPath, SecondPath string
 
-	// Dest is where both were to land, in the project's tree.
+	// Dest is the path in the project's tree both of them claim.
 	Dest string
 }
 
@@ -184,30 +189,34 @@ func (e *CollisionError) Error() string { return e.Diagnostic().String() }
 
 // Diagnostic is what the error says, and where.
 //
-// The last span is the rule rather than a place, for the reason
-// [UnmergeableError.Diagnostic] gives: nothing in this repository decided this,
-// and what a reader needs is what to do about two executables that disagree.
+// One shape for every collision rather than a sentence per kind. The two sides
+// are not alike — a file against a file, a file against a directory, a file
+// against the directory another generator was told to land its output in — and
+// a single sentence saying which was which would need a clause per combination.
+// The path both claim is the message, each side says for itself what it wanted
+// with it, and the last span is the rule rather than a place, for the reason
+// [UnmergeableError.Diagnostic] gives.
 func (e *CollisionError) Diagnostic() diag.Diagnostic {
-	message := fmt.Sprintf("the generators %s and %s both produced %s, and nothing was merged",
-		strconv.Quote(e.First), strconv.Quote(e.Second), strconv.Quote(e.FirstPath))
-
-	// Where the output directories overlap, the two names are two names for one
-	// path, and a message quoting either alone would send half of its readers
-	// looking for something their plugin never wrote.
-	if e.FirstPath != e.SecondPath {
-		message = fmt.Sprintf("%s, from the generator %s, and %s, from the generator %s, land in the same place, and nothing was merged",
-			strconv.Quote(e.FirstPath), strconv.Quote(e.First),
-			strconv.Quote(e.SecondPath), strconv.Quote(e.Second))
-	}
-
 	return diag.Diagnostic{
-		Message: message,
+		Message: fmt.Sprintf("the generators %s and %s both claim %s, and nothing was merged",
+			strconv.Quote(e.First), strconv.Quote(e.Second), strconv.Quote(e.Dest)),
 		Spans: []diag.Span{
 			{},
-			{File: e.Dest, Note: "this is where both were to land"},
+			{Note: claim(e.First, e.FirstPath)},
+			{Note: claim(e.Second, e.SecondPath)},
 			{Note: "a path in a project's tree is one generator's, so cpybkc refuses the run rather than merging whichever it reached last: stop one of them producing it, or land the two in directories that do not overlap"},
 		},
 	}
+}
+
+// claim is one side of a collision saying what it wanted with the path.
+func claim(name, path string) string {
+	if path == "." {
+		return fmt.Sprintf("it has to be a directory for the generator %s to land its output",
+			strconv.Quote(name))
+	}
+
+	return fmt.Sprintf("the generator %s produced it as %s", strconv.Quote(name), strconv.Quote(path))
 }
 
 // MergeError is output that could not be put into the project's tree.
