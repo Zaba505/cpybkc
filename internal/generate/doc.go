@@ -67,6 +67,12 @@
 //   - A destination the merge is about to write is removed first rather than
 //     opened, so a symlink already in the project tree — left by a person, or
 //     by a run of something else — is replaced rather than written through.
+//   - A directory the merge has to descend *beneath* the output directory is
+//     examined without following a link, so a symlink standing where a plugin's
+//     path needs a directory fails the merge instead of becoming the way out of
+//     the tree. The output directory itself and everything above it is followed
+//     rather than refused: that path is the one a person wrote in the manifest,
+//     and it routinely runs through a link nobody meant anything by.
 //
 // # Modes and ownership, in one place
 //

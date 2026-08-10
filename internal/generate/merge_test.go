@@ -335,6 +335,61 @@ echo new > "$4/order.go"`, out)); err != nil {
 	}
 }
 
+func TestALinkWhereADirectoryHasToGoIsNotWrittenThrough(t *testing.T) {
+	t.Parallel()
+
+	// The escape a merge that resolved its path components with os.Stat would
+	// make: `pkg` in the project's tree is a link to somewhere else entirely,
+	// os.Stat reads it as a perfectly good directory, and every file the plugin
+	// produced beneath `pkg` goes through it.
+	elsewhere := t.TempDir()
+	out := t.TempDir()
+
+	if err := os.Symlink(elsewhere, filepath.Join(out, "pkg")); err != nil {
+		t.Fatalf("writing the link: %v", err)
+	}
+
+	err := run(t, runner(t), generator(t, "go", `mkdir "$4/pkg"
+echo A > "$4/pkg/orders.go"`, out))
+
+	var merge *MergeError
+	if !errors.As(err, &merge) {
+		t.Fatalf("the run failed with %v, want a MergeError", err)
+	}
+
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Errorf("the fault is %v, want it to carry the filesystem's own", err)
+	}
+
+	same(t, elsewhere, map[string]string{})
+}
+
+func TestAnOutputDirectoryReachedThroughALinkIsFollowed(t *testing.T) {
+	t.Parallel()
+
+	// The other half of the same rule. A person's project reached through a
+	// link — /tmp on a Mac, a checkout under a symlinked home, an output
+	// directory pointed somewhere on purpose — is the path the manifest named,
+	// and writing there is writing where it asked.
+	actual := t.TempDir()
+	link := filepath.Join(t.TempDir(), "project")
+
+	if err := os.Symlink(actual, link); err != nil {
+		t.Fatalf("writing the link: %v", err)
+	}
+
+	if err := run(t, runner(t), generator(t, "go", `mkdir "$4/pkg"
+echo A > "$4/pkg/orders.go"`, filepath.Join(link, "gen"))); err != nil {
+		t.Fatalf("running the generator: %v", err)
+	}
+
+	same(t, actual, map[string]string{
+		"gen":               "<dir>",
+		"gen/pkg":           "<dir>",
+		"gen/pkg/orders.go": "A\n",
+	})
+}
+
 func TestAFileWhereADirectoryHasToGoIsAFaultAndNotASilence(t *testing.T) {
 	t.Parallel()
 

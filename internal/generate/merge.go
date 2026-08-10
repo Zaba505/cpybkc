@@ -47,6 +47,11 @@ type entry struct {
 	// source is where it is now, inside the scratch directory.
 	source string
 
+	// root is the generator's output directory, absolute: the boundary between
+	// the path a person wrote and the path a plugin produced, which is what
+	// [merger.mkdirAll] treats the two halves of differently.
+	root string
+
 	// dest is where it is to be, inside the project's tree.
 	dest string
 
@@ -171,7 +176,7 @@ func produced(name, scratch, out string) ([]entry, error) {
 			return err
 		}
 
-		found := entry{generator: name, source: path, dest: filepath.Join(out, rel), path: rel}
+		found := entry{generator: name, source: path, root: out, dest: filepath.Join(out, rel), path: rel}
 
 		switch {
 		case d.IsDir():
@@ -277,44 +282,98 @@ type merger struct {
 // write puts one entry where it is to land.
 func (m *merger) write(e entry) error {
 	if e.dir {
-		return m.mkdirAll(e.dest)
+		return m.mkdirAll(e.root, e.dest)
 	}
 
-	if err := m.mkdirAll(filepath.Dir(e.dest)); err != nil {
+	if err := m.mkdirAll(e.root, filepath.Dir(e.dest)); err != nil {
 		return err
 	}
 
 	return m.copy(e.source, e.dest, e.exec)
 }
 
-// mkdirAll creates a directory and every parent of it that is missing, giving
-// this run's mode and ownership to the ones it created and to nothing else.
+// mkdirAll makes sure there is a directory at path, which is the generator's
+// output directory or somewhere beneath it, and at everything between the two.
+//
+// The two halves are examined differently, and that is the whole of this
+// function. Above and at the output directory the walk follows links; beneath
+// it, it does not. Which half a component is in decides who chose it: the
+// output directory and its parents are the path a person wrote in the manifest,
+// and everything below is a path a plugin produced.
+func (m *merger) mkdirAll(root, path string) error {
+	if path == root {
+		return m.mkdirRoot(path)
+	}
+
+	if err := m.mkdirAll(root, filepath.Dir(path)); err != nil {
+		return err
+	}
+
+	return m.mkdir(path)
+}
+
+// mkdirRoot makes sure there is a directory at the output directory and at
+// every parent of it, creating the ones that are missing.
+//
+// [os.Stat], so a component that is a symlink to a directory is followed: a
+// project reached through one — /tmp on a Mac, a checkout under a symlinked
+// home, an output directory a person deliberately pointed elsewhere — is the
+// path the manifest named, and writing there is writing where it asked. It is
+// not the case [mkdir] guards against, which is a link *underneath* that path.
 //
 // [os.MkdirAll] would do the creating and could not say which directories it
 // had made, and a merge that applied a mode to a directory that was already
-// there would be changing the project's tree rather than adding to it — the
-// output directory a person made themselves, and every directory above it.
-func (m *merger) mkdirAll(path string) error {
+// there would be changing the project's tree rather than adding to it.
+func (m *merger) mkdirRoot(path string) error {
 	switch info, err := os.Stat(path); {
 	case err == nil && info.IsDir():
 		return nil
 	case err == nil:
-		// Something is there and it is not a directory — a plugin producing
-		// `pkg` where a previous run or a person left a file called `pkg`. It
-		// is reported in the filesystem's own vocabulary rather than in a
-		// sentence of this package's, because the caller is holding a
-		// [MergeError] that already says which generator and which path.
 		return &fs.PathError{Op: "mkdir", Path: path, Err: syscall.ENOTDIR}
 	case !errors.Is(err, fs.ErrNotExist):
 		return err
 	}
 
 	if parent := filepath.Dir(path); parent != path {
-		if err := m.mkdirAll(parent); err != nil {
+		if err := m.mkdirRoot(parent); err != nil {
 			return err
 		}
 	}
 
+	return m.create(path)
+}
+
+// mkdir makes sure there is a directory at one path beneath the output
+// directory.
+//
+// [os.Lstat] rather than [os.Stat], and the difference is an escape. A symlink
+// standing where a plugin's path needs a directory — `pkg` pointing at /etc,
+// left by a previous run of something else or by a plugin that got its output
+// merged before this rule existed — reads to [os.Stat] as a perfectly good
+// directory, and every file the run wrote beneath it would go through the link
+// and out of the project's tree. It is refused instead, in the filesystem's own
+// vocabulary, because the caller is holding a [MergeError] that already says
+// which generator and which path.
+//
+// Refused rather than replaced: this is not a path the merge is writing but one
+// it is descending, and removing a directory a person put there — or a link
+// they pointed somewhere on purpose — would be this package throwing away an
+// arrangement it merely failed to understand.
+func (m *merger) mkdir(path string) error {
+	switch info, err := os.Lstat(path); {
+	case err == nil && info.IsDir():
+		return nil
+	case err == nil:
+		return &fs.PathError{Op: "mkdir", Path: path, Err: syscall.ENOTDIR}
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+
+	return m.create(path)
+}
+
+// create makes one directory and settles what it is.
+func (m *merger) create(path string) error {
 	if err := os.Mkdir(path, dirMode); err != nil {
 		// Another generator's entry got there first, in a run where two of them
 		// write into one directory. That is the directory being there, which is
