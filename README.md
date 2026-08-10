@@ -22,6 +22,12 @@ A generator plugin written in Go imports the resolved IR from
 [`irpb`](irpb/) — `github.com/Zaba505/cpybkc/irpb`, a module of its own, so that
 building against the contract costs the protobuf runtime and nothing else.
 
+[`cpybkc-gen-go`](cmd/cpybkc-gen-go/) is the worked implementation of that
+contract and this project's own generator. It is found on `PATH` and run with
+the same argument vector a third-party generator is, and it imports `irpb` and
+the standard library and nothing else from this repository, so the contract has
+a consumer rather than only readers. Its README is the options it takes.
+
 A plugin written in anything else takes one of the two IR artifacts attached to
 every release: `ir.binpb`, the protobuf `FileDescriptorSet` that lets any
 runtime decode a descriptor with no code generation in the build, or

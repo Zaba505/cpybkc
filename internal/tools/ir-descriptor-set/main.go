@@ -18,8 +18,8 @@
 // It lives under internal/ deliberately. It is not part of cpybkc's published
 // surface, nothing outside this repository has a reason to run it, and putting
 // it under cmd/ would make a build tool look like a shipped command — which
-// matters more here than usual, because cmd/ is empty and the first thing to
-// land there decides what a reader expects to find in it.
+// matters because cmd/ is where the generator plugins a user runs live, and a
+// build tool standing beside cpybkc-gen-go would read as one of them.
 //
 //	go run ./internal/tools/ir-descriptor-set -o ir.binpb
 package main

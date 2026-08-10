@@ -104,11 +104,15 @@ wrote down. Wrapping costs one dependency and makes that impossible. The full
 reasoning, including why the stage functions are not a fork of it, is in
 [`.dagger/main.go`](.dagger/main.go)'s package comment.
 
-`GoLib` rather than `GoApp` because cpybkc is a library: there is no main package
-to compile, so the multi-platform image build and the publish half of the
-standard have nothing to act on. When a command lands under `cmd/`, the archetype
-moves to `GoApp` and `ci` gains those stages with it — a change to which factory
-the module calls, not a change to what the pipeline is.
+`GoLib` rather than `GoApp`, even now that `cmd/cpybkc-gen-go` is a main package.
+What `GoApp` adds is the multi-platform image build and the publish half of the
+standard, and both belong to the container stories: what is in the image, which
+platforms it carries and where it goes are the [base-image
+contract](docs/container/SPEC.md)'s, and switching factories ahead of them would
+build an image nothing had described. The four check stages gate a pull request
+under either archetype and they run over `./...`, so `cmd/` is checked today. The
+move lands with the image — a change to which factory the module calls, not a
+change to what the pipeline is.
 
 Both dependencies in `dagger.json` are pinned to one `devex` commit, so a bump
 has to move them together.
