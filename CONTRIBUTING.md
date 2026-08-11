@@ -541,16 +541,42 @@ here later sits beside it without either being renamed.
 
 The root [`dagger.json`](dagger.json) declares the companion as a **local**
 dependency (`"source": "daggerverse/cpybkc"`). That edge is what keeps the two
-modules' `engineVersion` from drifting: bumping the engine is one commit that
-edits both files, because the root module will not load a dependency it
-disagrees with about the engine. The daggerverse modules this project depends on
-pin theirs independently and have already drifted, which is the failure being
-designed out.
+modules' `engineVersion` from drifting, and it is worth being exact about how
+much of the work it does, because half of it is the tool and half of it is the
+convention.
+
+The tool half is one-directional, and it was measured rather than assumed.
+Setting the companion's `engineVersion` **above** the engine in use fails every
+root call outright:
+
+```
+! failed to resolve dep to source: module requires dagger v0.99.0,
+  but you have v0.21.8
+```
+
+Setting it **below** the root's does not fail anything: `dagger functions`,
+`dagger call ci` and the rest load and run exactly as before. So the edge
+catches a companion that has run ahead of the engine, and it does not catch one
+that has been left behind — which is the direction drift actually happens in,
+since lagging is what a file nobody edited does.
+
+The convention half covers that direction, and the edge is what makes it cheap
+to keep: both `dagger.json` files are in one tree, a bump is one commit that
+edits both, and the same commit has to carry regenerated code for both modules
+anyway (below). The daggerverse modules this project depends on pin theirs
+independently, in another repository, and have already drifted — one tree and
+one commit is the difference being bought.
+
+This is deliberately not a CI check. A check comparing two strings in two files
+in the same commit would be asserting that somebody edited a file they were
+already editing, which is the shape of check
+[#65 was closed for being](#65-is-closed-rather-than-left-open): it could only
+fail if the bump were done half-way, and the half-way bump fails at the next
+`dagger develop` regardless.
 
 The same edge is how the pipeline gets to drive the module over the image built
 in the pull request rather than the last published release (#64). Both uses are
-served by one line, and the lock-step is a consequence of the wiring rather than
-a rule somebody has to remember.
+served by one line.
 
 Both modules' generated code is committed, so a change to either is a
 `dagger develop` in that module and the generated files in the same commit —
