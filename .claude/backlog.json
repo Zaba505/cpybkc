@@ -21,7 +21,11 @@
     "workflow": "auto-merge.yaml"
   },
   "review": {
-    "reviewers": ["copilot", "local"]
+    "reviewers": ["copilot", "local"],
+    "app": {
+      "idEnv": "ZABA505_REVIEW_APP_ID",
+      "keyEnv": "ZABA505_REVIEW_APP_KEY"
+    }
   },
   "worktreeDir": ".claude/worktrees"
 }
