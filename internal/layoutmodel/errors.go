@@ -1347,6 +1347,127 @@ func (e *UnsequencedRecordError) Error() string {
 	)
 }
 
+// RecordFormError is a `record` that is not `(record <name> (copybook …))`.
+//
+// It covers both shapes the fault takes — a form carrying something other than
+// a name and a child, and a name written as anything but a symbol — because
+// what is wrong with each is the same thing: the form defines a name over a
+// binding and holds something else. What is wrong inside the child is a
+// [CopybookFormError], and a child that is not the one the form admits is a
+// [ChildError], so each part of the form is answered by the message about that
+// part.
+type RecordFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *RecordFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a record is written (record <name> (copybook \"<path>\" <top-level-name>)), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// CopybookFormError is a `copybook` child that is not `(copybook "<path>"
+// <top-level-name>)`.
+//
+// The path is text and the item is a symbol, and the message names both
+// spellings: a path written as a symbol is the mistake an adopter makes coming
+// from a format where a bare word is a filename, and it is one this message
+// should answer without them having to find the schema.
+type CopybookFormError struct {
+	// Pos is the child, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *CopybookFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a copybook binding is written (copybook \"<path>\" <top-level-name>), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// EmptyCopybookPathError is a `copybook` child naming a path of no characters.
+//
+// It is [EmptyRenameError]'s case in this half of the layer: the schema
+// declares the position to take text and cannot say that the text says
+// something, and a path naming no file leaves the record bound to nothing.
+// Reporting it here is what stops the CLI raising "there is no copybook to read
+// at """ — a message about a file the adopter never wrote.
+type EmptyCopybookPathError struct {
+	// Pos is the path.
+	Pos layout.Pos
+
+	// Record is the record it was written for.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *EmptyCopybookPathError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s is bound to a copybook path of no characters, and a path names a file",
+		e.Pos, quote(e.Record),
+	)
+}
+
+// DuplicateRecordError is a second `record` form defining a name another one
+// already defined.
+//
+// Two records over one copybook item are ordinary and are not this
+// (docs/layout/SPEC.md, "Many records may name one copybook, and two may name
+// one item"). What this refuses is the other direction: one name over two
+// bindings, which would leave the order the forms are written in deciding which
+// binding every reference to that name meant — and nothing in this format lets
+// anything depend on that order.
+type DuplicateRecordError struct {
+	// Pos is the second form.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Record is the name both define.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *DuplicateRecordError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s is defined twice, and is defined first at %s; a name stands for one binding",
+		e.Pos, quote(e.Record), e.First,
+	)
+}
+
+// NoRecordsError is a layout defining no record at all.
+//
+// The form's arity is one or more, and the reason is not arithmetic: a layout
+// defines the record types a file is made of, so one defining none describes a
+// file with nothing in it — there is nothing for a sequencing expression to
+// name and nothing for a descriptor to carry.
+//
+// It carries the file rather than a position, because there is no form to point
+// at: the fault is the absence of one.
+type NoRecordsError struct {
+	// File is the layout, as it was read under.
+	File string
+}
+
+// Error implements the error interface.
+func (e *NoRecordsError) Error() string {
+	return fmt.Sprintf(
+		"%s: the layout defines no record, and a layout defines the record types a file is made of",
+		e.File,
+	)
+}
+
 // axisNames is the four axes as a layout spells them, for a message that has to
 // list them.
 func axisNames() []string {
