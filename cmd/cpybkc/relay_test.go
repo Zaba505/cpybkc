@@ -303,6 +303,48 @@ echo 'ERROR: shouting' >&2`)
 	}
 }
 
+// TestALineThatIsNotADiagnosticIsRelayedVerbatim is docs/plugin/SPEC.md's rule
+// for the line cpybkc could not classify: it is surfaced verbatim and
+// attributed, and verbatim includes the whitespace a generator ended it with.
+//
+// An indented frame of a stack trace and a line of trailing padding are the two
+// this is about. Tidying either would report output the generator did not
+// produce, in the one situation — a generator failing in a way its author did
+// not anticipate — where what it actually wrote is all a reader has.
+func TestALineThatIsNotADiagnosticIsRelayedVerbatim(t *testing.T) {
+	t.Parallel()
+
+	stderr, _, err := generate(t, `printf 'at frame 3   \n' >&2
+printf '\tgoroutine 1 [running]:  \n' >&2`)
+	if err != nil {
+		t.Fatalf("a generator that exited zero failed the run: %v", err)
+	}
+
+	want := "warning: go: at frame 3   \n" +
+		"warning: go: \tgoroutine 1 [running]:  \n"
+
+	if stderr != want {
+		t.Errorf("standard error is %q, want %q", stderr, want)
+	}
+}
+
+// TestABlankLineIsRelayedAsTheSeverityAndTheNameAlone is the one line with
+// nothing to preserve. It is still relayed, because a generator's output is
+// never discarded, and the separator's trailing space goes with the message it
+// had nothing to separate.
+func TestABlankLineIsRelayedAsTheSeverityAndTheNameAlone(t *testing.T) {
+	t.Parallel()
+
+	stderr, _, err := generate(t, `echo '' >&2`)
+	if err != nil {
+		t.Fatalf("a generator that exited zero failed the run: %v", err)
+	}
+
+	if got, want := stderr, "warning: go:\n"; got != want {
+		t.Errorf("standard error is %q, want %q", got, want)
+	}
+}
+
 // TestALineCpybkcWroteItselfCarriesNoName is what the absence of a name means.
 // docs/cli/SPEC.md makes it the whole of how a reader tells cpybkc's own line
 // from a generator's, so a record with no generator attribute has to come out

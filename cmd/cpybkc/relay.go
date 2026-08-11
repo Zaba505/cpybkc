@@ -172,17 +172,30 @@ func severityOf(level slog.Level) string {
 
 // relayed writes one line that came from a generator.
 //
-// Unlike [diagnostic] it writes a line with nothing in it rather than dropping
-// one: docs/plugin/SPEC.md says a generator's output is never discarded, and a
-// blank line a generator wrote is output. What it becomes is the severity and
-// the name with nothing after them, which is a line saying exactly that.
+// The message is written exactly as it arrived, which is not what [diagnostic]
+// does with a line of cpybkc's own: docs/plugin/SPEC.md requires a line that is
+// not a diagnostic to be surfaced verbatim, and trailing whitespace is part of
+// a line a generator wrote — a plugin emitting a padded column or a shell
+// tracing itself is saying something about how it writes, and cpybkc tidying
+// that away would be reporting output nobody produced.
+//
+// Unlike [diagnostic] it also writes a line with nothing in it rather than
+// dropping one, because a generator's output is never discarded and a blank
+// line it wrote is output. What that becomes is the severity and the name with
+// nothing after them: the separator's own trailing space goes, since it belongs
+// to this rendering rather than to the line, and there is no message left for
+// it to separate.
 func relayed(w io.Writer, severity, name, message string) {
-	text := message
+	line := severity + severitySeparator
 	if name != "" {
-		text = name + severitySeparator + message
+		line += name + severitySeparator
 	}
 
-	line := strings.TrimRight(severity+severitySeparator+text, " \t")
+	if message == "" {
+		line = strings.TrimSuffix(line, " ")
+	} else {
+		line += message
+	}
 
 	_, _ = io.WriteString(w, line+"\n")
 }
