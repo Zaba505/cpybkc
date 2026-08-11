@@ -545,7 +545,7 @@ func (e *emitter) fieldType(f *irpb.Field) (string, error) {
 			return "", err
 		}
 
-		return e.binary(f.GetPicture().GetDigits()), nil
+		return e.binary(f.GetPicture()), nil
 	default:
 		return "", malformed(fmt.Sprintf("an item carries USAGE %d, which this generator does not know", int32(f.GetUsage())),
 			"docs/ir/SPEC.md requires a consumer to refuse a member of a closed set it does not recognise rather than fall back to one it does")
@@ -568,15 +568,28 @@ func (e *emitter) decimal(digits uint32) string {
 	}
 }
 
-// binary is the same for a COMP, COMP-4 or COMP-5 item. It has one more step
-// than [emitter.decimal] because a binary item of four digits or fewer occupies
-// two bytes, and codec reads that one into an int16.
-func (e *emitter) binary(digits uint32) string {
-	if digits <= 4 {
+// binary is the same for a COMP, COMP-4 or COMP-5 item. It has two more steps
+// than [emitter.decimal]: a binary item of four digits or fewer occupies two
+// bytes, which codec reads into an int16, and an unsigned one is read into a
+// uint64 whatever its digit count.
+//
+// A uint64 for a two-byte item is wider than the PICTURE needs, and it is still
+// the rule the rest of this table follows — the type is the one the accessor
+// returns — because codec offers no narrower unsigned reader and the narrowing
+// would have to happen somewhere. Doing it in the generated decode would put a
+// conversion in code nobody reads, where a value can change without anything
+// saying so; doing it in the field's type would oblige the encode to widen it
+// back. Which accessor an unsigned item takes at all is [unsignedBinary].
+func (e *emitter) binary(p *irpb.Picture) string {
+	if unsignedBinary(p) {
+		return "uint64"
+	}
+
+	if p.GetDigits() <= 4 {
 		return "int16"
 	}
 
-	return e.decimal(digits)
+	return e.decimal(p.GetDigits())
 }
 
 // numeric refuses an item whose USAGE says it holds a number and whose picture

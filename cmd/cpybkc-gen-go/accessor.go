@@ -18,12 +18,12 @@ const encodingFunc = "Encoding"
 
 // readCall is the one codec accessor an elementary item is read with.
 //
-// The accessor is selected by the item's USAGE and by how many digits its
-// PICTURE declares, and every argument it takes comes out of the IR: the width,
-// the digit count, and where the sign sits. Nothing here re-derives an
-// attribute from a PICTURE — resolve did that once, and docs/ir/SPEC.md's
-// "Dereferencing is not recomputation" is why a second reading of it does not
-// happen in a generator.
+// The accessor is selected by the item's USAGE, by how many digits its PICTURE
+// declares and — for a binary item — by whether that PICTURE carries an S, and
+// every argument it takes comes out of the IR: the width, the digit count, and
+// where the sign sits. Nothing here re-derives an attribute from a PICTURE —
+// resolve did that once, and docs/ir/SPEC.md's "Dereferencing is not
+// recomputation" is why a second reading of it does not happen in a generator.
 func (c *coder) readCall(f *irpb.Field, rdr string) (string, error) {
 	if err := resolved(f.GetEncoding()); err != nil {
 		return "", err
@@ -62,13 +62,13 @@ func (c *coder) readCall(f *irpb.Field, rdr string) (string, error) {
 			return "", err
 		}
 
-		return fmt.Sprintf("%s.ReadBinary%s(%d)", rdr, binaryFamily(f.GetPicture().GetDigits()), f.GetPicture().GetDigits()), nil
+		return fmt.Sprintf("%s.ReadBinary%s(%d)", rdr, binaryFamily(f.GetPicture()), f.GetPicture().GetDigits()), nil
 	case irpb.Usage_USAGE_COMP_5:
 		if err := numeric(f); err != nil {
 			return "", err
 		}
 
-		return fmt.Sprintf("%s.ReadComp5%s(%d)", rdr, binaryFamily(f.GetPicture().GetDigits()), f.GetPicture().GetDigits()), nil
+		return fmt.Sprintf("%s.ReadComp5%s(%d)", rdr, binaryFamily(f.GetPicture()), f.GetPicture().GetDigits()), nil
 	default:
 		return "", malformed(fmt.Sprintf("an item carries USAGE %d, which this generator does not know", int32(f.GetUsage())),
 			"docs/ir/SPEC.md requires a consumer to refuse a member of a closed set it does not recognise rather than fall back to one it does")
@@ -77,11 +77,16 @@ func (c *coder) readCall(f *irpb.Field, rdr string) (string, error) {
 
 // writeCall is the accessor the same item is written with.
 //
-// The writers take one thing the readers do not, and it is the one thing the
+// Every writer takes an argument no reader does, and it is the one thing the
 // value being written cannot say: whether the item's PICTURE carries an S.
 // Writing a signed item as unsigned discards the sign of every negative value
 // and writing an unsigned one as signed stores a C where a reader expects an F,
 // so it comes from the IR on every call rather than from the number in hand.
+//
+// On a binary item that S selects the accessor's family as well, and it selects
+// the same one here as it does in [readCall]: a field written by
+// WriteComp5Uint64 is read back by ReadComp5Uint64, because the Go type between
+// them is one type and both halves of the pair take it. See [unsignedBinary].
 func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 	if err := resolved(f.GetEncoding()); err != nil {
 		return "", err
@@ -120,13 +125,13 @@ func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 			return "", err
 		}
 
-		return fmt.Sprintf("%s.WriteBinary%s(%s, %d, %s)", wtr, binaryFamily(f.GetPicture().GetDigits()), value, f.GetPicture().GetDigits(), signedness(f)), nil
+		return fmt.Sprintf("%s.WriteBinary%s(%s, %d, %s)", wtr, binaryFamily(f.GetPicture()), value, f.GetPicture().GetDigits(), signedness(f)), nil
 	case irpb.Usage_USAGE_COMP_5:
 		if err := numeric(f); err != nil {
 			return "", err
 		}
 
-		return fmt.Sprintf("%s.WriteComp5%s(%s, %d, %s)", wtr, binaryFamily(f.GetPicture().GetDigits()), value, f.GetPicture().GetDigits(), signedness(f)), nil
+		return fmt.Sprintf("%s.WriteComp5%s(%s, %d, %s)", wtr, binaryFamily(f.GetPicture()), value, f.GetPicture().GetDigits(), signedness(f)), nil
 	default:
 		return "", malformed(fmt.Sprintf("an item carries USAGE %d, which this generator does not know", int32(f.GetUsage())),
 			"docs/ir/SPEC.md requires a consumer to refuse a member of a closed set it does not recognise rather than fall back to one it does")
@@ -164,14 +169,48 @@ func decimalFamily(digits uint32) string {
 	}
 }
 
-// binaryFamily is the same for a binary item, which has one more step because a
-// binary item of four digits or fewer occupies two bytes.
-func binaryFamily(digits uint32) string {
-	if digits <= 4 {
+// binaryFamily is the same for a binary item, which has two more steps: a
+// binary item of four digits or fewer occupies two bytes, and an unsigned one
+// has a family of its own.
+func binaryFamily(p *irpb.Picture) string {
+	if unsignedBinary(p) {
+		return "Uint64"
+	}
+
+	if p.GetDigits() <= 4 {
 		return "Int16"
 	}
 
-	return decimalFamily(digits)
+	return decimalFamily(p.GetDigits())
+}
+
+// unsignedBinaryDigits is the widest binary item codec reads and writes
+// unsigned.
+//
+// Above it there is no unsigned accessor to call. The 19-to-31 digit range an
+// ARITH(EXTEND) item may declare is sixteen bytes wide and codec offers only
+// the Big family for it, which reads two's complement. Under TRUNC(STD) that
+// costs nothing — 10^31 is far below the 2^127 at which the sign bit of a
+// sixteen-byte field turns on, so the two readings cannot part company — and
+// for a COMP-5 item that wide codec documents that it ships no accessor for the
+// values they disagree about. A generator has no fourth reading to invent, so
+// it emits the one accessor there is.
+const unsignedBinaryDigits = 18
+
+// unsignedBinary reports whether a binary item is read and written through
+// codec's unsigned accessors, which is the one question its digit count cannot
+// answer on its own.
+//
+// FF FF is 65535 read as an unsigned two-byte item and -1 read as a signed one,
+// and codec's own documentation is explicit that the difference is not
+// recoverable from the bytes: which accessor is called is what says which the
+// copybook declared. So the PICTURE's S selects the family on both sides of the
+// pair, exactly as it selects the Signedness a writer is handed — a PIC 9(4)
+// COMP-5 item holding 65535 read through ReadComp5Int16 comes back as -1, and
+// a PIC 9(4) COMP item holding it is a BinaryRangeError under TRUNC(STD)
+// instead of the value that was written.
+func unsignedBinary(p *irpb.Picture) bool {
+	return !p.GetSigned() && p.GetDigits() <= unsignedBinaryDigits
 }
 
 // signPosition is codec's name for where a zoned item keeps its sign.

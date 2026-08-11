@@ -568,7 +568,12 @@ func (f *filer) integerValue(t transition, node *irpb.Node, source *irpb.Field) 
 	}
 
 	switch typ {
-	case "int16", "int32", "int64":
+	// A register holds an int64, so every integer type but the big one widens
+	// into it. uint64 is in that list because an unsigned binary item takes one
+	// whatever its digit count, and it widens too everywhere the value can
+	// reach a register: the widest such item declares 18 digits, and 10^18 - 1
+	// is below the 2^63 - 1 an int64 holds.
+	case "int16", "int32", "int64", "uint64":
 		return "int64(" + path + ")", nil
 	case bigIntType:
 		return path + ".Int64()", nil

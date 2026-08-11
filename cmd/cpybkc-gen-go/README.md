@@ -201,10 +201,11 @@ otherwise have no way to connect to the item it stands for.
 
 ### COBOL to Go
 
-The Go type is a function of the item's `USAGE` and, where it stores a number,
-of how many digits its PICTURE declares. It is **not** a function of the item's
-width in bytes: a width is what the item occupies in the file, and the two agree
-only for `DISPLAY`.
+The Go type is a function of the item's `USAGE`, of how many digits its PICTURE
+declares where it stores a number, and — for a binary item — of whether that
+PICTURE carries an `S`. It is **not** a function of the item's width in bytes: a
+width is what the item occupies in the file, and the two agree only for
+`DISPLAY`.
 
 | The item | Go type |
 |---|---|
@@ -212,10 +213,11 @@ only for `DISPLAY`.
 | Numeric `DISPLAY` (zoned), `PACKED-DECIMAL` or `COMP-6`, up to 9 digits | `int32` |
 | … 10 to 18 digits | `int64` |
 | … 19 digits or more | `*big.Int` |
-| `BINARY`, `COMP`, `COMP-4` or `COMP-5`, up to 4 digits | `int16` |
+| **Signed** `BINARY`, `COMP`, `COMP-4` or `COMP-5` — `PIC S9(n)` — up to 4 digits | `int16` |
 | … 5 to 9 digits | `int32` |
 | … 10 to 18 digits | `int64` |
-| … 19 digits or more | `*big.Int` |
+| **Unsigned** `BINARY`, `COMP`, `COMP-4` or `COMP-5` — `PIC 9(n)` — up to 18 digits | `uint64` |
+| Either, 19 digits or more | `*big.Int` |
 | `COMP-1` | `float32` |
 | `COMP-2` | `float64` |
 | `INDEX`, `POINTER`, `NATIONAL` | `[]byte` |
@@ -226,6 +228,25 @@ returns.
 The narrowest that holds every value the PICTURE admits, and no narrower: an
 item's declared digits are what a COBOL program may store in it, whatever the
 data happens to contain.
+
+A **zoned or packed** item takes a signed type whether or not its PICTURE
+carries an `S`, and a **binary** one does not. That is not an inconsistency
+here; it is `codec`'s surface. A zoned or packed item stores its sign in a
+nibble or a zone, so an unsigned one is a signed reading that never comes back
+negative and `int32` holds it. A binary item stores two's complement, where the
+top bit is a digit in an unsigned item and the sign in a signed one — `FF FF` is
+65535 unsigned and -1 signed, and `codec` documents that the difference is not
+recoverable from the bytes. Which accessor is called is the only thing that says
+which the copybook declared, so `PIC 9(4) COMP-5` reads through
+`ReadComp5Uint64` and `PIC S9(4) COMP-5` through `ReadComp5Int16`.
+
+`uint64` for an item of four digits is wider than the PICTURE needs, and it is
+what `codec` returns: there is no narrower unsigned reader, so a narrower field
+would put a conversion either in the generated decode — where a value could
+change with nothing saying so — or in the encode that widened it back. The one
+place the rule stops is 19 digits and up, which is sixteen bytes: `codec` has
+only the `Big` family there, so an item that wide takes a `*big.Int` whether it
+is signed or not.
 
 A **scaled** item takes an integer all the same, and it holds the *unscaled*
 one — the digits as they are stored, with the implied decimal point not applied.

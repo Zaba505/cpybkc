@@ -1,0 +1,24 @@
+;; Appendix A.5's 65535 row. It is TRUNC(BIN) only -- 65535 is outside four
+;; decimal digits -- so the item is COMP-5 rather than COMP, and it carries no
+;; S, so it is read unsigned. Both halves are needed and neither is enough: the
+;; COMP accessor refuses the value and the signed one returns -1.
+;;
+;; The signed item beside it holds the same two bytes. That is the whole claim
+;; of the entry: FF FF is 65535 or -1 according to what the copybook declared,
+;; and nothing in the bytes says which.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 4))
+
+(record COMP5
+  (copybook "comp5.cpy" COMP5-RECORD))
+
+(discriminate COMP5 single-record-type)
+
+(sequence (* COMP5))

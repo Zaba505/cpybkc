@@ -435,3 +435,155 @@ func TestAWidthIsSummedForAMalformedVariantWithoutPanicking(t *testing.T) {
 		t.Error("a variant carrying no arm was given a width")
 	}
 }
+
+// TestABinaryItemsSignSelectsTheAccessorAndNotJustItsArgument is the read side
+// of the one axis the digit count cannot supply.
+//
+// A binary item stores two's complement, where the top bit is a digit in an
+// unsigned item and the sign in a signed one. FF FF is 65535 read as an
+// unsigned two-byte item and -1 read as a signed one, and codec's own
+// documentation is explicit that the difference is not recoverable from the
+// bytes — so which accessor is called is what says which the copybook declared.
+// The pair below is the same PICTURE with and without an S, and the two rows
+// name different accessors and different Go types on both sides of the codec.
+func TestABinaryItemsSignSelectsTheAccessorAndNotJustItsArgument(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		item *irpb.Node
+		want []string
+	}{
+		"a signed COMP item": {
+			item: binary(3, "QUANTITY", 2, 4, true),
+			want: []string{
+				"Quantity int16",
+				"r.ReadBinaryInt16(4)",
+				"w.WriteBinaryInt16(x.Quantity, 4, codec.Signed)",
+			},
+		},
+		"an unsigned COMP item": {
+			item: binary(3, "QUANTITY", 2, 4, false),
+			want: []string{
+				"Quantity uint64",
+				"r.ReadBinaryUint64(4)",
+				"w.WriteBinaryUint64(x.Quantity, 4, codec.Unsigned)",
+			},
+		},
+		"a signed COMP-5 item": {
+			item: comp5(3, "QUANTITY", 2, 4, true),
+			want: []string{
+				"Quantity int16",
+				"r.ReadComp5Int16(4)",
+				"w.WriteComp5Int16(x.Quantity, 4, codec.Signed)",
+			},
+		},
+		"an unsigned COMP-5 item": {
+			item: comp5(3, "QUANTITY", 2, 4, false),
+			want: []string{
+				"Quantity uint64",
+				"r.ReadComp5Uint64(4)",
+				"w.WriteComp5Uint64(x.Quantity, 4, codec.Unsigned)",
+			},
+		},
+
+		// Nine digits is four bytes and eighteen is eight, and an unsigned item
+		// takes the same accessor at every one of those widths: codec ships no
+		// narrower unsigned reader than a uint64 for a binary item.
+		"an unsigned COMP item of nine digits": {
+			item: binary(3, "QUANTITY", 4, 9, false),
+			want: []string{
+				"Quantity uint64",
+				"r.ReadBinaryUint64(9)",
+				"w.WriteBinaryUint64(x.Quantity, 9, codec.Unsigned)",
+			},
+		},
+		"an unsigned COMP item of eighteen digits": {
+			item: binary(3, "QUANTITY", 8, 18, false),
+			want: []string{
+				"Quantity uint64",
+				"r.ReadBinaryUint64(18)",
+				"w.WriteBinaryUint64(x.Quantity, 18, codec.Unsigned)",
+			},
+		},
+
+		// Above eighteen there is no unsigned accessor at all: sixteen bytes is
+		// the Big family's, signed or not.
+		"an unsigned COMP item of nineteen digits": {
+			item: binary(3, "QUANTITY", 16, 19, false),
+			want: []string{
+				"r.ReadBinaryBig(19)",
+				"w.WriteBinaryBig(x.Quantity, 19, codec.Unsigned)",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			d := &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					tc.item,
+				},
+			}
+
+			out := t.TempDir()
+
+			if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+
+			files := written(t, out)
+			source := files[recordsFile] + files[codecFile]
+
+			for _, want := range tc.want {
+				if !strings.Contains(source, want) {
+					t.Errorf("the generated package does not contain %q\n%s", want, source)
+				}
+			}
+		})
+	}
+}
+
+// TestTheGeneratorReachesCodecsUnsignedBinaryAccessors is the claim the story
+// this test came with was about, stated over a whole package rather than over
+// one item: an unsigned binary item used to be read with a signed accessor, and
+// the unsigned half of codec's binary surface was unreached.
+func TestTheGeneratorReachesCodecsUnsignedBinaryAccessors(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "COUNTS", 2),
+			group(2, "COUNTS", nil, 3, 4),
+			binary(3, "COMP-COUNT", 2, 4, false),
+			comp5(4, "COMP5-COUNT", 2, 4, false),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[codecFile]
+
+	for _, want := range []string{
+		"ReadBinaryUint64", "WriteBinaryUint64",
+		"ReadComp5Uint64", "WriteComp5Uint64",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s never calls %s\n%s", codecFile, want, source)
+		}
+	}
+
+	// And none of the signed ones, because neither item carries an S.
+	for _, unwanted := range []string{"Int16", "Int32", "Int64"} {
+		if strings.Contains(source, unwanted) {
+			t.Errorf("%s reads an unsigned item through a %s accessor\n%s", codecFile, unwanted, source)
+		}
+	}
+}

@@ -312,6 +312,7 @@ with four items in it.
 | [`binary-big-endian`](binary-big-endian) | Binary integers: a positive, a negative, a zero, and the four-to-five digit width step. |
 | [`binary-little-endian`](binary-little-endian) | The same values, the other byte order. |
 | [`binary-byte-order-detected`](binary-byte-order-detected) | A big-endian field read little-endian, caught by the range `PIC S9(4)` declares. |
+| [`binary-unsigned-comp5`](binary-unsigned-comp5) | `FF FF` under two PICTUREs: 65535 in a `COMP-5` item with no `S`, and -1 in one with an `S`. |
 | [`float-ieee754`](float-ieee754) | `COMP-1` and `COMP-2` holding 1.0 as IEEE 754, big-endian. |
 | [`float-ieee754-little-endian`](float-ieee754-little-endian) | `COMP-1` holding 1.0 with its bytes reversed. |
 | [`float-hfp`](float-hfp) | The same two items in IBM hexadecimal floating point. |
@@ -359,18 +360,23 @@ its right answer is written down. `batch-fixed` is in the same position, and bot
 carry Appendix A.7's record inside them so that the bytes of a *record* stay
 traceable to a vector even where the bytes around it are not.
 
-### Two rows of Appendix A that are deliberately not entries
+### One row of Appendix A that is deliberately not an entry
 
 - **`PIC 9(4) COMP-6`, `12 34`.** `cobol-go`'s `codec` ships no COMP-6 accessor,
   and `cpybkc-gen-go` reads a `COMP-6` item with the packed ones — which consume
   a sign nibble a COMP-6 item does not carry. An entry for it would fail on the
   generator rather than on the corpus, which is a defect to report and not a
   vector to seed.
-- **`PIC 9(4) COMP`, 65535, `FF FF`.** The row is `TRUNC(BIN)`/`COMP-5` only, and
-  `cpybkc-gen-go` selects its binary accessor by digit count alone, so an
-  unsigned four-digit item is read as a signed `int16` and 65535 does not fit.
-  Same reason.
 
-Both are the corpus doing its job one step early: what it found is a
+That is the corpus doing its job one step early: what it found is a
 disagreement between the generator and the specification, found while an entry
 was being written rather than after one was.
+
+The **`PIC 9(4) COMP`, 65535, `FF FF`** row stood here beside it for the same
+reason and no longer does. `cpybkc-gen-go` selected its binary accessor by digit
+count alone, so an unsigned four-digit item was read as a signed `int16` and
+65535 came back as -1; [#163](https://github.com/Zaba505/cpybkc/issues/163) is
+that defect, and [`binary-unsigned-comp5`](binary-unsigned-comp5) is the vector
+it was found by, seeded once the generator could read it. The row is
+`TRUNC(BIN)`/`COMP-5` only — 65535 is outside four decimal digits — so the entry
+declares `COMP-5` and needs the unsigned accessor as well as the `COMP-5` one.
