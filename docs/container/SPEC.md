@@ -668,7 +668,11 @@ Go install with no document that applies to them.
 
 - **The Dagger module** (#61–#65) that runs cpybkc for a caller. It is a
   convenience over this contract; what it needs to say, it says in its module
-  comment and `dagger call --help`.
+  comment and `dagger call --help`. Which tag it pulls when a caller names none
+  — the moving major tag — and what pinning its module ref does and does not pin
+  about the image are settled in
+  [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module) (#104),
+  which is where an argument about a convenience belongs.
 - **The registry.** That the image is published to `ghcr.io` (#59) is a fact
   about where to find it, not a guarantee about what is inside it. A mirror
   serving the same digest satisfies this contract identically.
@@ -695,6 +699,7 @@ Go install with no document that applies to them.
 | [Why `linux/s390x` is inside the guarantee](#why-linuxs390x-is-inside-the-guarantee) | #54 `container` decides it, #55, #56 `container` build and test it |
 | The IR proto shipped in the image — a consumer-visible file, sized here | #57 `container` |
 | Multi-platform build and s390x testing — out of scope, see above | #55, #56 `container` |
+| The Dagger module's default image tag — out of scope, see above | #104 `dagger` settles it in [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module); #61 `dagger` carries it onto the constructor |
 | Signing, provenance and SBOM — verifiable, so the tags section cites them | #58 `container` |
 | This document | #54 `container`; its shape and the settled `Scope`, `Governing sources` and `Out of Scope`, #15 `setup` |
 | Conventions this document follows | #15 `setup` |
