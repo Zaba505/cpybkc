@@ -17,8 +17,8 @@ import (
 	"github.com/Zaba505/cpybkc/irpb"
 )
 
-// Version is the IR version this build produces, and the one every descriptor
-// [Assemble] returns states.
+// Version is the IR version this build produces: the value of the Version field
+// on every descriptor [Assemble] returns.
 //
 // It is exported because it is a fact about the build rather than about this
 // package: docs/cli/SPEC.md has `cpybkc --version` name "the IR version this

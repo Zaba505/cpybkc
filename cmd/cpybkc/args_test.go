@@ -84,11 +84,11 @@ func TestParseAcceptsAValueCarryingAnEquals(t *testing.T) {
 	}
 }
 
-// TestParseDefaultsTheManifestToTheWorkingDirectorys is docs/cli/SPEC.md's
+// TestParseDefaultsTheManifestToTheWorkingDirectory is docs/cli/SPEC.md's
 // discovery rule: with no --manifest, cpybkc reads cpybkc.json in the working
 // directory and looks nowhere else. There is no upward search, so the default
 // is a file name rather than the start of one.
-func TestParseDefaultsTheManifestToTheWorkingDirectorys(t *testing.T) {
+func TestParseDefaultsTheManifestToTheWorkingDirectory(t *testing.T) {
 	t.Parallel()
 
 	inv, err := parse(nil)

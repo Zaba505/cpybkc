@@ -3,34 +3,34 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Command cpybkc is the executable a person runs: it finds the project's
-// manifest, reads the layout that manifest names, resolves it against the
-// copybooks it names, and hands the resolved descriptor to every generator the
-// manifest asks for.
+// Command cpybkc is the executable a person runs.
 //
 //	cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
 //	cpybkc --version
 //	cpybkc --help
+//
+// As it stands it is the outermost layer of that command and nothing behind it:
+// it parses the argument vector, answers --help and --version, and turns a
+// fault into an exit status. It reads no manifest, resolves no layout, emits no
+// descriptor and starts no generator, and a run that asks for any of that fails
+// with a diagnostic saying so. Finding the manifest and resolving it is #148,
+// --emit-ir is #149, and the diagnostics the stages owe are #150.
 //
 // docs/cli/SPEC.md is the contract, and this command implements it rather than
 // restating it. The command set, the argument vector, where the manifest is
 // looked for, what arrives on each stream, the diagnostic format, the exit
 // statuses and what --version prints are all that document's.
 //
-// # Why this is the outermost layer and nothing more
+// # Why the outermost layer lands on its own
 //
-// This program parses the command line, answers --help and --version, and turns
-// a fault into an exit status. It does not read a manifest, resolve a layout,
-// emit a descriptor or start a generator: those are #148, #149 and #150, and a
-// run that asks for them fails with a diagnostic saying so.
-//
-// The split is not tidiness. The published image's entrypoint is this CLI and
-// its Cmd is empty (docs/container/SPEC.md), so the arguments in somebody's
-// `docker run` line are the arguments below, and a flag renamed here breaks a
-// Dockerfile in a repository this project cannot see. That surface is harder to
-// change than the code behind it, so it is settled — and checked — on its own,
-// against a document, rather than as a side effect of whichever story first
-// needed a binary to exist.
+// Not tidiness, and not because the vector is the easy part. The published
+// image's entrypoint is this CLI and its Cmd is empty
+// (docs/container/SPEC.md), so the arguments in somebody's `docker run` line
+// are the arguments above, and a flag renamed here breaks a Dockerfile in a
+// repository this project cannot see. That surface is harder to change than the
+// code behind it, so it is settled — and checked — on its own, against a
+// document, rather than as a side effect of whichever story first needed a
+// binary to exist.
 //
 // # Why main is three lines
 //
