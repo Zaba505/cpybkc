@@ -27,15 +27,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 
 	"dagger/cpybkc/internal/dagger"
+	"dagger/cpybkc/internal/surface"
 )
 
 // companionModuleDir is the companion module's directory, which is also its
@@ -157,8 +154,14 @@ func engineVersion(ctx context.Context, source *dagger.Directory, path string) (
 const generatedFile = "dagger.gen.go"
 
 // cliPackageDir is the CLI's own package. Its flag constants are the surface
-// CliSurface holds the companion module to, and it is a directory rather than a
-// file so that a flag introduced in a new file beside args.go is still seen.
+// CliSurface holds the companion module to.
+//
+// It is read as a tree rather than as one file or one directory's entries: a
+// flag introduced in a new file beside args.go counts, and so does one in a
+// subpackage a later refactor moves parsing into. Reading only the immediate
+// entries would lose the whole of cmd/cpybkc/internal/ while args.go still
+// declared enough flags for the check to look healthy, which is the partial
+// failure the empty-result guard below cannot catch.
 const cliPackageDir = "cmd/cpybkc"
 
 // companionCoverage is what the companion module answers each of the CLI's
@@ -167,11 +170,21 @@ const cliPackageDir = "cmd/cpybkc"
 // hatch, and without a written record of which flag went where, "curated" and
 // "forgotten" are the same thing to read.
 //
+// Be exact about what an entry claims, because it is less than it looks. It is a
+// person's assertion that they thought about this flag and decided where it
+// belongs — nothing here proves the named function can *reach* the flag, and
+// since Run forwards an arbitrary vector, every flag is reachable through Run by
+// construction. Deleting Generate's manifest argument would leave "--manifest"
+// pointing at a Generate that no longer maps it, and CliSurface would pass. What
+// the check buys is that the assertion has to be re-made by somebody whenever the
+// CLI's surface moves, which is exactly the moment it stops being true by
+// accident.
+//
 // Every value names a function on daggerverse/cpybkc's own type, checked to
-// exist rather than taken on trust. Run appears five times over because it is
-// the escape hatch and that is what an escape hatch looks like when it is
-// working; a flag moving from Run to a curated argument is an edit here in the
-// same commit that adds the argument.
+// exist rather than taken on trust. Run appears six times over because it is the
+// escape hatch and that is what an escape hatch looks like when it is working; a
+// flag moving from Run to a curated argument is an edit here in the same commit
+// that adds the argument.
 //
 // This is a table in the pipeline rather than a list in the module because it is
 // this repository's opinion about the module, in the file that already holds the
@@ -196,6 +209,13 @@ var companionCoverage = map[string]string{
 	// with no project and no with-exec spelled out.
 	"--version": "Run",
 	"--help":    "Run",
+
+	// The one single-hyphen spelling docs/cli/SPEC.md states. It is recorded
+	// rather than filtered out as "a synonym of a covered flag", because that
+	// reasoning is true of -h and of nothing else: filtering the whole class would
+	// let a future short flag that is nobody's synonym land with this check green,
+	// and an entry costs one line.
+	"-h": "Run",
 }
 
 // CliSurface checks that every flag the CLI accepts is one the companion module
@@ -205,8 +225,9 @@ var companionCoverage = map[string]string{
 // surface that can drift away from the module is the flag table rather than a
 // verb list: a flag added to the CLI is the event that would otherwise leave the
 // module quietly unable to express a run somebody can perform by hand. That is
-// what this fails on, in both directions — a flag no entry covers, and an entry
-// naming a flag the CLI no longer accepts.
+// what this fails on, in three directions — a flag no entry covers, an entry
+// naming a function the module does not declare, and an entry naming a flag the
+// CLI no longer accepts.
 //
 // The CLI's side is read from the flag constants the parser matches on, not from
 // what `--help` prints and not from docs/cli/SPEC.md's table. The help text is
@@ -217,25 +238,41 @@ var companionCoverage = map[string]string{
 // decides whether an argument is accepted, which is the only reading that cannot
 // be true of the document and false of the program.
 //
-// It follows that a flag introduced *without* a constant — matched inline in a
-// string literal — would escape this check. That is a shape the parser does not
-// use and one the lint stage would have opinions about, and the alternative,
-// reading every string literal in the package, would fail on the diagnostics
-// that quote flags at the user. The compromise is stated here rather than left
-// as a surprise, and the empty case below is what stops the check degrading into
-// one that compares nothing.
+// What that leaves outside is a flag matched inline on a string literal rather
+// than through a constant — a shape the parser does not use, and the one this
+// check cannot see. Everything else a constant can be written as is read:
+// package scope or a function body, one hyphen or two, a literal or one flag's
+// spelling built from another's. The rules are internal/surface's and each of
+// them is a test rather than a sentence here, because a drift guard's failure
+// mode is staying green and a sentence cannot fail.
+//
+// Two guards stop this degrading quietly. A read that finds no flags at all is a
+// failure rather than a pass, since a renamed package would otherwise read as
+// "every flag is covered". And a constant this check could not evaluate is
+// reported rather than dropped, because "I could not read this" and "this is not
+// a flag" are different things to have learned.
 //
 // +check
 // +cache="session"
 func (m *Cpybkc) CliSurface(ctx context.Context) error {
-	flags, err := cliFlags(ctx, m.Source)
+	cli, err := goFiles(ctx, m.Source, cliPackageDir)
 	if err != nil {
 		return err
 	}
 
-	// A check that found no flags has not passed, it has stopped working: a
-	// renamed package, a parse that silently produced nothing, or a constant
-	// block written some other way would all read as "every flag is covered".
+	flags, unreadable, err := surface.Flags(cli)
+	if err != nil {
+		return err
+	}
+
+	if len(unreadable) > 0 {
+		return fmt.Errorf(
+			"%s declares the constants %s with values this check cannot evaluate, so it cannot say whether they "+
+				"are flags; a flag's spelling is written as a literal or built from another flag's, and a value "+
+				"assembled some other way has to be read by a person instead",
+			cliPackageDir, strings.Join(unreadable, ", "))
+	}
+
 	if len(flags) == 0 {
 		return fmt.Errorf(
 			"%s declares no flag constants, so this check compared the companion module against nothing; the CLI's "+
@@ -243,7 +280,12 @@ func (m *Cpybkc) CliSurface(ctx context.Context) error {
 				"check that passed", cliPackageDir)
 	}
 
-	functions, err := companionFunctions(ctx, m.Source)
+	module, err := goFiles(ctx, m.Source, companionModuleDir)
+	if err != nil {
+		return err
+	}
+
+	functions, err := surface.Functions(module, companionType)
 	if err != nil {
 		return err
 	}
@@ -283,160 +325,41 @@ func (m *Cpybkc) CliSurface(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// cliFlags is every flag the CLI's parser matches on, read out of its own
-// constants.
-//
-// Two spellings are deliberately not flags here. The bare "--" is POSIX's end of
-// options rather than something a caller passes a value to, and "-h" is a
-// single-hyphen synonym docs/cli/SPEC.md requires to go undocumented — a module
-// covering "--help" covers it, and listing it would ask the coverage table to
-// record a spelling the CLI's own help text will not print.
-func cliFlags(ctx context.Context, source *dagger.Directory) ([]string, error) {
-	files, err := goFiles(ctx, source, cliPackageDir)
-	if err != nil {
-		return nil, err
-	}
-
-	seen := map[string]bool{}
-	for path, contents := range files {
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, contents, 0)
-		if err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
-		}
-
-		for _, value := range constantStrings(parsed) {
-			if strings.HasPrefix(value, "--") && value != "--" {
-				seen[value] = true
-			}
-		}
-	}
-
-	return slices.Sorted(maps.Keys(seen)), nil
-}
-
-// companionFunctions is every exported method the companion module declares on
-// its own type — which is exactly what Dagger publishes as the module's
-// functions, and so exactly what a coverage entry may name.
-func companionFunctions(ctx context.Context, source *dagger.Directory) ([]string, error) {
-	files, err := goFiles(ctx, source, companionModuleDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var functions []string
-	for path, contents := range files {
-		if strings.HasSuffix(path, generatedFile) {
-			continue
-		}
-
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, contents, 0)
-		if err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
-		}
-
-		for _, decl := range parsed.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 || !fn.Name.IsExported() {
-				continue
-			}
-
-			if receiverType(fn.Recv.List[0].Type) == companionType {
-				functions = append(functions, fn.Name.Name)
-			}
-		}
-	}
-
-	slices.Sort(functions)
-
-	return functions, nil
-}
-
 // companionType is the companion module's own type, whose exported methods are
 // the module's functions. It is the directory's name in Go's spelling, and the
 // two move together or the module does not build.
 const companionType = "Cpybkc"
 
-// receiverType names the type a method is declared on, with the pointer taken
-// off. A Dagger module's functions are conventionally declared on the pointer,
-// but a value receiver publishes the same function, so both are read.
-func receiverType(expr ast.Expr) string {
-	if star, ok := expr.(*ast.StarExpr); ok {
-		expr = star.X
-	}
-
-	ident, ok := expr.(*ast.Ident)
-	if !ok {
-		return ""
-	}
-
-	return ident.Name
-}
-
-// constantStrings is every string a file declares as a constant.
+// goFiles reads a directory tree's Go source, keyed by path.
 //
-// Constants only, and not every string literal in the file: a diagnostic that
-// quotes a flag back at the user is prose about the surface rather than part of
-// it, and reading those too would make the check fail on a reworded error
-// message.
-func constantStrings(file *ast.File) []string {
-	var values []string
-
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.CONST {
-			continue
-		}
-
-		for _, spec := range gen.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-
-			for _, expr := range value.Values {
-				literal, ok := expr.(*ast.BasicLit)
-				if !ok || literal.Kind != token.STRING {
-					continue
-				}
-
-				unquoted, err := strconv.Unquote(literal.Value)
-				if err != nil {
-					continue
-				}
-
-				values = append(values, unquoted)
-			}
-		}
-	}
-
-	return values
-}
-
-// goFiles reads a directory's Go source, keyed by path.
+// The whole tree, because a package's flags do not all have to live in its top
+// directory and a check that read only the top one would go quiet about a
+// subpackage rather than fail about it.
 //
 // Tests are skipped because a test's constants are its own fixtures: a table
 // driving the parser over "--jobs" to assert it is refused would otherwise read
-// as the CLI having grown a flag.
+// as the CLI having grown a flag. The generated client is skipped for the reason
+// generatedFile gives.
 func goFiles(ctx context.Context, source *dagger.Directory, dir string) (map[string]string, error) {
 	directory := source.Directory(dir)
 
-	entries, err := directory.Entries(ctx)
+	paths, err := directory.Glob(ctx, "**/*.go")
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", dir, err)
 	}
 
 	files := map[string]string{}
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry, ".go") || strings.HasSuffix(entry, "_test.go") {
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, generatedFile) {
 			continue
 		}
 
-		contents, err := directory.File(entry).Contents(ctx)
+		contents, err := directory.File(path).Contents(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("reading %s/%s: %w", dir, entry, err)
+			return nil, fmt.Errorf("reading %s/%s: %w", dir, path, err)
 		}
 
-		files[dir+"/"+entry] = contents
+		files[dir+"/"+path] = contents
 	}
 
 	return files, nil

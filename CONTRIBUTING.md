@@ -647,28 +647,65 @@ not to express it. `dagger call cli-surface` is the difference, and it is in
 dagger call cli-surface
 ```
 
-It reads the CLI's flag constants out of [`cmd/cpybkc/`](cmd/cpybkc/) and fails
-when one of them is not recorded in `companionCoverage` in
+It reads the CLI's flag constants out of the [`cmd/cpybkc/`](cmd/cpybkc/) tree
+and fails when one of them is not recorded in `companionCoverage` in
 [`.dagger/companion.go`](.dagger/companion.go), when a recorded entry names a
 function `daggerverse/cpybkc` does not declare, or when an entry names a flag
 the CLI has stopped accepting. **So adding a flag to cpybkc fails CI until
 somebody says which side of the curation it falls on** — a curated argument on
 `Generate`, or `Run`.
 
-Two things about how it reads that are worth knowing before changing either
-side. It reads the parser's **constants**, not `cpybkc --help` and not the
-spec's table: the help text is deliberately written out by hand, because what a
-flag is called is a covered guarantee and what usage says about it is
-explicitly not one, so a check reading it would fail on a rewording and pass on
-a flag the document forgot. And it is a **flag**-level check because
+Be exact about what an entry in that table claims, because it is less than it
+looks. It is a person's assertion that they thought about the flag and decided
+where it belongs; nothing verifies that the named function can *reach* it, and
+since `Run` forwards an arbitrary vector, every flag is reachable through `Run`
+by construction. What the check buys is that the assertion has to be re-made
+whenever the CLI's surface moves, which is exactly when it stops being true by
+accident.
+
+Three things about how it reads are worth knowing before changing either side.
+It reads the parser's **constants**, not `cpybkc --help` and not the spec's
+table: the help text is deliberately written out by hand, because what a flag is
+called is a covered guarantee and what usage says about it is explicitly not
+one, so a check reading it would fail on a rewording and pass on a flag the
+document forgot. It reads them from the whole tree and in every shape a constant
+can be written — package scope or a function body, one hyphen or two, a literal
+or one flag's spelling built from another's — because each of those was a hole
+found in review, and each is now a row in
+[`.dagger/internal/surface/`](.dagger/internal/surface/)'s tests rather than a
+sentence in a comment. And it is a **flag**-level check because
 `docs/cli/SPEC.md` fixes cpybkc as one command with no subcommands — there is no
 verb list for a module function to correspond to, so the surface that can drift
 is the flag table.
+
+Two things stop it degrading quietly, which matters more here than for an
+ordinary check: a drift guard's failure mode is *staying green*. A read that
+finds no flags at all fails rather than passes, and a constant whose value it
+cannot evaluate is reported rather than dropped, because "I could not read this"
+and "this is not a flag" are different things to have learned.
 
 This is the shape of check [#65 was closed for not
 being](#65-is-closed-rather-than-left-open). It fails on something a person does
 — adding a flag in one module and not thinking about the other — rather than on
 a constant compared against the thing it was generated from.
+
+### The pipeline module is checked like any other Go module here
+
+`dagger call pipeline-ci` runs the standard pipeline over
+[`.dagger/`](.dagger/), and it is in `ci`. It is a fourth call for the reason
+[`IrCi`](.dagger/main.go) is a second and
+[`CompanionCi`](.dagger/companion.go) a third: a nested `go.mod` is where `go
+test ./...` stops. Until it existed, the module that checks everything else in
+this repository was the one Go module nothing checked.
+
+What made that worth fixing rather than noting is `cli-surface`. Its reading of
+the CLI's constants lives in [`.dagger/internal/surface/`](.dagger/internal/surface/)
+**precisely so that it can be tested** — the pipeline's own `package main`
+imports the generated Dagger client, whose `init` panics without a session, so a
+test beside it cannot run under plain `go test`, exactly as in the companion.
+Without this stage those tests would run on a contributor's machine and nowhere
+else, and a drift guard nothing exercises is a drift guard nobody finds out has
+stopped working.
 
 ### The default image tag is the moving major tag
 

@@ -66,15 +66,18 @@
 // is the gate a contributor runs, and a check CI performs that the gate does
 // not is an arrangement of local commands that passes while CI fails.
 //
-// # Why the standard is invoked twice
+// # Why the standard is invoked four times
 //
-// This repository holds two Go modules: the CLI at the root and the published IR
-// module at irpb/. A nested go.mod is where `go test ./...` stops, so the source
-// directory that reaches one of them cannot reach the other, and IrCi is the
-// second invocation that covers the second module. It is the standard again and
-// not a variation on it — same archetype, same lint configuration — because the
-// module the third-party generators actually import is the last place this
-// repository should be checking something bespoke.
+// This repository holds four Go modules: the CLI at the root, the published IR
+// module at irpb/, the companion Dagger module at daggerverse/cpybkc/, and this
+// pipeline itself at .dagger/. A nested go.mod is where `go test ./...` stops,
+// so the source directory that reaches one of them reaches none of the others,
+// and IrCi, CompanionCi and PipelineCi are the three further invocations that
+// cover the three further modules. Each is the standard again and not a
+// variation on it — same archetype, same lint configuration — because the module
+// third-party generators import, the module strangers call, and the pipeline
+// that judges everything else are the last three places this repository should
+// be checking something bespoke.
 //
 // ProtoGen is the odd one out: it is not a check at all but the generator that
 // produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
@@ -226,7 +229,7 @@ func New(
 }
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
-// the Z5Labs standard defines them, over each of this repository's two Go
+// the Z5Labs standard defines them, over each of this repository's four Go
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
 // build of the three artifacts a release publishes, the published base image on
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
@@ -236,7 +239,7 @@ func New(
 // one `dagger call ci` and stays one, because a workflow step that reran any of
 // these stages would be a second definition of them.
 //
-// The fourteen parts run concurrently and all are reported, for the reason the
+// The fifteen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -245,10 +248,10 @@ func New(
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr error
-	var tagErr, notesErr, companionErr, engineErr, surfaceErr error
+	var tagErr, notesErr, companionErr, engineErr, surfaceErr, pipelineErr error
 
 	var wg sync.WaitGroup
-	wg.Add(14)
+	wg.Add(15)
 
 	go func() {
 		defer wg.Done()
@@ -325,10 +328,15 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		surfaceErr = m.CliSurface(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		pipelineErr = m.PipelineCi(ctx)
+	}()
+
 	wg.Wait()
 
 	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr,
-		tagErr, notesErr, companionErr, engineErr, surfaceErr)
+		tagErr, notesErr, companionErr, engineErr, surfaceErr, pipelineErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -348,6 +356,40 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 func (m *Cpybkc) IrCi(ctx context.Context) error {
 	return dag.Z5Labs().
 		GoLib(m.Source.Directory("irpb"), dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
+		Ci(ctx)
+}
+
+// pipelineModuleDir is this pipeline's own Go module — the one whose functions
+// you are reading. It is a module rather than a package of the repository, so
+// `go test ./...` from the root stops at its go.mod exactly as it stops at
+// irpb/'s and the companion's.
+const pipelineModuleDir = ".dagger"
+
+// PipelineCi runs the standard Go pipeline over the pipeline's own module.
+//
+// It is a fourth call for the reason IrCi is a second and CompanionCi a third: a
+// nested go.mod is where `go test ./...` stops. Until this existed, the pipeline
+// that checks everything else in the repository was the one Go module nothing
+// checked — and what made that worth fixing rather than noting is #62's
+// CliSurface, whose reading of the CLI's flag constants lives in
+// internal/surface precisely so that it can be tested, and whose tests would
+// otherwise have run on a contributor's machine and nowhere else. A drift guard
+// nothing exercises is a drift guard nobody finds out has stopped working.
+//
+// What it really runs is that package. The module's own package main imports the
+// generated Dagger client, whose init panics without a session, so a test beside
+// main cannot run under plain `go test` here any more than it can in the
+// companion; keeping the readable part in a package that imports no Dagger is
+// what turns these rules into something a test pins.
+//
+// It is handed the same .golangci.yml, so all four Go modules are linted against
+// one configuration rather than one each.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) PipelineCi(ctx context.Context) error {
+	return dag.Z5Labs().
+		GoLib(m.Source.Directory(pipelineModuleDir), dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
 		Ci(ctx)
 }
 
