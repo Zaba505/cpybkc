@@ -128,8 +128,10 @@ package emit
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -363,14 +365,27 @@ func Write(dest string, out io.Writer, d *irpb.Descriptor, format Format) error 
 	return writeFile(dest, b)
 }
 
-// descriptorPerm is the mode a written descriptor carries.
+// descriptorPerm is the mode a descriptor is created with, before the process
+// umask is applied to it: an ordinary output file, which is what a later step of
+// a pipeline — often running as another user, which is the ordinary arrangement
+// inside a container — has to be able to read.
 //
-// It is set explicitly rather than inherited from the temporary file below,
-// which [os.CreateTemp] makes 0600: a descriptor is an ordinary output file that
-// a later step of a pipeline, often running as another user, reads back, and a
-// mode that depended on which of the two write paths produced the file would be
-// a difference nothing in the run explains.
+// It is a creation mode and never a mode this package sets on a file that
+// already exists. Both halves are what writing straight to the destination did,
+// and neither is a policy this function is entitled to acquire on the way to
+// being atomic; see [writeFile].
 const descriptorPerm = 0o644
+
+// tempAttempts is how many names [createBeside] will try before giving up.
+//
+// The names are counted rather than drawn at random, so this is not a collision
+// bound: it is how many temporaries may be sitting beside one destination before
+// a write fails. One is there while another run is mid-write, and one is left
+// behind by each run killed outright between the create and the rename, so the
+// number has to be comfortably above "somebody interrupted this a few times" and
+// still bounded — a loop that never gives up would hang on a directory that
+// cannot be written to at all.
+const tempAttempts = 64
 
 // writeFile puts b at dest in full or not at all.
 //
@@ -386,13 +401,58 @@ const descriptorPerm = 0o644
 // So the bytes go to a temporary file beside dest and are renamed onto it. The
 // rename is atomic within a directory, which is why the temporary is made there
 // rather than in TMPDIR — a rename across filesystems is a copy, and a copy is
-// the partial write this function exists to avoid.
+// the partial write this function exists to avoid. The file is flushed before
+// the rename because a full disk is one of the two failures named above, and
+// with delayed allocation it is reported at the flush rather than at the write:
+// renaming an unflushed file is how ENOSPC becomes a short descriptor and a
+// successful return.
 //
-// The temporary is removed on every path out. After a successful rename there is
-// nothing at that name to remove and the attempt fails harmlessly, which is
-// cheaper than tracking whether the rename happened.
+// # What this does not change about writing to a path
+//
+// A symlink is followed rather than replaced. Writing straight to dest wrote
+// through it, and a project that keeps its descriptor as a link into a shared
+// directory would otherwise find the link gone after the first emission —
+// silently, since nothing about the run mentions it. Resolving it first also
+// makes the temporary land beside the file the rename actually replaces, which
+// is what the atomicity argument above is about; a link and its target need not
+// be on one filesystem.
+//
+// The mode is [descriptorPerm] masked by the process umask for a file that was
+// not there, and the mode it already had for a file that was — both of which are
+// what passing a mode to [os.WriteFile] meant. A temporary created 0600 and
+// chmod-ed afterwards would widen a descriptor written under a restrictive umask
+// and would flatten a mode somebody had set on purpose, which is a decision
+// about somebody's file that this function has no reason to be making.
+//
+// # What it does not promise
+//
+// Not durability across a crash or a power loss. The flush is what makes a
+// failure a failure rather than a short file; the directory entry the rename
+// creates is not itself flushed, so a machine that dies immediately afterwards
+// may come back with the old descriptor. That is the right trade for a build
+// artifact — it is reproduced by running cpybkc again — and paying for the
+// stronger promise would mean an fsync of the directory on every emission.
+//
+// On Windows, replacing a destination another process holds open fails rather
+// than succeeding as a write through the existing handle would have. That is the
+// cost of the rename, and it is the same cost every atomic write on that
+// platform pays.
+//
+// The temporary is removed on every return, including the successful one, where
+// there is nothing left at that name and the attempt fails harmlessly — cheaper
+// than tracking whether the rename happened. A process killed outright between
+// the create and the rename leaves it behind; the leading dot is what keeps that
+// out of the way of anything reading the directory.
 func writeFile(dest string, b []byte) error {
-	temp, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".*")
+	// The path a diagnostic names stays the path the caller gave, whatever the
+	// links under it resolve to: it is what somebody typed on the command line,
+	// and it is what they can go and look at.
+	target := dest
+	if resolved, err := filepath.EvalSymlinks(dest); err == nil {
+		target = resolved
+	}
+
+	temp, err := createBeside(target)
 	if err != nil {
 		return fmt.Errorf("failed to write %s: %w", dest, err)
 	}
@@ -407,17 +467,73 @@ func writeFile(dest string, b []byte) error {
 		return fmt.Errorf("failed to write %s: %w", dest, err)
 	}
 
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+
+		return fmt.Errorf("failed to write %s: %w", dest, err)
+	}
+
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("failed to write %s: %w", dest, err)
 	}
 
-	if err := os.Chmod(name, descriptorPerm); err != nil {
-		return fmt.Errorf("failed to write %s: %w", dest, err)
+	// A destination that is already there keeps the mode it has. There is
+	// nothing to do for one that is not: the temporary was created with the mode
+	// a new descriptor carries.
+	if info, err := os.Stat(target); err == nil && info.Mode().IsRegular() {
+		if err := os.Chmod(name, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("failed to write %s: %w", dest, err)
+		}
 	}
 
-	if err := os.Rename(name, dest); err != nil {
+	if err := os.Rename(name, target); err != nil {
 		return fmt.Errorf("failed to write %s: %w", dest, err)
 	}
 
 	return nil
+}
+
+// createBeside makes a file next to dest that nothing else holds, at the mode a
+// descriptor is created with.
+//
+// It is [os.CreateTemp] with two differences, and both are why it is written out
+// rather than called.
+//
+// CreateTemp fixes the mode at 0600, which is not a mode this package is
+// entitled to give somebody's descriptor. Creating the file with
+// [descriptorPerm] instead leaves the process umask to be applied by the kernel,
+// exactly as it was when these bytes went straight to the destination.
+//
+// And CreateTemp picks its names with a random number, which this package may
+// not read: internal/emit is on internal/plugin's list of packages that decide
+// what a run writes, and that list forbids a random source outright rather than
+// case by case. The names are therefore counted, which costs nothing here — a
+// temporary is not output, it never outlives the call, and uniqueness is not
+// what the counter is providing.
+//
+// O_EXCL is. A create that loses a race fails rather than opening what is
+// already there, so the next name is tried: two runs emitting beside one
+// destination cannot share a temporary, a name anybody guessed cannot be
+// pre-created for this function to write through, and a temporary a killed run
+// left behind is stepped over rather than written into.
+func createBeside(dest string) (*os.File, error) {
+	dir, base := filepath.Split(dest)
+
+	for attempt := range tempAttempts {
+		name := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", base, attempt))
+
+		file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, descriptorPerm)
+
+		switch {
+		case err == nil:
+			return file, nil
+		case errors.Is(err, fs.ErrExist):
+			continue
+		default:
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("every one of the %d temporary names beside it is taken, which is usually %d runs "+
+		"killed mid-write leaving a .%s.<n>.tmp behind", tempAttempts, tempAttempts, base)
 }

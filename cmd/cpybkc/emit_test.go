@@ -176,19 +176,41 @@ func TestEmittingJSONRendersTheSameDescriptor(t *testing.T) {
 // TestTheDefaultEmissionIsTheCanonicalForm covers the default docs/cli/SPEC.md
 // fixes: a line that names no format gets the bytes the rest of the system uses,
 // and the debug form is the one you ask for by name.
+//
+// The two emissions are compared rather than the default one being decoded,
+// because decoding is satisfied by too much: protobuf reads empty input as an
+// empty message and reports no failure, so a default that emitted nothing at all
+// would pass. Comparing says the stronger thing — the default is *this* format —
+// and the emptiness check is what stops two silent emissions agreeing.
 func TestTheDefaultEmissionIsTheCanonicalForm(t *testing.T) {
 	bin := t.TempDir()
 	install(t, bin, "one", generatorScript("one"))
 
 	dir := projectIn(t, `[{"name": "one", "out": "gen"}]`)
 
-	stdout, stderr, code := generateIn(t, dir, bin, emitIRFlag, standardOutput)
+	byDefault, stderr, code := generateIn(t, dir, bin, emitIRFlag, standardOutput)
 	if code != statusOK {
 		t.Fatalf("an emitting run exited %d, want %d:\n%s", code, statusOK, stderr)
 	}
 
-	if err := proto.Unmarshal([]byte(stdout), &irpb.Descriptor{}); err != nil {
-		t.Fatalf("the default emission does not decode as a descriptor, so it is not the canonical form: %v", err)
+	if byDefault == "" {
+		t.Fatal("an emitting run that named no format wrote nothing")
+	}
+
+	byName, stderr, code := generateIn(t, dir, bin, emitIRFlag, standardOutput, emitIRFormatFlag, binaryFormat)
+	if code != statusOK {
+		t.Fatalf("emitting %s by name exited %d, want %d:\n%s", binaryFormat, code, statusOK, stderr)
+	}
+
+	if byDefault != byName {
+		t.Errorf("the default emission is not the %s form: %d bytes against %d",
+			binaryFormat, len(byDefault), len(byName))
+	}
+
+	// And it is the encoding a consumer decodes, rather than two runs agreeing
+	// on something that is neither format.
+	if err := proto.Unmarshal([]byte(byDefault), &irpb.Descriptor{}); err != nil {
+		t.Fatalf("the default emission does not decode as a descriptor: %v", err)
 	}
 }
 
