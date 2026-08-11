@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/generate"
@@ -77,9 +78,31 @@ func install(t *testing.T, bin, name, body string) {
 	t.Helper()
 
 	path := filepath.Join(bin, plugin.Filename(name))
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+	if err := writeGenerator(path, body); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
 	}
+}
+
+// writeGenerator writes an executable plugin, under [syscall.ForkLock] held for
+// reading.
+//
+// The lock is the whole point of this function existing rather than the
+// [os.WriteFile] it wraps, and internal/generate/generate_test.go's generator
+// carries the same treatment for the same reason: a fork made anywhere in this
+// process while the script is open for writing hands the child a copy of that
+// descriptor, and the child holds it until it execs — so an exec of the script
+// inside that window fails with ETXTBSY (golang/go#22315).
+//
+// Every test in this package writes a generator and runs one, so the window is
+// real, and it is CI — more tests running than the machine has cores — that
+// finds it. Seen as `fork/exec …/cpybkc-gen-go: text file busy` from a
+// generator the run had just installed, which reads like a fault in the code
+// under test and is a fault in the test's own setup.
+func writeGenerator(path, body string) error {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+
+	return os.WriteFile(path, []byte(body), 0o755)
 }
 
 // projectIn writes a whole project — the manifest, the layout it names and the
