@@ -111,6 +111,20 @@
 // invocation of protoc, which is what makes the release asset and the in-image
 // copy two ways of getting one artifact.
 //
+// # Why signing is here too, and why only half of it is checked
+//
+// Attest signs a published digest and attaches its provenance and SBOMs (#58),
+// and sign.go carries the argument for what is attached to what. It is on this
+// module for the reason the artifact builds are: a recipe that only ever ran
+// inside .github/workflows/release.yaml would first run on a tag, where a
+// failure is a release that did not happen.
+//
+// Only half of it can be a check. Producing a real signature needs an OIDC
+// token, a registry and a public transparency log, none of which a pull request
+// has, so Attestations checks what is a function of this repository — the
+// provenance predicate's shape and the SBOM set — and says outright that the
+// signature itself is first exercised by a release.
+//
 // # Why a document is one of the stages
 //
 // WorkedExample builds the Dockerfile docs/container/SPEC.md hands an adopter
@@ -204,12 +218,13 @@ func New(
 // the Z5Labs standard defines them, over each of this repository's two Go
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
 // build of the three artifacts a release publishes, the published base image on
-// every platform it ships for, and the worked examples docs/container/SPEC.md
-// hands an adopter. This is the single entrypoint — CI is one `dagger call ci`
-// and stays one, because a workflow step that reran any of these stages would be
-// a second definition of them.
+// every platform it ships for, the worked examples docs/container/SPEC.md hands
+// an adopter, and the attestations a release attaches to what it publishes. This
+// is the single entrypoint — CI is one `dagger call ci` and stays one, because a
+// workflow step that reran any of these stages would be a second definition of
+// them.
 //
-// The eight parts run concurrently and all are reported, for the reason the
+// The nine parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -217,10 +232,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr error
+	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr error
 
 	var wg sync.WaitGroup
-	wg.Add(8)
+	wg.Add(9)
 
 	go func() {
 		defer wg.Done()
@@ -267,9 +282,14 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		exampleErr = m.WorkedExample(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		attestErr = m.Attestations(ctx)
+	}()
+
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr)
+	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.

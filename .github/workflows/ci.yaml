@@ -60,14 +60,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       # Reading the source is all the pipeline does. It now builds the two IR
-      # artifacts a release attaches (#19), but it builds them inside the engine
-      # and throws them away — nothing here uploads, pushes or signs anything.
-      # So no `contents: write`, which belongs to release.yaml's job because
-      # that is where an asset is attached; no `packages: write`, because
-      # nothing is pushed; and no `id-token: write`, because nothing is attested
-      # yet (#58). Each grant belongs to the change that gives it a use, next to
-      # the step that needs it, rather than being held here in advance against a
-      # job that would not notice it missing.
+      # artifacts a release attaches (#19) and the provenance predicate and
+      # SBOMs a release signs (#58), but it builds them inside the engine and
+      # throws them away — nothing here uploads, pushes or signs anything. So no
+      # `contents: write`, which belongs to release.yaml's job because that is
+      # where an asset is attached; no `packages: write`, because nothing is
+      # pushed; and no `id-token: write`, because the signature itself is made at
+      # release time and this job never asks for a workload identity token. Each
+      # grant belongs to the change that gives it a use, next to the step that
+      # needs it, rather than being held here in advance against a job that would
+      # not notice it missing.
       contents: read
     steps:
       # A shallow checkout on purpose. The module excludes .git from the source
