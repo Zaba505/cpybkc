@@ -288,6 +288,145 @@ to exclude.
 `.github/workflows/release.yaml` attaches all three to a release when one is
 published, building them with the same three calls above at the release's tag.
 
+## The companion Dagger module
+
+A second Dagger module ships from this repository: the consumer-facing one that
+runs the CLI for a caller, published as `github.com/Zaba505/cpybkc/<dir>` and
+unrelated to the `.dagger/` module that runs this repository's own pipeline. It
+does not exist yet — #61 writes it — and one thing about it had to be settled
+before it could be written, because the answer is a default value in a
+constructor, and a default in a module directory that is never renamed is public
+API from the first release.
+
+The module gets no `SPEC.md`. It is a convenience over the [base-image
+contract](docs/container/SPEC.md) rather than an interface of its own, and what
+it needs to say it says in its module comment and in `dagger call --help`
+([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*). What
+follows is the argument behind one of those comments, kept here because the
+argument is longer than the comment and outlives the reader who needs it.
+
+### The default image tag is the moving major tag
+
+`New`'s `version` argument defaults to **`v0`**, the moving major tag, and not
+to a full version constant generated at release time (#104).
+
+A major tag follows every release within its major by the [tag
+scheme](docs/container/SPEC.md#tags-and-what-pinning-one-buys) (#59), so the
+default cannot go stale. Nothing is generated at release time, no CI check
+asserts that a constant equals the git tag, and the release runbook grows no
+step that could be forgotten. A caller who pins nothing picks up every fix in
+the major version without editing anything — which is what a moving tag is for,
+and what the container contract already recommends to a derived Dockerfile.
+
+### What pinning the module ref buys, and what it does not
+
+Two version numbers are in play, and neither pins the other.
+`github.com/Zaba505/cpybkc/<dir>@v0.3.1` pins the module's *source* — the
+constructor's defaults, and the composition its methods perform — at the commit
+that tag names. Which image that source pulls is decided when it runs, by the
+`version` argument, whose default resolves through a tag that moves. A pinned
+module ref therefore buys a module that behaves the same way every time, and
+says nothing about the bytes of the CLI it drives.
+
+What the two do agree on is the major version, and that is not an accident: a
+module published at a `v0.x.y` ref defaults to the image's `v0`. Pinning the ref
+pins which major of the image you get, and that is exactly the range over which
+the [compatibility
+guarantees](docs/container/SPEC.md#compatibility-guarantees) hold. Anything
+narrower than a major is the caller's explicit act — `v0.3.1` names one release,
+and a digest names the bytes.
+
+### Skew between the module and the image is supported within a major
+
+A module from one release driving an image from another is a **supported
+combination** for as long as both are inside one major version of the image, and
+what bounds it is the container contract's compatibility guarantees rather than
+anything the module promises on its own. Across a major version it is not
+supported, and the default cannot produce it: `v0` does not cross into `v1`.
+
+The bound is narrower than the whole contract, which is what makes it worth
+leaning on. The module drives the image through four things, and all four are in
+the covered table: the plugin directory it copies a generator into, the
+entrypoint it passes arguments to, the user that has to be able to execute what
+was copied, and the platform set. Everything else it reads off the container
+rather than assuming — the working directory in particular, which the contract
+explicitly does **not** cover. A module that had copied more of the contract
+into itself would have that much more to hold across the skew this default
+permits, so the discipline that keeps the module small (#61) is the same
+discipline that makes the moving default safe.
+
+One level down, this project refuses the analogous skew, and the difference is
+worth stating because the prior art this module follows does not state it. A
+later `WithGenerator` pulls the generator matching the CLI already composed in,
+because a generator from one release beside a CLI from another is a combination
+nobody tested and defaulting to it silently is how somebody ends up in it (#63).
+That is a rule about two arguments that can carry different strings, and the fix
+is to carry one string forward. The module ref and the image tag are not two
+spellings of one version, so there is no string to carry; and the tag that *is*
+carried forward to the generator is the same `v0` the CLI came from. The pair
+#63 refuses is one this default cannot construct.
+
+### Why the generated constant lost
+
+It was a real option, and it buys something this one does not: a caller who pins
+nothing gets a reproducible build, and one version number then names one tested
+combination of module and image.
+
+It costs release-time code generation, a CI check that the constant equals the
+git tag, a runbook step — and it introduces a failure the moving tag does not
+have. A constant nobody regenerated is stale, and stale is silent: generation
+succeeds, against an old CLI, and nothing reports it. The check would have been
+the only thing standing between that failure and a user, which is the argument
+against the option that needs it. A moving default fails the other way round:
+the only way it can fail is a change inside a major version that the module did
+not expect, and that breaks the next run loudly rather than the next quarter's
+quietly.
+
+Reproducibility is not lost by this, it is made explicit — and the escalation on
+the argument is where a caller learns how to ask for it. A digest is the only
+reference that pins bytes, which is the position
+[`docs/container/SPEC.md`](docs/container/SPEC.md#tags-and-what-pinning-one-buys)
+takes about tags and
+[`docs/plugin/SPEC.md`](docs/plugin/SPEC.md#also-out-of-scope) takes about
+plugin distribution. Nothing else claims to.
+
+### What the constructor says
+
+The escalation belongs on the argument and not only here, because a caller reads
+`dagger call --help` and never opens this file. #61 carries this onto `version`,
+and a change to the default is a change to both:
+
+```go
+// Version is the tag of the published cpybkc image to run.
+//
+// It defaults to the moving major tag "v0", which follows every release in
+// that major version: a caller who passes nothing keeps up with fixes and
+// stays inside the base-image contract's compatibility guarantees. Escalate
+// deliberately — "v0" follows releases, "v0.3.1" pins one release, and only a
+// digest pins the bytes. A digest is not a tag, so it goes to the container
+// override argument rather than here.
+```
+
+How the default is spelled — a `+default` pragma or a zero-value check — is
+#61's, and so is the name of the container override the last sentence points at.
+What is settled here is the value and what the comment says about it.
+
+### #65 is closed rather than left open
+
+#65 asks for the default tag to be generated from a version constant written at
+release time, and for CI to fail when it does not equal the git tag. With `v0`
+as the default there is no constant to generate and no invariant left to
+enforce: the check would compare a tag that follows releases against the release
+it has just followed, and would pass by construction. A check that cannot fail
+is not a weaker check — it is a claim that something is being verified. So the
+story is closed as unnecessary rather than carried against a premise this
+decision removed.
+
+What survives of it is the one thing the default depends on. #59 publishes the
+moving major tag; if that ever stopped being published, this decision is what
+would have to be reopened, rather than the default quietly patched at the call
+site.
+
 ## The conformance corpus
 
 [`testdata/conformance/`](testdata/conformance/) is a set of small files with the
