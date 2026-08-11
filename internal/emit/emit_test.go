@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -647,6 +648,133 @@ func TestWriteReplacesAnExistingFile(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("the replaced file is not the encoded descriptor: %d bytes on disk, %d encoded", len(got), len(want))
 	}
+}
+
+// TestWriteReplacesAPathRatherThanTruncatingIt is how atomicity is observed
+// from outside the package: a reader holding the old file open still sees the
+// old bytes after the write, which is true of a rename onto the name and false
+// of a truncate-and-write.
+//
+// It is the property docs/cli/SPEC.md asks for — "a path is written in full or
+// not at all, so that nothing partial is ever left where another tool would read
+// it" — stated as something a test can fail on. A write that truncated first
+// would leave a descriptor that is a prefix of a descriptor for as long as the
+// write took, and a consumer reading in that window meets a malformed message
+// rather than the failed emission it is.
+func TestWriteReplacesAPathRatherThanTruncatingIt(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "ir.binpb")
+
+	seed := bytes.Repeat([]byte{0xff}, 4096)
+	if err := os.WriteFile(dest, seed, 0o644); err != nil {
+		t.Fatalf("seed %s: %v", dest, err)
+	}
+
+	before, err := os.Open(dest)
+	if err != nil {
+		t.Fatalf("open %s: %v", dest, err)
+	}
+
+	defer before.Close()
+
+	if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	held, err := io.ReadAll(before)
+	if err != nil {
+		t.Fatalf("read the file that was open across the write: %v", err)
+	}
+
+	if !bytes.Equal(held, seed) {
+		t.Errorf("the write replaced the contents under a reader that had the file open: %d bytes of %d survived",
+			len(held), len(seed))
+	}
+}
+
+// TestWriteLeavesNothingBesideTheDescriptor holds the other half of the same
+// implementation: whatever a write puts beside the destination on the way is
+// gone afterwards, whether it succeeded or failed.
+//
+// A temporary left behind is not a cosmetic fault. The destination is a path
+// somebody typed, usually beside the layout it describes, and a run that
+// littered a checked-out tree with half-written descriptors would have every one
+// of them turn up in a diff.
+func TestWriteLeavesNothingBesideTheDescriptor(t *testing.T) {
+	t.Run("after a write that succeeded", func(t *testing.T) {
+		dir := t.TempDir()
+		dest := filepath.Join(dir, "ir.binpb")
+
+		if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		if got := entries(t, dir); len(got) != 1 || got[0] != "ir.binpb" {
+			t.Errorf("the directory holds %v, want the descriptor alone", got)
+		}
+	})
+
+	t.Run("after a write that failed", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// A destination that is an existing directory. The encoding succeeds and
+		// so does everything up to the rename, which is the one failure that
+		// reaches this function with a temporary already on disk.
+		dest := filepath.Join(dir, "ir.binpb")
+		if err := os.Mkdir(dest, 0o755); err != nil {
+			t.Fatalf("make %s: %v", dest, err)
+		}
+
+		if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err == nil {
+			t.Fatal("writing over a directory succeeded")
+		}
+
+		if got := entries(t, dir); len(got) != 1 || got[0] != "ir.binpb" {
+			t.Errorf("a failed write left %v behind, want the directory it could not replace alone", got)
+		}
+	})
+}
+
+// TestWriteGivesTheDescriptorAnOrdinaryMode pins the mode a written descriptor
+// carries.
+//
+// The temporary this package writes through is created 0600, and a descriptor
+// inheriting that mode is one the next step of a pipeline — running as another
+// user, which is the ordinary arrangement inside a container — cannot read. The
+// mode is therefore set rather than inherited, and this is what says so.
+func TestWriteGivesTheDescriptorAnOrdinaryMode(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "ir.binpb")
+
+	if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat %s: %v", dest, err)
+	}
+
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Errorf("the descriptor is mode %04o, want %04o", got, 0o644)
+	}
+}
+
+// entries is the names in dir, sorted, for a message naming what is there.
+func entries(t *testing.T, dir string) []string {
+	t.Helper()
+
+	found, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+
+	names := make([]string, 0, len(found))
+	for _, entry := range found {
+		names = append(names, entry.Name())
+	}
+
+	sort.Strings(names)
+
+	return names
 }
 
 // TestWriteRejectsBadDestinations keeps the failure modes failures. Silently

@@ -11,10 +11,9 @@
 //
 // It parses the argument vector, answers --help and --version, finds the
 // project's manifest, and runs every generator that manifest names over the one
-// descriptor the layout and its copybooks resolve to. Then it turns whatever
-// happened into an exit status and reports it. `--emit-ir` is the one thing on
-// the vector this build does not do: a descriptor is resolved for every run, but
-// writing one where the flag names is #149.
+// descriptor the layout and its copybooks resolve to — or, where --emit-ir asks
+// for it, writes that descriptor and stops. Then it turns whatever happened into
+// an exit status and reports it.
 //
 // # What is here, and what is not
 //
@@ -66,11 +65,11 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
 
+	"github.com/Zaba505/cpybkc/internal/emit"
 	"github.com/Zaba505/cpybkc/internal/generate"
 	"github.com/Zaba505/cpybkc/internal/plugin"
 	"github.com/Zaba505/cpybkc/internal/project"
@@ -145,7 +144,7 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 
 		return nil
 	case answerRun:
-		return perform(ctx, inv, log)
+		return perform(ctx, inv, stdout, log)
 	}
 
 	// Unreachable: parse returns one of the three answers above. It is a
@@ -156,7 +155,8 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 
 // perform is the run itself: the manifest, the layout it names, the copybooks
 // that layout names, and every generator the manifest asks for, run over the one
-// descriptor they resolve to.
+// descriptor they resolve to — unless --emit-ir asked for that descriptor, in
+// which case it is written and the run is over.
 //
 // There is no pipeline behaviour here. Locating and reading the manifest,
 // resolving the layout against its copybooks and assembling the descriptor are
@@ -168,8 +168,14 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 // order, the environment those stages are given, and that every fault comes back
 // as an error for [run] to report and [statusOf] to turn into a status.
 //
-// Nothing is written to standard output. Silence is success for a generating
-// run by docs/cli/SPEC.md's own rule, and the exit status is the verdict.
+// Nothing is written to standard output by a generating run. Silence is success
+// by docs/cli/SPEC.md's own rule, and the exit status is the verdict. stdout is
+// here for the one thing that stream does carry from a run: the descriptor, when
+// `--emit-ir -` asked for it there. It is a parameter rather than [os.Stdout]
+// for [run]'s reason — a test drives a whole invocation and reads what landed on
+// each stream — and it is the same writer, so the rule that a descriptor going
+// to standard output shares that stream with nothing is a property of what is
+// written to it rather than of which stream it is.
 //
 // log is where a generator's output reaches standard error, in the form
 // docs/cli/SPEC.md fixes for a relayed line. It is
@@ -180,16 +186,35 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 // how a file this run removed from a person's tree reaches the same stream: that
 // line carries no generator name, and the absence of one is what says it is
 // cpybkc's own.
-func perform(ctx context.Context, inv invocation, log *slog.Logger) error {
-	if inv.emitting() {
-		return fmt.Errorf("this build cannot write the %s descriptor %s asked for: it resolves one and "+
-			"generates from it, and writing one where %s names is #149",
-			inv.emitIRFormat, emitIRFlag, emitIRFlag)
-	}
-
+func perform(ctx context.Context, inv invocation, stdout io.Writer, log *slog.Logger) error {
 	run, err := project.Load(inv.manifestPath())
 	if err != nil {
 		return err
+	}
+
+	// docs/cli/SPEC.md: --emit-ir is terminal. cpybkc reads the manifest,
+	// resolves the descriptor, writes it, and exits — no generator is resolved on
+	// PATH, no generator is started, nothing is merged into the project's tree
+	// and nothing is pruned from it. So the return is here, above the search,
+	// rather than a branch inside a run that has already started one: the
+	// debugging gesture "show me the IR" must not cost minutes of generators and
+	// a mutated output tree.
+	//
+	// The bytes are the run's one descriptor, encoded by the one encoder every
+	// generator's copy comes through, which is how the equality the plugin
+	// contract rests reproducibility on holds in its strong form — the same
+	// bytes, rather than a descriptor assembled the same way.
+	if inv.emitting() {
+		// A run cancelled between resolving and writing is a cancelled run and
+		// not a written descriptor. There is no output tree to leave alone here,
+		// but there is a file about to appear at a path somebody named, and a
+		// descriptor written by a run its user had already interrupted is one
+		// they have no reason to distrust later.
+		if err := ctx.Err(); err != nil {
+			return cancelled(ctx, err)
+		}
+
+		return emit.Write(inv.emitIR, stdout, run.Descriptor, inv.format())
 	}
 
 	// docs/cli/SPEC.md: PATH is one of the two environment variables a run

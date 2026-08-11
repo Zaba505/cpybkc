@@ -131,6 +131,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/Zaba505/cpybkc/irpb"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -339,7 +340,8 @@ func encode(d *irpb.Descriptor, format Format) ([]byte, error) {
 //
 // Nothing is created or truncated until d has encoded, so a call that fails
 // leaves whatever was at dest alone rather than replacing a good descriptor
-// with a short one.
+// with a short one. A path is then written in full or not at all; see
+// [writeFile].
 func Write(dest string, out io.Writer, d *irpb.Descriptor, format Format) error {
 	if dest == "" {
 		return fmt.Errorf("--%s: name a file to write the descriptor to, or %q for standard output", Flag, Stdout)
@@ -358,7 +360,62 @@ func Write(dest string, out io.Writer, d *irpb.Descriptor, format Format) error 
 		return nil
 	}
 
-	if err := os.WriteFile(dest, b, 0o644); err != nil {
+	return writeFile(dest, b)
+}
+
+// descriptorPerm is the mode a written descriptor carries.
+//
+// It is set explicitly rather than inherited from the temporary file below,
+// which [os.CreateTemp] makes 0600: a descriptor is an ordinary output file that
+// a later step of a pipeline, often running as another user, reads back, and a
+// mode that depended on which of the two write paths produced the file would be
+// a difference nothing in the run explains.
+const descriptorPerm = 0o644
+
+// writeFile puts b at dest in full or not at all.
+//
+// docs/cli/SPEC.md requires exactly that of a path destination — "a path is
+// written in full or not at all, so that nothing partial is ever left where
+// another tool would read it" — and truncating dest and writing into it does
+// not provide it. A write interrupted halfway, by a full disk or by the run
+// being cancelled, would leave a descriptor that is a prefix of a descriptor:
+// bytes that decode as far as they go and then stop, which a consumer meets as a
+// malformed message rather than as the failed emission it is, and which has
+// already replaced whatever good descriptor was there before.
+//
+// So the bytes go to a temporary file beside dest and are renamed onto it. The
+// rename is atomic within a directory, which is why the temporary is made there
+// rather than in TMPDIR — a rename across filesystems is a copy, and a copy is
+// the partial write this function exists to avoid.
+//
+// The temporary is removed on every path out. After a successful rename there is
+// nothing at that name to remove and the attempt fails harmlessly, which is
+// cheaper than tracking whether the rename happened.
+func writeFile(dest string, b []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".*")
+	if err != nil {
+		return fmt.Errorf("failed to write %s: %w", dest, err)
+	}
+
+	name := temp.Name()
+
+	defer func() { _ = os.Remove(name) }()
+
+	if _, err := temp.Write(b); err != nil {
+		_ = temp.Close()
+
+		return fmt.Errorf("failed to write %s: %w", dest, err)
+	}
+
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("failed to write %s: %w", dest, err)
+	}
+
+	if err := os.Chmod(name, descriptorPerm); err != nil {
+		return fmt.Errorf("failed to write %s: %w", dest, err)
+	}
+
+	if err := os.Rename(name, dest); err != nil {
 		return fmt.Errorf("failed to write %s: %w", dest, err)
 	}
 

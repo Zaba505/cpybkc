@@ -168,9 +168,9 @@ func TestAUsageErrorExitsTwoAndSaysSoOnStandardError(t *testing.T) {
 // nothing would be indistinguishable from a project whose generators all ran.
 // The manifest is the first thing a run reads and there is none in the
 // directory a test runs in, so each of these is a run that got as far as
-// looking. The two --emit-ir lines fail for a second reason besides: writing a
-// descriptor where the flag names is #149, and this build resolves one and
-// generates from it.
+// looking. The two --emit-ir lines are the same failure: an emitting run reads
+// the manifest exactly as a generating one does, and there is nothing to resolve
+// a descriptor from.
 func TestARunWithNoProjectToRunFails(t *testing.T) {
 	t.Parallel()
 
