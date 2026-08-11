@@ -120,21 +120,29 @@ Dockerfile:
 
 ```sh
 dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
-  image with-exec --use-entrypoint --args=--version stdout
+  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+  generate --source . export --path .
 ```
 
 It is a convenience over [the container base-image
 contract](docs/container/SPEC.md) and not an interface of its own, so it has no
 `SPEC.md`: what it needs to say it says in `dagger call --help`. Everything it
-does can be written by hand as a `docker run` instead, and a caller reaching for
-one is not on a lesser path.
+does can be written by hand as a `docker run` or a `COPY --from` instead, and a
+caller reaching for one is not on a lesser path — `with-generator` stands for
+exactly the two lines [the worked
+example](docs/container/SPEC.md#worked-example-adding-a-generator) gives somebody
+writing a Dockerfile, and `with-generator-executable` does the same for a
+generator that has not been published yet.
 
 Its module ref is that directory path, which makes the path itself public API —
 the directory is never renamed. `--version` selects the release, defaulting to
 the moving major tag `v0`; `--repository` points it at a mirror or an internal
-registry; `--image` replaces the container outright, which is how a build pins a
-digest. [CONTRIBUTING.md](CONTRIBUTING.md#the-companion-dagger-module) is the
-argument behind those defaults.
+registry, and the generator images derive from it; `--platform` composes for an
+architecture other than the engine's, which is how a derived multi-platform
+image is built one variant at a time; `--image` replaces the container outright,
+which is how a build pins a digest.
+[CONTRIBUTING.md](CONTRIBUTING.md#the-companion-dagger-module) is the argument
+behind those defaults.
 
 The `.dagger/` module at the repository root is a different thing: it runs this
 repository's own pipeline and is published for nobody.

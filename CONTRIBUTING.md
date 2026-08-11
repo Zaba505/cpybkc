@@ -689,6 +689,93 @@ being](#65-is-closed-rather-than-left-open). It fails on something a person does
 — adding a flag in one module and not thinking about the other — rather than on
 a constant compared against the thing it was generated from.
 
+### Composing a generator is `COPY --from`, split across two methods
+
+The base image carries the CLI and no generator, so an image that generates
+anything is a composition. `WithGenerator` performs it, and the thing to keep in
+view is that it is not a second extension mechanism (#63):
+
+```sh
+dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+  generate --source . export --path .
+```
+
+```dockerfile
+FROM ghcr.io/zaba505/cpybkc:v0
+COPY --from=ghcr.io/example/cpybkc-gen-hello:v1 --chmod=0755 \
+     /usr/local/bin/cpybkc-gen-hello /usr/local/bin/cpybkc-gen-hello
+```
+
+Those are the same two instructions — the second is the final stage of
+[the container contract's worked
+example](docs/container/SPEC.md#worked-example-adding-a-generator), which is what
+an adopter writes by hand and what the module is measured against. What the
+module saves is the build context, the registry to push a derived image to and a
+Dockerfile to keep in step with a cpybkc release; a caller who prefers the
+Dockerfile is not on a lesser path, and the [module gets no
+`SPEC.md`](#the-companion-dagger-module) precisely so that nothing here reads as
+the contract having moved.
+
+**Two methods rather than one.** `WithGenerator` takes a generator *image* and is
+the adopter's path: it works for a generator image this project has never heard
+of, and with `--image` omitted it pulls `<repository>-gen-<name>:<version>` —
+resolved against the coordinates the CLI image itself came from, so a generator
+from one release never lands beside a CLI from another without somebody having
+said so. `WithGeneratorExecutable` takes a *File* and is the generator author's
+path, for the plugin that has been built and not yet published, which is exactly
+when checking it against a real cpybkc run matters most. The split follows
+[`z5labs/avroc`'s module](https://github.com/z5labs/avroc/blob/v0.2.0/daggerverse/avroc/main.go),
+where one method for both was tried first and the author's case turned out to be
+the one nobody would notice breaking.
+
+**Permissions and no owner.** The file lands `0755` and its ownership is left
+alone, which is the one place the module deliberately does less than the
+Dockerfile's `--chown=65532:65532`. The mode is what makes the file runnable, by
+the image's own UID and by any UID a caller overrides it with; the owner is a
+property of the image the module was handed, and a caller who passed `--image`
+may be composing onto a base with a user of their own that this module has no
+business overwriting with the contract's.
+
+**Static linking stays the caller's obligation.** Nothing in the module can check
+it, and a dynamically linked generator fails at exec time with the kernel's
+message rather than cpybkc's. That is the same requirement the worked example
+states as `CGO_ENABLED=0`, and it is said in both methods' documentation rather
+than enforced in either.
+
+### Multi-platform is one composition per platform
+
+A composed image is one platform, because a `dagger.Container` is. The module's
+guarantee is that it is *one* platform: `WithGenerator` reads the platform off
+the container it is composing into and pulls the generator image for that
+platform, and refuses an explicitly supplied generator image built for another
+one. An arm64 base quietly acquiring an amd64 generator is a build that succeeds,
+pushes, and then fails at the first generation with a kernel message naming
+neither cpybkc nor the call that caused it.
+
+That refusal has an escape hatch, named in its own error text: a platform string
+is a comparison the module can be wrong about — a variant spelling that runs
+perfectly well is still not the same string — so a caller who knows better takes
+the file out of the image themselves and passes it to
+`WithGeneratorExecutable`, which states the match as their obligation anyway.
+
+`New`'s `--platform` is what makes the other architecture reachable at all;
+without it an amd64 engine could only ever compose an amd64 image. It is refused
+beside `--image`, because a container arrives already built for a platform and
+the argument would then describe a pull that is not happening — ignoring it
+silently is the worse half of that choice, since the caller would believe they
+had asked for an architecture and find out at exec time that they had not. The
+check is a comparison of arguments rather than of the container's actual
+platform, so that a constructor still performs no network round trip, for the
+same reason [`internal/imageref`](daggerverse/cpybkc/internal/imageref/)
+validates the shape of a reference and not its existence.
+
+A derived **multi-platform index** is therefore one composition per platform,
+published as variants of one index, and the loop belongs to the caller because
+the index does: which platforms a derived image serves is a property of who will
+run it, and a module that decided it would be publishing this project's platform
+table as somebody else's. The module comment carries the loop.
+
 ### The pipeline module is checked like any other Go module here
 
 `dagger call pipeline-ci` runs the standard pipeline over

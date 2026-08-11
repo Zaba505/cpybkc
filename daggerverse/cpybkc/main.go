@@ -3,10 +3,11 @@
 // write a Dockerfile.
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
-//	  image with-exec --use-entrypoint --args=--version stdout
+//	  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+//	  generate --source . export --path .
 //
-// Nothing is installed on the host and no image is built: the published image is
-// pulled and used.
+// Nothing is installed on the host and no Dockerfile is written: the published
+// images are pulled, composed, and run.
 //
 // # This is a convenience, not a contract
 //
@@ -53,17 +54,85 @@
 // declares on this directory — an engine bump is then one commit touching both
 // files, rather than two files nothing requires to agree.
 //
+// # Composing a generator, and the Dockerfile it replaces
+//
+// The base image carries the CLI and no generator at all, so an image that
+// generates anything is a composition. WithGenerator is that composition:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+//	  generate --source . export --path .
+//
+// and the two lines it stands for are the final stage of
+// docs/container/SPEC.md's worked example, written by hand:
+//
+//	FROM ghcr.io/zaba505/cpybkc:v0
+//	COPY --from=ghcr.io/example/cpybkc-gen-hello:v1 --chmod=0755 \
+//	     /usr/local/bin/cpybkc-gen-hello /usr/local/bin/cpybkc-gen-hello
+//
+// They are the same two instructions and the comparison is the point: the
+// mechanism is `COPY --from`, this is not a second way of extending cpybkc, and
+// a caller who prefers the Dockerfile is not on a lesser path. What the module
+// saves is the build context, the registry to push the derived image to, and a
+// Dockerfile to keep in step with a cpybkc release — a project whose manifest
+// names three generators is three calls and one image that is never pushed
+// anywhere.
+//
+// Two differences from the Dockerfile are deliberate rather than incidental.
+// There is no --chown: the mode is what makes the file runnable, by the image's
+// own UID and by any UID a caller overrides it with, while the owner the
+// Dockerfile hands it to is a property of the image this module was given rather
+// than one it may assume. And --image may be omitted, in which case the
+// generator image is the one this project publishes beside the CLI —
+// `<repository>-gen-<name>:<version>`, resolved against the same --repository and
+// --version the CLI image came from, so a generator from one release never lands
+// beside a CLI from another.
+//
+// WithGeneratorExecutable is the other half, and it takes a File rather than an
+// image: a generator that has not been published yet, most often one the caller
+// has just built in the same pipeline. A generator author needs it to check
+// their plugin against a real cpybkc run before there is anything of theirs to
+// pull.
+//
+// # Multi-platform derived builds
+//
+// A composed image is one platform, because a dagger.Container is. What this
+// module guarantees is that it is *one* platform: WithGenerator reads the
+// platform off the container it is composing into and pulls the generator image
+// for that platform, so an arm64 base never quietly acquires an amd64 generator
+// that fails at exec with the kernel's message rather than cpybkc's.
+//
+// --platform on the constructor is what makes the other platform reachable at
+// all. Without it the base image is pulled for the engine's own platform, and an
+// amd64 engine could only ever compose an amd64 image. With it, a derived
+// multi-platform index is one composition per platform, published as variants:
+//
+//	variants := make([]*dagger.Container, 0, len(platforms))
+//	for _, p := range platforms {
+//		variants = append(variants, dag.
+//			Cpybkc(dagger.CpybkcOpts{Platform: string(p)}).
+//			WithGenerator("hello").
+//			Image())
+//	}
+//	ref, err := dag.Container().Publish(ctx, address,
+//		dagger.ContainerPublishOpts{PlatformVariants: variants})
+//
+// The loop is the caller's rather than this module's because the index is: which
+// platforms a derived image serves is a property of who will run it, and a module
+// that decided it would be publishing this project's platform table as somebody
+// else's.
+//
 // # What this does not do
 //
 // It does not build cpybkc from source, and it is not this repository's
 // pipeline. `dagger call ci`, the image builds and the contract checks are the
 // root module's.
 //
-// Composing a generator into the image (#63) is not here yet. What is here is
-// running the CLI over a project — Generate, and Run for everything Generate
-// does not curate — on top of the part they both start from: deciding which
-// image runs, which is the choice a caller makes once and the one that has to be
-// right before anything is built on it.
+// It does not build a generator either. WithGenerator copies one out of an image
+// and WithGeneratorExecutable takes one already built; how a generator is
+// compiled, and that it must come out statically linked for the image's platform,
+// are the caller's (docs/container/SPEC.md's `CGO_ENABLED=0`). Nothing here can
+// check that, which is why it is said rather than enforced.
 //
 // # The curated surface, and why it is not the flag table
 //
@@ -91,8 +160,35 @@ import (
 
 	"dagger/cpybkc/internal/argv"
 	"dagger/cpybkc/internal/dagger"
+	"dagger/cpybkc/internal/generator"
 	"dagger/cpybkc/internal/imageref"
 )
+
+// pluginDir is the directory on the image's PATH that cpybkc discovers
+// generators in — docs/container/SPEC.md's plugin directory, and the one path
+// inside the image this module needs to know.
+//
+// It is a promise the base-image contract makes rather than a choice made here:
+// the path is what a `COPY` line writes to and the PATH membership is what makes
+// the copied file reachable by the name a manifest asks for, and either half
+// alone installs nothing. The contract covers it by its compatibility
+// guarantees, so it does not move within a major version.
+//
+// The CLI's own path in the image is not knowable and is not needed. Everything
+// this module runs, it runs through the entrypoint.
+const pluginDir = "/usr/local/bin"
+
+// executableMode is the mode an installed generator lands with, and it is the
+// derived Dockerfile's `--chmod=0755`.
+//
+// Readable and executable by the image's own UID and by any UID a caller
+// overrides it with, which is what keeps running the composed image as the host
+// user an ordinary configuration rather than a workaround. The base-image
+// contract requires an executable copied into the plugin directory to be
+// executable by the image's user; this is that requirement met, and it is met
+// with permissions rather than with an owner for the reason
+// WithGeneratorExecutable gives.
+const executableMode = 0o755
 
 // projectDir is where a caller's project is mounted, and the working directory
 // the CLI is run from.
@@ -122,16 +218,17 @@ const contractUser = "65532:65532"
 // something, or an accessor handing back what was resolved, so a call chain
 // reads as the image being assembled and then used; nothing here mutates.
 type Cpybkc struct {
-	// Container is the image cpybkc runs in.
+	// Container is the image cpybkc runs in, with whatever generators have been
+	// composed into it so far.
 	// +private
 	Container *dagger.Container
 
-	// Repository and Version are the coordinates a later composition resolves
-	// *other* images against — the companion generator images of #63, which are
-	// published as `<repository>-gen-<name>:<version>`. They are kept rather than
-	// consumed at construction because an override that reached only the first
-	// pull would leave every later one reaching for ghcr.io from inside a network
-	// that cannot see it, which is the air-gap requirement failing later and less
+	// Repository and Version are the coordinates WithGenerator resolves *other*
+	// images against — the companion generator images, published as
+	// `<repository>-gen-<name>:<version>`. They are kept rather than consumed at
+	// construction because an override that reached only the first pull would
+	// leave every later one reaching for ghcr.io from inside a network that
+	// cannot see it, which is the air-gap requirement failing later and less
 	// legibly than if the argument had never existed.
 	//
 	// They are deliberately *not* a description of what is in Container. When a
@@ -144,11 +241,11 @@ type Cpybkc struct {
 	//
 	// What this deliberately does not do is *infer* a release from a supplied
 	// container. Nothing here can read a version off an arbitrary container, and
-	// guessing one would produce exactly the untested pairing — a generator from
-	// one release beside a CLI from another — that #63 exists to refuse. Whether
-	// that mismatch is refused, warned about or required to be stated explicitly
-	// is #63's to settle, and it needs these two fields to say anything about it
-	// at all.
+	// guessing one would produce exactly the untested pairing WithGenerator's
+	// default exists to avoid — a generator from one release beside a CLI from
+	// another. So a caller who passed --image and then lets WithGenerator pull a
+	// published generator gets the release they named in --version, which is a
+	// pairing they stated rather than one that was guessed for them.
 	// +private
 	Repository string
 	// +private
@@ -169,10 +266,10 @@ type Cpybkc struct {
 //
 // image replaces the container that would otherwise be pulled, so passing it
 // means version and repository name nothing that gets fetched here. They are not
-// thereby inert: they stay on the module as the coordinates later compositions
-// resolve companion images against (#63), which is why an air-gapped caller
-// passing a container from their own registry should pass --repository beside it
-// rather than instead of it.
+// thereby inert: they stay on the module as the coordinates WithGenerator
+// resolves companion images against, which is why an air-gapped caller passing a
+// container from their own registry should pass --repository beside it rather
+// than instead of it.
 func New(
 	// The tag of the published cpybkc image to run.
 	//
@@ -212,25 +309,201 @@ func New(
 	// a reference no tag argument can express, and the only one that pins bytes.
 	// +optional
 	image *dagger.Container,
+	// Pull the image for this platform, as `GOOS/GOARCH`, instead of for the
+	// engine's own.
+	//
+	// It is what makes a derived image for another architecture reachable at all:
+	// a composition is one platform, and without this an amd64 engine could only
+	// ever compose an amd64 image. Every generator composed in afterwards follows
+	// it, so the platform is stated once, here, rather than on each call that
+	// could contradict the last.
+	//
+	// A multi-platform derived image is therefore one composition per platform,
+	// published as variants of one index — see this module's comment. That loop
+	// belongs to the caller because the index does: which platforms a derived
+	// image serves is a property of who will run it.
+	//
+	// Empty is the engine's own platform, which is what makes an ordinary
+	// `dagger call` from a checkout do the obvious thing.
+	// +optional
+	platform string,
 ) (*Cpybkc, error) {
 	// Checked even when image is supplied and nothing is pulled from them, because
-	// they are not decoration in that case either: #63 resolves companion images
-	// against them, and a repository that is wrong is as wrong then as now. A
-	// constructor that accepted them quietly would move the complaint to a call
+	// they are not decoration in that case either: WithGenerator resolves companion
+	// images against them, and a repository that is wrong is as wrong then as now.
+	// A constructor that accepted them quietly would move the complaint to a call
 	// the caller has not written yet.
 	ref, err := imageref.Assemble(repository, version)
 	if err != nil {
 		return nil, err
 	}
-	if image == nil {
-		image = dag.Container().From(ref)
+
+	// Refused rather than reconciled, because there is nothing to reconcile: a
+	// container arrives already built for a platform, and this argument only ever
+	// described a pull that is no longer happening. Silently ignoring it would be
+	// the worse half of the choice — the caller would believe they had asked for
+	// an architecture, and find out at exec time that they had not.
+	//
+	// It is a pure check rather than a comparison against the container's actual
+	// platform on purpose: reading that would mean a network round trip in a
+	// constructor, which is the same reason imageref validates the shape of a
+	// reference and not its existence.
+	if image != nil && platform != "" {
+		return nil, fmt.Errorf(
+			"--platform=%s was given beside --image: --platform says which platform to pull the cpybkc image for, "+
+				"and --image replaces that pull entirely, so the two together state a platform for something that "+
+				"is not being pulled — build the container for the platform you want and pass it to --image alone",
+			platform)
 	}
+
+	if image == nil {
+		// A zero Platform is omitted from the query, so this is exactly
+		// dag.Container().From(ref) when the caller named no platform.
+		image = dag.Container(dagger.ContainerOpts{Platform: dagger.Platform(platform)}).From(ref)
+	}
+
 	return &Cpybkc{Container: image, Repository: repository, Version: version}, nil
 }
 
-// Image is the image this module resolved, for a caller who wants to do
-// something with it other than what this module offers — run a cpybkc
-// subcommand by hand, look at what is in it, or push it somewhere of their own:
+// WithGenerator adds one generator to the image by copying its executable out of
+// a generator image:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+//	  generate --source . export --path .
+//
+// This is the whole of adding a generator without writing a Dockerfile. The file
+// is taken out of the image at the path the base-image contract promises, which
+// is what `COPY --from` does, and it works just as well for a generator image
+// this project has never heard of — that is what image is for. Repeated calls
+// compose, so a project whose manifest names three generators is three calls and
+// one image.
+//
+// With no image, the generator this project publishes for name is pulled:
+// `<repository>-gen-<name>:<version>`, against the same coordinates the CLI image
+// came from. A generator from one release beside a CLI from another is a pairing
+// nobody tested, and defaulting to it is how somebody would end up in one without
+// having said so.
+//
+// The generator is pulled for the platform the container being composed into was
+// resolved for, not for the engine's. That is the whole of what this module does
+// about multi-platform: composing an amd64 generator into an arm64 image produces
+// an image that builds and pushes and then fails at exec with the kernel's
+// message rather than cpybkc's, which is a long way from the call that caused it.
+func (m *Cpybkc) WithGenerator(
+	ctx context.Context,
+	// The generator to add, by the `<name>` cpybkc.json asks for it by. Discovery
+	// is by filename, so this is the name in cpybkc-gen-<name> and nothing else.
+	name string,
+	// Take the executable from this image instead of pulling the published
+	// generator image for name.
+	//
+	// Any image carrying the generator in the plugin directory will do, including
+	// one that was never published. It has to be for the same platform as the
+	// image being composed into, which is checked, because a mismatch here is
+	// checkable and its exec-time failure is not legible.
+	// +optional
+	image *dagger.Container,
+) (*Cpybkc, error) {
+	if err := generator.CheckName(name); err != nil {
+		return nil, err
+	}
+
+	platform, err := m.Container.Platform(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the platform the cpybkc image was resolved for, which the %s generator "+
+			"has to match: %w", name, err)
+	}
+
+	if image == nil {
+		ref, err := imageref.Assemble(generator.Repository(m.Repository, name), m.Version)
+		if err != nil {
+			return nil, fmt.Errorf("resolving the published image for the %s generator: %w", name, err)
+		}
+
+		image = dag.Container(dagger.ContainerOpts{Platform: platform}).From(ref)
+	} else {
+		supplied, err := image.Platform(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("reading the platform of the image the %s generator is taken from: %w", name, err)
+		}
+
+		// Refused rather than copied anyway. An executable for the wrong
+		// architecture is exactly what the base-image contract's "statically linked
+		// native executable for the image's platform" rules out, and unlike a bare
+		// File a container states its platform, so this is one of the few places
+		// that requirement can be checked at all rather than left to fail later.
+		//
+		// The escape hatch is named because a platform string is a comparison this
+		// module could be wrong about — a variant spelling that runs perfectly well
+		// is still not the same string — and a refusal with no way past it would be
+		// this module deciding something the contract left to the caller.
+		if supplied != platform {
+			return nil, fmt.Errorf(
+				"the image given for the %s generator is %s and the cpybkc image being composed into is %s: an "+
+					"executable for another platform fails at exec time with the kernel's message rather than "+
+					"cpybkc's, so it is refused here — compose from an image built for %s, or, if the two really "+
+					"are compatible, take the file out yourself and pass it to with-generator-executable, which "+
+					"states the match as your obligation",
+				name, supplied, platform, platform)
+		}
+	}
+
+	return m.WithGeneratorExecutable(name, image.File(pluginDir+"/"+generator.Executable(name)))
+}
+
+// WithGeneratorExecutable adds one generator to the image from an executable
+// file, for a generator that ships no image — most often one the caller has just
+// built in the same pipeline:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  with-generator-executable --name hello --executable ./cpybkc-gen-hello \
+//	  generate --source . export --path .
+//
+// It is the generator author's path, before there is anything of theirs to pull.
+// Checking a plugin against a real cpybkc run is the first thing they need and
+// the last thing a published image can give them.
+//
+// The file lands as cpybkc-gen-<name> whatever it was called before, because
+// discovery is by filename and nothing inside the executable is consulted.
+//
+// It has to be a statically linked native executable for the image's platform,
+// and that is the caller's to meet rather than this module's to check: it is the
+// same requirement docs/container/SPEC.md's worked example states as
+// `CGO_ENABLED=0`, a File says nothing about what it is, and a dynamically linked
+// or foreign-architecture generator fails at exec time with the kernel's message
+// rather than cpybkc's. WithGenerator can check the platform half of that because
+// a container states one; here there is nothing to read.
+func (m *Cpybkc) WithGeneratorExecutable(
+	// The generator's `<name>`, as cpybkc.json asks for it.
+	name string,
+	// The generator executable.
+	executable *dagger.File,
+) (*Cpybkc, error) {
+	if err := generator.CheckName(name); err != nil {
+		return nil, err
+	}
+
+	// Permissions and no owner. The mode is what makes the file runnable — by the
+	// image's own UID and by any UID a caller overrides it with — while the owner
+	// the derived Dockerfile's `--chown` hands it to is a property of the image
+	// this module was given rather than one it is entitled to assume: a caller who
+	// passed --image may be composing onto a base with a user of their own, and
+	// this module would be overwriting their answer with the contract's.
+	next := *m
+	next.Container = m.Container.WithFile(
+		pluginDir+"/"+generator.Executable(name),
+		executable,
+		dagger.ContainerWithFileOpts{Permissions: executableMode},
+	)
+
+	return &next, nil
+}
+
+// Image is the image this module resolved and composed, for a caller who wants
+// to do something with it other than what this module offers — run a cpybkc
+// subcommand by hand, look at what is in it, publish a derived image holding
+// their generators, or make it one variant of a multi-platform index:
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  image with-exec --use-entrypoint --args=--version stdout
