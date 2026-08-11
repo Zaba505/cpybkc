@@ -80,13 +80,17 @@ func ParseValues(b []byte) (*Values, error) {
 func (v *Values) records() []error {
 	var faults []error
 
+	// Counted from one, as [Compare] counts and as the driver counts: a record
+	// is named to whoever is reading a values document beside the file it came
+	// from, and two numbering conventions in one report is one of them being
+	// off by one.
 	for i, record := range v.Records {
 		if record.Name == "" {
-			faults = append(faults, fmt.Errorf("record %d carries no name", i))
+			faults = append(faults, fmt.Errorf("record %d carries no name", i+1))
 		}
 
 		if record.Value == nil {
-			faults = append(faults, fmt.Errorf("record %d (%s) carries no value", i, record.Name))
+			faults = append(faults, fmt.Errorf("record %d (%s) carries no value", i+1, record.Name))
 		}
 	}
 

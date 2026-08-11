@@ -89,6 +89,28 @@ func TestCompareAnswerHoldsBothDirectionsToTheEntry(t *testing.T) {
 	}
 }
 
+// TestCompareAnswerReportsAFailedReadOnce asserts that a read the entry expects
+// to succeed and which failed is one fault and not two.
+//
+// A runner writes nothing back from a read that stopped, so the writing
+// direction is missing exactly because the reading one failed. Reporting it as a
+// fault of its own would send whoever reads the report after a second bug that
+// is the first one's consequence.
+func TestCompareAnswerReportsAFailedReadOnce(t *testing.T) {
+	err := CompareAnswer(parsed(t, oneRecord), answered(t, `{"decoded": {"records": [], "failure": "short record"}}`))
+	if err == nil {
+		t.Fatal("the comparison passed, and the entry expects the file to be read to its end")
+	}
+
+	if !strings.Contains(err.Error(), "short record") {
+		t.Errorf("the report is %q, and it does not carry what the runner said", err)
+	}
+
+	if strings.Contains(err.Error(), "written back") {
+		t.Errorf("the report is %q, and it faults a direction a failed read does not reach", err)
+	}
+}
+
 // TestParseAnswerRefuses walks the answers the format does not admit.
 func TestParseAnswerRefuses(t *testing.T) {
 	tests := map[string]string{

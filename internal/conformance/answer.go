@@ -35,7 +35,7 @@ import "fmt"
 // prescribes. The same holds of every encoding that admits more than one
 // spelling of one value. Demanding the bytes back would make those entries
 // unpassable by a correct generator, and dropping them would cost the corpus
-// exactly the vectors it was seeded for.
+// exactly the vectors it was seeded from.
 //
 // What the specification does make normative of a file is that "a file a writer
 // produces MUST be one that a reader built from the same descriptor reads back
@@ -95,7 +95,14 @@ func ParseAnswer(b []byte) (*Answer, error) {
 		}
 	}
 
-	return &answer, joined(faults)
+	// Nothing on a fault, as [ParseValues] answers nothing: an answer this
+	// function objected to is one whose required member may be missing, and a
+	// caller that read past the error would find out by dereferencing it.
+	if len(faults) > 0 {
+		return nil, joined(faults)
+	}
+
+	return &answer, nil
 }
 
 // CompareAnswer holds a runner's answer against what an entry expects, in both
@@ -119,10 +126,13 @@ func CompareAnswer(want *Values, got *Answer) error {
 	}
 
 	switch {
-	case want.Failure != "":
+	case want.Failure != "" || got.Decoded.Failure != "":
 		// Nothing is written back from a read that stopped, so there is nothing
-		// to compare. The entry is about the reading direction and says so by
-		// expecting a failure.
+		// to compare. Either the entry is about the reading direction and says
+		// so by expecting a failure, or the read failed where the entry expects
+		// it not to — which [Compare] has already reported, and reporting the
+		// writing direction as missing on top of it would send a reader after a
+		// second fault that is the first one's consequence.
 	case got.Written == nil:
 		faults = append(faults, fmt.Errorf(
 			"the records were not written back, and a file read to its end is one the corpus asks to be written again"))
