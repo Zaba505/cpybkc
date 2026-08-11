@@ -248,7 +248,7 @@ with four items in it.
 | [`mixed-record-ascii`](mixed-record-ascii) | The same record as a Micro Focus ASCII file, little-endian. |
 | [`mixed-record-converted`](mixed-record-converted) | The same record after a correct, copybook-aware conversion from EBCDIC. |
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
-| [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=V` puts in front of each record. |
+| [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
 
 Every entry above `batch-fixed` is derived from `cobol-go`'s `codec/SPEC.md`
 Appendix A and cites the rows it came from (#67). The two below it are not, and
