@@ -59,17 +59,61 @@
 // pipeline. `dagger call ci`, the image builds and the contract checks are the
 // root module's.
 //
-// Running the CLI over a project (#62) and composing a generator into the image
-// (#63) are the functions this module exists for, and neither is here yet. What
-// is here is the part they both start from: deciding which image runs, which is
-// the choice a caller makes once and the one that has to be right before
-// anything is built on it.
+// Composing a generator into the image (#63) is not here yet. What is here is
+// running the CLI over a project — Generate, and Run for everything Generate
+// does not curate — on top of the part they both start from: deciding which
+// image runs, which is the choice a caller makes once and the one that has to be
+// right before anything is built on it.
+//
+// # The curated surface, and why it is not the flag table
+//
+// Generate takes a source directory and a manifest, and that is the whole of
+// what this module maps by name. It deliberately does not grow an argument per
+// entry in docs/cli/SPEC.md's flag table: a module argument is public API for as
+// long as the directory this module is published under exists, so a table
+// mapped one-to-one would make every change to that table a change to this
+// module's surface, and would have to express in Dagger arguments things a
+// command line says better — a flag that replaces the action rather than
+// configuring it, and a flag that may not appear beside another.
+//
+// Run is the other half of that decision, and the reason the first half can stay
+// small. It takes the argument vector verbatim and hands back the container, so
+// an uncurated flag — --emit-ir, --emit-ir-format, --version, --help, and
+// whatever this document has not heard of — is reachable without this module
+// having an opinion about it. The root pipeline's CliSurface check is what keeps
+// the split honest: it fails when the CLI grows a flag that neither Generate nor
+// Run is recorded as covering, so the two cannot drift quietly.
 package main
 
 import (
+	"context"
+	"fmt"
+
+	"dagger/cpybkc/internal/argv"
 	"dagger/cpybkc/internal/dagger"
 	"dagger/cpybkc/internal/imageref"
 )
+
+// projectDir is where a caller's project is mounted, and the working directory
+// the CLI is run from.
+//
+// It is this module's choice rather than the base-image contract's: that
+// document pins the entrypoint, the plugin directory and the user, and sets no
+// WORKDIR at all, leaving `docker run -v "$PWD:/src" -w /src …` to say where a
+// project lives for the length of one command. The value matters to a caller
+// only through Run, whose container is handed back with the project still at
+// this path, so it is written into that function's documentation rather than
+// left to be discovered.
+const projectDir = "/src"
+
+// contractUser is the UID:GID docs/container/SPEC.md pins the image to, used to
+// own the mounted project when the container cannot say who it runs as.
+//
+// The container is asked first, and this is the fallback, because a caller may
+// have passed --image. Owning the mount as somebody the process is not is a run
+// that fails on the first file a generator writes, which is a long way from the
+// argument that caused it.
+const contractUser = "65532:65532"
 
 // Cpybkc is one cpybkc image, plus the coordinates for resolving images related
 // to it.
@@ -203,4 +247,151 @@ func New(
 // this project published and not to the bytes.
 func (m *Cpybkc) Image() *dagger.Container {
 	return m.Container
+}
+
+// Generate runs cpybkc over a project and hands back the project as it should
+// now be committed:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  generate --source . export --path .
+//
+// Nothing is written to the host. The Directory that comes back is a value like
+// any other, and exporting it is the caller's separate, explicit step — which is
+// also what disposes of the ownership problem a bind mount has, where generated
+// files land owned by whichever UID the container ran as and a host user who is
+// not that UID owns none of their own project. Dagger's export writes as the
+// person running it, so the image's pinned user never reaches the host.
+//
+// What comes back is the **whole project directory**, not only the files a
+// generator produced. A generator's output lands where the manifest says, which
+// is ordinarily inside the source tree, and a run also prunes what a previous
+// run generated and no longer would — so the generated files alone cannot
+// express half of what a run did. `generate --source . export --path .` is
+// therefore the ordinary use, and it is a full statement of the run rather than
+// an overlay that leaves deletions behind.
+func (m *Cpybkc) Generate(
+	ctx context.Context,
+	// The project to generate over: the directory holding the manifest, the
+	// layout it names and the copybooks that layout names.
+	//
+	// It is mounted whole rather than filtered down to what a run reads, because
+	// which copybooks a run reads is a property of the layout — the manifest
+	// carries no input list — and a module guessing at that set would be a second,
+	// weaker answer to a question docs/cli/SPEC.md answers exactly.
+	source *dagger.Directory,
+	// The project manifest to read, relative to the root of source.
+	//
+	// It defaults to nothing, which leaves cpybkc reading `cpybkc.json` at the
+	// root of the mounted project — the CLI's own default, applied by the CLI,
+	// against the working directory this module puts the project at. There is no
+	// upward search and no second manifest, so a project keeping its manifest
+	// somewhere else says so here.
+	//
+	// A relative path resolves against that project root, because that is the
+	// directory the CLI resolves a path typed on the command line against. It
+	// cannot be "-": a manifest's own paths are relative to the directory holding
+	// it, and a manifest arriving on a stream is in no directory.
+	// +optional
+	manifest string,
+) (*dagger.Directory, error) {
+	args, err := argv.Generate(manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	project, err := m.project(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+
+	return project.
+		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Directory(projectDir), nil
+}
+
+// Run is the escape hatch: cpybkc invoked with an argument vector this module
+// has no opinion about, in a container handed back whole.
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --source . --args=--emit-ir,- stdout
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --args=--help stdout
+//
+// It exists so that Generate does not have to grow an argument every time
+// docs/cli/SPEC.md's flag table does. A flag that replaces the action rather
+// than configuring it (--emit-ir is terminal: no generator runs and nothing is
+// merged or pruned), one that may only appear beside another (--emit-ir-format
+// without --emit-ir is a usage error), and one that answers a question about the
+// program rather than about a project (--version, --help) are all things a
+// command line states plainly and a set of Dagger arguments states badly.
+//
+// A container rather than a directory, because the uncurated invocations are the
+// ones whose answer is not a tree. --emit-ir may write to standard output, and
+// --version and --help write nothing else at all; a Directory return would make
+// the escape hatch unable to reach exactly the flags it exists for. A caller who
+// does want the tree takes it from the container, where the project is still
+// mounted at /src:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --source . --args=--manifest,build/cpybkc.json \
+//	  directory --path=/src export --path .
+//
+// Nothing here is validated. A vector this module checked would be a second,
+// unversioned reading of a contract the CLI already implements, and its
+// diagnostics are better than anything guessed at from out here: what an
+// unrecognised flag is, whether a flag may repeat and what a usage error exits
+// with are all docs/cli/SPEC.md's, and the exec's failure carries them back
+// verbatim.
+func (m *Cpybkc) Run(
+	ctx context.Context,
+	// The argument vector, passed to the CLI exactly as written. The entrypoint
+	// is the CLI itself, so this is everything after the command name and it
+	// never names the command.
+	args []string,
+	// The project to run over, mounted at /src and made the working directory.
+	//
+	// It is optional because half the reason this function exists is the
+	// invocations that have no project — `--version` and `--help` read nothing and
+	// contact nothing. With no source the container is the image as it was
+	// resolved, and cpybkc runs in whatever directory the image left it in.
+	// +optional
+	source *dagger.Directory,
+) (*dagger.Container, error) {
+	container := m.Container
+	if source != nil {
+		mounted, err := m.project(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+
+		container = mounted
+	}
+
+	return container.WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}), nil
+}
+
+// project mounts a caller's project at [projectDir] and stands in it.
+//
+// The mount is owned by whoever the container runs as, asked of the container
+// rather than assumed, so that a caller who passed --image built on a derived
+// image with its own user still gets a project their process can write into. A
+// container that reports no user at all falls back to [contractUser], which is
+// what the base-image contract pins and what an image satisfying it runs as; the
+// alternative, leaving the mount root-owned, is a run that fails on the first
+// file a generator writes.
+func (m *Cpybkc) project(ctx context.Context, source *dagger.Directory) (*dagger.Container, error) {
+	user, err := m.Container.User(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the user the cpybkc image runs as, which the mounted project has to be "+
+			"writable by: %w", err)
+	}
+
+	if user == "" {
+		user = contractUser
+	}
+
+	return m.Container.
+		WithDirectory(projectDir, source, dagger.ContainerWithDirectoryOpts{Owner: user}).
+		WithWorkdir(projectDir), nil
 }

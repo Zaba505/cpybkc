@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Companion
-func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/cpybkc/main.go:80:6)
+func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/cpybkc/main.go:124:6)
 	q := r.query.Select("asCompanion")
 
 	return &Companion{
@@ -24,7 +24,7 @@ func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/
 // A function on it is a builder returning a new Cpybkc, a terminal that runs
 // something, or an accessor handing back what was resolved, so a call chain
 // reads as the image being assembled and then used; nothing here mutates.
-type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:80:6)
+type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:124:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -32,6 +32,61 @@ type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:80:6)
 
 func (r *Companion) WithGraphQLQuery(q *querybuilder.Selection) *Companion {
 	return &Companion{
+		query: q,
+	}
+}
+
+// CompanionGenerateOpts contains options for Companion.Generate
+type CompanionGenerateOpts struct {
+	//
+	// The project manifest to read, relative to the root of source.
+	//
+	// It defaults to nothing, which leaves cpybkc reading `cpybkc.json` at the
+	// root of the mounted project — the CLI's own default, applied by the CLI,
+	// against the working directory this module puts the project at. There is no
+	// upward search and no second manifest, so a project keeping its manifest
+	// somewhere else says so here.
+	//
+	// A relative path resolves against that project root, because that is the
+	// directory the CLI resolves a path typed on the command line against. It
+	// cannot be "-": a manifest's own paths are relative to the directory holding
+	// it, and a manifest arriving on a stream is in no directory.
+	//
+	Manifest string // companion (../../../daggerverse/cpybkc/main.go:295:2)
+}
+
+// Generate runs cpybkc over a project and hands back the project as it should
+// now be committed:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  generate --source . export --path .
+//
+// Nothing is written to the host. The Directory that comes back is a value like
+// any other, and exporting it is the caller's separate, explicit step — which is
+// also what disposes of the ownership problem a bind mount has, where generated
+// files land owned by whichever UID the container ran as and a host user who is
+// not that UID owns none of their own project. Dagger's export writes as the
+// person running it, so the image's pinned user never reaches the host.
+//
+// What comes back is the **whole project directory**, not only the files a
+// generator produced. A generator's output lands where the manifest says, which
+// is ordinarily inside the source tree, and a run also prunes what a previous
+// run generated and no longer would — so the generated files alone cannot
+// express half of what a run did. `generate --source . export --path .` is
+// therefore the ordinary use, and it is a full statement of the run rather than
+// an overlay that leaves deletions behind.
+func (r *Companion) Generate(source *Directory, opts ...CompanionGenerateOpts) *Directory { // companion (../../../daggerverse/cpybkc/main.go:272:1)
+	assertNotNil("source", source)
+	q := r.query.Select("generate")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `manifest` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Manifest) {
+			q = q.Arg("manifest", opts[i].Manifest)
+		}
+	}
+	q = q.Arg("source", source)
+
+	return &Directory{
 		query: q,
 	}
 }
@@ -102,8 +157,70 @@ func (r *Companion) UnmarshalJSON(bs []byte) error {
 // none of the signatures or attestations one does (docs/container/SPEC.md, "What
 // a tag carries besides the image"), because those are attached to the digest
 // this project published and not to the bytes.
-func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpybkc/main.go:204:1)
+func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpybkc/main.go:248:1)
 	q := r.query.Select("image")
+
+	return &Container{
+		query: q,
+	}
+}
+
+// CompanionRunOpts contains options for Companion.Run
+type CompanionRunOpts struct {
+	//
+	// The project to run over, mounted at /src and made the working directory.
+	//
+	// It is optional because half the reason this function exists is the
+	// invocations that have no project — `--version` and `--help` read nothing and
+	// contact nothing. With no source the container is the image as it was
+	// resolved, and cpybkc runs in whatever directory the image left it in.
+	//
+	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:359:2)
+}
+
+// Run is the escape hatch: cpybkc invoked with an argument vector this module
+// has no opinion about, in a container handed back whole.
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --source . --args=--emit-ir,- stdout
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --args=--help stdout
+//
+// It exists so that Generate does not have to grow an argument every time
+// docs/cli/SPEC.md's flag table does. A flag that replaces the action rather
+// than configuring it (--emit-ir is terminal: no generator runs and nothing is
+// merged or pruned), one that may only appear beside another (--emit-ir-format
+// without --emit-ir is a usage error), and one that answers a question about the
+// program rather than about a project (--version, --help) are all things a
+// command line states plainly and a set of Dagger arguments states badly.
+//
+// A container rather than a directory, because the uncurated invocations are the
+// ones whose answer is not a tree. --emit-ir may write to standard output, and
+// --version and --help write nothing else at all; a Directory return would make
+// the escape hatch unable to reach exactly the flags it exists for. A caller who
+// does want the tree takes it from the container, where the project is still
+// mounted at /src:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --source . --args=--manifest,build/cpybkc.json \
+//	  directory --path=/src export --path .
+//
+// Nothing here is validated. A vector this module checked would be a second,
+// unversioned reading of a contract the CLI already implements, and its
+// diagnostics are better than anything guessed at from out here: what an
+// unrecognised flag is, whether a flag may repeat and what a usage error exits
+// with are all docs/cli/SPEC.md's, and the exec's failure carries them back
+// verbatim.
+func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:346:1)
+	q := r.query.Select("run")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `source` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Source) {
+			q = q.Arg("source", opts[i].Source)
+		}
+	}
+	q = q.Arg("args", args)
 
 	return &Container{
 		query: q,
@@ -119,7 +236,7 @@ func (r *Companion) AsNode() Node {
 }
 
 // Create or update a binding of type Companion in the environment
-func (r *Env) WithCompanionInput(name string, value *Companion, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:80:6)
+func (r *Env) WithCompanionInput(name string, value *Companion, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:124:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withCompanionInput")
 	q = q.Arg("name", name)
@@ -132,7 +249,7 @@ func (r *Env) WithCompanionInput(name string, value *Companion, description stri
 }
 
 // Declare a desired Companion output to be assigned in the environment
-func (r *Env) WithCompanionOutput(name string, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:80:6)
+func (r *Env) WithCompanionOutput(name string, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:124:6)
 	q := r.query.Select("withCompanionOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -156,7 +273,7 @@ type CompanionOpts struct {
 	//
 	//
 	// Default: "v0"
-	Version string // companion (../../../daggerverse/cpybkc/main.go:143:2)
+	Version string // companion (../../../daggerverse/cpybkc/main.go:187:2)
 	//
 	// The registry repository the image is pulled from, as `<host>/<path>` with no
 	// tag.
@@ -171,7 +288,7 @@ type CompanionOpts struct {
 	//
 	//
 	// Default: "ghcr.io/zaba505/cpybkc"
-	Repository string // companion (../../../daggerverse/cpybkc/main.go:156:2)
+	Repository string // companion (../../../daggerverse/cpybkc/main.go:200:2)
 	//
 	// Run in this container instead of pulling one, replacing it entirely.
 	//
@@ -186,7 +303,7 @@ type CompanionOpts struct {
 	// change to cpybkc before it ships, and how a build pins the image by digest —
 	// a reference no tag argument can express, and the only one that pins bytes.
 	//
-	Image *Container // companion (../../../daggerverse/cpybkc/main.go:170:2)
+	Image *Container // companion (../../../daggerverse/cpybkc/main.go:214:2)
 }
 
 // New selects the cpybkc release to run:
@@ -207,7 +324,7 @@ type CompanionOpts struct {
 // resolve companion images against (#63), which is why an air-gapped caller
 // passing a container from their own registry should pass --repository beside it
 // rather than instead of it.
-func (r *Query) Companion(opts ...CompanionOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:132:1)
+func (r *Query) Companion(opts ...CompanionOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:176:1)
 	q := r.query.Select("companion")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
