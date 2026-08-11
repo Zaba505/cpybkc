@@ -250,12 +250,12 @@ func TestEveryDiagnosticLineCarriesASeverity(t *testing.T) {
 
 	for _, line := range strings.Split(strings.TrimRight(diagnostics, "\n"), "\n") {
 		switch {
-		case strings.HasPrefix(line, "  "):
+		case strings.HasPrefix(line, continuationIndent):
 			// A continuation line carries no severity of its own, and the
 			// two-space indent is what tells the two apart.
 		case strings.HasPrefix(line, severityError+severitySeparator),
 			strings.HasPrefix(line, severityNote+severitySeparator),
-			strings.HasPrefix(line, "warning"+severitySeparator):
+			strings.HasPrefix(line, severityWarning+severitySeparator):
 		default:
 			t.Errorf("standard error carries %q, which opens with no severity", line)
 		}
