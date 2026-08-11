@@ -230,6 +230,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).Fmt(&parent, ctx)
+		case "Image":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var platform string
+			if inputArgs["platform"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
+				}
+			}
+			return (*Cpybkc).Image(&parent, ctx, platform)
+		case "ImageContract":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var platform string
+			if inputArgs["platform"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
+				}
+			}
+			return nil, (*Cpybkc).ImageContract(&parent, ctx, platform)
 		case "IrArtifacts":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
