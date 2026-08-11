@@ -1,0 +1,4 @@
+{
+  "description": "A packed field of an even digit count whose pad nibble is not zero.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.4, the negative tests"
+}

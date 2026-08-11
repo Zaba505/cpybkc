@@ -1,0 +1,4 @@
+{
+  "description": "A zoned field whose sign byte carries a digit nibble no digit has, read under ascii-zone-37.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.3 row 1"
+}

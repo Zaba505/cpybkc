@@ -1,0 +1,4 @@
+{
+  "description": "Zoned decimal under the native ASCII convention: a trailing overpunch positive and negative, an unsigned item, and both separate-sign positions.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.1 rows 3-4 and A.2 rows 2, 3 and 5"
+}

@@ -1,0 +1,4 @@
+{
+  "description": "A zoned field carrying an ascii-zone-37 sign byte, read under translated-EBCDIC.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.3 row 2"
+}

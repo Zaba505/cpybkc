@@ -1,0 +1,19 @@
+;; Appendix A.7 row 2, MicroFocusASCII(). The same record and the same
+;; values as mixed-record-ebcdic: this pair is the charset pairing the
+;; corpus owes A.7.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order little-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 15))
+
+(record TXN
+  (copybook "txn.cpy" TXN))
+
+(discriminate TXN single-record-type)
+
+(sequence (* TXN))

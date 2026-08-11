@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "PACKED-RECORD", "value": {"P-VALUE": "1234"}}
+  ],
+  "failure": "the pad nibble at offset 0 of the second record is F, and a pad nibble is zero"
+}

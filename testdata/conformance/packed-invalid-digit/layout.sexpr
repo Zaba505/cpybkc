@@ -1,0 +1,19 @@
+;; Appendix A.4's negative tests. Validating every nibble is the only
+;; defence a reader has against a packed field a naive character conversion
+;; rewrote -- codec/SPEC.md's "COMP-3 conversion trap".
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 3))
+
+(record PACKED
+  (copybook "packed.cpy" PACKED-RECORD))
+
+(discriminate PACKED single-record-type)
+
+(sequence (* PACKED))

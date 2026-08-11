@@ -1,0 +1,4 @@
+{
+  "description": "Zoned decimal in EBCDIC: a trailing overpunch positive and negative, an unsigned item, both separate-sign positions, and a leading overpunch.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.1 rows 1-2 and A.2 rows 1, 4, 6 and 7"
+}

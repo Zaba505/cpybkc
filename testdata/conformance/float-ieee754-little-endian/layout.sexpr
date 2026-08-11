@@ -1,0 +1,19 @@
+;; Appendix A.6 row 2. Byte order applies to a floating-point item as it
+;; does to a binary one, and the same four bytes reversed are the same
+;; value.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order little-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 4))
+
+(record FLOAT
+  (copybook "float.cpy" FLOAT-RECORD))
+
+(discriminate FLOAT single-record-type)
+
+(sequence (* FLOAT))

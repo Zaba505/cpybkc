@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "ZONED-RECORD", "value": {"Z-SIGNED": "12345"}}
+  ],
+  "failure": "the byte 0x75 at offset 4 of the second record is not a sign byte under the translated-EBCDIC convention"
+}

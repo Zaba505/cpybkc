@@ -1,0 +1,4 @@
+{
+  "description": "IBM hexadecimal 1.0 read as IEEE 754, which is 9.0 and is not an error.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.6, \"Cross-format misreads\""
+}

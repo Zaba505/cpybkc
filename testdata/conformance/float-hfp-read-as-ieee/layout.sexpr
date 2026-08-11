@@ -1,0 +1,21 @@
+;; Appendix A.6's cross-format misreads, as an entry. Every bit pattern is
+;; valid in both formats, so the wrong float format yields a plausible
+;; number and never a diagnostic. The entry expects 9.0 because that is what
+;; the file says under the axes the layout declares -- what is wrong here is
+;; the declaration, and nothing in the bytes can say so.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 4))
+
+(record FLOAT
+  (copybook "float.cpy" FLOAT-RECORD))
+
+(discriminate FLOAT single-record-type)
+
+(sequence (* FLOAT))

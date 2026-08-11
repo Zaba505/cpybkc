@@ -1,0 +1,20 @@
+;; Appendix A.7 row 3, ConvertedFromEBCDIC(). The packed field is byte for
+;; byte what row 1 holds, which is the point: a naive text conversion would
+;; have rewritten those three bytes along with everything else, and this is
+;; what the correct conversion of row 1 looks like.
+(encoding
+  (charset ascii)
+  (sign-convention translated-ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 15))
+
+(record TXN
+  (copybook "txn.cpy" TXN))
+
+(discriminate TXN single-record-type)
+
+(sequence (* TXN))

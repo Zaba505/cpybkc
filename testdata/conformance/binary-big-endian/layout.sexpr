@@ -1,0 +1,19 @@
+;; Appendix A.5, big-endian. The pairing with binary-little-endian is what
+;; "in both" means for a binary item: the axis that moves its bytes is byte
+;; order, and charset governs nothing in one.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 10))
+
+(record BINARY
+  (copybook "binary.cpy" BINARY-RECORD))
+
+(discriminate BINARY single-record-type)
+
+(sequence (* BINARY))

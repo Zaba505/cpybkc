@@ -1,0 +1,20 @@
+;; Appendix A.4, in a file whose charset is cp037. Its input.bin is byte for
+;; byte the input.bin of packed-ascii, and its values.json is the same
+;; document: that is what "charset-invariant" means, stated as two entries
+;; rather than as a sentence.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 21))
+
+(record PACKED
+  (copybook "packed.cpy" PACKED-RECORD))
+
+(discriminate PACKED single-record-type)
+
+(sequence (* PACKED))

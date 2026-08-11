@@ -1,0 +1,4 @@
+{
+  "description": "The same packed decimal bytes in a file declared EBCDIC, which decode to the same values because charset governs nothing in a packed item.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.4, the positive rows"
+}

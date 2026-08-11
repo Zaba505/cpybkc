@@ -1,0 +1,80 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "unframed": {},
+        "start_state_id": "5"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "FLOAT-RECORD"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4"
+        ],
+        "names": {
+          "original": "FLOAT-RECORD"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_COMP_1",
+        "names": {
+          "original": "F-SHORT"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 8,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_COMP_2",
+        "names": {
+          "original": "F-LONG"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "6"
+        ]
+      }
+    },
+    {
+      "id": "6",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "5"
+      }
+    }
+  ]
+}

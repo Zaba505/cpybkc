@@ -1,0 +1,19 @@
+;; Appendix A.1 and A.2, the ASCII rows whose convention is SignASCIIZone37.
+;; One record per sign of the overpunched item; every other item is the same
+;; in both, so what the second record isolates is the sign byte.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 22))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

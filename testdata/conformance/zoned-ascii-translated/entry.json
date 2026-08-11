@@ -1,0 +1,4 @@
+{
+  "description": "Zoned decimal in ASCII whose sign bytes came through an EBCDIC-to-ASCII text conversion.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.1 rows 5-6"
+}

@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "ZONED-RECORD", "value": {"Z-SIGNED": "12345"}}
+  ],
+  "failure": "the byte 0x7B at offset 4 of the second record is a sign byte under no convention: its digit nibble is B, and a digit nibble is 0 to 9"
+}

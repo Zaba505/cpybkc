@@ -1,0 +1,20 @@
+;; Appendix A.5's byte-order note, as an entry. 0x04D2 read little-endian is
+;; 53764, which PIC S9(4) cannot express, so the range check under
+;; TRUNC(STD) catches a wrong byte order on this record. The note is careful
+;; that this is luck and not a rule: 0x0100 is in range read either way.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order little-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 2))
+
+(record BINARY
+  (copybook "binary.cpy" BINARY-RECORD))
+
+(discriminate BINARY single-record-type)
+
+(sequence (* BINARY))

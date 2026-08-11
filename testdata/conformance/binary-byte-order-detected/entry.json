@@ -1,0 +1,4 @@
+{
+  "description": "A big-endian binary field read little-endian, whose value the PICTURE cannot express.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.5, \"Byte-order detection\""
+}

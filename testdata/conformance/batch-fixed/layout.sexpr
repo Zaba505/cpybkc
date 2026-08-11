@@ -1,0 +1,28 @@
+;; Three record types of one width, told apart by their first byte and
+;; ordered by the sequencing expression. The detail record is Appendix A.7's
+;; mixed record behind a type code, so its bytes are still the ones A.7
+;; states.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm FB)
+  (lrecl 16))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "txn.cpy" TXN-RECORD))
+
+(record TRAILER
+  (copybook "trailer.cpy" BATCH-TRAILER))
+
+(discriminate HEADER (equals (item HEADER HDR-TYPE) (bytes "C8")))
+(discriminate DETAIL (equals (item DETAIL TXN-TYPE) (bytes "C4")))
+(discriminate TRAILER (equals (item TRAILER TRL-TYPE) (bytes "E3")))
+
+(sequence (seq HEADER (* DETAIL) TRAILER))

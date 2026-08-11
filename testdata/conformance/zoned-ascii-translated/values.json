@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "ZONED-RECORD", "value": {"Z-SIGNED": "12345"}},
+    {"name": "ZONED-RECORD", "value": {"Z-SIGNED": "-12345"}}
+  ]
+}

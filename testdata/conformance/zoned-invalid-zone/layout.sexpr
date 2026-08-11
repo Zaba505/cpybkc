@@ -1,0 +1,19 @@
+;; Appendix A.3 row 3, and the other half of zoned-ascii-realia: the byte
+;; 0x25 is Realia's negative 5, and its zone is 2, which ascii-zone-37 does
+;; not admit.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

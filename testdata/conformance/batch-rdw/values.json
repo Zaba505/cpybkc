@@ -1,0 +1,32 @@
+{
+  "records": [
+    {
+      "name": "BATCH-HEADER",
+      "value": {"HDR-TYPE": "H", "HDR-NAME": "BATCH-0001"}
+    },
+    {
+      "name": "TXN-RECORD",
+      "value": {
+        "TXN-TYPE": "D",
+        "TXN-ID": "A123",
+        "TXN-AMT": "-12345",
+        "TXN-QTY": "1234",
+        "TXN-NAME": "WIDGET"
+      }
+    },
+    {
+      "name": "TXN-RECORD",
+      "value": {
+        "TXN-TYPE": "D",
+        "TXN-ID": "B456",
+        "TXN-AMT": "6789",
+        "TXN-QTY": "42",
+        "TXN-NAME": "GADGET"
+      }
+    },
+    {
+      "name": "BATCH-TRAILER",
+      "value": {"TRL-TYPE": "T", "TRL-COUNT": "2", "TRL-FILLER": ""}
+    }
+  ]
+}

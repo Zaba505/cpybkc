@@ -1,0 +1,4 @@
+{
+  "description": "Appendix A.7's mixed record as an IBM Enterprise COBOL file: EBCDIC, big-endian.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.7 row 1"
+}

@@ -1,0 +1,24 @@
+{
+  "records": [
+    {
+      "name": "ZONED-RECORD",
+      "value": {
+        "Z-SIGNED": "12345",
+        "Z-UNSIGNED": "12345",
+        "Z-LEAD-SEP": "-12345",
+        "Z-TRAIL-SEP": "12345",
+        "Z-LEAD-OVER": "-12345"
+      }
+    },
+    {
+      "name": "ZONED-RECORD",
+      "value": {
+        "Z-SIGNED": "-12345",
+        "Z-UNSIGNED": "12345",
+        "Z-LEAD-SEP": "-12345",
+        "Z-TRAIL-SEP": "12345",
+        "Z-LEAD-OVER": "-12345"
+      }
+    }
+  ]
+}

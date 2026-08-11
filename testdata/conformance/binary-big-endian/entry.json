@@ -1,0 +1,4 @@
+{
+  "description": "Binary integers big-endian: a positive, a negative, a zero and a nine-digit item.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.5, the big-endian column"
+}

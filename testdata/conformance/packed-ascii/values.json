@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "name": "PACKED-RECORD",
+      "value": {
+        "P-SIGNED-POS": "12345",
+        "P-SIGNED-NEG": "-12345",
+        "P-UNSIGNED": "12345",
+        "P-FOUR-NEG": "-1234",
+        "P-FOUR-POS": "1234",
+        "P-SCALED": "-12345",
+        "P-LENIENT": "12345"
+      }
+    }
+  ]
+}

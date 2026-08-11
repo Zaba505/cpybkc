@@ -1,0 +1,19 @@
+;; Appendix A.3 row 1. The first record is valid and the second is not, so
+;; what the entry states is both that reading fails and that it fails after
+;; the record in front of it was read.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

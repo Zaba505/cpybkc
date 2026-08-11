@@ -1,0 +1,17 @@
+;; Appendix A.6's cross-format misreads, the other way round.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm F)
+  (lrecl 4))
+
+(record FLOAT
+  (copybook "float.cpy" FLOAT-RECORD))
+
+(discriminate FLOAT single-record-type)
+
+(sequence (* FLOAT))

@@ -1,0 +1,19 @@
+;; Appendix A.1 and A.2, the EBCDIC rows. The pairing with
+;; zoned-ascii-zone37 is what "in both character sets" means for a zoned
+;; item: the same values, the same picture clauses, different bytes.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 27))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))
