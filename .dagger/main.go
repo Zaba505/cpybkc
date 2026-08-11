@@ -235,7 +235,7 @@ func New(
 // entrypoint — CI is one `dagger call ci` and stays one, because a workflow step
 // that reran any of these stages would be a second definition of them.
 //
-// The eleven parts run concurrently and all are reported, for the reason the
+// The thirteen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -244,10 +244,10 @@ func New(
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr error
-	var tagErr, notesErr error
+	var tagErr, notesErr, companionErr, engineErr error
 
 	var wg sync.WaitGroup
-	wg.Add(11)
+	wg.Add(13)
 
 	go func() {
 		defer wg.Done()
@@ -309,10 +309,20 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		notesErr = m.ReleaseNotesContract()
 	}()
 
+	go func() {
+		defer wg.Done()
+		companionErr = m.CompanionCi(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		engineErr = m.EngineLock(ctx)
+	}()
+
 	wg.Wait()
 
 	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr,
-		tagErr, notesErr)
+		tagErr, notesErr, companionErr, engineErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.

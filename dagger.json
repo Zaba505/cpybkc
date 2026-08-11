@@ -6,6 +6,10 @@
   },
   "dependencies": [
     {
+      "name": "companion",
+      "source": "daggerverse/cpybkc"
+    },
+    {
       "name": "go",
       "source": "github.com/z5labs/devex/daggerverse/go@78d4f2ec89804325ade1e867b28a927676201f0d",
       "pin": "78d4f2ec89804325ade1e867b28a927676201f0d"

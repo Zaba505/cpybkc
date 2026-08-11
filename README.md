@@ -112,6 +112,33 @@ line. [The `cpybkc.json` project
 manifest](docs/plugin/SPEC.md#the-cpybkcjson-project-manifest) is where the
 plugin contract says so, and why.
 
+## The companion Dagger module
+
+[`daggerverse/cpybkc/`](daggerverse/cpybkc/) runs the published image as a step
+in somebody else's pipeline, for a caller who would rather not write a
+Dockerfile:
+
+```sh
+dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+  image with-exec --use-entrypoint --args=--version stdout
+```
+
+It is a convenience over [the container base-image
+contract](docs/container/SPEC.md) and not an interface of its own, so it has no
+`SPEC.md`: what it needs to say it says in `dagger call --help`. Everything it
+does can be written by hand as a `docker run` instead, and a caller reaching for
+one is not on a lesser path.
+
+Its module ref is that directory path, which makes the path itself public API —
+the directory is never renamed. `--version` selects the release, defaulting to
+the moving major tag `v0`; `--repository` points it at a mirror or an internal
+registry; `--image` replaces the container outright, which is how a build pins a
+digest. [CONTRIBUTING.md](CONTRIBUTING.md#the-companion-dagger-module) is the
+argument behind those defaults.
+
+The `.dagger/` module at the repository root is a different thing: it runs this
+repository's own pipeline and is published for nobody.
+
 ## Contributing
 
 `dagger call ci` runs fmt, vet, lint and `go test -race` — the same call CI

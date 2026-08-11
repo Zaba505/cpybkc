@@ -504,12 +504,13 @@ identically. What is *not* an argument is which tags exist, for the reason above
 ## The companion Dagger module
 
 A second Dagger module ships from this repository: the consumer-facing one that
-runs the CLI for a caller, published as `github.com/Zaba505/cpybkc/<dir>` and
-unrelated to the `.dagger/` module that runs this repository's own pipeline. It
-does not exist yet — #61 writes it — and one thing about it had to be settled
-before it could be written, because the answer is a default value in a
-constructor, and a default in a module directory that is never renamed is public
-API from the first release.
+runs the CLI for a caller, published as
+`github.com/Zaba505/cpybkc/daggerverse/cpybkc` and unrelated to the `.dagger/`
+module that runs this repository's own pipeline. It lives in
+[`daggerverse/cpybkc/`](daggerverse/cpybkc/) (#61), and one thing about it had
+to be settled before it could be written, because the answer is a default value
+in a constructor, and a default in a module directory that is never renamed is
+public API from the first release.
 
 The module gets no `SPEC.md`. It is a convenience over the [base-image
 contract](docs/container/SPEC.md) rather than an interface of its own, and what
@@ -517,6 +518,102 @@ it needs to say it says in its module comment and in `dagger call --help`
 ([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*). What
 follows is the argument behind one of those comments, kept here because the
 argument is longer than the comment and outlives the reader who needs it.
+
+### The directory name is the public ref, so it is chosen once
+
+A Dagger module ref is a directory path inside a tag of this repository, which
+makes `daggerverse/cpybkc` as much public API as any default in it. Renaming
+the directory would not deprecate the old ref, it would delete it: a caller
+pinning `github.com/Zaba505/cpybkc/daggerverse/cpybkc@v0.3.1` resolves that path
+inside the tag they named, so a rename breaks every unpinned caller at once and
+strands every pinned one on a path that will never move again. There is no
+redirect to leave behind and no deprecation period to serve, so **the directory
+is not renamed** — a module that has to be called something else is a new
+directory published beside this one.
+
+`daggerverse/<module>` is the house layout, and it is where
+[`github.com/z5labs/devex`](https://github.com/z5labs/devex) publishes the two
+modules this repository's pipeline already depends on. The module is named for
+what it drives rather than for what it does, so a second module shipping from
+here later sits beside it without either being renamed.
+
+### One `engineVersion`, held by a dependency edge and one check
+
+The root [`dagger.json`](dagger.json) declares the companion as a **local**
+dependency (`"source": "daggerverse/cpybkc"`), and `dagger call engine-lock`
+asserts that the two `dagger.json` files pin the same engine. It takes both,
+and it is worth being exact about why, because the edge alone does only half
+the job.
+
+The edge's half is one-directional, and it was measured rather than assumed.
+Setting the companion's `engineVersion` **above** the engine in use fails every
+root call outright:
+
+```
+! failed to resolve dep to source: module requires dagger v0.99.0,
+  but you have v0.21.8
+```
+
+Setting it **below** the root's does not fail anything: `dagger functions`,
+`dagger call ci` and the rest load and run exactly as before. So the edge
+catches a companion that has run ahead of the engine, and it misses one that has
+been left behind — which is the direction drift actually goes, since lagging is
+what a file nobody edited does. `dagger develop` rewrites each module's own
+`dagger.json` independently, so the two can diverge through the ordinary
+workflow rather than through neglect.
+
+[`EngineLock`](.dagger/companion.go) covers that direction, and it is in `ci`,
+so it runs on every pull request:
+
+```sh
+dagger call engine-lock
+```
+
+This is **not** the shape of check
+[#65 was closed for being](#65-is-closed-rather-than-left-open). That one
+compared a generated constant against the release it had just followed and could
+not fail; this one fails on a bump somebody performed in one module and not the
+other, which is a thing that happens and which nothing else reports. A check
+that can fail is the difference.
+
+What the edge buys beyond that is cheapness: both files are in one tree, a bump
+is one commit that edits both, and the same commit has to carry regenerated code
+for both modules anyway (below). The daggerverse modules this project depends on
+pin theirs independently, in another repository, and have already drifted — one
+tree, one commit and one version is the difference being bought.
+
+The same edge is how the pipeline gets to drive the module over the image built
+in the pull request rather than the last published release (#64). Both uses are
+served by one line.
+
+### The companion module is checked like any other Go module here
+
+`dagger call companion-ci` runs the standard pipeline — fmt, vet, lint and `go
+test -race` — over [`daggerverse/cpybkc/`](daggerverse/cpybkc/), and it is in
+`ci`. It is a third call rather than a wider source directory for the reason
+[`IrCi`](.dagger/main.go) is a second one: the companion is a separate Go
+module, so `go test ./...` from the repository root stops at its `go.mod` and
+never descends. Without it, the module strangers actually call would be the one
+part of the tree nothing checks.
+
+What it runs is [`internal/imageref`](daggerverse/cpybkc/internal/imageref/),
+which is where the image-reference assembly lives **precisely so that it can be
+tested at all**. The module's own `package main` imports the generated Dagger
+client, whose `init` panics when no session is present, so a test beside `main`
+cannot run under plain `go test`. Keeping the pure part in a package that
+imports no Dagger is what turns the published default
+`ghcr.io/zaba505/cpybkc:v0` into a string a test pins rather than a string a
+comment asserts.
+
+This is not #64. That story drives the module's *functions* over the image
+built in the same pull request, which needs an engine and a built image; this
+is the ordinary Go pipeline over the module's source, and the two catch
+different things.
+
+Both modules' generated code is committed, so a change to either is a
+`dagger develop` in that module and the generated files in the same commit —
+[*After changing the module*](#after-changing-the-module) applies to the
+companion exactly as it does to the root.
 
 ### The default image tag is the moving major tag
 
@@ -606,8 +703,8 @@ plugin distribution. Nothing else claims to.
 ### What the constructor says
 
 The escalation belongs on the argument and not only here, because a caller reads
-`dagger call --help` and never opens this file. #61 carries this onto `version`,
-and a change to the default is a change to both:
+`dagger call --help` and never opens this file. `New`'s `version` argument
+carries it (#61), and a change to the default is a change to both:
 
 ```go
 // Version is the tag of the published cpybkc image to run.
@@ -620,9 +717,13 @@ and a change to the default is a change to both:
 // override argument rather than here.
 ```
 
-How the default is spelled — a `+default` pragma or a zero-value check — is
-#61's, and so is the name of the container override the last sentence points at.
-What is settled here is the value and what the comment says about it.
+The default is spelled as a `+default="v0"` pragma rather than as a zero-value
+check, so that `dagger call --help` prints it: a default a caller cannot see is
+one they have to read source to learn. The container override the last sentence
+points at is named **`image`**, because it names the thing rather than a
+Dockerfile verb, and it reads as the noun it is at the call site —
+`--image=$(…)`. Both were #61's to settle; what was settled before it is the
+value and what the comment says about it.
 
 ### #65 is closed rather than left open
 
