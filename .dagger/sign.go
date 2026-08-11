@@ -451,16 +451,34 @@ func (m *Cpybkc) checkProvenance() error {
 		}
 	}
 
-	// And the reference itself, which is where a tag would get in.
+	// And the reference itself, which is where a tag would get in — and, below
+	// it, where a digest that is the right shape and the wrong bytes would.
+	// Every one of these reaches cosign if it is let through, and is reported
+	// there against a registry round trip: an error naming the wrong layer of
+	// the problem, at the one moment in a release where that costs most.
 	for _, image := range []string{
 		"ghcr.io/zaba505/cpybkc:v0.2.0",
 		"ghcr.io/zaba505/cpybkc",
 		"ghcr.io/zaba505/cpybkc@md5:" + strings.Repeat("ab", 16),
 		"ghcr.io/zaba505/cpybkc@sha256:",
+		"ghcr.io/zaba505/cpybkc@sha256:" + strings.Repeat("zz", 32),
+		"ghcr.io/zaba505/cpybkc@sha256:" + strings.Repeat("AB", 32),
+		"@sha256:" + strings.Repeat("ab", 32),
 	} {
 		if _, _, err := splitDigest(image); err == nil {
-			errs = append(errs, fmt.Errorf("%q was accepted as a digest-qualified reference: an attestation about a name that moves says nothing", image))
+			errs = append(errs, fmt.Errorf("%q was accepted as a digest-qualified reference: what a release signs has to be what it published", image))
 		}
+	}
+
+	// The one that has to be accepted, taken apart the way the predicate and the
+	// report both read it. A refusal table with no acceptance beside it passes
+	// just as well when nothing is accepted at all.
+	repository, digest, err := splitDigest(facts.Repository + "@" + facts.Digest)
+	switch {
+	case err != nil:
+		errs = append(errs, fmt.Errorf("a well-formed digest-qualified reference was refused: %w", err))
+	case repository != facts.Repository || digest != facts.Digest:
+		errs = append(errs, fmt.Errorf("a digest-qualified reference split into %q and %q, want %q and %q", repository, digest, facts.Repository, facts.Digest))
 	}
 
 	return errors.Join(errs...)
@@ -822,6 +840,17 @@ func splitDigest(image string) (repository, digest string, err error) {
 		return "", "", fmt.Errorf("%q is not a sha256 digest: a digest this pipeline cannot recognise is one it cannot promise it signed", digest)
 	case len(digest) != len(digestPrefix)+64:
 		return "", "", fmt.Errorf("%q is not a sha256 digest: 64 hex characters are expected after the prefix", digest)
+	}
+
+	// The characters, not only how many of them there are. A reference carrying
+	// the right shape and the wrong alphabet reaches cosign, which reports it
+	// against a registry round trip somewhere further down — an error naming the
+	// wrong layer of the problem, at the one moment in a release where the
+	// operator has least appetite for one.
+	for _, r := range digest[len(digestPrefix):] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return "", "", fmt.Errorf("%q is not a sha256 digest: %q is not a lowercase hex character", digest, r)
+		}
 	}
 
 	return repository, digest, nil
