@@ -2,11 +2,11 @@
 
 ## The pipeline
 
-fmt, vet, golangci-lint, `go test -race`, `buf lint` and the three artifacts a
-release attaches are defined once, in the root Dagger module under
-[`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:
-there is no arrangement of local commands that passes while CI fails, because
-they are the same functions.
+fmt, vet, golangci-lint, `go test -race`, `buf lint`, the three artifacts a
+release attaches and the worked example in the base-image contract are defined
+once, in the root Dagger module under [`.dagger/`](.dagger/). CI calls that
+module and so do you, which is the point: there is no arrangement of local
+commands that passes while CI fails, because they are the same functions.
 
 Run the whole thing before pushing:
 
@@ -16,8 +16,9 @@ dagger call ci
 
 That is the same call CI makes, with no arguments on either side. It runs the
 four Go stages in parallel and reports every failure, not just the first, and it
-runs the schema lint, the IR module's own stages and a build of the [release
-artifacts](#the-release-artifacts) alongside them.
+runs the schema lint, the IR module's own stages, a build of the [release
+artifacts](#the-release-artifacts) and a build of the [base-image
+contract](docs/container/SPEC.md)'s worked example alongside them.
 
 ### Running one stage
 
@@ -33,6 +34,7 @@ dagger call proto-lint    # buf lint over proto/ against buf.yaml
 dagger call ir-ci         # the whole standard again, over the irpb/ module
 dagger call ir-artifacts  # builds the two IR artifacts a release attaches
 dagger call layout-artifact  # builds the layout schema a release attaches
+dagger call worked-example   # builds docs/container/SPEC.md's worked example
 ```
 
 The first four are not a second definition of the pipeline. Each drives the same
@@ -47,7 +49,13 @@ module; see [The IR module](#the-ir-module) for why there is one. `ir-artifacts`
 and `layout-artifact` are not stages either; see [The release
 artifacts](#the-release-artifacts).
 
-`dagger check` runs all nine as a checklist, if you would rather see them
+`worked-example` is the odd one out: it builds a document. The multi-stage
+Dockerfile in [the base-image contract](docs/container/SPEC.md#worked-example-adding-a-generator)
+is the first thing an adopter runs and the last thing anybody here would notice
+had broken, since no other stage reads it, so `ci` extracts it from that file and
+builds it. Edit that example and this is the stage that will tell you about it.
+
+`dagger check` runs all ten as a checklist, if you would rather see them
 together than pick one.
 
 ### Getting the tools
