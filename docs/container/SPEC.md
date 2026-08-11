@@ -369,10 +369,12 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/Zaba505/cpybkc/irpb"
@@ -415,19 +417,22 @@ func main() {
 		fail("--descriptor and --out are both required")
 	}
 
-	b, err := os.ReadFile(descriptor)
+	b, err := read(descriptor)
 	if err != nil {
 		fail("%v", err)
 	}
-	var d irpb.Descriptor
-	if err := proto.Unmarshal(b, &d); err != nil {
-		fail("%v", err)
+
+	// The version, off the wire, before the message is decoded at all: a
+	// descriptor this generator does not implement is refused with no part of
+	// it interpreted.
+	if version := versionOf(b); version != irVersion {
+		fail("descriptor IR version %d; cpybkc-gen-hello %s implements IR version %d",
+			version, pluginVersion, irVersion)
 	}
 
-	// The version, before anything else in the message.
-	if d.GetVersion() != irVersion {
-		fail("descriptor IR version %d; cpybkc-gen-hello %s implements IR version %d",
-			d.GetVersion(), pluginVersion, irVersion)
+	var d irpb.Descriptor
+	if err := proto.Unmarshal(b, &d); err != nil {
+		fail("the descriptor is not a cpybkc IR message: %v", err)
 	}
 
 	name := filepath.Join(out, "hello.txt")
@@ -436,13 +441,51 @@ func main() {
 	}
 }
 
+// read is the descriptor's bytes, from the path or from standard input where
+// the path is `-`. cpybkc always passes a real path, and a plugin accepts `-`
+// anyway.
+func read(path string) ([]byte, error) {
+	if path == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(path)
+}
+
+// versionOf is the IR version the descriptor's bytes state, read without
+// decoding the rest of the message. Field 1 is the version; anything else is
+// skipped, and bytes that are not a message read as no version stated, which is
+// a version this generator does not implement.
+func versionOf(descriptor []byte) irpb.IrVersion {
+	stated := irpb.IrVersion_IR_VERSION_UNSPECIFIED
+	for rest := descriptor; len(rest) > 0; {
+		number, kind, n := protowire.ConsumeTag(rest)
+		if n < 0 {
+			return stated
+		}
+		rest = rest[n:]
+		if number == 1 && kind == protowire.VarintType {
+			v, n := protowire.ConsumeVarint(rest)
+			if n < 0 {
+				return stated
+			}
+			stated, rest = irpb.IrVersion(v), rest[n:]
+			continue
+		}
+		if n = protowire.ConsumeFieldValue(number, kind, rest); n < 0 {
+			return stated
+		}
+		rest = rest[n:]
+	}
+	return stated
+}
+
 func fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
 	os.Exit(1)
 }
 EOF
 
-RUN go get github.com/Zaba505/cpybkc/irpb \
+RUN go mod tidy \
  && CGO_ENABLED=0 go build -trimpath -o /out/cpybkc-gen-hello .
 
 FROM ghcr.io/zaba505/cpybkc:v0

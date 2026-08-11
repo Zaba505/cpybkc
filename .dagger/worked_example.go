@@ -328,8 +328,14 @@ func (e *workedExample) rules() error {
 	}
 
 	for _, instruction := range e.other {
-		errs = append(errs, fmt.Errorf("the final stage carries a %s; the image has no shell, so extension is "+
-			"COPY-only, and an instruction this check cannot replay is one nothing verifies",
+		if strings.EqualFold(instruction, "RUN") {
+			errs = append(errs, errors.New("the final stage carries a RUN; the image has no shell, so a stage "+
+				"built FROM it cannot run anything and extension is COPY-only"))
+			continue
+		}
+		errs = append(errs, fmt.Errorf("the final stage carries a %s, which this check does not know how to "+
+			"replay; the document permits it — ENV, CMD and LABEL only edit metadata — so what is missing is "+
+			"the rule that checks one, not the instruction",
 			strings.ToUpper(instruction)))
 	}
 
