@@ -206,6 +206,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 	switch parentName {
 	case "Cpybkc":
 		switch fnName {
+		case "Generate":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			var manifest string
+			if inputArgs["manifest"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["manifest"]), &manifest)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg manifest", err))
+				}
+			}
+			return (*Cpybkc).Generate(&parent, ctx, source, manifest)
 		case "Image":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -213,6 +234,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Cpybkc).Image(&parent), nil
+		case "Run":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Cpybkc).Run(&parent, ctx, args, source)
 		case "":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)

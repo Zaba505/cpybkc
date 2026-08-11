@@ -307,6 +307,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).Ci(&parent, ctx)
+		case "CliSurface":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Cpybkc).CliSurface(&parent, ctx)
 		case "CompanionCi":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -405,6 +412,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).Lint(&parent, ctx)
+		case "PipelineCi":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Cpybkc).PipelineCi(&parent, ctx)
 		case "ProtoGen":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
