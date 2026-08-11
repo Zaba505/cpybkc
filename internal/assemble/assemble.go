@@ -17,6 +17,21 @@ import (
 	"github.com/Zaba505/cpybkc/irpb"
 )
 
+// Version is the IR version this build produces: the value of the Version field
+// on every descriptor [Assemble] returns.
+//
+// It is exported because it is a fact about the build rather than about this
+// package: docs/cli/SPEC.md has `cpybkc --version` name "the IR version this
+// build produces", and the only honest source for that is the constant the
+// assembler stamps into the descriptor. A second constant beside the CLI would
+// be a second statement of one fact, and the day the two disagreed the version
+// line would be the one that lied.
+//
+// docs/ir/SPEC.md makes the version a single monotonic integer: an addition a
+// consumer can ignore and still be correct about leaves it alone, and every
+// addition it cannot advances it.
+const Version = irpb.IrVersion_IR_VERSION_1
+
 // Options are the resolved layout: everything a descriptor is assembled out of,
 // and nothing that still needs resolving.
 //
@@ -238,7 +253,7 @@ func (a *assembler) assemble() *irpb.Descriptor {
 
 	file.Kind = &irpb.Node_File{File: fileOf(a.opts.Framing, a.states[a.opts.Automaton.Start])}
 
-	return &irpb.Descriptor{Version: irpb.IrVersion_IR_VERSION_1, Nodes: a.nodes}
+	return &irpb.Descriptor{Version: Version, Nodes: a.nodes}
 }
 
 // record assembles one record type: the record node, then its tree.

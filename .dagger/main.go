@@ -63,6 +63,21 @@
 // produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
 // else is a second answer to how the committed stubs were made.
 //
+// # Why the CLI is built here as well as compiled
+//
+// The four check stages already compile cmd/cpybkc, because they run over
+// ./... . Build is here for the two things they say nothing about: that the
+// binary links CGO-free and that it is a single static file. Both are promises
+// docs/container/SPEC.md rests the published image on — the image carries the
+// executable and nothing a program needs to start — and neither is visible to
+// `go vet` or to a test, because the toolchain container has the loader and the
+// libc that the image will not.
+//
+// So Build compiles it with CGO off and runs it in an empty image, which is the
+// smallest thing that can tell a static binary from a dynamic one without
+// reading its headers. It lands with the CLI (#147) rather than with the image
+// (#55) because it is a claim about the binary, and the binary exists first.
+//
 // # Why the release artifacts are built here
 //
 // IrDescriptorSet and IrProtos produce two of the three files a release
@@ -98,6 +113,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"dagger/cpybkc/internal/dagger"
@@ -108,6 +124,21 @@ import (
 // image cannot change what this repository lints against without the change
 // appearing in a diff — the same promise dagger.json's dependency pins make.
 const bufImage = "bufbuild/buf:1.72.0@sha256:65bd496a89c762ad7151ca9e7d885a45dacb3671a8e8ec39738b9f844d3405ea"
+
+const (
+	// cliPackage is the main package Binary builds, and cliBinary is what the
+	// build is asked to call it. The name is the command's own — it is what a
+	// person types, what docs/cli/SPEC.md's synopsis writes and what the
+	// published image's entrypoint is — so it is stated rather than left to
+	// `go build`'s naming.
+	cliPackage = "./cmd/cpybkc"
+	cliBinary  = "cpybkc"
+
+	// cliBinaryPath is where Build puts it in the empty image it runs it in.
+	// The image has no PATH to find it on, which is the point of running it
+	// there at all.
+	cliBinaryPath = "/cpybkc"
+)
 
 // Cpybkc is the root module type. Source and the lint configuration are bound
 // once at construction so every function below checks the same tree the same
@@ -156,13 +187,13 @@ func New(
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
 // the Z5Labs standard defines them, over each of this repository's two Go
-// modules, plus `buf lint` over the IR schema, a build of the three artifacts a
-// release publishes, and the worked example docs/container/SPEC.md hands an
-// adopter. This is the single entrypoint — CI is one `dagger call ci` and stays
-// one, because a workflow step that reran any of these stages would be a second
-// definition of them.
+// modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
+// build of the three artifacts a release publishes, and the worked example
+// docs/container/SPEC.md hands an adopter. This is the single entrypoint — CI
+// is one `dagger call ci` and stays one, because a workflow step that reran any
+// of these stages would be a second definition of them.
 //
-// The six parts run concurrently and all are reported, for the reason the
+// The seven parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -170,10 +201,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr, artifactErr, layoutErr, exampleErr error
+	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, exampleErr error
 
 	var wg sync.WaitGroup
-	wg.Add(6)
+	wg.Add(7)
 
 	go func() {
 		defer wg.Done()
@@ -194,6 +225,11 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
+		buildErr = m.Build(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
 		artifactErr = m.IrArtifacts(ctx)
 	}()
 
@@ -209,7 +245,7 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, artifactErr, layoutErr, exampleErr)
+	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, exampleErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -433,6 +469,74 @@ func (m *Cpybkc) IrArtifacts(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// Binary builds the cpybkc executable itself — the one thing this repository
+// exists to ship — CGO-free, so that it is a single statically linked file:
+//
+//	dagger call binary export --path=cpybkc
+//
+// CGO_ENABLED=0 is not an optimisation. docs/container/SPEC.md's image carries
+// this binary and nothing else a program needs to start — no loader, no libc,
+// no shell — so a dynamically linked cpybkc is one that cannot run in the image
+// this project publishes (#55). -trimpath goes with it because the same
+// document's reproducibility is a claim about the bytes, and a binary carrying
+// the path it was compiled under is a build that depends on where it ran.
+//
+// It is a function on this module rather than steps in a workflow for the
+// reason IrDescriptorSet is: a recipe that only ever ran inside a workflow
+// would be a build nobody can reproduce locally.
+func (m *Cpybkc) Binary() *dagger.File {
+	return dag.Go().
+		Build(m.Source, dagger.GoBuildOpts{
+			Pkg:          cliPackage,
+			ArtifactName: cliBinary,
+			Trimpath:     true,
+			DisableCgo:   true,
+		}).
+		File(cliBinary)
+}
+
+// Build builds the CLI and runs it in an empty image.
+//
+// The Go stages already compile cmd/cpybkc — vet, lint and test all reach it
+// through ./... — so what this adds is the two claims they cannot make. That
+// the binary is CGO-free and statically linked, and that a single file is all
+// of it: an image holding nothing but the executable has no loader to resolve
+// an interpreter with and no libc to load, so a dynamically linked binary does
+// not start, and the failure is the check rather than an image somebody
+// publishes.
+//
+// --version is what it is run with because it is the one invocation
+// docs/cli/SPEC.md requires to succeed without touching anything: it contacts
+// nothing, reads no manifest, writes one line to standard output and exits 0.
+// A binary that gets that far has linked, started and run its own main.
+//
+// One platform — the engine's own. Which platforms the published image carries
+// is docs/container/SPEC.md's, and #55 is where that build is checked on each
+// of them.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) Build(ctx context.Context) error {
+	line, err := dag.Container().
+		WithFile(cliBinaryPath, m.Binary(), dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithExec([]string{cliBinaryPath, "--version"}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("cpybkc does not run in an image holding nothing but itself, which is the image it "+
+			"ships in: %w", err)
+	}
+
+	// Only that it is the version line's shape. What the line says is
+	// cmd/cpybkc's own test's business, and asserting the version here would
+	// pin a release number in the pipeline.
+	if !strings.HasPrefix(line, cliBinary+" ") || !strings.Contains(line, "IR version") {
+		return fmt.Errorf("cpybkc --version wrote %q, and the line names the program, its version and the IR "+
+			"version this build produces", line)
+	}
+
+	return nil
 }
 
 // LayoutSchema builds the published layout schema — the released

@@ -16,7 +16,8 @@ dagger call ci
 
 That is the same call CI makes, with no arguments on either side. It runs the
 four Go stages in parallel and reports every failure, not just the first, and it
-runs the schema lint, the IR module's own stages, a build of the [release
+runs the schema lint, the IR module's own stages, a build of [the CLI
+itself](#building-the-cli), a build of the [release
 artifacts](#the-release-artifacts) and a build of the [base-image
 contract](docs/container/SPEC.md)'s worked example alongside them.
 
@@ -32,6 +33,7 @@ dagger call lint          # golangci-lint over ./... against .golangci.yml
 dagger call test          # go test -race ./...
 dagger call proto-lint    # buf lint over proto/ against buf.yaml
 dagger call ir-ci         # the whole standard again, over the irpb/ module
+dagger call build         # builds cpybkc CGO-free and runs it in an empty image
 dagger call ir-artifacts  # builds the two IR artifacts a release attaches
 dagger call layout-artifact  # builds the layout schema a release attaches
 dagger call worked-example   # builds docs/container/SPEC.md's worked example
@@ -45,9 +47,9 @@ standard has no protobuf stage to wrap; see [Linting the IR
 schema](#linting-the-ir-schema).
 
 `ir-ci` is not a stage but the whole standard a second time, over the second Go
-module; see [The IR module](#the-ir-module) for why there is one. `ir-artifacts`
-and `layout-artifact` are not stages either; see [The release
-artifacts](#the-release-artifacts).
+module; see [The IR module](#the-ir-module) for why there is one. `build`,
+`ir-artifacts` and `layout-artifact` are not stages either; see [Building the
+CLI](#building-the-cli) and [The release artifacts](#the-release-artifacts).
 
 `worked-example` is the odd one out: it builds a document. The multi-stage
 Dockerfile in [the base-image contract](docs/container/SPEC.md#worked-example-adding-a-generator)
@@ -55,8 +57,29 @@ is the first thing an adopter runs and the last thing anybody here would notice
 had broken, since no other stage reads it, so `ci` extracts it from that file and
 builds it. Edit that example and this is the stage that will tell you about it.
 
-`dagger check` runs all ten as a checklist, if you would rather see them
+`dagger check` runs all eleven as a checklist, if you would rather see them
 together than pick one.
+
+### Building the CLI
+
+```sh
+dagger call binary export --path=cpybkc   # the executable itself
+dagger call build                         # the check `ci` runs over it
+```
+
+The four Go stages already compile `cmd/cpybkc`, since they run over `./...`, so
+`build` is not there to find a compile error. It is there for the two things they
+say nothing about: that the binary links with `CGO_ENABLED=0` and that it is a
+single static file. Both are what [the base-image
+contract](docs/container/SPEC.md) rests the published image on — that image
+carries the executable and nothing a program needs to start — and neither is
+visible to `go vet` or to a test, because the toolchain container has the loader
+and the libc the image will not.
+
+So `build` compiles it CGO-free and runs `cpybkc --version` in an *empty* image.
+Nothing else is in there: a binary needing an interpreter or a libc does not
+start at all, and that failure is this check rather than an image somebody
+publishes.
 
 ### Getting the tools
 
