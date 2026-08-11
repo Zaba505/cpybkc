@@ -16,14 +16,16 @@ import (
 // The faults compiling a discriminator into a predicate reports.
 //
 // Each names what docs/ir/SPEC.md asks it to name and refuses the generic
-// version, because a discriminator goes wrong in five ways that look alike from
-// a distance and send an adopter to five different files. A target in the wrong
+// version, because a discriminator goes wrong in six ways that look alike from a
+// distance and send an adopter to six different files. A target in the wrong
 // record is a layout mistake; a target inside a table is a copybook the adopter
 // may not own; a target behind an `OCCURS DEPENDING ON` is a rule about the read
-// loop's order; a literal that will not resolve is a spelling; and a strategy
-// this format refuses is a file shape the IR cannot describe. "rather than
-// reporting a generic reference error" is the spec's own phrase, and it appears
-// against three of these.
+// loop's order; a target reaching past a shorter record the same state admits is
+// a rule about the other records that state can put in front of a consumer; a
+// literal that will not resolve is a spelling; and a strategy this format
+// refuses is a file shape the IR cannot describe. "rather than reporting a
+// generic reference error" is the spec's own phrase, and it appears against four
+// of these.
 
 // PredicateTargetError is a discriminator whose item reference does not name one
 // item of the record it discriminates.
@@ -203,6 +205,73 @@ func (e *PredicateLiteralError) Diagnostic() diag.Diagnostic {
 			"%s compares %s against %s, and %s: a literal reaches a consumer as the bytes it compares, "+
 				"padded to the width of the item",
 			e.Subject, e.Item, e.Literal, e.Found),
+		Spans: spans(e.Pos, e.Copybook, "declared here"),
+	}
+}
+
+// PredicateReachError is a discriminator whose target reaches past the shortest
+// record its state can put in front of a consumer.
+//
+// docs/ir/SPEC.md's "A predicate never reads past the record in front of it" is
+// the rule and it is about the bytes in front of the consumer rather than about
+// which record they turn out to be. A predicate exists to be evaluated against
+// records its own transition does not admit — that is what selecting one is — so
+// what is refused is not reading another record's bytes but reading a byte no
+// record the state can admit covers (#94).
+//
+// Where the framing states each record's length the read is bounded instead and
+// this is not reported; it fires under **unframed** and **delimited**, where
+// nothing in the file states a length before the transition is taken.
+// [compiler.reportReach] is where that division is stated, and where the
+// argument is that a layout reaching this is one [SequenceAmbiguityError] would
+// otherwise report — this is the specific message in place of that generic one,
+// rather than a second thing wrong with the layout.
+//
+// It names the record the target is in, the target, and the shorter record it
+// would be read past the end of, rather than reporting a generic reference
+// error, because the two failures it prevents are files that are exactly right:
+// a well-formed short record on which a consumer reaches end of input inside
+// step 3 and condemns the file as truncated, and a predicate testing the *next*
+// record's bytes and matching them, which takes the wrong transition on the day
+// those bytes happen to hold the value it was looking for.
+type PredicateReachError struct {
+	// Pos is the item reference in the layout.
+	Pos diag.Span
+
+	// Copybook is the target's entry in the copybook.
+	Copybook diag.Span
+
+	// State is a state offering both records, and the one whose shorter
+	// record the numbers below are about.
+	State int
+
+	// Record is the record being discriminated, and Item the target.
+	Record string
+	Item   string
+
+	// Beside is the shorter record the state can put in front of a consumer
+	// instead.
+	Beside string
+
+	// Ends is the byte of a record the target ends at, counting from one: the
+	// bytes ahead of it in its own record plus its width. Extent is how many
+	// bytes Beside is at its shortest.
+	Ends   int
+	Extent int
+}
+
+// Error implements the error interface.
+func (e *PredicateReachError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *PredicateReachError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"the discriminator for record %s tests %s, whose last byte is byte %d of a record, and at state %d "+
+				"the sequence can put %s in front of a consumer instead, which is %s: the target ends %s past "+
+				"the end of it, and a predicate is evaluated before the record in front of it has been "+
+				"identified, so its target has to lie inside the shortest record its state can admit",
+			e.Record, e.Item, e.Ends, e.State, e.Beside, plural(e.Extent, "byte"), plural(e.Ends-e.Extent, "byte")),
 		Spans: spans(e.Pos, e.Copybook, "declared here"),
 	}
 }

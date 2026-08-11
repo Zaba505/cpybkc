@@ -8,6 +8,7 @@ package resolve
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,12 +72,20 @@ func countedRunCopybooks() map[string]string {
 }
 
 // compileLayout is the whole pipeline a caller runs: parse the layout, read the
-// two layers the automaton is compiled out of, resolve each record name to the
+// layers the automaton is compiled out of, resolve each record name to the
 // copybook the test gave it, and compile.
 //
 // It reports what compilation said rather than failing on it, because half of
 // these tests are about the fault.
 func compileLayout(t *testing.T, source string, copybooks map[string]string) (*Automaton, error) {
+	t.Helper()
+
+	return CompileSequence(sequencingOf(t, source, copybooks))
+}
+
+// sequencingOf is what [compileLayout] compiles, so that a test needing one
+// setting of its own can take the pipeline's answer and change that one thing.
+func sequencingOf(t *testing.T, source string, copybooks map[string]string) Sequencing {
 	t.Helper()
 
 	file, err := layout.Parse("layout.sexpr", strings.NewReader(source))
@@ -99,6 +108,7 @@ func compileLayout(t *testing.T, source string, copybooks map[string]string) (*A
 		Dialect:  copybook.IBMEnterprise(),
 		Reading:  layoutmodel.ODOSlide,
 		Encoding: mainframe(),
+		Framing:  framingIn(t, file),
 	}
 	for _, discriminator := range discrimination.Records {
 		src, bound := copybooks[discriminator.Record]
@@ -114,7 +124,34 @@ func compileLayout(t *testing.T, source string, copybooks map[string]string) (*A
 		})
 	}
 
-	return CompileSequence(opts)
+	return opts
+}
+
+// framingIn is the framing a test's layout states, or nil where it states none.
+//
+// Most of these layouts state none, because most of the automaton's rules are
+// about the sequence and not about the dataset the records came out of. The one
+// that is about both — how far into the file a predicate may read — is keyed on
+// the framing, so the tests for it write a `framing` form and this reads it, by
+// the same reader a layout goes through.
+//
+// The form's presence is what is tested and not the read's success:
+// [layoutmodel.ReadFraming] refuses a layout carrying no `framing` form at all,
+// and taking that as "states none" would make a malformed framing in a test
+// silently become the nil one, which is the value the rule is not run on.
+func framingIn(t *testing.T, file *layout.File) *layoutmodel.Framing {
+	t.Helper()
+
+	if !slices.ContainsFunc(file.Forms, func(form layout.Form) bool { return form.Tag == "framing" }) {
+		return nil
+	}
+
+	framing, err := layoutmodel.ReadFraming(file)
+	if err != nil {
+		t.Fatalf("reading the framing layer: %v", err)
+	}
+
+	return framing
 }
 
 // compiled is a layout the caller expects to compile.

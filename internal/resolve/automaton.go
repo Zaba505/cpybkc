@@ -483,12 +483,36 @@ type Sequencing struct {
 	// Reading is which of the two vendor readings of `OCCURS DEPENDING ON` the
 	// layout says its file was written under, for [Options.Reading]'s reason.
 	//
-	// It is read for one rule and nothing else: a discriminator's target must
-	// sit at a constant position within its record, and whether an item ahead
-	// of it has an extent that moves is a question only the reading answers.
-	// Under `noodoslide` the same clause is a fixed table and nothing moves,
-	// so a layout stating no reading is one this half never has to ask.
+	// It is read for two rules. A discriminator's target must sit at a constant
+	// position within its record, and whether an item ahead of it has an extent
+	// that moves is a question only the reading answers; and the shortest
+	// record a state can admit is measured with every table at the occurrence
+	// count the reading gives it. Under `noodoslide` the same clause is a fixed
+	// table and nothing moves, so a layout stating no reading is one this half
+	// never has to ask.
 	Reading layoutmodel.Reading
+
+	// Framing is the layout's physical framing, or nil where the caller has
+	// none to state.
+	//
+	// It is read for one rule, docs/ir/SPEC.md's "A predicate never reads past
+	// the record in front of it": which of the two mechanisms bounds a
+	// predicate is decided by the framing, and only the one that bounds the
+	// *layout* is a thing to reject a layout over (#94). What the rule needs of
+	// it is [layoutmodel.Framing.Kind] and, under a fixed-length dataset, the
+	// `lrecl` every record type is padded out to.
+	//
+	// The whole value is taken for [Options.Framing]'s reason: the bound
+	// follows from the record format and the `lrecl` read together, and a
+	// caller decomposing it here would be a second reading of
+	// docs/layout/SPEC.md's table.
+	//
+	// A nil framing states neither mechanism, and the rule is simply not run —
+	// as it is not for the two framings that state each record's length.
+	// [layoutmodel.ReadFraming] refuses a layout that does not carry exactly
+	// one `framing` form, so nil is a caller that assembled a [Sequencing] by
+	// hand rather than a layout an adopter wrote.
+	Framing *layoutmodel.Framing
 
 	// Encoding is the layout's encoding profile, and EncodingOverrides the
 	// per-item overrides over it: the four axes a literal is resolved to bytes
