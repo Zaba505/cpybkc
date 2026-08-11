@@ -255,6 +255,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Cpybkc).Run(&parent, ctx, args, source)
+		case "WithGenerator":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var image *dagger.Container
+			if inputArgs["image"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["image"]), &image)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg image", err))
+				}
+			}
+			return (*Cpybkc).WithGenerator(&parent, ctx, name, image)
+		case "WithGeneratorExecutable":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var executable *dagger.File
+			if inputArgs["executable"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["executable"]), &executable)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg executable", err))
+				}
+			}
+			return (*Cpybkc).WithGeneratorExecutable(&parent, name, executable)
 		case "":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -282,7 +324,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg image", err))
 				}
 			}
-			return New(version, repository, image)
+			var platform string
+			if inputArgs["platform"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
+				}
+			}
+			return New(version, repository, image, platform)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
