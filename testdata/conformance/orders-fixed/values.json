@@ -1,0 +1,26 @@
+{
+  "records": [
+    {
+      "name": "ORDER-RECORD",
+      "value": {
+        "ORDER-ID": "A001",
+        "ORDER-QTY": "42",
+        "ORDER-LINE": [
+          {"LINE-SKU": "SK1"},
+          {"LINE-SKU": "SK2"}
+        ]
+      }
+    },
+    {
+      "name": "ORDER-RECORD",
+      "value": {
+        "ORDER-ID": "B002",
+        "ORDER-QTY": "7",
+        "ORDER-LINE": [
+          {"LINE-SKU": "SK3"},
+          {"LINE-SKU": "SK4"}
+        ]
+      }
+    }
+  ]
+}

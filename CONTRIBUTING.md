@@ -288,6 +288,29 @@ to exclude.
 `.github/workflows/release.yaml` attaches all three to a release when one is
 published, building them with the same three calls above at the release's tag.
 
+## The conformance corpus
+
+[`testdata/conformance/`](testdata/conformance/) is a set of small files with the
+right answer written down: a layout and its copybooks, the IR they resolve to,
+the bytes of a file laid out that way, and the values those bytes decode to. Its
+README is the format, and it is the whole of the documentation — the corpus is
+test infrastructure, so it documents itself where it lives rather than under
+`docs/` ([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*).
+
+```sh
+go test ./internal/conformance/...
+```
+
+That generates Go for every entry with `cpybkc-gen-go` built from the tree,
+compiles it, reads each entry's bytes with it, and holds what came out against
+what the entry says. `dagger call ci` runs it too, like every other test; the
+call above is for narrowing down what it reported.
+
+It exists because cpybkc is strictly a generator: nothing here reads a data file
+except the code a generator emitted, so nothing else holds two generators in two
+languages to one reading of one descriptor. Adding an entry is four files and a
+citation, and the README says how.
+
 ## Specs
 
 Four of this project's interfaces are built against from outside it — the file

@@ -1,0 +1,18 @@
+;; A fixed-length dataset carrying one record type and nothing to tell it apart
+;; from, in ASCII — the smallest layout a corpus entry can be written against.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 13))
+
+(record ORDER
+  (copybook "orders.cpy" ORDER-RECORD))
+
+(discriminate ORDER single-record-type)
+
+(sequence (* ORDER))
