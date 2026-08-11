@@ -10,11 +10,19 @@
 //	cpybkc --help
 //
 // As it stands it is the outermost layer of that command and nothing behind it:
-// it parses the argument vector, answers --help and --version, and turns a
-// fault into an exit status. It reads no manifest, resolves no layout, emits no
-// descriptor and starts no generator, and a run that asks for any of that fails
-// with a diagnostic saying so. Finding the manifest and resolving it is #148,
-// --emit-ir is #149, and the diagnostics the stages owe are #150.
+// it parses the argument vector, answers --help and --version, turns a fault
+// into an exit status, and reports whatever failed. It reads no manifest,
+// resolves no layout, emits no descriptor and starts no generator, and a run
+// that asks for any of that fails with a diagnostic saying so. Finding the
+// manifest and resolving it is #148, and --emit-ir is #149.
+//
+// What those stages will have to say for themselves already has a stream and a
+// shape. Every fault reaches the user through [report], which renders the
+// [github.com/Zaba505/cpybkc/internal/diag] diagnostics the readers of this
+// repository raise — each under the file, line and column it is at, with the
+// second file a cross-file fault implicates on a continuation line, and all of
+// them rather than the first. A generator's own lines reach the same stream in
+// the same shape through [logger].
 //
 // docs/cli/SPEC.md is the contract, and this command implements it rather than
 // restating it. The command set, the argument vector, where the manifest is
@@ -46,6 +54,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 )
 
@@ -62,7 +71,12 @@ func main() {
 // That is why a failure is reported here, where both streams are in hand,
 // rather than by whatever raised it.
 func run(args []string, stdout, stderr io.Writer) status {
-	err := execute(args, stdout)
+	// The log a generator's output reaches this stream through is built here,
+	// beside the stream, because docs/cli/SPEC.md's rule is about standard
+	// error and not about any one stage: a generator's line and a layout's
+	// fault are the same stream in the same shape, and the place that knows
+	// which writer that is is the place that decides both.
+	err := execute(args, stdout, logger(stderr))
 	if err == nil {
 		return statusOK
 	}
@@ -88,7 +102,7 @@ func run(args []string, stdout, stderr io.Writer) status {
 
 // execute performs what the line asked for, and writes to standard output only
 // what was asked for by name.
-func execute(args []string, stdout io.Writer) error {
+func execute(args []string, stdout io.Writer, log *slog.Logger) error {
 	inv, err := parse(args)
 	if err != nil {
 		return err
@@ -104,7 +118,7 @@ func execute(args []string, stdout io.Writer) error {
 
 		return nil
 	case answerRun:
-		return perform(inv)
+		return perform(inv, log)
 	}
 
 	// Unreachable: parse returns one of the three answers above. It is a
@@ -122,7 +136,15 @@ func execute(args []string, stdout io.Writer) error {
 // run, so an unwired pipeline exiting 0 is indistinguishable from a project
 // whose generators all ran. Status 1 with a diagnostic naming the story is the
 // honest answer, and it is a status the document already enumerates.
-func perform(inv invocation) error {
+//
+// log is where a generator's output reaches standard error, in the form
+// docs/cli/SPEC.md fixes for a relayed line. It is
+// [github.com/Zaba505/cpybkc/internal/plugin.Runner]'s Log, and it arrives here
+// rather than being built where the runner is because the writer it renders to
+// is [run]'s standard error and not a stream this stage is entitled to choose.
+// Nothing in this build starts a generator, so nothing in this build writes
+// through it yet; #148 is what does.
+func perform(inv invocation, log *slog.Logger) error {
 	if inv.emitting() {
 		return fmt.Errorf("this build cannot write the %s descriptor %s asked for: it parses the command "+
 			"line and answers %s and %s, and it has not read %s (#149)",
