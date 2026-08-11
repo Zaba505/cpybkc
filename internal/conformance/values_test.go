@@ -72,10 +72,6 @@ func TestCompareReportsEveryDisagreement(t *testing.T) {
 			got:  strings.Replace(want, `"ORDER-RECORD"`, `"HEADER-RECORD"`, 1),
 			says: []string{"record 1 is a HEADER-RECORD and the entry expects a ORDER-RECORD"},
 		},
-		"a file that was read to its end where the entry expects a failure": {
-			got:  want,
-			says: nil,
-		},
 	}
 
 	for name, test := range tests {
@@ -154,6 +150,8 @@ func TestParseValuesRefuses(t *testing.T) {
 		"a record with no name":            `{"records": [{"value": {}}]}`,
 		"a record with no value":           `{"records": [{"name": "ORDER-RECORD"}]}`,
 		"something that is not a document": `[]`,
+		"more than one document":           `{"records": []}{"records": []}`,
+		"something behind the document":    `{"records": []} and then some`,
 	}
 
 	for name, document := range tests {

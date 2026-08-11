@@ -59,11 +59,8 @@ type Record struct {
 // typo, and a document that silently ignores it is a document that passes for
 // the wrong reason.
 func ParseValues(b []byte) (*Values, error) {
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-
 	var values Values
-	if err := decoder.Decode(&values); err != nil {
+	if err := decodeOne(b, &values); err != nil {
 		return nil, err
 	}
 
@@ -84,6 +81,32 @@ func ParseValues(b []byte) (*Values, error) {
 	}
 
 	return &values, nil
+}
+
+// decodeOne reads exactly one JSON document out of b, and is how every JSON
+// member of an entry and every runner's answer is read.
+//
+// Two things beyond decoding. An unknown field is refused, for the reason the
+// project manifest refuses one: a key an author wrote in the expectation that it
+// means something is a typo, and a document that ignores it passes for the wrong
+// reason. And anything behind the first document is refused, because
+// encoding/json stops at the end of a value and reports nothing about what
+// follows — so a file with a second document appended, or with a paste that went
+// wrong at the end of it, would be read as its first half and pass on values
+// nobody meant.
+func decodeOne(b []byte, document any) error {
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(document); err != nil {
+		return err
+	}
+
+	if decoder.More() {
+		return fmt.Errorf("there is more than one document in the file, and only the first was read")
+	}
+
+	return nil
 }
 
 // check holds a values document to the descriptor of the entry it belongs to.

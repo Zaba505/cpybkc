@@ -7,7 +7,6 @@ package conformance
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -272,11 +271,8 @@ func (e *Entry) readMetadata() error {
 		return skipMissing(err)
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-
 	var read metadata
-	if err := decoder.Decode(&read); err != nil {
+	if err := decodeOne(b, &read); err != nil {
 		return fmt.Errorf("%s: %w", MetadataName, err)
 	}
 

@@ -143,6 +143,13 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 			},
 			says: "unknown field",
 		},
+		"metadata with a second document behind it": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b"}{"description": "c", "source": "d"}`)
+			},
+			says: "more than one document",
+		},
 		"metadata citing no source": {
 			breaks: func(t *testing.T, dir string) {
 				write(t, filepath.Join(dir, MetadataName), `{"description": "a", "source": ""}`)
