@@ -32,8 +32,8 @@ const (
 )
 
 var (
-	manifestFields  = []string{"inputs", "layout", "generators"}
-	generatorFields = []string{"name", "out", "inputs", "options"}
+	manifestFields  = []string{"layout", "generators"}
+	generatorFields = []string{"name", "out", "options"}
 )
 
 // What a message says a field is for, once, so that the sentence a missing
@@ -43,7 +43,6 @@ const (
 	generatorsFault = "there is nothing for a run to do without one"
 	nameFault       = "a generator is found on PATH as cpybkc-gen-<name>"
 	outFault        = "its output lands in the directory out names"
-	inputFault      = "every input names a copybook to read"
 )
 
 // parser walks a manifest as a stream of JSON tokens.
@@ -123,8 +122,6 @@ func (p *parser) manifest() (*Manifest, error) {
 		seen[key] = keySpan
 
 		switch key {
-		case "inputs":
-			m.Inputs, err = p.paths("inputs")
 		case "layout":
 			m.Layout, _, err = p.requiredText("layout", "the layout file written as text", layoutFault)
 		case "generators":
@@ -252,8 +249,6 @@ func (p *parser) generator(field string) (Generator, bool, error) {
 		case "out":
 			generator.Out, _, err = p.requiredText(
 				field+".out", "a directory path written as text", outFault)
-		case "inputs":
-			generator.Inputs, err = p.paths(field + ".inputs")
 		case "options":
 			generator.Options, err = p.options(field + ".options")
 		default:
@@ -341,53 +336,6 @@ func (p *parser) options(field string) ([]Option, error) {
 	}
 
 	return options, nil
-}
-
-// paths reads a list of copybook paths.
-func (p *parser) paths(field string) ([]string, error) {
-	open, span, err := p.token()
-	if err != nil {
-		return nil, err
-	}
-
-	if !isOpen(open, '[') {
-		p.faults.Fail(&TypeError{
-			Span: span, Field: field, Want: "a list of copybook paths", Found: found(open),
-		})
-
-		return nil, p.discardAfter(open)
-	}
-
-	var paths []string
-
-	seen := map[string]diag.Span{}
-
-	for index := 0; p.dec.More(); index++ {
-		path, pathSpan, err := p.requiredText(
-			fmt.Sprintf("%s[%d]", field, index), "a copybook path written as text", inputFault)
-		if err != nil {
-			return nil, err
-		}
-
-		if path == "" {
-			continue
-		}
-
-		if first, repeated := seen[path]; repeated {
-			p.faults.Fail(&RepeatedInputError{Span: pathSpan, First: first, Path: path, Field: field})
-
-			continue
-		}
-
-		seen[path] = pathSpan
-		paths = append(paths, path)
-	}
-
-	if _, _, err := p.token(); err != nil {
-		return nil, err
-	}
-
-	return paths, nil
 }
 
 // required reports every field of known that the object at span did not carry.

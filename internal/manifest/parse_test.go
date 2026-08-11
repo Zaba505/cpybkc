@@ -52,7 +52,7 @@ func TestReadRefusesAManifestWithSomethingWrongWithIt(t *testing.T) {
   "generators": [{"name": "go", "out": "gen"}],
   "generatorz": []
 }`,
-			want: `cpybkc.json:4:3: a manifest has no field named "generatorz"; it carries inputs, layout and generators`,
+			want: `cpybkc.json:4:3: a manifest has no field named "generatorz"; it carries layout and generators`,
 		},
 		{
 			name: "a field no generator entry has",
@@ -63,7 +63,7 @@ func TestReadRefusesAManifestWithSomethingWrongWithIt(t *testing.T) {
   ]
 }`,
 			want: `cpybkc.json:4:34: a generator entry has no field named "version"; ` +
-				`it carries name, out, inputs and options`,
+				`it carries name, out and options`,
 		},
 		{
 			name: "a field written twice",
@@ -111,7 +111,7 @@ func TestReadRefusesAManifestWithSomethingWrongWithIt(t *testing.T) {
 			name: "a generator with no name and no out",
 			source: `{
   "layout": "orders.sexpr",
-  "generators": [{"inputs": ["cpy/orders.cpy"]}]
+  "generators": [{"options": {"package_name": "orders"}}]
 }`,
 			want: `cpybkc.json:3:18: a generator entry carries no name; a generator is found on PATH as cpybkc-gen-<name>
 cpybkc.json:3:18: a generator entry carries no out; its output lands in the directory out names`,
@@ -142,13 +142,12 @@ cpybkc.json:3:18: a generator entry carries no out; its output lands in the dire
 				`it resolves to, and "z5labs/go" contains a /`,
 		},
 		{
-			name: "one path where a list of them belongs",
+			name: "one generator where a list of them belongs",
 			source: `{
-  "inputs": "cpy/orders.cpy",
   "layout": "orders.sexpr",
-  "generators": [{"name": "go", "out": "gen"}]
+  "generators": {"name": "go", "out": "gen"}
 }`,
-			want: `cpybkc.json:2:13: inputs is a list of copybook paths, and this one is text`,
+			want: `cpybkc.json:3:17: generators is a list of generator entries, and this one is an object`,
 		},
 		{
 			name: "a layout written as a number",
@@ -198,25 +197,6 @@ cpybkc.json:3:18: a generator entry carries no out; its output lands in the dire
 			want: `cpybkc.json:4:46: an option key is empty, and a generator is handed each option as k=v`,
 		},
 		{
-			name: "a copybook named twice in one list",
-			source: `{
-  "inputs": ["cpy/orders.cpy", "cpy/common.cpy", "cpy/orders.cpy"],
-  "layout": "orders.sexpr",
-  "generators": [{"name": "go", "out": "gen"}]
-}`,
-			want: `cpybkc.json:2:50: inputs names "cpy/orders.cpy" twice
-  cpybkc.json:2:14: the first one is here`,
-		},
-		{
-			name: "an input with nothing in it",
-			source: `{
-  "inputs": ["cpy/orders.cpy", ""],
-  "layout": "orders.sexpr",
-  "generators": [{"name": "go", "out": "gen"}]
-}`,
-			want: `cpybkc.json:2:32: inputs[1] is empty; every input names a copybook to read`,
-		},
-		{
 			name: "a layout written as a boolean",
 			source: `{
   "layout": true,
@@ -225,13 +205,12 @@ cpybkc.json:3:18: a generator entry carries no out; its output lands in the dire
 			want: `cpybkc.json:2:13: layout is the layout file written as text, and this one is a boolean`,
 		},
 		{
-			name: "inputs written as nothing at all",
+			name: "generators written as nothing at all",
 			source: `{
-  "inputs": null,
   "layout": "orders.sexpr",
-  "generators": [{"name": "go", "out": "gen"}]
+  "generators": null
 }`,
-			want: `cpybkc.json:2:13: inputs is a list of copybook paths, and this one is null`,
+			want: `cpybkc.json:3:17: generators is a list of generator entries, and this one is null`,
 		},
 		{
 			name:   "a manifest that is not an object",
@@ -242,7 +221,7 @@ cpybkc.json:3:18: a generator entry carries no out; its output lands in the dire
 			name:   "a manifest that is empty",
 			source: "\n  \n",
 			want: `cpybkc.json:1:1: the manifest is empty; ` +
-				`it is a JSON object naming the layout, the copybooks and the generators to run`,
+				`it is a JSON object naming the layout and the generators to run`,
 		},
 		{
 			name:   "a manifest that is not JSON",
@@ -281,7 +260,6 @@ cpybkc.json:3:18: a generator entry carries no out; its output lands in the dire
 func TestReadStopsWhereverTheJSONDoes(t *testing.T) {
 	tests := map[string]string{
 		"before the first field":  `{`,
-		"in a list of copybooks":  `{"inputs": ["cpy/orders.cpy",`,
 		"in the generators list":  `{"layout": "orders.sexpr", "generators": [`,
 		"in a generator entry":    `{"layout": "orders.sexpr", "generators": [{`,
 		"in a generator's option": `{"layout": "o.sexpr", "generators": [{"name": "go", "options": {"a":`,
@@ -304,7 +282,7 @@ func TestReadStopsWhereverTheJSONDoes(t *testing.T) {
 // reporting one of them per run is a reader run once per fault.
 func TestReadReportsEveryFaultRatherThanTheFirst(t *testing.T) {
 	got := refuse(t, `{
-  "input": ["cpy/orders.cpy"],
+  "input": "cpy/orders.cpy",
   "layout": "orders.sexpr",
   "generators": [
     {"name": "go", "outt": "gen"},
@@ -312,8 +290,8 @@ func TestReadReportsEveryFaultRatherThanTheFirst(t *testing.T) {
   ]
 }`)
 
-	want := `cpybkc.json:2:3: a manifest has no field named "input"; it carries inputs, layout and generators
-cpybkc.json:5:20: a generator entry has no field named "outt"; it carries name, out, inputs and options
+	want := `cpybkc.json:2:3: a manifest has no field named "input"; it carries layout and generators
+cpybkc.json:5:20: a generator entry has no field named "outt"; it carries name, out and options
 cpybkc.json:5:5: a generator entry carries no out; its output lands in the directory out names
 cpybkc.json:6:14: generators[1].name is empty; a generator is found on PATH as cpybkc-gen-<name>`
 
@@ -332,7 +310,7 @@ func TestReadKeepsWhatItFoundBesideAFaultItCannotReadPast(t *testing.T) {
   "generators": [{"name": "go", "out" = "gen"}]
 }`)
 
-	want := `cpybkc.json:2:3: a manifest has no field named "layoutt"; it carries inputs, layout and generators
+	want := `cpybkc.json:2:3: a manifest has no field named "layoutt"; it carries layout and generators
 cpybkc.json:3:39: the manifest is not valid JSON: invalid character '=' after object key`
 
 	if got != want {
@@ -380,14 +358,14 @@ func TestAFaultIsAssertableByType(t *testing.T) {
 // rather than leaving the walk standing inside it.
 func TestReadSkipsPastAFieldItCannotUse(t *testing.T) {
 	got := refuse(t, `{
-  "inputs": {"first": ["cpy/orders.cpy"]},
+  "layoutt": {"first": ["cpy/orders.cpy"]},
   "layout": "orders.sexpr",
   "generators": [{"name": "go", "out": "gen"}],
   "generatorz": [[1, 2], {"a": {"b": []}}]
 }`)
 
-	want := `cpybkc.json:2:13: inputs is a list of copybook paths, and this one is an object
-cpybkc.json:5:3: a manifest has no field named "generatorz"; it carries inputs, layout and generators`
+	want := `cpybkc.json:2:3: a manifest has no field named "layoutt"; it carries layout and generators
+cpybkc.json:5:3: a manifest has no field named "generatorz"; it carries layout and generators`
 
 	if got != want {
 		t.Errorf("the manifest reads:\n%s\nwant:\n%s", got, want)

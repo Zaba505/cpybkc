@@ -54,13 +54,11 @@ laptop as in CI:
 
 ```json
 {
-  "inputs": ["cpy/orders.cpy"],
   "layout": "orders.sexpr",
   "generators": [
     {
       "name": "go",
       "out": "gen",
-      "inputs": ["cpy/orders-go.cpy"],
       "options": {"package_name": "orders", "receiver": "o"}
     },
     {
@@ -73,13 +71,24 @@ laptop as in CI:
 
 | Field | Scope | Required | What it is |
 |---|---|---|---|
-| `inputs` | top-level | no | The copybooks every generator reads. |
 | `layout` | top-level | yes | The [layout file](docs/layout/SPEC.md) the run resolves against. There is one of it: a project resolving against two layouts is two runs. |
 | `generators` | top-level | yes | The generators to run, in order, at least one of them. |
 | `name` | generator | yes | Resolves to the `cpybkc-gen-<name>` executable on `PATH`. It is the whole of how a generator is identified — there is no `source` and no `version` beside it. |
 | `out` | generator | yes | The directory this generator's output lands in. |
-| `inputs` | generator | no | Copybooks this generator reads **in addition to** the top-level `inputs`; a path named in both is read once. |
 | `options` | generator | no | The generator's own options, each handed to it as one `--opt k=v`, **in the order this object writes them**. A key carries no `=`; a value is text, and may be empty. |
+
+**A manifest does not list copybooks.** Which copybooks a run reads is the
+layout's to say — a `record` form names the file its record is in — and cpybkc
+opens those and no others. A generator never sees a copybook at all: it is
+handed the resolved descriptor, an output directory and its options, and the IR
+carries no path back to the file an item came from. So there is no top-level
+`inputs` and no per-generator `inputs`; a manifest carrying either is reported
+as the unknown field it is, with the line and column it is at. [Which descriptor
+is emitted](docs/cli/SPEC.md#which-descriptor-is-emitted) is where that is
+settled, and [Finding the
+inputs](docs/cli/SPEC.md#finding-the-inputs) is why the manifest does not get a
+say. The point of both is one sentence: a run has **one** descriptor, and every
+generator in it — and `--emit-ir` — is handed the same bytes.
 
 Four rules are worth knowing before a manifest is written, because each of them
 is a fault rather than something cpybkc works around:
@@ -87,8 +96,8 @@ is a fault rather than something cpybkc works around:
 - **An unknown field is reported, never ignored.** A manifest is a file a person
   wrote, so a misspelled field is a typo they want told about rather than a line
   that reads as configuration and silently does nothing. The same goes for a
-  field written twice, a copybook named twice in one list, and an empty string
-  where a path or a name belongs.
+  field written twice, an option key written twice, and an empty string where a
+  path or a name belongs.
 - **A path is used as written.** cpybkc resolves nothing against anything on
   your behalf; a relative path is relative to the manifest.
 - **Every fault is reported at once**, each with the line and column in

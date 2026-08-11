@@ -12,7 +12,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"slices"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
@@ -35,47 +34,14 @@ type Manifest struct {
 	// diagnostic about it names.
 	File string
 
-	// Inputs are the copybooks every generator reads, in the order they were
-	// written. A manifest that names none is not a fault: which copybooks a
-	// record is in is the layout's to say (docs/layout/SPEC.md, "Binding a
-	// record to a copybook"), and this list is the project's statement of what
-	// a run reads.
-	Inputs []string
-
-	// Layout is the layout file the run resolves against.
+	// Layout is the layout file the run resolves against. There is one of it,
+	// and it is the whole of what the run's descriptor is resolved from: which
+	// copybooks a run reads is the layout's to say (docs/layout/SPEC.md,
+	// "Record definitions"), and a manifest states no copybook of its own.
 	Layout string
 
 	// Generators are the generators to run, in the order they were declared.
 	Generators []Generator
-}
-
-// InputsFor is every copybook g reads: the manifest's inputs, then g's own, in
-// the order they were written.
-//
-// The two are merged rather than the entry's replacing the manifest's, because
-// the top-level list is what a project shares and an entry's list is what one
-// generator needs beyond it — a generator that had to restate the shared list to
-// add one file would be a list kept in step by hand.
-//
-// A path named in both lists is kept once, at the position the first mention
-// gives it. Reading one copybook twice is not a second copybook, and the
-// duplicate is what a shared list plus a specific one produces honestly; a
-// repeat *within* one list is a different thing and is a fault [Read] reports.
-func (m *Manifest) InputsFor(g Generator) []string {
-	var merged []string
-
-	seen := make(map[string]struct{}, len(m.Inputs)+len(g.Inputs))
-
-	for _, path := range slices.Concat(m.Inputs, g.Inputs) {
-		if _, duplicate := seen[path]; duplicate {
-			continue
-		}
-
-		seen[path] = struct{}{}
-		merged = append(merged, path)
-	}
-
-	return merged
 }
 
 // Generator is one entry of a manifest's generators list.
@@ -95,11 +61,6 @@ type Generator struct {
 
 	// Out is the directory this generator's output lands in.
 	Out string
-
-	// Inputs are the copybooks this generator reads beyond the manifest's.
-	// [Manifest.InputsFor] is the merged list; this is what the entry itself
-	// declared.
-	Inputs []string
 
 	// Options are the generator's options, in the order the manifest declares
 	// them, which is the order docs/plugin/SPEC.md requires them to be passed
@@ -161,7 +122,7 @@ func parse(file string, src []byte) (*Manifest, error) {
 	if len(bytes.TrimSpace(src)) == 0 {
 		return nil, &SyntaxError{
 			Span:  p.spanAt(0),
-			Fault: "the manifest is empty; it is a JSON object naming the layout, the copybooks and the generators to run",
+			Fault: "the manifest is empty; it is a JSON object naming the layout and the generators to run",
 		}
 	}
 

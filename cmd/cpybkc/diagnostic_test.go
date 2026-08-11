@@ -33,15 +33,14 @@ func reported(err error) string {
 // would agree with itself whatever the format became.
 
 // brokenManifest is a manifest with three independent faults in it, in three
-// different places: a field no manifest has, a list written as a single string,
-// and a required field that is not there at all.
+// different places: a field no manifest has, an option set written as a single
+// string, and a required field that is not there at all.
 //
 // Nothing here depends on any two of them, which is the point — a manifest is
 // written by hand and gets three things wrong at once, and a reader that
 // stopped at the first would be a reader the adopter ran three times.
 const brokenManifest = `{
   "output": "gen",
-  "inputs": ["cpy/orders.cpy"],
   "generators": [
     {"name": "go", "out": "gen/orders", "options": "verbose=true"}
   ]
@@ -52,8 +51,8 @@ const brokenManifest = `{
 // Every line names the manifest, the line and the column, and all three faults
 // are there: docs/cli/SPEC.md requires more than one fault found in one pass to
 // be reported together rather than one per run.
-const goldenManifest = `error: cpybkc.json:2:3: a manifest has no field named "output"; it carries inputs, layout and generators
-error: cpybkc.json:5:52: generators[0].options is an object of generator options, and this one is text
+const goldenManifest = `error: cpybkc.json:2:3: a manifest has no field named "output"; it carries layout and generators
+error: cpybkc.json:4:52: generators[0].options is an object of generator options, and this one is text
 error: cpybkc.json:1:1: a manifest carries no layout; a project resolves its records against exactly one
 `
 
