@@ -180,8 +180,9 @@ directory on `PATH` that other people's images copy into, owned by a pinned
 non-root user. Teaching the archetype that shape would be teaching it this
 repository's plugin model. So the image is assembled in
 [`.dagger/image.go`](.dagger/image.go), the four check stages gate a pull request
-exactly as before, and what is left for `GoApp` is the publish half, which the
-publishing story can take or leave on its own merits.
+exactly as before, and the publish half went the same way once the image did:
+[`.dagger/release.go`](.dagger/release.go) pushes the base this module assembles,
+under tags this module derives, and `GoApp` has no notion of either.
 
 Both dependencies in `dagger.json` are pinned to one `devex` commit, so a bump
 has to move them together.
@@ -379,8 +380,8 @@ dagger call attestations                                # the check `ci` runs
 ```
 
 `attest` is the third, and it is the one that needs a release: it signs a
-published digest and attaches the predicate and the SBOMs to it. #59 is what
-calls it, with the digest its publish returned.
+published digest and attaches the predicate and the SBOMs to it. `release` is
+what calls it, with the digest its publish returned.
 
 Four things about it are worth knowing before changing any of it:
 
@@ -403,6 +404,86 @@ Four things about it are worth knowing before changing any of it:
   real signature needs an OIDC token, a registry and a public transparency log,
   none of which a pull request has, and a check that faked one would be checking
   the fake. The signing flow is first exercised by a release.
+
+## Making a release
+
+Publish a GitHub release whose tag is a canonical `vX.Y.Z`.
+`.github/workflows/release.yaml` does the rest: it attaches the three artifacts
+above, pushes the image, signs the digest, and writes into the release's notes
+which IR version that image speaks.
+
+Nothing else is a step. There is no version constant to bump — `cmd/cpybkc`'s
+`version` is a constant in the tree and `internal/assemble.Version` is the IR
+version, and neither is stamped at release time — and no tag to push by hand
+beyond the one the release object carries.
+
+### Which tags a release publishes is a function, not a step
+
+[`.dagger/release.go`](.dagger/release.go) reads the refs at HEAD and derives the
+tag list from them, and [the base-image
+contract](docs/container/SPEC.md#tags-and-what-pinning-one-buys) is the table it
+implements: the full version tag never moves, the minor tag moves on each patch,
+the **moving major tag** moves on each release in that major, and `latest` moves
+on each release. The major tag is the one a derived Dockerfile should usually
+pin — it picks up every fix inside the compatibility guarantees — and it is what
+the [companion Dagger module's default](#the-default-image-tag-is-the-moving-major-tag)
+resolves through.
+
+```sh
+dagger call tag-scheme             # the derivation, over the cases that matter
+dagger call release-notes-contract # the block a release's notes carry
+```
+
+Both are in `ci`, so the scheme is checked on every pull request rather than
+discovered at a release. Three edge cases are settled there rather than in
+production:
+
+- A **prerelease** publishes its own full version tag and moves none of the other
+  three. A release candidate is not a fix anybody consented to be given.
+- A version carrying **`+build` metadata** is refused rather than mangled. An OCI
+  tag has no `+` in it, and dropping the metadata would publish two releases
+  under one name.
+- **Two version tags on one commit** is an error, because which of them `latest`
+  should follow has no defensible answer.
+
+A commit with no version tag publishes nothing and succeeds — which is what lets
+the workflow fire on the IR module's `irpb/vX.Y.Z` releases without a filter
+naming tag shapes in YAML.
+
+### Re-running a release is safe
+
+The job can be re-run, and this project's contract still holds that a published
+full version tag is never repointed. Both are true because the image is a
+function of the source: the binary is built `-trimpath` and CGO-free, the IR
+artifacts are byte-deterministic, and the image is assembled from those alone. A
+second run pushes the same bytes, so every tag lands back on the digest it
+already named. `release` asserts it by requiring every tag of one release to
+resolve to one digest, and refusing the release if they do not.
+
+The asset uploads use `--clobber`, the signature and the attestations are
+additive rather than replacing, and the notes block is delimited and regenerated
+rather than appended — so a second run leaves one block, not two.
+
+Correcting a *broken* release is the case none of that covers, and the answer is
+a new version number. Repointing `v0.2.0` at different bytes is the one thing
+[the contract](docs/container/SPEC.md#tags-and-what-pinning-one-buys) forbids
+outright.
+
+### Publishing somewhere else
+
+Where the image goes is an argument, not a constant: `release` takes the
+repository, and `publish` pushes one multi-platform index to any registry you can
+authenticate against.
+
+```sh
+dagger call publish --address=localhost:5000/cpybkc:v0 \
+  --username=… --password=env://REGISTRY_PASSWORD
+```
+
+That is deliberate — [the base-image
+contract](docs/container/SPEC.md#also-out-of-scope) holds the registry out of
+what it promises, because a mirror serving the same digest satisfies it
+identically. What is *not* an argument is which tags exist, for the reason above.
 
 ## The companion Dagger module
 
@@ -538,10 +619,11 @@ is not a weaker check — it is a claim that something is being verified. So the
 story is closed as unnecessary rather than carried against a premise this
 decision removed.
 
-What survives of it is the one thing the default depends on. #59 publishes the
-moving major tag; if that ever stopped being published, this decision is what
-would have to be reopened, rather than the default quietly patched at the call
-site.
+What survives of it is the one thing the default depends on. Every release
+[publishes the moving major tag](#which-tags-a-release-publishes-is-a-function-not-a-step)
+(#59), and `dagger call tag-scheme` is what says so on every pull request; if
+that ever stopped being published, this decision is what would have to be
+reopened, rather than the default quietly patched at the call site.
 
 ## The conformance corpus
 

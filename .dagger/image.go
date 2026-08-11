@@ -193,6 +193,75 @@ func (m *Cpybkc) Image(
 	return m.image(p), nil
 }
 
+// Publish pushes the image, as a multi-platform index over every platform this
+// project ships for, and returns the digest-qualified reference the registry
+// stored it under:
+//
+//	dagger call publish --address=ghcr.io/zaba505/cpybkc:v0.2.0 \
+//	  --username=… --password=env://REGISTRY_PASSWORD
+//
+// One index rather than one push per platform, because docs/container/SPEC.md
+// promises that every published tag resolves to a multi-platform index: a
+// consumer's `FROM` line names a tag and their runtime picks the manifest for the
+// architecture it is on.
+//
+// The variants are image's own containers, so what is published is what
+// ImageContract checked rather than a second build that agrees with it today.
+//
+// It is a function of its own, and not folded into Release, so that pushing to a
+// test registry by hand is something a person can do — a publish path only ever
+// exercised by a release is one whose first real invocation is the one nobody
+// can retry.
+//
+// The digest in the returned reference is what a release signs. Nothing here
+// resolves a tag afterwards to find it: what gets signed has to be what was
+// pushed.
+func (m *Cpybkc) Publish(
+	ctx context.Context,
+	// The full image reference to push, including the tag.
+	address string,
+	// The registry username to authenticate as. Both this and password are
+	// needed for a registry that requires authentication, which is every
+	// registry this project publishes to.
+	// +optional
+	username string,
+	// The registry password or token to authenticate with.
+	// +optional
+	password *dagger.Secret,
+) (string, error) {
+	if address == "" {
+		return "", errors.New("address is required: it is the full image reference to push, including the tag")
+	}
+
+	// Half a credential is refused rather than quietly dropped. Skipping the
+	// authentication because one of the two is missing turns a typo into an
+	// anonymous push, which fails at the registry with a message about
+	// permissions rather than about the argument that was actually wrong — and on
+	// a registry that happened to allow it, would not fail at all.
+	switch {
+	case username != "" && password == nil:
+		return "", errors.New("username was given without password: both are needed to authenticate, and " +
+			"publishing with neither pushes anonymously")
+	case username == "" && password != nil:
+		return "", errors.New("password was given without username: both are needed to authenticate, and " +
+			"publishing with neither pushes anonymously")
+	}
+
+	platforms := imagePlatforms()
+
+	variants := make([]*dagger.Container, 0, len(platforms))
+	for _, p := range platforms {
+		variants = append(variants, m.image(p))
+	}
+
+	c := dag.Container()
+	if username != "" {
+		c = c.WithRegistryAuth(address, username, password)
+	}
+
+	return c.Publish(ctx, address, dagger.ContainerPublishOpts{PlatformVariants: variants})
+}
+
 // ImageContract checks the built image against every promise
 // docs/container/SPEC.md makes about it (#55).
 //

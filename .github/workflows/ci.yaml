@@ -6,11 +6,11 @@ on:
     branches:
       - main
     # A release is a tag push and nothing else. The tag is here so the pipeline
-    # runs on one at all; whether that run publishes anything is the module's
-    # decision, made from the refs at HEAD, not this list and not an `if:` on a
-    # job. Today the answer is always no — the module builds a library, so there
-    # is nothing to publish yet — and that is a fact about which archetype
-    # .dagger/main.go calls rather than about this file.
+    # runs on one at all; this workflow publishes nothing under any of them, and
+    # never will. What a release publishes is release.yaml's, fired by a
+    # published release rather than by a pushed tag, and which tags it publishes
+    # under is the module's decision from the refs at HEAD (#59) — not this list
+    # and not an `if:` on a job.
     #
     # Two patterns because this repository publishes two modules. The CLI's
     # releases are vX.Y.Z; the IR module's are irpb/vX.Y.Z, which is not a prefix
