@@ -20,8 +20,10 @@ name: Release
 #
 # The image job below has no filter either, and for a stronger reason: whether a
 # release is a release of the image is a question the Dagger module answers from
-# the refs at HEAD, and answering it here as well would put the tag scheme in two
-# places. An `irpb/vX.Y.Z` release reaches that job and publishes nothing.
+# the release's tag, and answering it here as well would put the tag scheme in
+# two places. An `irpb/vX.Y.Z` release reaches that job and publishes nothing —
+# including when the same commit also carries the CLI's own version tag, because
+# the module is told which release this is rather than left to guess from HEAD.
 on:
   release:
     types: [published]
@@ -77,6 +79,7 @@ jobs:
       # reason, as ci.yaml's.
       - name: Install the Dagger CLI
         run: |
+          set -euo pipefail
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
             | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
               BIN_DIR="$HOME/.local/bin" sh
@@ -121,12 +124,32 @@ jobs:
   #
   # That is also why this job carries no tag filter. This repository publishes two
   # tag schemes, and `irpb/vX.Y.Z` is a release of the IR module rather than of
-  # the image: the module sees no canonical version tag at HEAD, publishes
-  # nothing, leaves the notes untouched and succeeds. A filter here would be the
-  # same decision made twice, in the place that is hardest to test.
+  # the image: the module is handed that tag, sees it is not a canonical version,
+  # publishes nothing, leaves the notes untouched and succeeds. A filter here
+  # would be the same decision made twice, in the place that is hardest to test.
+  #
+  # The tag is passed in rather than left to be inferred from the refs at HEAD,
+  # because the two answer differently exactly when this repository does what it
+  # is built to do: cut `vX.Y.Z` and `irpb/vX.Y.Z` from one commit. Inferring
+  # would find the CLI's tag while publishing the IR module's release, republish
+  # the image under it, and splice the image's notes into the wrong release.
   image:
     name: Image
     runs-on: ubuntu-latest
+    # Two releases published moments apart — a batch, or a draft released just
+    # after another — would otherwise race on `latest`, `vMAJOR` and the minor
+    # tag, and the winner would be whichever run happened to push last rather
+    # than whichever release is newer. That would make the tag table's "moves on
+    # each release" true only up to a scheduling accident. The two runs also
+    # read-modify-write release bodies, which does not survive being interleaved
+    # either.
+    #
+    # cancel-in-progress is false deliberately: a release cancelled midway
+    # through publishing its tags is the outcome this job least wants, since a
+    # published version tag is never repointed to tidy it up.
+    concurrency:
+      group: release-image
+      cancel-in-progress: false
     permissions:
       # Reading the source, writing the package, writing the release's notes, and
       # minting the OIDC token that signs. All four are here rather than at the
@@ -158,6 +181,7 @@ jobs:
 
       - name: Install the Dagger CLI
         run: |
+          set -euo pipefail
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
             | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
               BIN_DIR="$HOME/.local/bin" sh
@@ -198,8 +222,11 @@ jobs:
       - name: Publish, sign and attest the image
         env:
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           dagger call release \
+            --tag "$TAG" \
             --repository "$IMAGE_REPOSITORY" \
             --username "${{ github.actor }}" \
             --password env://REGISTRY_PASSWORD \
@@ -222,8 +249,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
           dagger call release-notes \
+            --tag "$TAG" \
             --notes "$RUNNER_TEMP/notes.md" \
             --repository "$IMAGE_REPOSITORY" > "$RUNNER_TEMP/notes.new.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.new.md"

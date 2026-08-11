@@ -216,6 +216,15 @@ func (m *Cpybkc) Image(
 // The digest in the returned reference is what a release signs. Nothing here
 // resolves a tag afterwards to find it: what gets signed has to be what was
 // pushed.
+//
+// Uncached, like Release, and for a reason that bites hardest on the path this
+// function exists for. This is the call that mutates a registry, and a cached
+// result would hand a second invocation the reference the first one resolved
+// without anything having been pushed — so retrying a release that failed
+// halfway would report success over a tag that is still missing at the
+// destination. A push is an effect, and an effect is not a value to memoise.
+//
+// +cache="never"
 func (m *Cpybkc) Publish(
 	ctx context.Context,
 	// The full image reference to push, including the tag.

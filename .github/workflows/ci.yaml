@@ -88,8 +88,12 @@ jobs:
       # never been run against — which is the difference between this repository
       # and every other one that the module exists to prevent. It is the same
       # command CONTRIBUTING.md gives contributors, for the same reason.
+      # set -euo pipefail because a `run:` block is `bash -e` without it: a
+      # failed download would otherwise leave `sh` reading empty input and
+      # exiting 0, and the step would pass with no Dagger installed.
       - name: Install the Dagger CLI
         run: |
+          set -euo pipefail
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
             | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
               BIN_DIR="$HOME/.local/bin" sh

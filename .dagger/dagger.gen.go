@@ -495,6 +495,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
 				}
 			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
 			var repository string
 			if inputArgs["repository"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["repository"]), &repository)
@@ -544,7 +551,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg invocation", err))
 				}
 			}
-			return (*Cpybkc).Release(&parent, ctx, gitDir, repository, username, password, idTokenRequestUrl, idTokenRequestToken, builder, invocation)
+			return (*Cpybkc).Release(&parent, ctx, gitDir, tag, repository, username, password, idTokenRequestUrl, idTokenRequestToken, builder, invocation)
 		case "ReleaseNotes":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -556,6 +563,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				err = json.Unmarshal([]byte(inputArgs["gitDir"]), &gitDir)
 				if err != nil {
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
+				}
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
 				}
 			}
 			var notes *dagger.File
@@ -572,7 +586,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repository", err))
 				}
 			}
-			return (*Cpybkc).ReleaseNotes(&parent, ctx, gitDir, notes, repository)
+			return (*Cpybkc).ReleaseNotes(&parent, ctx, gitDir, tag, notes, repository)
 		case "ReleaseNotesContract":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)

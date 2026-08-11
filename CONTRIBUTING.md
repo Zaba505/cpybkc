@@ -412,15 +412,31 @@ Publish a GitHub release whose tag is a canonical `vX.Y.Z`.
 above, pushes the image, signs the digest, and writes into the release's notes
 which IR version that image speaks.
 
-Nothing else is a step. There is no version constant to bump — `cmd/cpybkc`'s
-`version` is a constant in the tree and `internal/assemble.Version` is the IR
-version, and neither is stamped at release time — and no tag to push by hand
-beyond the one the release object carries.
+Nothing else is a step, after the first one. There is no version constant to
+bump — `cmd/cpybkc`'s `version` is a constant in the tree and
+`internal/assemble.Version` is the IR version, and neither is stamped at release
+time — and no tag to push by hand beyond the one the release object carries.
+
+**The first release needs one manual step, once.** A package that
+`secrets.GITHUB_TOKEN` creates on ghcr.io is private, and nothing the workflow
+can do with the default token makes it public. Until somebody sets the package's
+visibility to public in its settings on GitHub, every `FROM
+ghcr.io/zaba505/cpybkc:v0` in [the base-image contract](docs/container/SPEC.md)
+gets a 401 — which is the whole point of the image, so it is worth doing before
+announcing the release rather than after the first bug report. The same page is
+where a user-namespace package is given the repository write access the workflow
+pushes with. Every release after that one is the paragraph above.
+
+Releases are also expected to be cut in ascending version order. The moving tags
+follow the release being published rather than the highest version ever
+published, so a backport cut *after* the release that supersedes it would land
+`v0` and `latest` back on the older image — see `versionTags` in
+[`.dagger/release.go`](.dagger/release.go).
 
 ### Which tags a release publishes is a function, not a step
 
-[`.dagger/release.go`](.dagger/release.go) reads the refs at HEAD and derives the
-tag list from them, and [the base-image
+[`.dagger/release.go`](.dagger/release.go) is handed the release's tag, checks it
+against the refs at HEAD and derives the tag list from it, and [the base-image
 contract](docs/container/SPEC.md#tags-and-what-pinning-one-buys) is the table it
 implements: the full version tag never moves, the minor tag moves on each patch,
 the **moving major tag** moves on each release in that major, and `latest` moves

@@ -1,6 +1,6 @@
-// This file publishes a release: it decides from the refs at HEAD whether there
-// is one, works out which tags it carries, pushes the multi-platform image under
-// every one of them, hands the digest it resolved to sign.go's Attest, and
+// This file publishes a release: it decides from the release's own tag whether
+// there is one, works out which tags it carries, pushes the multi-platform image
+// under every one of them, hands the digest it resolved to sign.go's Attest, and
 // renders the block of release notes that says which IR version the image just
 // published speaks (#59).
 //
@@ -15,13 +15,15 @@
 // and both are discovered by somebody whose `FROM` line resolved to an image
 // they did not ask for.
 //
-// So the module reads the refs at HEAD and everything downstream of that reading
-// is a function of them. TagScheme runs the same derivation over a table of
-// cases on every pull request, which is what makes the scheme something this
-// repository checks rather than something it intends. What is left to the
-// workflow is *where* — the registry repository and the credentials — which
-// genuinely is a property of the deployment rather than of the release, and is
-// the reason docs/container/SPEC.md keeps the registry out of the contract.
+// So the module is handed the release's tag, and everything downstream is a
+// function of that tag and the refs at HEAD. TagScheme runs the same derivation
+// over a table of cases on every pull request, which is what makes the scheme
+// something this repository checks rather than something it intends. What is
+// left to the workflow is *which release* — the tag of the object that triggered
+// it — and *where* — the registry repository and the credentials. Both are
+// genuinely properties of the deployment and of the event rather than of the tag
+// scheme, and the second is why docs/container/SPEC.md keeps the registry out of
+// the contract.
 //
 // # The three edge cases the plan settles
 //
@@ -41,11 +43,13 @@
 //     should follow has no defensible answer, and a pipeline that picked one
 //     would repoint a moving tag on a coin toss.
 //
-// A commit carrying no version tag at all is none of those: it publishes nothing
-// and succeeds, because "this commit is not a release" is an answer rather than
-// a fault. That is what lets the release workflow fire on every published
-// release — including the IR module's `irpb/vX.Y.Z`, which is not a release of
-// the image — without a filter naming tag shapes in YAML.
+// A release whose own tag is not a canonical version is none of those: it
+// publishes nothing and succeeds, because "this is not a release of the image"
+// is an answer rather than a fault. That is what lets the release workflow fire
+// on every published release — including the IR module's `irpb/vX.Y.Z` — without
+// a filter naming tag shapes in YAML, and it holds even when the two modules are
+// cut from one commit, because what decides is the tag of the release object
+// rather than whatever else points at the same tree.
 //
 // # Why re-running a release is safe
 //
@@ -128,6 +132,13 @@ func (m *Cpybkc) Release(
 	// this commit is a release, so a checkout without tags publishes nothing.
 	// +defaultPath="/.git"
 	gitDir *dagger.Directory,
+	// The tag of the release being published — `github.event.release.tag_name`
+	// on GitHub Actions. It is what decides whether this release is a release of
+	// the image: a canonical `vX.Y.Z` is one, and the IR module's `irpb/vX.Y.Z`
+	// is not. Given none, the refs at HEAD decide instead, which is what a run by
+	// hand against a checkout wants.
+	// +optional
+	tag string,
 	// The image's repository, without a tag — `ghcr.io/zaba505/cpybkc`.
 	repository string,
 	// The registry username to authenticate as.
@@ -150,20 +161,18 @@ func (m *Cpybkc) Release(
 	// +optional
 	invocation string,
 ) (string, error) {
-	plan, refs, err := m.releasePlan(ctx, gitDir)
-	if err != nil {
-		return "", err
-	}
-
-	if plan.version == "" {
-		return fmt.Sprintf("no version tag points at HEAD (refs: %s); nothing published",
-			strings.Join(refs, ", ")), nil
-	}
-
-	// Every credential the run needs is checked before the first byte moves. A
+	// Every credential the run needs is checked before the first byte moves, and
+	// before the run has worked out whether there is anything to publish. A
 	// publish that reached the registry and then found it had no way to sign
 	// would leave a tag pointing at an unattested image, and this project's
 	// contract says a published version tag is never repointed to correct that.
+	//
+	// Ahead of the decision rather than after it, so that the configuration is
+	// checked by every run of this job and not only by the ones that publish. A
+	// dropped `id-token: write`, an empty repository or a rotated secret would
+	// otherwise pass green on every `irpb` release and be discovered by the
+	// release that was supposed to push — which is the same "first real run is on
+	// a tag" failure this file is written against.
 	switch {
 	case repository == "":
 		return "", errors.New("repository is required: it is the image's full repository, without a tag")
@@ -173,6 +182,16 @@ func (m *Cpybkc) Release(
 		return "", errors.New("idTokenRequestUrl and idTokenRequestToken are both required: every published digest is signed, and signing exchanges a workload identity token")
 	case builder == "":
 		return "", errors.New("builder is required: the provenance predicate names what ran the release, and this module cannot know that")
+	}
+
+	plan, refs, err := m.releasePlan(ctx, gitDir, tag)
+	if err != nil {
+		return "", err
+	}
+
+	if plan.version == "" {
+		return fmt.Sprintf("%s is not a release of the image (refs at HEAD: %s); nothing published",
+			releaseName(tag), strings.Join(refs, ", ")), nil
 	}
 
 	digest, err := m.publishTags(ctx, repository, plan.tags, username, password)
@@ -211,11 +230,13 @@ func (m *Cpybkc) Release(
 // a version the image does not produce.
 //
 // The tags come from the same derivation Release publishes under, and the
-// decision about whether this commit is a release at all comes from the same
-// refs. A tagged commit that is not a release of the image — `irpb/v0.1.0`, the
-// IR module's own tag — leaves the notes exactly as they were, which is what lets
-// the release workflow run this step on every release without a filter naming
-// tag shapes in YAML.
+// decision about whether this release is a release of the image at all is made
+// from the same input — the release's own tag. A release that is not one of the
+// image — `irpb/v0.1.0`, the IR module's own tag — leaves the notes exactly as
+// they were, which is what lets the release workflow run this step on every
+// release without a filter naming tag shapes in YAML. Passing the same tag here
+// as to Release is what keeps the two from disagreeing: the block is spliced
+// into the notes of the release it describes, and into no other.
 //
 // repository is optional, for the same reason it is Release's argument rather
 // than a constant: where the image is published is a property of the deployment.
@@ -227,6 +248,11 @@ func (m *Cpybkc) ReleaseNotes(
 	// is.
 	// +defaultPath="/.git"
 	gitDir *dagger.Directory,
+	// The tag of the release whose notes these are — the same one Release was
+	// given. It decides whether this release is a release of the image; given
+	// none, the refs at HEAD decide.
+	// +optional
+	tag string,
 	// The notes the release carries now. Empty is a release whose notes are
 	// still to be written.
 	// +optional
@@ -236,7 +262,7 @@ func (m *Cpybkc) ReleaseNotes(
 	// +optional
 	repository string,
 ) (string, error) {
-	plan, _, err := m.releasePlan(ctx, gitDir)
+	plan, _, err := m.releasePlan(ctx, gitDir, tag)
 	if err != nil {
 		return "", err
 	}
@@ -283,6 +309,7 @@ func (m *Cpybkc) ReleaseNotes(
 func (m *Cpybkc) TagScheme() error {
 	cases := []struct {
 		refs    []string
+		tag     string
 		version string
 		tags    []string
 		fails   bool
@@ -320,27 +347,86 @@ func (m *Cpybkc) TagScheme() error {
 		// rejected: the release workflow fires on every published release, and
 		// this is the one that must pass through it publishing nothing.
 		{refs: []string{"refs/tags/irpb/v0.1.0"}},
+		// A canonical tag beside the remote refs a fetched checkout carries still
+		// publishes: everything that is not a version tag is ignored rather than
+		// treated as evidence of a mistake.
+		{
+			refs:    []string{"refs/tags/v0.2.0", "refs/heads/main", "refs/remotes/origin/main"},
+			version: "v0.2.0",
+			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
+		},
+		// Both modules cut from one tree, which is the shape that decides whether
+		// the release workflow's claim about `irpb/vX.Y.Z` is true. The refs are
+		// identical in all three cases below and the answers are not, because what
+		// decides is the release object's own tag rather than what else happens to
+		// point at the same commit.
+		{
+			refs:    []string{"refs/tags/v0.2.0", "refs/tags/irpb/v0.1.0", "refs/heads/main"},
+			tag:     "v0.2.0",
+			version: "v0.2.0",
+			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
+		},
+		// The IR module's release reaches this and publishes nothing, rather than
+		// finding the CLI's tag at HEAD and republishing the image under it.
+		{
+			refs: []string{"refs/tags/v0.2.0", "refs/tags/irpb/v0.1.0", "refs/heads/main"},
+			tag:  "irpb/v0.1.0",
+		},
+		// With no tag given the refs decide, which is a run by hand rather than a
+		// release object.
+		{
+			refs:    []string{"refs/tags/v0.2.0", "refs/tags/irpb/v0.1.0", "refs/heads/main"},
+			version: "v0.2.0",
+			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
+		},
+		// A release whose tag is not the one this checkout is at would publish
+		// bytes that tag was never cut from.
+		{refs: []string{"refs/tags/v0.2.0", "refs/heads/main"}, tag: "v0.3.0", fails: true},
 		// Build metadata cannot be spelled in an OCI tag, so a version carrying
-		// it is refused rather than silently mangled into one that can.
+		// it is refused rather than silently mangled into one that can — and a
+		// prerelease carrying it is refused too, rather than taking the
+		// prerelease's early return before the metadata is ever looked at.
 		{refs: []string{"refs/tags/v0.2.0+build.5"}, fails: true},
+		{refs: []string{"refs/tags/v0.3.0-rc.1+build.5"}, fails: true},
 		// Two version tags at HEAD: which of them `latest` should follow is not a
 		// question with a defensible answer, so it is an error and not a choice.
+		// Naming one of them as the release does not settle it, because the moving
+		// tags are shared between the two.
 		{refs: []string{"refs/tags/v0.2.0", "refs/tags/v0.3.0"}, fails: true},
+		{refs: []string{"refs/tags/v0.2.0", "refs/tags/v0.3.0"}, tag: "v0.3.0", fails: true},
 	}
 
 	var errs []error
+
 	for _, c := range cases {
-		plan, err := planRelease(c.refs)
-		switch {
-		case c.fails && err == nil:
-			errs = append(errs, fmt.Errorf("%v: planned %v, want an error", c.refs, plan.tags))
-		case c.fails:
-		case err != nil:
-			errs = append(errs, fmt.Errorf("%v: %w", c.refs, err))
-		case plan.version != c.version:
-			errs = append(errs, fmt.Errorf("%v: version is %q, want %q", c.refs, plan.version, c.version))
-		case !slices.Equal(plan.tags, c.tags):
-			errs = append(errs, fmt.Errorf("%v: tags are %v, want %v", c.refs, plan.tags, c.tags))
+		plan, err := planRelease(c.refs, c.tag)
+
+		if c.fails {
+			if err == nil {
+				errs = append(errs, fmt.Errorf("%v (release %q): planned %v, want an error",
+					c.refs, releaseName(c.tag), plan.tags))
+			}
+
+			continue
+		}
+
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%v (release %q): %w", c.refs, releaseName(c.tag), err))
+
+			continue
+		}
+
+		// Two independent assertions rather than a chain: a case that got both
+		// the version and the tags wrong should say so twice, and the tags are the
+		// half a reader of this table came for.
+		if plan.version != c.version {
+			errs = append(errs, fmt.Errorf("%v (release %q): version is %q, want %q",
+				c.refs, releaseName(c.tag), plan.version, c.version))
+		}
+
+		if !slices.Equal(plan.tags, c.tags) {
+			errs = append(errs, fmt.Errorf("%v (release %q): tags are %v, want %v",
+				c.refs, releaseName(c.tag), plan.tags, c.tags))
 		}
 	}
 
@@ -371,8 +457,23 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 
 	const irVersion = 7
 
-	release := releasePlan{version: "v0.2.0", tags: []string{"v0.2.0", "v0.2", "v0", "latest"}}
-	prerelease := releasePlan{version: "v0.3.0-rc.1", tags: []string{"v0.3.0-rc.1"}}
+	// Both plans go through versionTags rather than being written out as literals,
+	// so that what the block says about a release is checked against the tags that
+	// release would actually publish. A hand-built plan would let the block call a
+	// stable release a prerelease, or the reverse, and nothing here would notice.
+	plan := func(version string) releasePlan {
+		tags, err := versionTags(version)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("deriving the tags for %s: %w", version, err))
+
+			return releasePlan{version: version}
+		}
+
+		return releasePlan{version: version, tags: tags}
+	}
+
+	release := plan("v0.2.0")
+	prerelease := plan("v0.3.0-rc.1")
 
 	block := releaseNotesBlock(release, irVersion, "ghcr.io/zaba505/cpybkc")
 	for _, want := range []string{
@@ -389,12 +490,24 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 	// A prerelease's block has to say that it moves nothing, because a reader who
 	// sees a release published and assumes `v0` followed it is exactly who this
 	// sentence is for.
+	//
+	// Two independent assertions and not a chain: a block that both mentions
+	// `latest` and fails to say it is a prerelease is wrong twice, and a chain
+	// would report one of them and hide the other — including the case where the
+	// first fires spuriously and silently retires the second.
 	pre := releaseNotesBlock(prerelease, irVersion, "")
-	switch {
-	case strings.Contains(pre, "`latest`"):
+	if strings.Contains(pre, "`latest`") {
 		errs = append(errs, fmt.Errorf("a prerelease's notes mention `latest`, which it does not move:\n%s", pre))
-	case !strings.Contains(pre, "prerelease"):
+	}
+
+	if !strings.Contains(pre, "prerelease") {
 		errs = append(errs, fmt.Errorf("a prerelease's notes do not say so:\n%s", pre))
+	}
+
+	// And the stable release must not call itself one, which is the half a plan
+	// built out of literals could never have caught.
+	if strings.Contains(block, "prerelease") {
+		errs = append(errs, fmt.Errorf("a stable release's notes call it a prerelease:\n%s", block))
 	}
 
 	// With no repository there is no reference to pull, and the block must not
@@ -469,13 +582,13 @@ type releasePlan struct {
 // releasePlan reads the refs at HEAD and plans the release they describe,
 // returning the refs alongside it so that a run publishing nothing can say what
 // it saw.
-func (m *Cpybkc) releasePlan(ctx context.Context, gitDir *dagger.Directory) (releasePlan, []string, error) {
+func (m *Cpybkc) releasePlan(ctx context.Context, gitDir *dagger.Directory, tag string) (releasePlan, []string, error) {
 	refs, err := headRefs(ctx, m.Source, gitDir)
 	if err != nil {
 		return releasePlan{}, nil, err
 	}
 
-	plan, err := planRelease(refs)
+	plan, err := planRelease(refs, tag)
 	if err != nil {
 		return releasePlan{}, refs, err
 	}
@@ -483,14 +596,54 @@ func (m *Cpybkc) releasePlan(ctx context.Context, gitDir *dagger.Directory) (rel
 	return plan, refs, nil
 }
 
-// planRelease reads the refs at HEAD and returns what to publish.
+// releaseName is how a run with nothing to publish refers to what it was asked
+// about, so that the report reads the same whether a tag was given or not.
+func releaseName(tag string) string {
+	if tag == "" {
+		return "HEAD"
+	}
+
+	return tag
+}
+
+// planRelease returns what to publish, from the tag the release carries and the
+// refs at HEAD.
+//
+// # Which of the two decides
+//
+// The tag is the release object that triggered the run, and where there is one it
+// is what decides: a release is a release of the image when its own tag is a
+// canonical version, and is not otherwise. Deciding from the refs at HEAD instead
+// would be a different question wearing the same answer, and the two come apart
+// exactly when one commit carries two releases — which this repository is built
+// to do, cutting `vX.Y.Z` for the CLI and `irpb/vX.Y.Z` for the IR module from
+// one tree. Publishing the IR module's release would then find the CLI's tag at
+// HEAD, republish the image under it at a second point in time, and splice the
+// image's notes into the IR module's release, which describes an image that
+// release did not publish.
+//
+// Given no tag the refs at HEAD decide, which is what `dagger call release` run
+// by hand against a checkout wants: there is no release object to name, and the
+// commit is the only thing that can say what it is.
 //
 // A ref counts only if it is a tag whose name is a canonical version. Everything
 // else — branches, remote refs, `refs/stash`, a tag named `nightly`, the IR
 // module's `irpb/vX.Y.Z` — is ignored rather than rejected, because a release
 // commit routinely carries several refs and none of the others is evidence of a
 // mistake.
-func planRelease(refs []string) (releasePlan, error) {
+//
+// # What is still an error
+//
+// Two canonical version tags at HEAD, whichever release triggered the run: which
+// of them the moving tags should follow has no defensible answer, and a run that
+// picked one would repoint a moving tag on a coin toss. The tag being given does
+// not settle it, because the moving tags are shared between both.
+//
+// A tag that does not point at HEAD, too. The image is built from this checkout,
+// so publishing it under a tag cut from somewhere else would put a name on bytes
+// that name was never given to — and a published version tag is never repointed
+// to take it back.
+func planRelease(refs []string, tag string) (releasePlan, error) {
 	var versions []string
 
 	for _, ref := range refs {
@@ -504,22 +657,47 @@ func planRelease(refs []string) (releasePlan, error) {
 		}
 	}
 
-	switch len(versions) {
-	case 0:
-		return releasePlan{}, nil
-	case 1:
-	default:
+	if len(versions) > 1 {
 		return releasePlan{}, fmt.Errorf("HEAD carries more than one version tag (%s): which release this is, and "+
 			"which of them the moving tags should follow, is not a question this pipeline can answer",
 			strings.Join(versions, ", "))
 	}
 
-	tags, err := versionTags(versions[0])
+	var version string
+
+	switch {
+	case tag == "":
+		if len(versions) == 1 {
+			version = versions[0]
+		}
+	default:
+		// The release that triggered this run is a release of something else —
+		// the IR module, most often. Publishing nothing is the answer rather than
+		// a fault, which is what lets the workflow fire on every release without
+		// a filter naming tag shapes in YAML.
+		if _, ok := parseVersion(tag); !ok {
+			return releasePlan{}, nil
+		}
+
+		if !slices.Contains(versions, tag) {
+			return releasePlan{}, fmt.Errorf("the release's tag %q does not point at HEAD (refs: %s): the image is "+
+				"built from this checkout, so publishing it under that tag would name bytes the tag was never cut from",
+				tag, strings.Join(refs, ", "))
+		}
+
+		version = tag
+	}
+
+	if version == "" {
+		return releasePlan{}, nil
+	}
+
+	tags, err := versionTags(version)
 	if err != nil {
 		return releasePlan{}, err
 	}
 
-	return releasePlan{version: versions[0], tags: tags}, nil
+	return releasePlan{version: version, tags: tags}, nil
 }
 
 // semver is a parsed canonical version tag.
@@ -566,6 +744,24 @@ func parseVersion(tag string) (semver, bool) {
 // that do: the minor tag, the major tag and the rolling tag. A prerelease
 // publishes its own tag and nothing else, for the reason this file's comment
 // gives.
+//
+// # What a pure function of one version cannot see
+//
+// The moving tags follow *this* release, because that is what
+// docs/container/SPEC.md's table says they do — the minor tag moves on each
+// patch, the major tag and the rolling tag on each release. Releasing out of
+// order therefore walks them backwards: a backport `v0.1.5` cut after `v0.2.0`
+// has shipped publishes `v0.1.5, v0.1, v0, latest`, and `v0` and `latest` land
+// back on the older image. `v0` is the tag CONTRIBUTING.md tells a derived
+// Dockerfile to pin, so that is not a small blast radius.
+//
+// Nothing here can catch it: this is a function of one version, and TagScheme
+// runs it over refs rather than over a registry, so neither sees what is already
+// published. Making the moving tags follow the *highest* released version rather
+// than the most recent one is a change to the published tag table and not an
+// implementation detail, so it belongs in that document before it belongs here.
+// Until then the constraint is on the releaser: cut releases in ascending order,
+// and cut a backport before the release that supersedes it.
 func versionTags(tag string) ([]string, error) {
 	v, ok := parseVersion(tag)
 	if !ok {
@@ -691,7 +887,14 @@ func releaseNotesBlock(plan releasePlan, irVersion int, repository string) strin
 		quoted = append(quoted, "`"+tag+"`")
 	}
 
-	if len(plan.tags) == 1 {
+	// Read off the version rather than inferred from the number of tags. That the
+	// two agree is a property of versionTags today and not a fact about a
+	// release, and this block is the one artifact a reader cannot check against
+	// anything else — so it says "prerelease" when the version is one, and not
+	// when the tag list happens to have a single entry.
+	v, _ := parseVersion(plan.version)
+
+	if v.prerelease != "" {
 		fmt.Fprintf(&b, "This is a **prerelease**. It publishes %s and moves none of the tags a derived Dockerfile\n"+
 			"pins to pick up fixes: a release candidate is not a fix anybody consented to be given.\n\n", quoted[0])
 	} else {
