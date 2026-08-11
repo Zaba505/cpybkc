@@ -8,13 +8,14 @@
 // here would be asserted by a comment instead of pinned by a test. Nothing here
 // imports Dagger, so `go test ./internal/...` runs anywhere.
 //
-// Two strings are composed, and they are the module's whole knowledge of how a
-// generator is named: the filename inside the image, which docs/plugin/SPEC.md
-// fixes, and the repository a published generator image is pulled from, which is
-// this project's publishing rule rather than anybody's contract. Everything else
-// about a generator — the argument vector, the descriptor, the exit codes,
-// determinism — is docs/plugin/SPEC.md's, holds with no container anywhere in the
-// picture, and is not this module's business.
+// Three strings are composed, and they are the module's whole knowledge of how a
+// generator is named and where it goes: the filename inside the image and the
+// path it lands at, both of which the specs fix, and the repository a published
+// generator image is pulled from, which is this project's publishing rule rather
+// than anybody's contract. Everything else about a generator — the argument
+// vector, the descriptor, the exit codes, determinism — is docs/plugin/SPEC.md's,
+// holds with no container anywhere in the picture, and is not this module's
+// business.
 package generator
 
 import (
@@ -22,6 +23,20 @@ import (
 	"fmt"
 	"strings"
 )
+
+// pluginDir is the directory on the image's PATH that cpybkc discovers
+// generators in — docs/container/SPEC.md's plugin directory, and the one path
+// inside the image this module needs to know.
+//
+// It is a promise the base-image contract makes rather than a choice made here:
+// the path is what a `COPY` line writes to and the PATH membership is what makes
+// the copied file reachable by the name a manifest asks for, and either half
+// alone installs nothing. The contract covers it by its compatibility
+// guarantees, so it does not move within a major version.
+//
+// The CLI's own path in the image is neither knowable nor needed. Everything the
+// module runs, it runs through the entrypoint.
+const pluginDir = "/usr/local/bin"
 
 // executablePrefix and repositorySuffix are the two spellings of "the generator
 // called <name>", and they are deliberately not one constant: the first is a
@@ -44,6 +59,21 @@ const (
 // it — so renaming on the way in is not a liberty, it is the mechanism.
 func Executable(name string) string {
 	return executablePrefix + name
+}
+
+// Path is where the generator called name is installed in the image, and where
+// a generator image is read from when one is copied out of it.
+//
+// It is one function rather than a join spelled out at each end of the copy
+// because the two ends have to agree: the file is read from this path in the
+// generator image and written to it in the composed one, and a separator or a
+// directory that disagreed between them would produce an image that builds and
+// pushes and then reports that a generator the manifest plainly names cannot be
+// found. It is the whole of what makes an installed generator discoverable —
+// the directory is on PATH and the filename is what cpybkc searches for — so it
+// is also the string most worth pinning with a test.
+func Path(name string) string {
+	return pluginDir + "/" + Executable(name)
 }
 
 // Repository is where this project publishes the generator image for name,

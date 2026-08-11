@@ -703,7 +703,7 @@ dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 
 ```dockerfile
 FROM ghcr.io/zaba505/cpybkc:v0
-COPY --from=ghcr.io/example/cpybkc-gen-hello:v1 --chmod=0755 \
+COPY --from=ghcr.io/example/cpybkc-gen-hello:v1 --chown=65532:65532 --chmod=0755 \
      /usr/local/bin/cpybkc-gen-hello /usr/local/bin/cpybkc-gen-hello
 ```
 
@@ -731,11 +731,13 @@ the one nobody would notice breaking.
 
 **Permissions and no owner.** The file lands `0755` and its ownership is left
 alone, which is the one place the module deliberately does less than the
-Dockerfile's `--chown=65532:65532`. The mode is what makes the file runnable, by
-the image's own UID and by any UID a caller overrides it with; the owner is a
-property of the image the module was handed, and a caller who passed `--image`
-may be composing onto a base with a user of their own that this module has no
-business overwriting with the contract's.
+`COPY` line above it. The mode is what makes the file runnable, by the image's
+own UID and by any UID a caller overrides it with; the owner is a property of the
+image the module was handed, and a caller who passed `--image` may be composing
+onto a base with a user of their own that this module has no business overwriting
+with the contract's. The Dockerfile is entitled to write `--chown=65532:65532`
+because its `FROM` line names the image it derives from; a module handed a
+container knows no such thing.
 
 **Static linking stays the caller's obligation.** Nothing in the module can check
 it, and a dynamically linked generator fails at exec time with the kernel's

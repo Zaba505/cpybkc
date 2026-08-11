@@ -67,7 +67,7 @@
 // docs/container/SPEC.md's worked example, written by hand:
 //
 //	FROM ghcr.io/zaba505/cpybkc:v0
-//	COPY --from=ghcr.io/example/cpybkc-gen-hello:v1 --chmod=0755 \
+//	COPY --from=ghcr.io/example/cpybkc-gen-hello:v1 --chown=65532:65532 --chmod=0755 \
 //	     /usr/local/bin/cpybkc-gen-hello /usr/local/bin/cpybkc-gen-hello
 //
 // They are the same two instructions and the comparison is the point: the
@@ -78,15 +78,17 @@
 // names three generators is three calls and one image that is never pushed
 // anywhere.
 //
-// Two differences from the Dockerfile are deliberate rather than incidental.
-// There is no --chown: the mode is what makes the file runnable, by the image's
-// own UID and by any UID a caller overrides it with, while the owner the
-// Dockerfile hands it to is a property of the image this module was given rather
-// than one it may assume. And --image may be omitted, in which case the
-// generator image is the one this project publishes beside the CLI —
-// `<repository>-gen-<name>:<version>`, resolved against the same --repository and
-// --version the CLI image came from, so a generator from one release never lands
-// beside a CLI from another.
+// Two differences from that COPY line are deliberate rather than incidental.
+// The module sets no owner where the Dockerfile writes `--chown=65532:65532`:
+// the mode is what makes the file runnable, by the image's own UID and by any
+// UID a caller overrides it with, while the owner is a property of the image
+// this module was given rather than one it may assume. The Dockerfile can name
+// 65532 because it also names the base image it is deriving from; a module
+// handed a container through --image knows no such thing. And --image may be
+// omitted, in which case the generator image is the one this project publishes
+// beside the CLI — `<repository>-gen-<name>:<version>`, resolved against the same
+// --repository and --version the CLI image came from, so a generator from one
+// release never lands beside a CLI from another.
 //
 // WithGeneratorExecutable is the other half, and it takes a File rather than an
 // image: a generator that has not been published yet, most often one the caller
@@ -111,11 +113,19 @@
 //	for _, p := range platforms {
 //		variants = append(variants, dag.
 //			Cpybkc(dagger.CpybkcOpts{Platform: string(p)}).
-//			WithGenerator("hello").
+//			WithGenerator("hello", dagger.CpybkcWithGeneratorOpts{
+//				Image: dag.Container(dagger.ContainerOpts{Platform: p}).
+//					From("ghcr.io/example/cpybkc-gen-hello:v1"),
+//			}).
 //			Image())
 //	}
 //	ref, err := dag.Container().Publish(ctx, address,
 //		dagger.ContainerPublishOpts{PlatformVariants: variants})
+//
+// The generator image is built for p as well, which is the loop's one obligation
+// and the thing WithGenerator refuses rather than lets past. Omitting the image
+// and letting the published generator be pulled needs no such care, because the
+// pull already follows the container's platform.
 //
 // The loop is the caller's rather than this module's because the index is: which
 // platforms a derived image serves is a property of who will run it, and a module
@@ -164,20 +174,6 @@ import (
 	"dagger/cpybkc/internal/imageref"
 )
 
-// pluginDir is the directory on the image's PATH that cpybkc discovers
-// generators in — docs/container/SPEC.md's plugin directory, and the one path
-// inside the image this module needs to know.
-//
-// It is a promise the base-image contract makes rather than a choice made here:
-// the path is what a `COPY` line writes to and the PATH membership is what makes
-// the copied file reachable by the name a manifest asks for, and either half
-// alone installs nothing. The contract covers it by its compatibility
-// guarantees, so it does not move within a major version.
-//
-// The CLI's own path in the image is not knowable and is not needed. Everything
-// this module runs, it runs through the entrypoint.
-const pluginDir = "/usr/local/bin"
-
 // executableMode is the mode an installed generator lands with, and it is the
 // derived Dockerfile's `--chmod=0755`.
 //
@@ -188,6 +184,11 @@ const pluginDir = "/usr/local/bin"
 // executable by the image's user; this is that requirement met, and it is met
 // with permissions rather than with an owner for the reason
 // WithGeneratorExecutable gives.
+//
+// It stays here rather than moving into internal/generator with the path,
+// because a mode is not a name: that package answers what a generator is called
+// and where it goes, which is what the two specs fix, and how permissively it is
+// installed is this module's decision about a container.
 const executableMode = 0o755
 
 // projectDir is where a caller's project is mounted, and the working directory
@@ -243,9 +244,16 @@ type Cpybkc struct {
 	// container. Nothing here can read a version off an arbitrary container, and
 	// guessing one would produce exactly the untested pairing WithGenerator's
 	// default exists to avoid — a generator from one release beside a CLI from
-	// another. So a caller who passed --image and then lets WithGenerator pull a
-	// published generator gets the release they named in --version, which is a
-	// pairing they stated rather than one that was guessed for them.
+	// another.
+	//
+	// Be exact about what that leaves, because it is less than it sounds. A caller
+	// who passed --image and then lets WithGenerator pull a published generator
+	// gets whatever --version holds, and --version has a default: pin the CLI by
+	// digest and say nothing else, and the generator that arrives beside it is the
+	// moving "v0" tag. That combination is not refused, because refusing it would
+	// mean distinguishing an omitted --version from an explicit "v0", which a
+	// Dagger default cannot express. It is said instead — here, and in --image's
+	// own documentation, where the caller who pins a digest will meet it.
 	// +private
 	Repository string
 	// +private
@@ -307,6 +315,11 @@ func New(
 	// just built rather than against the last release (#64), how a caller tries a
 	// change to cpybkc before it ships, and how a build pins the image by digest —
 	// a reference no tag argument can express, and the only one that pins bytes.
+	//
+	// It pins this image and nothing else. A generator pulled afterwards by
+	// with-generator follows --version, which defaults to the moving "v0" tag and
+	// does not track whatever was pinned here, so a build that pins the CLI by
+	// digest and wants the pairing to hold still passes --version beside it.
 	// +optional
 	image *dagger.Container,
 	// Pull the image for this platform, as `GOOS/GOARCH`, instead of for the
@@ -443,13 +456,14 @@ func (m *Cpybkc) WithGenerator(
 				"the image given for the %s generator is %s and the cpybkc image being composed into is %s: an "+
 					"executable for another platform fails at exec time with the kernel's message rather than "+
 					"cpybkc's, so it is refused here — compose from an image built for %s, or, if the two really "+
-					"are compatible, take the file out yourself and pass it to with-generator-executable, which "+
-					"states the match as your obligation",
-				name, supplied, platform, platform)
+					"are compatible, take the file out of it yourself and pass it to with-generator-executable, "+
+					"which states the match as your obligation (from a Dagger module that is one expression; from "+
+					"the command line it is `file --path %s export` and a second call naming the exported path)",
+				name, supplied, platform, platform, generator.Path(name))
 		}
 	}
 
-	return m.WithGeneratorExecutable(name, image.File(pluginDir+"/"+generator.Executable(name)))
+	return m.WithGeneratorExecutable(name, image.File(generator.Path(name)))
 }
 
 // WithGeneratorExecutable adds one generator to the image from an executable
@@ -484,15 +498,17 @@ func (m *Cpybkc) WithGeneratorExecutable(
 		return nil, err
 	}
 
-	// Permissions and no owner. The mode is what makes the file runnable — by the
-	// image's own UID and by any UID a caller overrides it with — while the owner
-	// the derived Dockerfile's `--chown` hands it to is a property of the image
-	// this module was given rather than one it is entitled to assume: a caller who
-	// passed --image may be composing onto a base with a user of their own, and
-	// this module would be overwriting their answer with the contract's.
+	// Permissions and no owner, where the derived Dockerfile writes
+	// `--chown=65532:65532` beside its `--chmod=0755`. The mode is what makes the
+	// file runnable — by the image's own UID and by any UID a caller overrides it
+	// with — while the owner is a property of the image this module was given
+	// rather than one it is entitled to assume: a caller who passed --image may be
+	// composing onto a base with a user of their own, and this module would be
+	// overwriting their answer with the contract's. The Dockerfile is entitled to
+	// the number because its FROM line names the image it is deriving from.
 	next := *m
 	next.Container = m.Container.WithFile(
-		pluginDir+"/"+generator.Executable(name),
+		generator.Path(name),
 		executable,
 		dagger.ContainerWithFileOpts{Permissions: executableMode},
 	)

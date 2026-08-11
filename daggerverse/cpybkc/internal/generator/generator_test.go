@@ -41,6 +41,28 @@ func TestExecutable(t *testing.T) {
 	}
 }
 
+func TestPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		// Spelled out whole, directory and all. This is the string both
+		// acceptance criteria turn on — that a generator is installed into the
+		// documented plugin directory, and that the CLI's PATH-based resolution
+		// then finds it — and it is the one string in this module that nothing
+		// downstream would notice being wrong until a run reported a generator
+		// missing.
+		{name: "go", want: "/usr/local/bin/cpybkc-gen-go"},
+		{name: "hello", want: "/usr/local/bin/cpybkc-gen-hello"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Path(tc.name); got != tc.want {
+				t.Errorf("Path(%q) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRepository(t *testing.T) {
 	for _, tc := range []struct {
 		testName   string
