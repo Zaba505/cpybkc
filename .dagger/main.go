@@ -81,6 +81,14 @@
 // invocation of protoc, which is what makes the release asset and the in-image
 // copy two ways of getting one artifact.
 //
+// # Why a document is one of the stages
+//
+// WorkedExample builds the Dockerfile docs/container/SPEC.md hands an adopter
+// (#54), and its own file says why at length. The short reason it belongs in Ci
+// rather than in a release step is the one above turned around: that example is
+// the first thing somebody outside this repository runs and the last thing
+// anybody inside it would notice was broken, because no other stage reads it.
+//
 // Ci is what CI calls and what a contributor should run before pushing. The
 // stage functions are for narrowing down what Ci reported.
 package main
@@ -148,12 +156,13 @@ func New(
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
 // the Z5Labs standard defines them, over each of this repository's two Go
-// modules, plus `buf lint` over the IR schema and a build of the three artifacts
-// a release publishes. This is the single entrypoint — CI is one
-// `dagger call ci` and stays one, because a workflow step that reran any of
-// these stages would be a second definition of them.
+// modules, plus `buf lint` over the IR schema, a build of the three artifacts a
+// release publishes, and the worked example docs/container/SPEC.md hands an
+// adopter. This is the single entrypoint — CI is one `dagger call ci` and stays
+// one, because a workflow step that reran any of these stages would be a second
+// definition of them.
 //
-// The five parts run concurrently and all are reported, for the reason the
+// The six parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -161,10 +170,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr, artifactErr, layoutErr error
+	var goErr, irErr, protoErr, artifactErr, layoutErr, exampleErr error
 
 	var wg sync.WaitGroup
-	wg.Add(5)
+	wg.Add(6)
 
 	go func() {
 		defer wg.Done()
@@ -193,9 +202,14 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		layoutErr = m.LayoutArtifact(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		exampleErr = m.WorkedExample(ctx)
+	}()
+
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, artifactErr, layoutErr)
+	return errors.Join(goErr, irErr, protoErr, artifactErr, layoutErr, exampleErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
