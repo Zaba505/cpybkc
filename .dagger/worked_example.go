@@ -397,9 +397,18 @@ func (e *workedExample) rules() error {
 		errs = append(errs, fmt.Errorf("the final stage's COPY is --chown=%q; it has to be --chown=%s, "+
 			"the UID and GID the image runs as", chown, imageUser))
 	}
-	if mode, err := copied.mode(); err != nil || mode != executableMode {
-		errs = append(errs, fmt.Errorf("the final stage's COPY is --chmod=%q; it has to be --chmod=%04o, "+
-			"because cpybkc discovers only a file carrying an execute bit", copied.flags["chmod"], executableMode))
+	// The mode rather than its spelling: --chmod=755 and --chmod=0755 are the
+	// same instruction to a builder, and a rule that insisted on one of them
+	// would be this check having an opinion the document does not. What a
+	// malformed value earns is mode's own error, which names the value and says
+	// what was wrong with it, rather than being folded into the rule below.
+	switch mode, err := copied.mode(); {
+	case err != nil:
+		errs = append(errs, err)
+	case mode != executableMode:
+		errs = append(errs, fmt.Errorf("the final stage's COPY is --chmod=%q, which is mode %04o; it has to be "+
+			"%04o, because cpybkc discovers only a file carrying an execute bit",
+			copied.flags["chmod"], mode, executableMode))
 	}
 
 	if len(copied.operands) != 2 {

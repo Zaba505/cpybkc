@@ -22,9 +22,9 @@
 // promises docs/container/SPEC.md makes are that shape rather than settings
 // GoApp is missing.
 //
-// So the factory stays GoLib, the four check stages still gate a pull request
-// and still cover cmd/ because they run over ./... , and the image is built by
-// this module in image.go — the shape avroc arrived at for the same reason
+// So the factory stays GoLib, and the four check stages still gate a pull
+// request and still cover cmd/ because they run over ./... . The image is built
+// by this module in image.go — the shape avroc arrived at for the same reason
 // (avroc#166). What is left for GoApp is the publish half, which is #59's, and
 // which it will be able to take or leave on its own merits rather than because
 // the image came attached to it.

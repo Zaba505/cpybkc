@@ -525,6 +525,18 @@ func buildSettings(out string) map[string]string {
 // The parent directories are root-owned and that is intentional — only the
 // plugin directory is promised to the image's user, and a root-owned parent at
 // 0755 is what stops the running user replacing the tree above it.
+//
+// Listing /tmp here does not make it a covered guarantee, and the two are not
+// the same kind of statement. Covered is about what a *consumer* may depend on,
+// and docs/container/SPEC.md keeps the temporary directory out of that
+// deliberately: its path and its mode may change in a patch release. This map
+// is what *this repository* expects its own build to produce, and it has to be
+// exhaustive or the promise it exists to check — scratch plus the files that
+// document names, so no shell, no libc and no package manager — degrades into a
+// spot check that a busybox under another name would pass. A patch release that
+// moved the temporary directory would edit this line in the same commit, which
+// is the difference between changing an implementation detail and changing it
+// without noticing.
 func baseImageContents() map[string]imageEntry {
 	contents := map[string]imageEntry{
 		"/usr":       {0, 0, dirMode},
