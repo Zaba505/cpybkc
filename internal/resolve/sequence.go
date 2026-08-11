@@ -600,6 +600,18 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 					continue
 				}
 
+				// A predicate reaching past the shortest record the
+				// state can put in front of a consumer is refused in
+				// its own words too, and for the same reason: the
+				// generic message says a consumer could not tell the
+				// two records apart, and that one says which bytes it
+				// would have read to try and out of which record
+				// (docs/ir/SPEC.md, "A predicate never reads past the
+				// record in front of it", #94).
+				if c.reportReach(state, first, second) {
+					continue
+				}
+
 				c.faults.Fail(&SequenceAmbiguityError{
 					Pos:       layoutSpan(c.positions[second.To.ID-1].pos),
 					First:     layoutSpan(c.positions[first.To.ID-1].pos),

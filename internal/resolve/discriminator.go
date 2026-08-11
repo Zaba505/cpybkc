@@ -288,12 +288,190 @@ func (c *compiler) guardValues(e layoutmodel.Expression, register *Register) []V
 // discriminator that need the graph: the two strategies docs/ir/SPEC.md refuses
 // by name, the one it lowers into the start state, and the two shapes a
 // transition carrying no predicate is refused in.
+//
+// How far into the file a predicate reads is the graph's too and is not here:
+// it lands on a pair of transitions rather than on a record, so it is reported
+// where the other rule over a pair is ([compiler.reportReach]).
 func (c *compiler) checkDiscrimination(a *Automaton) {
 	for _, record := range c.opts.Records {
 		c.refuseStrategy(a, record)
 		c.checkFirst(a, record)
 		c.checkExtent(a, record)
 	}
+}
+
+// reportReach reports an overlapping pair whose predicate reaches past the
+// shortest record the other transition can put in front of a consumer, and says
+// whether it did.
+//
+// docs/ir/SPEC.md's "A predicate never reads past the record in front of it" is
+// the rule and the read loop's order is the reason. A predicate is evaluated at
+// step 3, against bytes nobody has identified yet: the record its own transition
+// would admit has an extent and the target sits inside it, but the record
+// actually in front of the consumer may be a shorter one another transition at
+// the same state admits, and a target past that record's last byte is a target
+// in the framing's bytes or the next record's data (#94).
+//
+// # Which framings it is keyed on, and why it is not keyed on all four
+//
+// Two mechanisms make the guarantee true and the framing picks one. Under
+// **descriptor-word** and **segmented** the length of the record in front of the
+// consumer is in hand at step 2, so step 3 spends it: a target not wholly within
+// the record the framing bounds does not match, and the bound is on the *read*.
+// Under **unframed** and **delimited** nothing in the file states a length
+// before the transition is taken, so the bound is on the *layout*, and this is
+// where it is placed. That is the whole of the answer to whether the rule
+// relaxes where the framing states each record's length: it does, because there
+// is a second mechanism there and it is a consumer's.
+//
+// A caller stating no framing states neither mechanism and the rule is not run.
+// It cannot be inferred from an `lrecl`, since the same number is a maximum
+// under two framings and a requirement under one.
+//
+// # Why it is reported here rather than as a pass of its own
+//
+// A pair this fires on is a pair the overlap rule fires on too, and the argument
+// is worth writing down because it is what makes the placement safe.
+//
+// Two predicates over one run of bytes are told apart by their literals and two
+// over different runs are not told apart at all (docs/ir/SPEC.md, "When two
+// match, and when none does"). So a pair that does *not* overlap reads one run,
+// at one offset and one width, in both records — and each predicate's target is
+// an item of its own record, sitting ahead of every item whose extent moves with
+// a count ([compiler.discriminator]'s constant-position check). That puts the
+// run inside the shortest reading of both records, and the rule cannot be broken
+// by a pair the overlap rule admits.
+//
+// What is left is which diagnostic an overlapping pair gets, and this one is
+// more specific: the generic one says a consumer could not tell the two records
+// apart, and this one says which bytes it would have read to try, and out of
+// which record. It replaces the generic one for [compiler.reportUnnameable]'s
+// reason rather than joining it, so that one pair is one thing to fix.
+func (c *compiler) reportReach(state *State, first, second *Transition) bool {
+	if !c.boundedByLayout() {
+		return false
+	}
+
+	// Both directions are asked and at most one can hold: a target is inside
+	// its own record, so a pair whose targets each reach past the other's
+	// record would need each record to be shorter than itself.
+	for _, pair := range [][2]*Transition{{first, second}, {second, first}} {
+		fault := c.reachFault(state, pair[0], pair[1])
+		if fault == nil {
+			continue
+		}
+
+		c.faults.Fail(fault)
+
+		return true
+	}
+
+	return false
+}
+
+// reachFault is the fault where on's predicate reaches past the shortest record
+// against admits, and nil where it does not.
+func (c *compiler) reachFault(state *State, on, against *Transition) *PredicateReachError {
+	// A record does not have to be told apart from itself, and its own
+	// predicate satisfies the rule already: the target is contained in the
+	// record the transition admits and sits ahead of every item whose width
+	// moves, so it is inside the shortest that record can be. What the rule
+	// adds is the records the state can put in front of it instead.
+	if on.Record == against.Record {
+		return nil
+	}
+
+	record, known := c.record(on.Record)
+	if !known {
+		return nil
+	}
+
+	over, ok := c.stretchOf(on.Record, on.Predicate)
+	if !ok {
+		return nil
+	}
+
+	extent, ok := c.shortestExtent(against.Record)
+	if !ok {
+		return nil
+	}
+
+	// A target beginning inside the bound and ending past it is the same
+	// fault as one beginning past it: what a consumer reads is the target's
+	// whole width, and half of it is as much outside the record as all of it
+	// (docs/ir/SPEC.md, "a target past it, and a target beginning inside it
+	// and ending beyond").
+	ends := over.at + over.width
+	if ends <= extent {
+		return nil
+	}
+
+	return &PredicateReachError{
+		Pos:      layoutSpan(record.Discriminator.Item.Pos),
+		Copybook: copybookSpan(record, on.Predicate.Target),
+		State:    state.ID,
+		Record:   on.Record,
+		Item:     itemName(on.Predicate.Target),
+		Beside:   against.Record,
+		Ends:     ends,
+		Extent:   extent,
+	}
+}
+
+// boundedByLayout reports whether the framing leaves a predicate's reach for the
+// layout to bound, which is [compiler.reportReach]'s own comment.
+func (c *compiler) boundedByLayout() bool {
+	if c.opts.Framing == nil {
+		return false
+	}
+
+	kind := c.opts.Framing.Kind()
+
+	return kind == layoutmodel.Unframed || kind == layoutmodel.Delimited
+}
+
+// shortestExtent is the fewest bytes a record of that type can put in front of a
+// consumer.
+//
+// It is the record's extent with every repetition whose count is a reference
+// taken at the minimum occurrences the copybook declared — bounds a repetition
+// already carries, read here for a second purpose (docs/ir/SPEC.md, "A variable
+// record is a sum with a variable term"). Under the non-sliding reading the same
+// clause is a fixed table at the declared maximum and there is no shorter
+// reading of the record to take, which is [resolver.referenceCount]'s division
+// and not a second one.
+//
+// Under a fixed-length dataset stating an `lrecl` the answer is that number and
+// not the copybook's sum: a record type whose items stop short carries the
+// difference as slack and the bytes are in the file whatever the copybook says
+// ([resolver.frame], #34). Reading the copybook's sum instead would refuse a
+// layout whose records the dataset has already made one length — which is
+// docs/ir/SPEC.md's reason for saying **unframed** carries the rule and rarely
+// pays for it. A record type longer than `lrecl` is [LRECLExtentError]'s and is
+// not narrowed here, since padding never takes bytes away.
+func (c *compiler) shortestExtent(record string) (int, bool) {
+	known, ok := c.record(record)
+	if !ok {
+		return 0, false
+	}
+
+	built := c.layoutOf(known)
+	if built == nil {
+		return 0, false
+	}
+
+	extent := built.MaxLength
+	if built.Variable && c.opts.Reading.Slides() {
+		extent = built.MinLength
+	}
+
+	if framing := c.opts.Framing; framing != nil && framing.LRECLBound() == layoutmodel.LRECLExact {
+		if lrecl := int(framing.LRECL.Value); lrecl > extent {
+			extent = lrecl
+		}
+	}
+
+	return extent, true
 }
 
 // refuseStrategy reports the strategies that name neither a field nor nothing.

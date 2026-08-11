@@ -218,4 +218,43 @@
 //
 // Under the other three framings each record states its own length, so an
 // `lrecl` is a maximum that is checked and never padded to.
+//
+// # A predicate is bounded by the layout under two framings and by the read
+// under the other two
+//
+// A predicate is evaluated before the record in front of the consumer has been
+// identified, so a target past that record's last byte is a target in the
+// framing's bytes or the next record's data. docs/ir/SPEC.md's "A predicate
+// never reads past the record in front of it" makes that impossible two ways,
+// and which one applies is the framing's (#94).
+//
+// Under **descriptor-word** and **segmented** the length of the record in front
+// of the consumer is in hand before any predicate runs, so a target not wholly
+// within it does not match and the bound is on the read. `resolve` refuses
+// nothing there, and that is a decision rather than an omission: the strict form
+// applied to all four framings would refuse the layouts those two framings exist
+// to make expressible, a record told apart by a field the longer type has and
+// the shorter one does not.
+//
+// Under **unframed** and **delimited** nothing in the file states a length
+// before the transition is taken, so the bound is on the layout and
+// [CompileSequence] enforces it: every transition's target lies inside the
+// shortest record any transition leaving the same state can admit while this one
+// is eligible, measured over the transitions whose guards can hold at once and
+// with every table at its minimum occurrences. A layout breaking it is a
+// [PredicateReachError] naming the record the target is in, the target and the
+// shorter record it would be read past the end of.
+//
+// It is a diagnostic rather than a second gate, and knowing which it is matters
+// to anyone changing either rule. A layout that breaks it is one the overlap
+// rule refuses anyway — two predicates over different runs of bytes are told
+// apart by nothing — so what the reach rule adds is the message: which bytes a
+// consumer would have read and out of which record, in place of a report that
+// two discriminators could both match. [compiler.reportReach] carries the
+// argument that the two coincide, which is why the specific message replaces the
+// generic one rather than being reported beside it.
+//
+// [Sequencing.Framing] is what that is keyed on, and a caller stating no framing
+// states neither mechanism, so the rule is not run. It cannot be inferred from
+// an `lrecl`, which is a maximum under two framings and a requirement under one.
 package resolve
