@@ -5,14 +5,12 @@
 
 // Package manifest reads the cpybkc.json a project is driven by.
 //
-// A manifest names the layout a project resolves against, the copybooks a run
-// reads, and the generators to run over them. It is checked in beside them, so
-// that generator selection and options are diffable, reviewable and the same on
-// a laptop and in CI — which is the whole reason the file exists rather than the
-// flags it would otherwise be:
+// A manifest names the layout a project resolves against and the generators to
+// run over it. It is checked in beside them, so that generator selection and
+// options are diffable, reviewable and the same on a laptop and in CI — which is
+// the whole reason the file exists rather than the flags it would otherwise be:
 //
 //	{
-//	  "inputs": ["cpy/orders.cpy"],
 //	  "layout": "orders.sexpr",
 //	  "generators": [
 //	    {
@@ -35,26 +33,43 @@
 //
 // # What a manifest carries
 //
-// Three fields at the top level. `layout` names the layout file, is required,
-// and there is one of it: docs/layout/SPEC.md is what the records of a run are
+// Two fields at the top level. `layout` names the layout file, is required, and
+// there is one of it: docs/layout/SPEC.md is what the records of a run are
 // framed by, and a project resolving against two of them is two runs.
 // `generators` is the list of generators to run and carries at least one entry,
-// because a manifest declaring none asks for nothing to happen. `inputs` is the
-// copybooks the run reads and is optional.
+// because a manifest declaring none asks for nothing to happen.
 //
-// A generator entry carries `name` and `out`, both required, and `inputs` and
-// `options`, both optional. `name` is the whole of how a generator is
-// identified — it resolves to the `cpybkc-gen-<name>` executable on PATH (#41)
-// — so there is no source and no version beside it, and nothing in this package
-// looks for the executable. `out` is where that generator's output lands, and
-// what happens between a generator's scratch directory and that directory is
-// #43's, #44's and #45's.
+// A generator entry carries `name` and `out`, both required, and `options`,
+// optional. `name` is the whole of how a generator is identified — it resolves
+// to the `cpybkc-gen-<name>` executable on PATH (#41) — so there is no source
+// and no version beside it, and nothing in this package looks for the
+// executable. `out` is where that generator's output lands, and what happens
+// between a generator's scratch directory and that directory is #43's, #44's
+// and #45's.
 //
 // A path is kept exactly as it was written. Resolving one — against the
-// manifest's own directory, against a copybook search path, into the absolute
-// path a plugin is handed (docs/plugin/SPEC.md, "Invocation") — belongs to the
-// stage that opens the file, and a reader that resolved paths would put a
-// second answer beside it.
+// manifest's own directory, into the absolute path a plugin is handed
+// (docs/plugin/SPEC.md, "Invocation") — belongs to the stage that opens the
+// file, and a reader that resolved paths would put a second answer beside it.
+//
+// # Why a manifest names no copybook
+//
+// It used to carry an `inputs` list, at the top level and again on each
+// generator entry, and #157 removed both. The reason is that neither could
+// affect anything: a run's descriptor is assembled from the layout and the
+// copybooks that layout's `record` forms name (docs/cli/SPEC.md, "Which
+// descriptor is emitted"), and a generator is invoked with a descriptor, an
+// output directory and its options and never with a copybook path at all
+// (docs/plugin/SPEC.md, "Invocation"). A per-generator list therefore promised
+// something the pipeline cannot do — two generators of one run reading two
+// different sets of copybooks, and so being handed two different descriptors —
+// and a top-level list restated what the layout already said, in a second file,
+// against a second base directory.
+//
+// A manifest still carrying one is not special-cased: `inputs` is an unknown
+// field, and [Read] reports it with the line and column it is at, which is the
+// migration an adopter can act on rather than a field that quietly stopped
+// meaning anything.
 //
 // # Why the options are a list and not a map
 //
@@ -84,10 +99,10 @@
 // message a **program** wrote, where an unknown field is a newer producer. Same
 // CLI, opposite rules, and the author is the reason.
 //
-// The same argument covers a field written twice, an input named twice in one
-// list, and an empty string where a path or a name belongs: each is something
-// the author did not mean, and none of them has a reading this package could
-// choose on their behalf.
+// The same argument covers a field written twice, an option key written twice,
+// and an empty string where a path or a name belongs: each is something the
+// author did not mean, and none of them has a reading this package could choose
+// on their behalf.
 //
 // # Why faults accumulate, and where they stop
 //

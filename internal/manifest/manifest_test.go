@@ -30,16 +30,14 @@ func read(t *testing.T, source string) *Manifest {
 	return m
 }
 
-// worked is a manifest with one of everything in it: shared inputs, a layout,
-// two generators, one of them with inputs and options of its own.
+// worked is a manifest with one of everything in it: a layout, and two
+// generators, one of them with options of its own.
 const worked = `{
-  "inputs": ["cpy/orders.cpy", "cpy/common.cpy"],
   "layout": "orders.sexpr",
   "generators": [
     {
       "name": "go",
       "out": "gen",
-      "inputs": ["cpy/orders-go.cpy"],
       "options": {"package_name": "orders", "receiver": ""}
     },
     {
@@ -60,11 +58,6 @@ func TestReadTakesAManifestApart(t *testing.T) {
 		t.Errorf("the layout is %q, want %q", m.Layout, "orders.sexpr")
 	}
 
-	wantInputs := []string{"cpy/orders.cpy", "cpy/common.cpy"}
-	if !slices.Equal(m.Inputs, wantInputs) {
-		t.Errorf("the inputs are %q, want %q", m.Inputs, wantInputs)
-	}
-
 	if len(m.Generators) != 2 {
 		t.Fatalf("the manifest declares %d generators, want 2", len(m.Generators))
 	}
@@ -75,10 +68,6 @@ func TestReadTakesAManifestApart(t *testing.T) {
 		t.Errorf("the first generator is %q into %q, want %q into %q", first.Name, first.Out, "go", "gen")
 	}
 
-	if !slices.Equal(first.Inputs, []string{"cpy/orders-go.cpy"}) {
-		t.Errorf("the first generator reads %q, want %q", first.Inputs, []string{"cpy/orders-go.cpy"})
-	}
-
 	// An option value may be empty; docs/plugin/SPEC.md says so, and a manifest
 	// is where one is written.
 	wantOptions := []Option{{Key: "package_name", Value: "orders"}, {Key: "receiver", Value: ""}}
@@ -86,25 +75,64 @@ func TestReadTakesAManifestApart(t *testing.T) {
 		t.Errorf("the first generator's options are %v, want %v", first.Options, wantOptions)
 	}
 
-	// The merge, end to end: what the entry declared, behind what the manifest
-	// shares, in the order both were written.
-	wantMerged := []string{"cpy/orders.cpy", "cpy/common.cpy", "cpy/orders-go.cpy"}
-	if got := m.InputsFor(first); !slices.Equal(got, wantMerged) {
-		t.Errorf("the first generator reads %q in all, want %q", got, wantMerged)
-	}
-
-	if got := m.InputsFor(second); !slices.Equal(got, wantInputs) {
-		t.Errorf("the second generator reads %q in all, want %q", got, wantInputs)
-	}
-
 	if second.Name != "json-schema" || second.Out != "schema" {
 		t.Errorf("the second generator is %q into %q, want %q into %q",
 			second.Name, second.Out, "json-schema", "schema")
 	}
 
-	if second.Inputs != nil || second.Options != nil {
-		t.Errorf("the second generator declares inputs %q and options %v, want neither",
-			second.Inputs, second.Options)
+	if second.Options != nil {
+		t.Errorf("the second generator declares options %v, want none", second.Options)
+	}
+}
+
+// TestAManifestNamesNoCopybook is #157's half of the manifest: a run's
+// copybooks are the layout's to name, so `inputs` is not a field a manifest has
+// — at either level — and one written anyway is reported as the unknown field
+// it is rather than read and ignored.
+//
+// The pair is deliberate. Both spellings used to be admitted, so an adopter
+// migrating a manifest meets whichever one they wrote, at the line they wrote
+// it, instead of a run that quietly stopped reading a file it never read.
+func TestAManifestNamesNoCopybook(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"at the top level": `{
+  "inputs": ["cpy/orders.cpy"],
+  "layout": "orders.sexpr",
+  "generators": [{"name": "go", "out": "gen"}]
+}`,
+		"on a generator entry": `{
+  "layout": "orders.sexpr",
+  "generators": [{"name": "go", "out": "gen", "inputs": ["cpy/orders-go.cpy"]}]
+}`,
+	}
+
+	for name, source := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			m, err := Read(Name, strings.NewReader(source))
+			if err == nil {
+				t.Fatalf("a manifest naming copybooks was accepted: %+v", m)
+			}
+
+			var unknown *UnknownFieldError
+			if !errors.As(err, &unknown) {
+				t.Fatalf("naming copybooks gave %v, want an *UnknownFieldError", err)
+			}
+
+			if unknown.Field != "inputs" {
+				t.Errorf("the fault names the field %q, want %q", unknown.Field, "inputs")
+			}
+
+			// The fields it offers instead are the ones that are left, which is
+			// what tells the adopter the field was removed rather than
+			// misspelled.
+			if got := diag.Render(err); strings.Contains(got, "carries inputs") {
+				t.Errorf("the fault reads:\n%s\nwant inputs left out of the fields it offers", got)
+			}
+		})
 	}
 }
 
@@ -115,8 +143,8 @@ func TestAGeneratorKnowsWhereItWasWritten(t *testing.T) {
 	m := read(t, worked)
 
 	want := []diag.Span{
-		{File: Name, Line: 5, Column: 5},
-		{File: Name, Line: 11, Column: 5},
+		{File: Name, Line: 4, Column: 5},
+		{File: Name, Line: 9, Column: 5},
 	}
 
 	for i, generator := range m.Generators {
@@ -154,52 +182,6 @@ func TestOptionsKeepTheOrderTheManifestDeclaresThem(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Errorf("the options are declared %q, want %q", got, want)
-	}
-}
-
-func TestInputsForMergesTheManifestsInputsWithAGenerators(t *testing.T) {
-	tests := []struct {
-		name      string
-		manifest  []string
-		generator []string
-		want      []string
-	}{
-		{
-			name: "neither states one",
-		},
-		{
-			name:     "the manifest alone",
-			manifest: []string{"cpy/orders.cpy"},
-			want:     []string{"cpy/orders.cpy"},
-		},
-		{
-			name:      "the generator alone",
-			generator: []string{"cpy/orders.cpy"},
-			want:      []string{"cpy/orders.cpy"},
-		},
-		{
-			name:      "the manifest's first, then the generator's",
-			manifest:  []string{"cpy/orders.cpy", "cpy/common.cpy"},
-			generator: []string{"cpy/orders-go.cpy"},
-			want:      []string{"cpy/orders.cpy", "cpy/common.cpy", "cpy/orders-go.cpy"},
-		},
-		{
-			name:      "a copybook both name is read once",
-			manifest:  []string{"cpy/orders.cpy", "cpy/common.cpy"},
-			generator: []string{"cpy/common.cpy", "cpy/orders-go.cpy"},
-			want:      []string{"cpy/orders.cpy", "cpy/common.cpy", "cpy/orders-go.cpy"},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			m := &Manifest{Inputs: test.manifest}
-
-			got := m.InputsFor(Generator{Inputs: test.generator})
-			if !slices.Equal(got, test.want) {
-				t.Errorf("the generator reads %q, want %q", got, test.want)
-			}
-		})
 	}
 }
 

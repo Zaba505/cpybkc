@@ -79,9 +79,9 @@ func (e *SyntaxError) Diagnostic() diag.Diagnostic {
 // TypeError is a value written as the wrong kind of JSON.
 //
 // It says what the field is before saying what was found, because a manifest is
-// written by hand and the useful half is what belongs there — `"inputs": "a.cpy"`
-// is one path where a list of them belongs, and the fix is a pair of brackets
-// rather than a different path.
+// written by hand and the useful half is what belongs there —
+// `"generators": {"name": "go"}` is one entry where a list of them belongs, and
+// the fix is a pair of brackets rather than a different entry.
 type TypeError struct {
 	// Span is the value.
 	Span diag.Span
@@ -229,42 +229,6 @@ func (e *EmptyValueError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf("%s is empty; %s", e.Field, e.Fault),
 		Spans:   []diag.Span{e.Span},
-	}
-}
-
-// RepeatedInputError is one copybook named twice in one list.
-//
-// Reading a copybook twice is not reading two copybooks, so the second mention
-// does nothing — and a line in a checked-in manifest that does nothing is the
-// same fault as an unknown field, met from the other side. A path that appears
-// in both the manifest's inputs and a generator's is a different thing and is
-// not this: there the shared list and the specific one each state it once, and
-// [Manifest.InputsFor] keeps it once.
-type RepeatedInputError struct {
-	// Span is the second mention.
-	Span diag.Span
-
-	// First is the one before it.
-	First diag.Span
-
-	// Path is what was named twice.
-	Path string
-
-	// Field is the list carrying both.
-	Field string
-}
-
-// Error implements the error interface.
-func (e *RepeatedInputError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic is what the error says, and where.
-func (e *RepeatedInputError) Diagnostic() diag.Diagnostic {
-	first := e.First
-	first.Note = "the first one is here"
-
-	return diag.Diagnostic{
-		Message: fmt.Sprintf("%s names %s twice", e.Field, quote(e.Path)),
-		Spans:   []diag.Span{e.Span, first},
 	}
 }
 

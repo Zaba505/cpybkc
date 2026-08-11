@@ -228,6 +228,16 @@ equality is what makes a failing invocation reproducible: an author emits the
 descriptor, saves it, and re-runs the generator against it by hand, and the
 second run is the same invocation rather than an approximation of it.
 
+A run has **one** descriptor, and every generator of that run is handed the same
+bytes (#157). A plugin **MUST NOT** read anything into having been given a
+descriptor of its own: the *file* is private to the invocation ([The
+descriptor's location and lifetime](#the-descriptors-location-and-lifetime)) and
+its *contents* are not. Nothing in a descriptor is selected for the generator
+receiving it, no option a generator declared has changed what is in it, and a
+plugin that behaved differently for having been run alongside another would be
+depending on something no descriptor states. What a generator does with the one
+descriptor is the whole of what makes its output its own.
+
 A plugin **MUST** read the descriptor and **MUST NOT** write to it, rename it,
 or delete it. It **MUST NOT** derive anything from the file's name or its
 directory — the path is a temporary location cpybkc chose, not a place a plugin
@@ -669,7 +679,7 @@ build-configuration format in front of the one reader with no use for it.
 | [Host platform](#host-platform) | #39 `plugin` — decided here; nothing in the backlog had committed either way, and the container contract is Linux-only |
 | [Discovery](#discovery) | #41 `plugin` |
 | [Invocation](#invocation) | #42 `plugin`; the option order, and the manifest it comes from, #40 `plugin` |
-| [The descriptor](#the-descriptor) | #17 `ir` for the message, #20 `ir` for the bytes `--emit-ir` writes, #42 `plugin` for the file handed over |
+| [The descriptor](#the-descriptor) | #17 `ir` for the message, #20 `ir` for the bytes `--emit-ir` writes, #42 `plugin` for the file handed over, #157 `cli` for there being one descriptor per run and the test that asserts every generator gets its bytes |
 | [The output directory](#the-output-directory) | #43, #44, #45 `plugin` |
 | [Exit codes and diagnostics](#exit-codes-and-diagnostics) | #42 `plugin` |
 | [Determinism](#determinism) | #47 `plugin` |

@@ -34,7 +34,6 @@ func TestEveryFaultReadsTheSameThroughEitherEnd(t *testing.T) {
 		&RepeatedFieldError{Span: somewhere, First: somewhere, Field: "layout", In: manifestObject},
 		&MissingFieldError{Span: somewhere, Field: "layout", In: manifestObject, Fault: layoutFault},
 		&EmptyValueError{Span: somewhere, Field: "layout", Fault: layoutFault},
-		&RepeatedInputError{Span: somewhere, First: somewhere, Path: "cpy/orders.cpy", Field: "inputs"},
 		&GeneratorNameError{Span: somewhere, Name: "z5labs/go"},
 		&OptionKeyError{Span: somewhere, Key: "a=b"},
 	}
@@ -80,9 +79,9 @@ func TestListReadsAsASentence(t *testing.T) {
 	}{
 		{names: nil, want: ""},
 		{names: []string{"layout"}, want: "layout"},
-		{names: []string{"layout", "generators"}, want: "layout and generators"},
-		{names: manifestFields, want: "inputs, layout and generators"},
-		{names: generatorFields, want: "name, out, inputs and options"},
+		{names: []string{"layout", "generators", "extras"}, want: "layout, generators and extras"},
+		{names: manifestFields, want: "layout and generators"},
+		{names: generatorFields, want: "name, out and options"},
 	}
 
 	for _, test := range tests {

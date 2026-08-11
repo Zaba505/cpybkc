@@ -244,9 +244,8 @@ which is the same standard the manifest itself is held to (#40).
 One rule covers every path in a run, and it has two halves:
 
 - A relative path **stated in a file** is resolved against the directory of
-  that file. A manifest's `layout`, `inputs` and `out` are relative to the
-  manifest (#40); a layout's `copybook` path is relative to the layout
-  (#148).
+  that file. A manifest's `layout` and `out` are relative to the manifest
+  (#40); a layout's `copybook` path is relative to the layout (#148).
 - A relative path **typed on the command line** — `--manifest`, `--emit-ir` —
   is resolved against the working directory, because that is the directory the
   person typing it was standing in.
@@ -266,7 +265,9 @@ cannot afford.
 ### Finding the inputs
 
 [`layout/SPEC.md`](../layout/SPEC.md) hands two questions to the CLI by name,
-and this section is the answer to both.
+and this section answers both — and then the third, which nothing had asked
+until a manifest and a layout each looked like a place a copybook could be
+named from.
 
 **Where a copybook is looked for.** At the path its layout states, resolved as
 above, and nowhere else. cpybkc **MUST NOT** search a list of directories:
@@ -279,6 +280,29 @@ code compiles, and the offsets are wrong.
 **Where a layout's forms are read from.** From the one file the manifest's
 `layout` names. A layout has no include form and needs none (`layout/SPEC.md`),
 and cpybkc composes nothing: two files are two layouts and two runs.
+
+**Which copybooks a run reads**, and the answer #157 owed this section: exactly
+the ones its layout's `record` forms name, and no others. The manifest does not
+list them. It names the layout, the generators and their options — the things a
+layout has no opinion about — and it carries no `inputs` (#40), so there is no
+set a layout may not name a copybook outside of, and no diagnostic for naming
+one. The only fault about a copybook is the one above, a path cpybkc cannot
+open.
+
+That is a decision against the alternative and not an omission. A manifest that
+listed the copybooks a run may read would be a second statement of what the
+layout already says, in a file that is checked in beside it and diffable in the
+same review — right up until the two disagreed, at which point the layout would
+still be the one that named the item each record is. Worse, enforcing the list
+would mean deciding whether two spellings name one file: a manifest's paths
+resolve against the manifest and a layout's against the layout ([A path is
+relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it)),
+so the same copybook is written two ways, and `layout/SPEC.md` hands "whether
+two paths name one copybook" to the CLI as a question about the files rather
+than the spellings. Behind a symlink, a bind mount or a case-insensitive
+filesystem there is no comparison that is right every time — and a check that
+fails a correct run is worse than no check, because the run it rejects is one
+the adopter cannot fix by changing anything that is wrong.
 
 A copybook cpybkc cannot open **MUST** be reported with a diagnostic that names
 the path **as the layout spells it** and, additionally, the absolute path
@@ -341,14 +365,31 @@ about the emission alone.
 
 A run resolves **one** descriptor, from the layout the manifest names and the
 copybooks that layout names, and `--emit-ir` writes that one. No flag selects
-among descriptors, because there is one.
+among descriptors, because there is one — and nothing a project can write makes
+there be two. A manifest names exactly one layout, a layout names the copybooks
+its records are in, and those two facts are the whole of what the descriptor is
+a function of.
 
-That statement is true of the pipeline as it stands (#43, #148) and is the
-narrow half of an open question this document could not settle on its own: the
-manifest also gives each generator its own `inputs`, and copybooks that differ
-per generator would mean a descriptor that differs per generator, which
-`--emit-ir` would then have to be told to choose between. #157 decides it, and
-this section is what changes if the answer is the other one.
+That was an open question when this document was written, and #157 settled it by
+changing the manifest rather than by giving the flag a selector. A generator
+entry used to carry its own `inputs` — "copybooks this generator reads in
+addition to the top-level `inputs`" — which read as though two generators could
+be resolved against two different sets of copybooks and therefore handed two
+different descriptors. They never could. A generator is invoked with
+`--descriptor`, `--out` and its options and nothing else ([Invocation](../plugin/SPEC.md#invocation)),
+no copybook path is among them, and the IR carries none either, so a list of
+copybooks attached to a generator named files that generator never opened. Both
+lists are gone from `cpybkc.json` (#40), and which copybooks a run reads is
+settled where it was always decided — in the layout.
+
+So the equality the plugin contract rests reproducibility on holds in its strong
+form, and cpybkc **MUST** meet it that way: every generator of one run is handed
+**the same bytes**, and they are the bytes `--emit-ir` writes for that run. Not
+"a descriptor equivalent to" and not "a descriptor assembled the same way" — the
+same bytes, because there is one descriptor and one encoder (#20). A plugin
+contract statement of the same rule is at [The
+descriptor](../plugin/SPEC.md#the-descriptor), and it is asserted by a test over
+a real generator process rather than claimed by either document (#157).
 
 ## Standard output
 
@@ -634,7 +675,7 @@ to any of them is a breaking change:
 | [The flags](#the-argument-vector) | The five above: each keeps its name, its value, its default and its meaning |
 | [Manifest discovery](#finding-the-manifest) | `--manifest`, else `cpybkc.json` in the working directory, and no search |
 | [Path resolution](#a-path-is-relative-to-the-file-that-states-it) | A path in a file is relative to that file; a path on the command line is relative to the working directory |
-| [`--emit-ir`](#emitting-the-ir) | Replaces generation; writes the same bytes a generator is handed |
+| [`--emit-ir`](#emitting-the-ir) | Replaces generation; writes the run's one descriptor, which is the same bytes every generator of that run is handed |
 | [Standard output](#standard-output) | Carries only what was asked for by name, and nothing during a generation run |
 | [The diagnostic format](#standard-error-diagnostics) | The severity set, the separator, the generator's name, the two-space continuation indent, and the stream all of it goes to |
 | [Exit codes](#exit-codes) | `0`, `1`, `2`, and no other value |
@@ -760,9 +801,9 @@ which is a property of the project.
 | [The argument vector](#the-argument-vector) | #147 `cli` |
 | [Finding the manifest](#finding-the-manifest) | #148 `cli`, over the manifest reader #40 `plugin` |
 | [A path is relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it) | #148 `cli` |
-| [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli` |
+| [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli`; which copybooks a run reads, and that the manifest does not list them, #157 `cli` |
 | [Emitting the IR](#emitting-the-ir) | #149 `cli`, over the encoders #20 and #21 `ir` |
-| [Which descriptor is emitted](#which-descriptor-is-emitted) | #157 `cli` decides it; #148 `cli` assembles whatever it decides |
+| [Which descriptor is emitted](#which-descriptor-is-emitted) | #157 `cli` decided it — one descriptor per run, and the manifest's `inputs` removed to keep it true; #148 `cli` assembles it, #149 `cli` writes it |
 | [Standard output](#standard-output) | #147 `cli` for the version and usage, #149 `cli` for `--emit-ir -` |
 | [Standard error: diagnostics](#standard-error-diagnostics) | #150 `cli`, over `internal/diag` and the spans of #31 `resolve` |
 | [A relayed generator line](#a-relayed-generator-line) | #150 `cli`, over the classification #42 `plugin` already performs, against the format #39 `plugin` fixes |

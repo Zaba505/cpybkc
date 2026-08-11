@@ -243,6 +243,67 @@ func TestTheDescriptorIsTheBytesEmitIRWrites(t *testing.T) {
 	}
 }
 
+// TestEveryGeneratorOfARunIsHandedTheBytesEmitIRWrites is the equality #157
+// settled, asserted where it can be broken.
+//
+// A run has one descriptor: the manifest names one layout, the layout names the
+// copybooks, and nothing a generator entry carries can change either — which is
+// what removing the manifest's per-generator `inputs` made true (docs/cli/SPEC.md,
+// "Which descriptor is emitted"). The observable consequence is this one, and it
+// is the one docs/plugin/SPEC.md rests reproducibility on: two generators of one
+// run, declaring different options, are handed the *same bytes*, and those bytes
+// are what `--emit-ir <path>` leaves on disk.
+//
+// The comparison is against [github.com/Zaba505/cpybkc/internal/emit.Write] and
+// a second generator rather than against a constant, because a constant would go
+// on agreeing with itself if a future run started tailoring a descriptor to the
+// generator receiving it — which is the failure this test exists to catch and
+// the one an author reproducing a generation by hand would meet as a descriptor
+// their generator never saw.
+func TestEveryGeneratorOfARunIsHandedTheBytesEmitIRWrites(t *testing.T) {
+	t.Parallel()
+
+	first, second := t.TempDir(), t.TempDir()
+
+	// The bodies are identical and the options are not: what differs between
+	// the two invocations is everything a generator entry can differ by.
+	capture := `cat "$2" > "$4/descriptor"`
+
+	go1 := generator(t, "go", capture, first)
+	go1.Options = []Option{{Key: "package_name", Value: "orders"}}
+
+	go2 := generator(t, "json-schema", capture, second)
+	go2.Options = []Option{{Key: "draft", Value: "2020-12"}, {Key: "flatten", Value: ""}}
+
+	if err := run(t, go1, go2); err != nil {
+		t.Fatalf("running two generators: %v", err)
+	}
+
+	// What --emit-ir <path> leaves on disk, written by the function the flag
+	// writes with, in the format it defaults to.
+	emitted := filepath.Join(t.TempDir(), "ir.binpb")
+	if err := emit.Write(emitted, nil, descriptor(), emit.FormatBinary); err != nil {
+		t.Fatalf("emitting the descriptor: %v", err)
+	}
+
+	want, err := os.ReadFile(emitted)
+	if err != nil {
+		t.Fatalf("reading the emitted descriptor: %v", err)
+	}
+
+	for _, out := range []string{first, second} {
+		handed, err := os.ReadFile(filepath.Join(out, "descriptor"))
+		if err != nil {
+			t.Fatalf("reading what the generator in %s was handed: %v", out, err)
+		}
+
+		if !bytes.Equal(handed, want) {
+			t.Errorf("the generator in %s was handed %d bytes and --emit-ir writes %d, and they differ",
+				out, len(handed), len(want))
+		}
+	}
+}
+
 func TestEachGeneratorGetsItsOwnDescriptorFile(t *testing.T) {
 	t.Parallel()
 

@@ -1,5 +1,4 @@
 {
-  "inputs": ["cpy/orders.cpy"],
   "layout": "orders.sexpr",
   "generators": [
     {
