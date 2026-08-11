@@ -232,14 +232,24 @@ network at build time, and no arrangement with this repository at all (#57):
 | `/usr/local/share/cpybkc/ir.binpb` | the protobuf `FileDescriptorSet` describing `cpybkc.ir.v1.Descriptor` and the transitive closure of its imports | a generator whose build has no protobuf code generation in it, decoding dynamically |
 | `/usr/local/share/cpybkc/proto/` | the `.proto` sources, each file at the path its protobuf package requires | a build that would rather run a compiler and generate bindings |
 
-Both **MUST** exist. Each **MUST** be a **regular file** — not a symbolic link,
-not a directory where a file is named — because a `COPY --from` naming one
-copies what is there, and a link copies as a link into an image whose target
-does not exist. Both **MUST** be readable by the [image's user](#the-user) *and*
-by any UID a caller overrides it with: a generator run under
-`--user $(id -u):$(id -g)` reads the same file as one run under 65532, and a
-file readable only by the image's own user would make that recommended
-invocation fail on the one thing the image exists to hand it.
+Both **MUST** exist, and they are not the same shape:
+`/usr/local/share/cpybkc/ir.binpb` **MUST** be a **regular file**, and
+`/usr/local/share/cpybkc/proto/` **MUST** be a **directory** whose every entry
+is a directory or a regular file.
+
+**Nothing under either path may be a symbolic link.** A `COPY --from` naming a
+link copies the link, into an image where its target does not exist, and a
+runtime resolving one inside a filesystem that holds nothing else resolves a
+dangling name. So what a consumer copies out is bytes, whichever of the two
+paths they name.
+
+Both **MUST** be readable by the [image's user](#the-user) *and* by any UID a
+caller overrides it with — for the directory, that means traversable as well, so
+that reaching a file inside it is not a privilege the image's own user has and
+a caller's does not. A generator run under `--user $(id -u):$(id -g)` reads the
+same schema as one run under 65532, and a copy readable only by the image's own
+user would make the recommended invocation fail on the one thing the image
+exists to hand it.
 
 `/usr/local/share/cpybkc/proto` is an **include root**. Every file under it sits
 at the path its protobuf package requires, so a compiler is pointed straight at
@@ -915,7 +925,7 @@ change to any of them is a breaking change:
 | [The entrypoint](#the-entrypoint) | Is the cpybkc CLI, and takes its arguments |
 | [The user](#the-user) | UID 65532, GID 65532, non-root, overridable |
 | [The IR `FileDescriptorSet`](#the-ir-schema-in-the-image) | `/usr/local/share/cpybkc/ir.binpb`, a world-readable regular file, byte-identical to the release asset |
-| [The IR `.proto` sources](#the-ir-schema-in-the-image) | `/usr/local/share/cpybkc/proto/`, an include root of world-readable regular files, byte-identical to the release archive's contents |
+| [The IR `.proto` sources](#the-ir-schema-in-the-image) | `/usr/local/share/cpybkc/proto/`, a world-traversable include root of world-readable regular files, byte-identical to the release archive's contents |
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
