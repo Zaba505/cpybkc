@@ -1184,6 +1184,16 @@ says about the order records may appear in.
 for the same reason the discrimination strategies are, and adding to it is the
 same kind of change.
 
+The `only` in `when`'s two rows is the whole of what it says, and it is a
+permission rather than a requirement. `<e>` **MAY** appear where the item holds
+the value and **MUST NOT** appear where it does not; nothing says `<e>` **MUST**
+appear where it does (#144). An adopter reading a flag as *the record that
+follows is a `SPECIAL`* is reading the commoner intention and not the operator,
+and [A `when` permits a record, and never requires
+one](#a-when-permits-a-record-and-never-requires-one) is why the operator has
+the weaker of the two meanings and what to write where a file means the
+stronger.
+
 Every record name in the expression **MUST** be a `record` the layout defines,
 and every `record` the layout defines **MUST** appear in the expression. A
 record defined and never sequenced is a record type nothing can ever admit, and
@@ -1235,8 +1245,19 @@ Both carry the same restrictions on their item reference, and both are
   item in the record being counted, or in one that may or may not have appeared,
   is a value the automaton has not read yet and is rejected naming the operator
   and the record (#36, #37, #88).
-- The item **MUST NOT** repeat and **MUST NOT** sit inside a group that repeats
-  (#84).
+- The item **MUST NOT** be one the copybook gives an `OCCURS`, and **MUST NOT**
+  sit at any depth inside a group that has one (#84). A register is bound from a
+  field and nothing anywhere names an occurrence of one, so an item with a value
+  per occurrence is a value the automaton has no spelling for
+  ([`ir/SPEC.md`](../ir/SPEC.md#a-reference-names-a-field-not-an-occurrence-of-one)).
+  This is a restriction on the copybook and not on the expression: how often the
+  record *holding* the item is admitted is not restricted at all, so a record
+  inside a `+`, a `*` or a `times` may carry the item another operator reads
+  like any other, and the register is rebound every time that record is
+  admitted (#144). Which occurrence governs is then the nearest preceding one
+  along the path actually taken, which is
+  [`ir/SPEC.md`](../ir/SPEC.md#the-automaton-remembers-in-registers)'s register
+  file having no scope and no history.
 - Under `times` the item **MUST** be one whose value decodes to an integer.
 
 A value that governs only the record it sits in needs neither operator. Two
@@ -1245,6 +1266,99 @@ two record names with a discriminator each, and the dependence on the value
 becomes the state the automaton is in. Reaching for `when` there costs every
 consumer in every language a register it did not need
 ([`ir/SPEC.md`](../ir/SPEC.md#when-a-value-becomes-a-state-and-when-it-becomes-a-register)).
+
+### A `when` permits a record, and never requires one
+
+A production shape this format meets early: a data record carries a flag, and
+where the flag holds one value the record that follows it is a particular type.
+`when` says half of that. Where the item does not hold the value the guarded
+records are not admissible, which is the half a guard can carry. Where it does,
+they are eligible alongside everything else the point already admitted — so a
+file whose flag says a `SPECIAL` follows and whose next record is an ordinary
+one is a file this format reads without complaint (#144).
+
+What it lowers to is why, and the shortfall is one guard rather than one
+operator. A guard is one of the three tests
+[`ir/SPEC.md`](../ir/SPEC.md#the-automaton-remembers-in-registers) closes, and
+none of them is a negation. `(when <item-ref> <literal> <e>)` therefore compiles
+into a guard on the transitions admitting `<e>` and into nothing at all on the
+transitions that skip it: there is no test for *the item does not hold that
+value* to put on them. Requiring `<e>` means making every other transition out
+of that point ineligible, and excluding is the thing the guard set cannot do.
+[A `when` that requires the record it
+governs](#a-when-that-requires-the-record-it-governs) is where that was weighed
+and why the fourth test is not coming.
+
+**Where the governing value is the record's own discriminating item, the
+stronger meaning is already sayable**, and it costs no register and no guard at
+all. Two record names over one copybook, told apart by that item, put the
+automaton in a different state for each — and the state a flagged record leads
+to offers only what must follow it:
+
+```
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(record DETAIL-FLAGGED (copybook "dtl.cpy" DTL-REC))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(discriminate DETAIL-FLAGGED (equals (item DETAIL-FLAGGED DTL-TYPE) "F"))
+(sequence (seq HEADER (+ (alt DETAIL (seq DETAIL-FLAGGED SPECIAL))) TRAILER))
+```
+
+That is the paragraph above carried one step further than
+[`ir/SPEC.md`](../ir/SPEC.md#when-a-value-becomes-a-state-and-when-it-becomes-a-register)
+reads it. The value governs a *later* record, which that section calls a
+register — and it becomes a state anyway, because the record holding it can be
+told apart by it, and a record type is the strongest thing this format has for
+saying what may come next. [Many records may name one
+copybook](#many-records-may-name-one-copybook-and-two-may-name-one-item) is what
+makes the two names cost nothing but two names.
+
+The precondition is exact and `resolve` enforces it as an overlap rather than as
+a missing feature: the flag has to be the item the two records are told apart
+by. Where it is a second field beside the type code, telling `DETAIL` from
+`DETAIL-FLAGGED` needs one test and telling either of them from whatever else
+the point admits needs another, and a discriminator is one test on one item —
+the conjunction [What the algebra deliberately cannot
+say](#what-the-algebra-deliberately-cannot-say) refuses. There the stronger
+meaning is not sayable, `when` says the weaker one, and the check the file was
+carrying is one the layout throws away. That is a real loss, and it is stated
+here rather than left to be found because the reading an adopter brings to a
+flag is the meaning this operator does not have.
+
+### A guard on a repetition guards every way into its body
+
+A `when` guards the transitions that *enter* the expression it wraps, and a
+repetition has two ways in: the one from outside it, and the one from the end of
+a pass back to the start of the next. Which of them a guard lands on follows
+from where the `when` is written, and both spellings are legal (#144):
+
+- `(when <item-ref> <literal> (+ <e>))` guards the way in. The transitions
+  entering the repetition carry the guard and the back edge does not, so the
+  value decides whether the run happens and nothing about how long it is.
+- `(+ (when <item-ref> <literal> <e>))` guards every way in, the back edge
+  included, because the `when` wraps the whole of the repeated body and every
+  transition admitting that body's first record is a transition entering `<e>`.
+
+`*` and `?` read the same way. `times` carries its own guard on both ways in,
+because a count that stopped being tested after the first pass would not be a
+count.
+
+There is no third spelling, and in particular **there is no way to guard a
+repetition's back edge and leave the way in unguarded.** The algebra names
+records, not edges: a record name is one position in the compiled automaton
+however many transitions reach it, and a `when` wrapping that name guards all of
+them. A layout wanting the back edge alone is asking for two entries to one
+position to be told apart, and telling them apart is making them two positions —
+which is the `alt` of two record names the section above ends on.
+
+One consequence is worth stating on its own, because the diagnostic for it names
+the read loop rather than the repetition. Since a guard on the back edge is a
+guard on the way in as well, its item **MUST** satisfy the strictly-earlier rule
+above at the way in — and an item of the repeated record itself never does,
+because on the first pass nothing has bound it yet. `(+ (when (item DETAIL
+NEXT-FLAG) "X" DETAIL))` is rejected for that reason and for nothing to do with
+`+`; the same reference under a `when` governing some *other* record inside the
+same repetition is admitted, and is the ordinary way a flag on a repeating
+record is written.
 
 ### What the algebra deliberately cannot say
 
@@ -1472,6 +1586,44 @@ language would either need an interpreter in each of them or would make the IR
 carry source that only one of them could run. The closed set is what lets the
 IR stay data.
 
+### A `when` that requires the record it governs
+
+There is no operator saying a record **MUST** follow where an item holds a
+value, and no negated guard to build one out of. `when` permits and does not
+require, and that is the meaning it keeps ([A `when` permits a record, and never
+requires one](#a-when-permits-a-record-and-never-requires-one), #144).
+
+Reason: it takes two additions rather than one, and the first does not pay for
+itself even with the second.
+
+The first is a fourth guard test. Requiring a record means making every other
+transition out of that point ineligible, which means a test for *the item does
+not hold that value* — a negation, and the IR's guard set is three tests and no
+fourth ([`ir/SPEC.md`](../ir/SPEC.md#the-automaton-remembers-in-registers)).
+Adding a member to a closed set is breaking under
+[`ir/SPEC.md`](../ir/SPEC.md#what-breaks-it) whatever else it costs, and those
+sets are enumerated before the first release rather than grown afterwards for
+the reason that section gives: an old consumer sees an unset choice where a new
+one sees a member, and generates code for a file it has silently misread. The
+price is a test every generator in every language implements permanently, and
+the shape that motivates it has a spelling already wherever the flag is the
+record's own discriminating item.
+
+The second is a way to name an edge, and it is what makes the first not enough
+on its own. The case that wants requiring most is a flag on a *repeating* record
+governing what follows that occurrence, and the transition a negation would have
+to exclude there is the repetition's back edge — which no `when` reaches without
+also wrapping the record that binds the flag, which the strictly-earlier rule
+then refuses ([A guard on a repetition guards every way into its
+body](#a-guard-on-a-repetition-guards-every-way-into-its-body)). So a fourth
+guard test would have to arrive beside an operator naming transitions rather
+than records: a different algebra, and a step toward [A general expression
+language](#a-general-expression-language) taken for one shape.
+
+What an adopter writes instead is stated where the loss is — the two record
+names where the flag is the discriminating item, and a check of their own beside
+the generated reader where it is not.
+
 ### The copybook language
 
 Level numbers, `PIC` clauses, `OCCURS`, `REDEFINES` — the contents of a copybook
@@ -1622,6 +1774,6 @@ computed once by `resolve`.
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve` |
 | [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |
-| [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve` |
+| [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |
