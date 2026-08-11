@@ -1,0 +1,19 @@
+;; Appendix A.1, the SignRealia rows. A positive value is spelled exactly
+;; as an unsigned one, so only the negative row tells this convention apart
+;; from ascii-zone-37 -- which is the whole reason both records are here.
+(encoding
+  (charset ascii)
+  (sign-convention realia)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

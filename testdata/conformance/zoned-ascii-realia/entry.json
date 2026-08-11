@@ -1,0 +1,4 @@
+{
+  "description": "Zoned decimal in ASCII under the CA Realia sign convention.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.1 rows 7-8"
+}

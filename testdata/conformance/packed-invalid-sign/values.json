@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "PACKED-RECORD", "value": {"P-VALUE": "12345"}}
+  ],
+  "failure": "the sign nibble at offset 2 of the second record is 5, and a sign nibble is A to F"
+}

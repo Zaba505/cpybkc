@@ -1,0 +1,347 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "descriptor_word": {},
+        "start_state_id": "20"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "BATCH-HEADER"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4"
+        ],
+        "names": {
+          "original": "BATCH-HEADER"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "HDR-TYPE"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 15,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "HDR-NAME"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "record": {
+        "root_id": "6",
+        "names": {
+          "original": "TXN-RECORD"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "group": {
+        "member_ids": [
+          "7",
+          "8",
+          "9",
+          "10",
+          "11"
+        ],
+        "names": {
+          "original": "TXN-RECORD"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-TYPE"
+        }
+      }
+    },
+    {
+      "id": "8",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-ID"
+        }
+      }
+    },
+    {
+      "id": "9",
+      "field": {
+        "width": 3,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_PACKED_DECIMAL",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 5,
+          "signed": true
+        },
+        "names": {
+          "original": "TXN-AMT"
+        }
+      }
+    },
+    {
+      "id": "10",
+      "field": {
+        "width": 2,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_BINARY",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 4,
+          "signed": true
+        },
+        "names": {
+          "original": "TXN-QTY"
+        }
+      }
+    },
+    {
+      "id": "11",
+      "field": {
+        "width": 6,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-NAME"
+        }
+      }
+    },
+    {
+      "id": "12",
+      "record": {
+        "root_id": "13",
+        "names": {
+          "original": "BATCH-TRAILER"
+        }
+      }
+    },
+    {
+      "id": "13",
+      "group": {
+        "member_ids": [
+          "14",
+          "15",
+          "16"
+        ],
+        "names": {
+          "original": "BATCH-TRAILER"
+        }
+      }
+    },
+    {
+      "id": "14",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TRL-TYPE"
+        }
+      }
+    },
+    {
+      "id": "15",
+      "field": {
+        "width": 5,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 5
+        },
+        "names": {
+          "original": "TRL-COUNT"
+        }
+      }
+    },
+    {
+      "id": "16",
+      "field": {
+        "width": 10,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TRL-FILLER"
+        }
+      }
+    },
+    {
+      "id": "17",
+      "predicate": {
+        "field_id": "3",
+        "bytes_equal": {
+          "value": "yA=="
+        }
+      }
+    },
+    {
+      "id": "18",
+      "predicate": {
+        "field_id": "7",
+        "bytes_equal": {
+          "value": "xA=="
+        }
+      }
+    },
+    {
+      "id": "19",
+      "predicate": {
+        "field_id": "14",
+        "bytes_equal": {
+          "value": "4w=="
+        }
+      }
+    },
+    {
+      "id": "20",
+      "state": {
+        "transition_ids": [
+          "23"
+        ]
+      }
+    },
+    {
+      "id": "21",
+      "state": {
+        "transition_ids": [
+          "24",
+          "25"
+        ]
+      }
+    },
+    {
+      "id": "22",
+      "state": {
+        "accepts": true
+      }
+    },
+    {
+      "id": "23",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "21",
+        "predicate_id": "17"
+      }
+    },
+    {
+      "id": "24",
+      "transition": {
+        "record_id": "5",
+        "next_state_id": "21",
+        "predicate_id": "18"
+      }
+    },
+    {
+      "id": "25",
+      "transition": {
+        "record_id": "12",
+        "next_state_id": "22",
+        "predicate_id": "19"
+      }
+    }
+  ]
+}

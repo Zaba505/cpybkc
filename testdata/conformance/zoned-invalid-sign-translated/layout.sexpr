@@ -1,0 +1,19 @@
+;; Appendix A.3 row 2. The byte 0x75 is a perfectly ordinary negative 5
+;; under ascii-zone-37 and is not a sign byte at all under this convention:
+;; the file is fine and the declaration about it is wrong.
+(encoding
+  (charset ascii)
+  (sign-convention translated-ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

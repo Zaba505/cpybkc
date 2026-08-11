@@ -1,0 +1,19 @@
+;; Appendix A.7 row 1, IBMEnterprise(). One record mixing an alphanumeric
+;; key, a packed amount, a binary quantity and a name, which is what a real
+;; record looks like and what none of the single-encoding entries above is.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 15))
+
+(record TXN
+  (copybook "txn.cpy" TXN))
+
+(discriminate TXN single-record-type)
+
+(sequence (* TXN))

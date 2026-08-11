@@ -1,0 +1,4 @@
+{
+  "description": "Appendix A.7's mixed record after a correct, copybook-aware conversion from EBCDIC: ASCII characters, translated signs, big-endian.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.7 row 3"
+}

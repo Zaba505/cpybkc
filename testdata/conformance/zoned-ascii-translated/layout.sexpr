@@ -1,0 +1,19 @@
+;; Appendix A.1, the SignTranslatedEBCDIC rows. ASCII characters and
+;; EBCDIC signs is the combination no compiler produces and every converted
+;; file has, which is why the sign convention is an axis of its own.
+(encoding
+  (charset ascii)
+  (sign-convention translated-ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

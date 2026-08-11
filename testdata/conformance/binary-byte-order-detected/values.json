@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "BINARY-RECORD", "value": {"B-VALUE": "1234"}}
+  ],
+  "failure": "the two bytes of the second record read little-endian are outside the range PIC S9(4) can express under TRUNC(STD)"
+}

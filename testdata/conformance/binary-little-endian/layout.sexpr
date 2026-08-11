@@ -1,0 +1,18 @@
+;; Appendix A.5, little-endian. The same copybook and the same values as
+;; binary-big-endian; only the bytes and the declared byte order differ.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order little-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 10))
+
+(record BINARY
+  (copybook "binary.cpy" BINARY-RECORD))
+
+(discriminate BINARY single-record-type)
+
+(sequence (* BINARY))

@@ -1,0 +1,4 @@
+{
+  "description": "IEEE 754 1.0 read as IBM hexadecimal floating point, which is 0.03125 and is not an error.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.6, \"Cross-format misreads\""
+}

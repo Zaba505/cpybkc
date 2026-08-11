@@ -1,0 +1,19 @@
+;; Appendix A.6, the IEEE rows. A floating-point item varies along the float
+;; format and the byte order and not along charset, so the pairing that
+;; matters for one is with float-hfp rather than with an EBCDIC entry.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 12))
+
+(record FLOAT
+  (copybook "float.cpy" FLOAT-RECORD))
+
+(discriminate FLOAT single-record-type)
+
+(sequence (* FLOAT))

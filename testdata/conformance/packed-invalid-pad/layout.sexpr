@@ -1,0 +1,19 @@
+;; Appendix A.4's last negative test. A field of an even digit count has one
+;; nibble left over at the front, and it is zero: a non-zero one is the
+;; reading a strict reader refuses rather than a digit it takes.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 3))
+
+(record PACKED
+  (copybook "packed.cpy" PACKED-RECORD))
+
+(discriminate PACKED single-record-type)
+
+(sequence (* PACKED))

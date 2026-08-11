@@ -1,0 +1,18 @@
+;; Appendix A.6, the HFP rows. The same two items and the same value as
+;; float-ieee754, in the other format.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm F)
+  (lrecl 12))
+
+(record FLOAT
+  (copybook "float.cpy" FLOAT-RECORD))
+
+(discriminate FLOAT single-record-type)
+
+(sequence (* FLOAT))

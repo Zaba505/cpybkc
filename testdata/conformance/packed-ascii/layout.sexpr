@@ -1,0 +1,20 @@
+;; Appendix A.4, in a file whose charset is ASCII. Its input.bin is byte for
+;; byte the input.bin of packed-ebcdic: charset governs nothing in a packed
+;; item, and a pair of entries differing only in the axis that does not
+;; apply is how the corpus states that.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 21))
+
+(record PACKED
+  (copybook "packed.cpy" PACKED-RECORD))
+
+(discriminate PACKED single-record-type)
+
+(sequence (* PACKED))

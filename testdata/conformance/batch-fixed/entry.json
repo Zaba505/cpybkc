@@ -1,0 +1,4 @@
+{
+  "description": "A fixed-length EBCDIC batch of three record types told apart by a type code, sequenced as a header, a run of details and a trailer.",
+  "source": "docs/layout/SPEC.md, \"Discrimination\" and \"Sequencing\"; docs/ir/SPEC.md, \"The sequencing automaton\"; the detail record's items are cobol-go codec/SPEC.md, Appendix A.7 row 1"
+}

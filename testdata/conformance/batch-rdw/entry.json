@@ -1,0 +1,4 @@
+{
+  "description": "The same batch in a variable-length dataset, each record behind the record descriptor word DFSMS defines.",
+  "source": "docs/layout/SPEC.md, \"Physical framing\"; docs/ir/SPEC.md, \"Four framings, and none of them is a RECFM\" and \"Where framing is consumed, and where it is emitted\"; the records are batch-fixed's"
+}

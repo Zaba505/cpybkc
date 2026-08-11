@@ -1,0 +1,4 @@
+{
+  "description": "COMP-1 and COMP-2 holding 1.0 as IEEE 754 binary32 and binary64, big-endian.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.6 rows 1 and 4"
+}

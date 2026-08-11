@@ -1,0 +1,4 @@
+{
+  "description": "A packed field carrying the digit nibble A, which is not a digit.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.4, the negative tests"
+}

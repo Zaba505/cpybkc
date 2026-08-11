@@ -1,0 +1,8 @@
+{
+  "records": [
+    {
+      "name": "TXN",
+      "value": {"ID": "A123", "AMT": "-12345", "QTY": "1234", "NAME": "WIDGET"}
+    }
+  ]
+}

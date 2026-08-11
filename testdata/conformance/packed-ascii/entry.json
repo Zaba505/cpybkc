@@ -1,0 +1,4 @@
+{
+  "description": "Packed decimal in a file declared ASCII: both signs, unsigned, an even digit count, a scaled item and the lenient sign nibble A.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.4, the positive rows"
+}

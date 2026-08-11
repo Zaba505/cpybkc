@@ -1,0 +1,13 @@
+{
+  "records": [
+    {
+      "name": "BINARY-RECORD",
+      "value": {
+        "B-SHORT-POS": "1234",
+        "B-SHORT-NEG": "-1234",
+        "B-ZERO": "0",
+        "B-LONG": "123456789"
+      }
+    }
+  ]
+}

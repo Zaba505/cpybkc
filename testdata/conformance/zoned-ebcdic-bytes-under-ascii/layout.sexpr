@@ -1,0 +1,20 @@
+;; Appendix A.3 row 4. The failure is at offset 0 rather than at the sign
+;; byte, because the zone F of an EBCDIC digit is not a digit zone in ASCII
+;; at all -- a whole file declared with the wrong charset stops at its first
+;; numeric byte.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))

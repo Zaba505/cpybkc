@@ -1,0 +1,30 @@
+;; batch-fixed, reframed. Every record is preceded by a four-byte record
+;; descriptor word whose first two bytes are the length of the record and
+;; the word together, big-endian, and whose last two are zero.
+;; 
+;; Nothing in Appendix A describes a record descriptor word, so this entry's
+;; framing is derived from the two specifications this repository publishes
+;; rather than from cobol-go's; its records are batch-fixed's unchanged.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm VB))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "txn.cpy" TXN-RECORD))
+
+(record TRAILER
+  (copybook "trailer.cpy" BATCH-TRAILER))
+
+(discriminate HEADER (equals (item HEADER HDR-TYPE) (bytes "C8")))
+(discriminate DETAIL (equals (item DETAIL TXN-TYPE) (bytes "C4")))
+(discriminate TRAILER (equals (item TRAILER TRL-TYPE) (bytes "E3")))
+
+(sequence (seq HEADER (* DETAIL) TRAILER))

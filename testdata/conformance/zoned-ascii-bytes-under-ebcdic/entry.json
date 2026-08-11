@@ -1,0 +1,4 @@
+{
+  "description": "An ASCII zoned field read under the EBCDIC convention, which fails at the first digit.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.3 row 5"
+}

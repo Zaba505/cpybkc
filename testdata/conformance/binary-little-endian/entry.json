@@ -1,0 +1,4 @@
+{
+  "description": "The same binary integers little-endian, which decode to the same values.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.5, the little-endian column"
+}

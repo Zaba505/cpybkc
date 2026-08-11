@@ -1,0 +1,4 @@
+{
+  "description": "Appendix A.7's mixed record as a Micro Focus ASCII file: ASCII, little-endian.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.7 row 2"
+}

@@ -1,0 +1,18 @@
+;; Appendix A.3 row 5, and the mirror of zoned-ebcdic-bytes-under-ascii.
+;; The zone 3 of an ASCII digit is not a digit zone in EBCDIC.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ZONED
+  (copybook "zoned.cpy" ZONED-RECORD))
+
+(discriminate ZONED single-record-type)
+
+(sequence (* ZONED))
