@@ -537,15 +537,15 @@ modules this repository's pipeline already depends on. The module is named for
 what it drives rather than for what it does, so a second module shipping from
 here later sits beside it without either being renamed.
 
-### One `engineVersion`, held by a dependency edge rather than by a check
+### One `engineVersion`, held by a dependency edge and one check
 
 The root [`dagger.json`](dagger.json) declares the companion as a **local**
-dependency (`"source": "daggerverse/cpybkc"`). That edge is what keeps the two
-modules' `engineVersion` from drifting, and it is worth being exact about how
-much of the work it does, because half of it is the tool and half of it is the
-convention.
+dependency (`"source": "daggerverse/cpybkc"`), and `dagger call engine-lock`
+asserts that the two `dagger.json` files pin the same engine. It takes both,
+and it is worth being exact about why, because the edge alone does only half
+the job.
 
-The tool half is one-directional, and it was measured rather than assumed.
+The edge's half is one-directional, and it was measured rather than assumed.
 Setting the companion's `engineVersion` **above** the engine in use fails every
 root call outright:
 
@@ -556,27 +556,59 @@ root call outright:
 
 Setting it **below** the root's does not fail anything: `dagger functions`,
 `dagger call ci` and the rest load and run exactly as before. So the edge
-catches a companion that has run ahead of the engine, and it does not catch one
-that has been left behind — which is the direction drift actually happens in,
-since lagging is what a file nobody edited does.
+catches a companion that has run ahead of the engine, and it misses one that has
+been left behind — which is the direction drift actually goes, since lagging is
+what a file nobody edited does. `dagger develop` rewrites each module's own
+`dagger.json` independently, so the two can diverge through the ordinary
+workflow rather than through neglect.
 
-The convention half covers that direction, and the edge is what makes it cheap
-to keep: both `dagger.json` files are in one tree, a bump is one commit that
-edits both, and the same commit has to carry regenerated code for both modules
-anyway (below). The daggerverse modules this project depends on pin theirs
-independently, in another repository, and have already drifted — one tree and
-one commit is the difference being bought.
+[`EngineLock`](.dagger/companion.go) covers that direction, and it is in `ci`,
+so it runs on every pull request:
 
-This is deliberately not a CI check. A check comparing two strings in two files
-in the same commit would be asserting that somebody edited a file they were
-already editing, which is the shape of check
-[#65 was closed for being](#65-is-closed-rather-than-left-open): it could only
-fail if the bump were done half-way, and the half-way bump fails at the next
-`dagger develop` regardless.
+```sh
+dagger call engine-lock
+```
+
+This is **not** the shape of check
+[#65 was closed for being](#65-is-closed-rather-than-left-open). That one
+compared a generated constant against the release it had just followed and could
+not fail; this one fails on a bump somebody performed in one module and not the
+other, which is a thing that happens and which nothing else reports. A check
+that can fail is the difference.
+
+What the edge buys beyond that is cheapness: both files are in one tree, a bump
+is one commit that edits both, and the same commit has to carry regenerated code
+for both modules anyway (below). The daggerverse modules this project depends on
+pin theirs independently, in another repository, and have already drifted — one
+tree, one commit and one version is the difference being bought.
 
 The same edge is how the pipeline gets to drive the module over the image built
 in the pull request rather than the last published release (#64). Both uses are
 served by one line.
+
+### The companion module is checked like any other Go module here
+
+`dagger call companion-ci` runs the standard pipeline — fmt, vet, lint and `go
+test -race` — over [`daggerverse/cpybkc/`](daggerverse/cpybkc/), and it is in
+`ci`. It is a third call rather than a wider source directory for the reason
+[`IrCi`](.dagger/main.go) is a second one: the companion is a separate Go
+module, so `go test ./...` from the repository root stops at its `go.mod` and
+never descends. Without it, the module strangers actually call would be the one
+part of the tree nothing checks.
+
+What it runs is [`internal/imageref`](daggerverse/cpybkc/internal/imageref/),
+which is where the image-reference assembly lives **precisely so that it can be
+tested at all**. The module's own `package main` imports the generated Dagger
+client, whose `init` panics when no session is present, so a test beside `main`
+cannot run under plain `go test`. Keeping the pure part in a package that
+imports no Dagger is what turns the published default
+`ghcr.io/zaba505/cpybkc:v0` into a string a test pins rather than a string a
+comment asserts.
+
+This is not #64. That story drives the module's *functions* over the image
+built in the same pull request, which needs an engine and a built image; this
+is the ordinary Go pipeline over the module's source, and the two catch
+different things.
 
 Both modules' generated code is committed, so a change to either is a
 `dagger develop` in that module and the generated files in the same commit —

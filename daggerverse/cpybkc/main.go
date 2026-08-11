@@ -68,30 +68,43 @@ package main
 
 import (
 	"dagger/cpybkc/internal/dagger"
+	"dagger/cpybkc/internal/imageref"
 )
 
-// Cpybkc is one cpybkc image, plus the coordinates a later composition needs in
-// order to find a published image that matches it.
+// Cpybkc is one cpybkc image, plus the coordinates for resolving images related
+// to it.
 //
-// Every function on it is either a builder returning a new Cpybkc or a terminal
-// that runs something, so a call chain reads as the image being assembled and
-// then used; nothing here mutates.
+// A function on it is a builder returning a new Cpybkc, a terminal that runs
+// something, or an accessor handing back what was resolved, so a call chain
+// reads as the image being assembled and then used; nothing here mutates.
 type Cpybkc struct {
 	// Container is the image cpybkc runs in.
 	// +private
 	Container *dagger.Container
 
-	// Repository and Version are what New resolved, kept rather than discarded so
-	// that a later composition pulls the companion image matching the CLI already
-	// in the container (#63). A generator from one release beside a CLI from
-	// another is a combination nobody tested, and defaulting to it silently is how
-	// somebody would end up in it.
+	// Repository and Version are the coordinates a later composition resolves
+	// *other* images against — the companion generator images of #63, which are
+	// published as `<repository>-gen-<name>:<version>`. They are kept rather than
+	// consumed at construction because an override that reached only the first
+	// pull would leave every later one reaching for ghcr.io from inside a network
+	// that cannot see it, which is the air-gap requirement failing later and less
+	// legibly than if the argument had never existed.
 	//
-	// Keeping Repository is also what makes the mirror an air-gapped caller named
-	// survive construction. An override that reached only the first pull would
-	// leave every later one reaching for ghcr.io from inside a network that cannot
-	// see it — which is the same requirement failing later and less legibly than
-	// if the argument had never existed.
+	// They are deliberately *not* a description of what is in Container. When a
+	// caller supplies their own container these still hold whatever --repository
+	// and --version said, which for a caller who passed neither is the default
+	// pair. That is why --version and --repository remain meaningful alongside
+	// --image rather than being ignored: an air-gapped caller passing a container
+	// from their own registry should pass --repository too, so that the generators
+	// resolved later come from the same place.
+	//
+	// What this deliberately does not do is *infer* a release from a supplied
+	// container. Nothing here can read a version off an arbitrary container, and
+	// guessing one would produce exactly the untested pairing — a generator from
+	// one release beside a CLI from another — that #63 exists to refuse. Whether
+	// that mismatch is refused, warned about or required to be stated explicitly
+	// is #63's to settle, and it needs these two fields to say anything about it
+	// at all.
 	// +private
 	Repository string
 	// +private
@@ -110,8 +123,12 @@ type Cpybkc struct {
 // anything is a composition the caller asked for rather than one the base image
 // decided for them.
 //
-// The three arguments are two ways of naming an image and are not combined: pass
-// image and neither of the others is used to pull anything.
+// image replaces the container that would otherwise be pulled, so passing it
+// means version and repository name nothing that gets fetched here. They are not
+// thereby inert: they stay on the module as the coordinates later compositions
+// resolve companion images against (#63), which is why an air-gapped caller
+// passing a container from their own registry should pass --repository beside it
+// rather than instead of it.
 func New(
 	// The tag of the published cpybkc image to run.
 	//
@@ -151,11 +168,20 @@ func New(
 	// a reference no tag argument can express, and the only one that pins bytes.
 	// +optional
 	image *dagger.Container,
-) *Cpybkc {
-	if image == nil {
-		image = dag.Container().From(repository + ":" + version)
+) (*Cpybkc, error) {
+	// Checked even when image is supplied and nothing is pulled from them, because
+	// they are not decoration in that case either: #63 resolves companion images
+	// against them, and a repository that is wrong is as wrong then as now. A
+	// constructor that accepted them quietly would move the complaint to a call
+	// the caller has not written yet.
+	ref, err := imageref.Assemble(repository, version)
+	if err != nil {
+		return nil, err
 	}
-	return &Cpybkc{Container: image, Repository: repository, Version: version}
+	if image == nil {
+		image = dag.Container().From(ref)
+	}
+	return &Cpybkc{Container: image, Repository: repository, Version: version}, nil
 }
 
 // Image is the image this module resolved, for a caller who wants to do

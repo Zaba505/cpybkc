@@ -240,7 +240,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg image", err))
 				}
 			}
-			return New(version, repository, image), nil
+			return New(version, repository, image)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

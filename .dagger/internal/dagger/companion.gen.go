@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Companion
-func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/cpybkc/main.go:79:6)
+func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/cpybkc/main.go:80:6)
 	q := r.query.Select("asCompanion")
 
 	return &Companion{
@@ -18,13 +18,13 @@ func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/
 	}
 }
 
-// Cpybkc is one cpybkc image, plus the coordinates a later composition needs in
-// order to find a published image that matches it.
+// Cpybkc is one cpybkc image, plus the coordinates for resolving images related
+// to it.
 //
-// Every function on it is either a builder returning a new Cpybkc or a terminal
-// that runs something, so a call chain reads as the image being assembled and
-// then used; nothing here mutates.
-type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:79:6)
+// A function on it is a builder returning a new Cpybkc, a terminal that runs
+// something, or an accessor handing back what was resolved, so a call chain
+// reads as the image being assembled and then used; nothing here mutates.
+type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:80:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -102,7 +102,7 @@ func (r *Companion) UnmarshalJSON(bs []byte) error {
 // none of the signatures or attestations one does (docs/container/SPEC.md, "What
 // a tag carries besides the image"), because those are attached to the digest
 // this project published and not to the bytes.
-func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpybkc/main.go:178:1)
+func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpybkc/main.go:204:1)
 	q := r.query.Select("image")
 
 	return &Container{
@@ -119,7 +119,7 @@ func (r *Companion) AsNode() Node {
 }
 
 // Create or update a binding of type Companion in the environment
-func (r *Env) WithCompanionInput(name string, value *Companion, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:79:6)
+func (r *Env) WithCompanionInput(name string, value *Companion, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:80:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withCompanionInput")
 	q = q.Arg("name", name)
@@ -132,7 +132,7 @@ func (r *Env) WithCompanionInput(name string, value *Companion, description stri
 }
 
 // Declare a desired Companion output to be assigned in the environment
-func (r *Env) WithCompanionOutput(name string, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:79:6)
+func (r *Env) WithCompanionOutput(name string, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:80:6)
 	q := r.query.Select("withCompanionOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -156,7 +156,7 @@ type CompanionOpts struct {
 	//
 	//
 	// Default: "v0"
-	Version string // companion (../../../daggerverse/cpybkc/main.go:126:2)
+	Version string // companion (../../../daggerverse/cpybkc/main.go:143:2)
 	//
 	// The registry repository the image is pulled from, as `<host>/<path>` with no
 	// tag.
@@ -171,7 +171,7 @@ type CompanionOpts struct {
 	//
 	//
 	// Default: "ghcr.io/zaba505/cpybkc"
-	Repository string // companion (../../../daggerverse/cpybkc/main.go:139:2)
+	Repository string // companion (../../../daggerverse/cpybkc/main.go:156:2)
 	//
 	// Run in this container instead of pulling one, replacing it entirely.
 	//
@@ -186,7 +186,7 @@ type CompanionOpts struct {
 	// change to cpybkc before it ships, and how a build pins the image by digest —
 	// a reference no tag argument can express, and the only one that pins bytes.
 	//
-	Image *Container // companion (../../../daggerverse/cpybkc/main.go:153:2)
+	Image *Container // companion (../../../daggerverse/cpybkc/main.go:170:2)
 }
 
 // New selects the cpybkc release to run:
@@ -201,9 +201,13 @@ type CompanionOpts struct {
 // anything is a composition the caller asked for rather than one the base image
 // decided for them.
 //
-// The three arguments are two ways of naming an image and are not combined: pass
-// image and neither of the others is used to pull anything.
-func (r *Query) Companion(opts ...CompanionOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:115:1)
+// image replaces the container that would otherwise be pulled, so passing it
+// means version and repository name nothing that gets fetched here. They are not
+// thereby inert: they stay on the module as the coordinates later compositions
+// resolve companion images against (#63), which is why an air-gapped caller
+// passing a container from their own registry should pass --repository beside it
+// rather than instead of it.
+func (r *Query) Companion(opts ...CompanionOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:132:1)
 	q := r.query.Select("companion")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
