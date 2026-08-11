@@ -20,27 +20,29 @@
 // the thing in the document is the thing people read, and the two would drift
 // exactly as far apart as nobody notices.
 //
-// # Why the final stage is read rather than built
+// # Why the final stage is replayed rather than built
 //
-// `FROM ghcr.io/zaba505/cpybkc:v0` names a *published* image. This repository
-// does not publish one yet — that is #55 — and even once it does, a pull request
-// has to check the base it just built rather than the one on the registry, and
-// there is no way to point a Dockerfile's FROM at a container that exists only
-// inside the pipeline.
+// `FROM ghcr.io/zaba505/cpybkc:v0` names a *published* image, and a pull request
+// has to check the base it just built rather than the one on the registry: the
+// published tag is last release's image, and a change that moved the plugin
+// directory would pass against it and break the first adopter to pull the next
+// release. There is no way to point a Dockerfile's FROM at a container that
+// exists only inside the pipeline.
 //
 // So the build stage — every line that compiles the generator, including the
 // heredocs that make the example runnable with an empty build context and the
 // CGO_ENABLED=0 that makes the result run in a scratch image — is handed to the
-// builder exactly as committed, and the final stage is *interpreted*: its FROM
-// is required to name the published base, and its COPY is read for the flags and
-// the paths the document itself wrote. Building that stage against a base image
-// of this pipeline's own is what #55 adds, when there is one to build against.
+// builder exactly as committed, and the final stage is *replayed*: its FROM is
+// required to name the published base, and its COPY is read for the flags and
+// the paths the document itself wrote and then applied to the base image
+// image.go builds (#55). What comes out is a real derived image, checked against
+// the base's own contract plus the one file that COPY moved.
 //
-// Interpreting is only honest if it cannot silently diverge, so the parser
-// refuses anything it does not know how to replay: an instruction other than
-// COPY in the final stage is an error naming it, rather than a line that quietly
-// goes unchecked. A worked example that grows an ENV has to teach this function
-// what an ENV means before CI will accept it.
+// Replaying is only honest if it cannot silently diverge, so the parser refuses
+// anything it does not know how to replay: an instruction other than COPY in the
+// final stage is an error naming it, rather than a line that quietly goes
+// unchecked. A worked example that grows an ENV has to teach this function what
+// an ENV means before CI will accept it.
 package main
 
 import (
@@ -48,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 
 	"dagger/cpybkc/internal/dagger"
@@ -69,10 +72,6 @@ const (
 	// fixed it here would fail the day that advice changed.
 	publishedBaseImage = "ghcr.io/zaba505/cpybkc"
 
-	// pluginDir is the plugin directory the document promises, and the only
-	// destination a copied generator may have.
-	pluginDir = "/usr/local/bin"
-
 	// generatorPrefix is what docs/plugin/SPEC.md's discovery rule makes of a
 	// generator's name, and so what the copied executable has to be called for
 	// cpybkc to find it at all.
@@ -84,14 +83,6 @@ const (
 	// against the one plugin whose absence from the base image nobody would
 	// notice.
 	ownGenerator = "go"
-
-	// imageUser is the UID:GID pair docs/container/SPEC.md pins, spelled the way
-	// a COPY --chown is spelled.
-	imageUser = "65532:65532"
-
-	// executableMode is the mode the copied generator has to land with. cpybkc
-	// discovers a candidate only if it carries an execute bit.
-	executableMode = "0755"
 )
 
 // WorkedExample is docs/container/SPEC.md's worked example checked rather than
@@ -116,11 +107,16 @@ const (
 //     bit, and is statically linked. That last one is the CGO_ENABLED=0 claim,
 //     and it is checked rather than grepped for, because what matters is the
 //     property of the file and not the spelling of the line that produced it.
+//   - The final stage assembles onto the image this pipeline builds (#55). What
+//     the document's COPY says — the path, the owner and the mode — is applied
+//     to the base image image.go produces, and the result is checked against the
+//     base's own contract plus that one file. This is the half that was
+//     interpreted rather than built while there was no base to build against.
 //
 // One platform — the engine's own. What is under test is a document, and the
 // document is platform-agnostic; the platform-specific claims are the image's,
-// and #55 is where they get checked on every platform this project publishes
-// for.
+// and ImageContract is where they get checked on every platform this project
+// publishes for.
 //
 // +check
 // +cache="session"
@@ -129,7 +125,14 @@ func (m *Cpybkc) WorkedExample(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return errors.Join(example.rules(), example.checkBuilds(ctx))
+
+	built := example.build()
+
+	return errors.Join(
+		example.rules(),
+		example.checkBuilds(ctx, built),
+		m.checkExtendsTheImage(ctx, example, built),
+	)
 }
 
 // workedExample is the document's Dockerfile, parsed and judged.
@@ -157,6 +160,46 @@ type workedExample struct {
 type copyInstruction struct {
 	flags    map[string]string
 	operands []string
+}
+
+// mode is the file mode --chmod names, read as octal the way a Dockerfile means
+// it.
+func (c copyInstruction) mode() (int, error) {
+	mode, err := strconv.ParseInt(c.flags["chmod"], 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("the final stage's COPY is --chmod=%q, which is not a file mode: %w",
+			c.flags["chmod"], err)
+	}
+
+	return int(mode), nil
+}
+
+// owner is the UID and GID --chown names.
+//
+// Numbers only, because the image has no /etc/passwd for a name to resolve
+// against — which is the reason docs/container/SPEC.md pins the identity as a
+// number in the first place, and why a `--chown=cpybkc` in the example would be
+// a line that fails in a stranger's build rather than in this one.
+func (c copyInstruction) owner() (int, int, error) {
+	chown := c.flags["chown"]
+
+	user, group, ok := strings.Cut(chown, ":")
+	if !ok {
+		return 0, 0, fmt.Errorf("the final stage's COPY is --chown=%q, which names no group; the image has no "+
+			"passwd file, so both halves are numbers", chown)
+	}
+
+	uid, err := strconv.Atoi(user)
+	if err != nil {
+		return 0, 0, fmt.Errorf("the final stage's COPY is --chown=%q, whose user is not a UID: %w", chown, err)
+	}
+
+	gid, err := strconv.Atoi(group)
+	if err != nil {
+		return 0, 0, fmt.Errorf("the final stage's COPY is --chown=%q, whose group is not a GID: %w", chown, err)
+	}
+
+	return uid, gid, nil
 }
 
 // workedExample reads the Dockerfile out of the document and parses it.
@@ -354,9 +397,18 @@ func (e *workedExample) rules() error {
 		errs = append(errs, fmt.Errorf("the final stage's COPY is --chown=%q; it has to be --chown=%s, "+
 			"the UID and GID the image runs as", chown, imageUser))
 	}
-	if chmod := copied.flags["chmod"]; chmod != executableMode {
-		errs = append(errs, fmt.Errorf("the final stage's COPY is --chmod=%q; it has to be --chmod=%s, "+
-			"because cpybkc discovers only a file carrying an execute bit", chmod, executableMode))
+	// The mode rather than its spelling: --chmod=755 and --chmod=0755 are the
+	// same instruction to a builder, and a rule that insisted on one of them
+	// would be this check having an opinion the document does not. What a
+	// malformed value earns is mode's own error, which names the value and says
+	// what was wrong with it, rather than being folded into the rule below.
+	switch mode, err := copied.mode(); {
+	case err != nil:
+		errs = append(errs, err)
+	case mode != executableMode:
+		errs = append(errs, fmt.Errorf("the final stage's COPY is --chmod=%q, which is mode %04o; it has to be "+
+			"%04o, because cpybkc discovers only a file carrying an execute bit",
+			copied.flags["chmod"], mode, executableMode))
 	}
 
 	if len(copied.operands) != 2 {
@@ -389,19 +441,26 @@ func (e *workedExample) rules() error {
 	return errors.Join(errs...)
 }
 
-// checkBuilds hands the build half of the Dockerfile to the builder exactly as
-// committed, against a context holding nothing but that Dockerfile, and then
-// asks the result for the file the final stage copies out of it.
-func (e *workedExample) checkBuilds(ctx context.Context) error {
+// build hands the build half of the Dockerfile to the builder exactly as
+// committed, against a context holding nothing but that Dockerfile.
+//
+// One node, shared by every check that needs what it produced, so the executable
+// the final stage is assembled from is the same one the linking check passed
+// over rather than a second build of it.
+func (e *workedExample) build() *dagger.Container {
+	return dag.Directory().
+		WithNewFile("Dockerfile", e.buildStage).
+		DockerBuild(dagger.DirectoryDockerBuildOpts{Dockerfile: "Dockerfile"})
+}
+
+// checkBuilds asks the built stage for the file the final stage copies out of
+// it, and requires it to be a static executable.
+func (e *workedExample) checkBuilds(ctx context.Context, built *dagger.Container) error {
 	if len(e.copies) != 1 || len(e.copies[0].operands) != 2 {
 		// rules has already reported this; there is no source path to look for.
 		return nil
 	}
 	source := e.copies[0].operands[0]
-
-	built := dag.Directory().
-		WithNewFile("Dockerfile", e.buildStage).
-		DockerBuild(dagger.DirectoryDockerBuildOpts{Dockerfile: "Dockerfile"})
 
 	// One exec, so that a build stage which produced nothing reports that rather
 	// than three variations on it. ldd exits non-zero for a static executable and
@@ -419,6 +478,81 @@ fi`, source)
 
 	if _, err := built.WithExec([]string{"sh", "-c", script}).Sync(ctx); err != nil {
 		return fmt.Errorf("%s: the worked example: %w", containerSpec, err)
+	}
+	return nil
+}
+
+// checkExtendsTheImage assembles the final stage onto the base image this
+// pipeline builds, and checks what comes out (#55).
+//
+// This is the half the file comment above called interpreted rather than built.
+// `FROM ghcr.io/zaba505/cpybkc:v0` names a published image and a Dockerfile's
+// FROM cannot be pointed at a container that exists only inside the pipeline, so
+// the instruction is replayed instead: the COPY's own path, owner and mode are
+// applied to image.go's base, which is what a builder would do with them, and
+// the result is a real derived image to make assertions about. Replaying rather
+// than building is also why parseWorkedExample refuses an instruction it does
+// not know — a line that cannot be replayed is a line this check would otherwise
+// silently skip.
+//
+// A pull request checks the base it just built, not the one on the registry.
+// That is the whole reason this is worth doing at all: the published tag is
+// last release's image, and a change that moved the plugin directory would pass
+// against it and break the first adopter to pull the next release.
+//
+// Two assertions, and between them they are four of the five things
+// docs/container/SPEC.md calls the contract rather than the example:
+//
+//   - The derived image is the base plus exactly one file, at the path and with
+//     the owner and mode the document's COPY named. Exhaustive, so a stage that
+//     had somehow run something, or copied a second file, is a path nothing
+//     accounts for — which is the COPY-only rule as an assertion.
+//   - It is still cpybkc. The document says ENTRYPOINT is untouched, so the
+//     derived image answers --version exactly as the base does, as its own user
+//     and as an overridden one.
+//
+// The fifth, CGO_ENABLED=0, is checkBuilds' — a property of the file, checked
+// where it is produced.
+func (m *Cpybkc) checkExtendsTheImage(ctx context.Context, e *workedExample, built *dagger.Container) error {
+	if len(e.copies) != 1 || len(e.copies[0].operands) != 2 {
+		// rules has already reported this; there is no COPY to replay.
+		return nil
+	}
+	copied := e.copies[0]
+	source, destination := copied.operands[0], copied.operands[1]
+
+	// A --chmod or a --chown the document did not write properly is rules'
+	// finding — an unreadable mode fails its rule and so does any --chown that
+	// is not the image's user. There is nothing to replay here, and a value this
+	// check invented would be a promise the document did not make.
+	mode, err := copied.mode()
+	if err != nil {
+		return nil
+	}
+	uid, gid, err := copied.owner()
+	if err != nil {
+		return nil
+	}
+
+	// The engine's own platform: the build stage compiled the generator for the
+	// machine the pipeline is running on, so that is the only base it can be
+	// copied onto. Which platforms the base is published for is ImageContract's.
+	platform, err := dag.DefaultPlatform(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the engine's platform: %w", err)
+	}
+
+	derived := m.image(platform).WithFile(destination, built.File(source), dagger.ContainerWithFileOpts{
+		Owner:       copied.flags["chown"],
+		Permissions: mode,
+	})
+
+	errs := m.checkImageContents(ctx, derived, derivedImageContents(destination, imageEntry{uid, gid, mode}))
+	errs = append(errs, m.checkImageIsTheCLI(ctx, derived)...)
+
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("%s: the worked example's final stage, built onto the image this pipeline produces: %w",
+			containerSpec, err)
 	}
 	return nil
 }

@@ -3,10 +3,11 @@
 ## The pipeline
 
 fmt, vet, golangci-lint, `go test -race`, `buf lint`, the three artifacts a
-release attaches and the worked example in the base-image contract are defined
-once, in the root Dagger module under [`.dagger/`](.dagger/). CI calls that
-module and so do you, which is the point: there is no arrangement of local
-commands that passes while CI fails, because they are the same functions.
+release attaches, the published base image and the worked example in the
+base-image contract are defined once, in the root Dagger module under
+[`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:
+there is no arrangement of local commands that passes while CI fails, because
+they are the same functions.
 
 Run the whole thing before pushing:
 
@@ -18,8 +19,9 @@ That is the same call CI makes, with no arguments on either side. It runs the
 four Go stages in parallel and reports every failure, not just the first, and it
 runs the schema lint, the IR module's own stages, a build of [the CLI
 itself](#building-the-cli), a build of the [release
-artifacts](#the-release-artifacts) and a build of the [base-image
-contract](docs/container/SPEC.md)'s worked example alongside them.
+artifacts](#the-release-artifacts), a build of [the published
+image](#building-the-image) on every platform it ships for, and a build of the
+[base-image contract](docs/container/SPEC.md)'s worked example alongside them.
 
 ### Running one stage
 
@@ -36,6 +38,7 @@ dagger call ir-ci         # the whole standard again, over the irpb/ module
 dagger call build         # builds cpybkc CGO-free and runs it in an empty image
 dagger call ir-artifacts  # builds the two IR artifacts a release attaches
 dagger call layout-artifact  # builds the layout schema a release attaches
+dagger call image-contract   # builds the published image, checks its contract
 dagger call worked-example   # builds docs/container/SPEC.md's worked example
 ```
 
@@ -48,16 +51,18 @@ schema](#linting-the-ir-schema).
 
 `ir-ci` is not a stage but the whole standard a second time, over the second Go
 module; see [The IR module](#the-ir-module) for why there is one. `build`,
-`ir-artifacts` and `layout-artifact` are not stages either; see [Building the
-CLI](#building-the-cli) and [The release artifacts](#the-release-artifacts).
+`ir-artifacts`, `layout-artifact` and `image-contract` are not stages either; see
+[Building the CLI](#building-the-cli), [The release
+artifacts](#the-release-artifacts) and [Building the image](#building-the-image).
 
 `worked-example` is the odd one out: it builds a document. The multi-stage
 Dockerfile in [the base-image contract](docs/container/SPEC.md#worked-example-adding-a-generator)
 is the first thing an adopter runs and the last thing anybody here would notice
-had broken, since no other stage reads it, so `ci` extracts it from that file and
-builds it. Edit that example and this is the stage that will tell you about it.
+had broken, since no other stage reads it, so `ci` extracts it from that file,
+builds it, and replays its final stage onto the image `image-contract` just
+checked. Edit that example and this is the stage that will tell you about it.
 
-`dagger check` runs all eleven as a checklist, if you would rather see them
+`dagger check` runs all twelve as a checklist, if you would rather see them
 together than pick one.
 
 ### Building the CLI
@@ -80,6 +85,35 @@ So `build` compiles it CGO-free and runs `cpybkc --version` in an *empty* image.
 Nothing else is in there: a binary needing an interpreter or a libc does not
 start at all, and that failure is this check rather than an image somebody
 publishes.
+
+### Building the image
+
+```sh
+# the image itself, for one platform
+dagger call image --platform=linux/arm64 export --path=cpybkc.tar
+dagger call image-contract                         # the check `ci` runs
+dagger call image-contract --platform=linux/amd64  # one platform of it
+```
+
+The published image is a **public contract**. A Dockerfile in somebody else's
+repository says `FROM ghcr.io/zaba505/cpybkc:v0` and names a path inside it, so
+[the base-image contract](docs/container/SPEC.md) is a document strangers depend
+on and `image-contract` is that document's compatibility guarantees table
+executed rather than read: the entrypoint, `Cmd`, the user, `PATH`, an exhaustive
+listing of every path in the filesystem with its owner and mode, the build
+settings the executable itself reports, and the entrypoint answering `--version`
+as the image's own user and as an overridden one.
+
+It runs on every platform the image is published for, and reports each platform's
+failures separately — "it holds on amd64 and not on arm64" is the finding. The
+foreign-platform legs are cross-compiled by the toolchain container; only the
+runs *through* the entrypoint are emulated, and they are one `--version` each.
+
+The image is assembled in [`.dagger/image.go`](.dagger/image.go) rather than by
+the standard pipeline's app archetype, which publishes one image per binary and
+has no notion of a base other people build `FROM`. That file carries the whole
+argument, and `.dagger/main.go`'s package comment says why the factory this
+module calls is still `GoLib`.
 
 ### Getting the tools
 
@@ -135,15 +169,16 @@ wrote down. Wrapping costs one dependency and makes that impossible. The full
 reasoning, including why the stage functions are not a fork of it, is in
 [`.dagger/main.go`](.dagger/main.go)'s package comment.
 
-`GoLib` rather than `GoApp`, even now that `cmd/cpybkc-gen-go` is a main package.
-What `GoApp` adds is the multi-platform image build and the publish half of the
-standard, and both belong to the container stories: what is in the image, which
-platforms it carries and where it goes are the [base-image
-contract](docs/container/SPEC.md)'s, and switching factories ahead of them would
-build an image nothing had described. The four check stages gate a pull request
-under either archetype and they run over `./...`, so `cmd/` is checked today. The
-move lands with the image — a change to which factory the module calls, not a
-change to what the pipeline is.
+`GoLib` rather than `GoApp`, even now that `cmd/cpybkc-gen-go` is a main package
+and the image is built. What `GoApp` adds is a multi-platform image build and the
+publish half of the standard, and the image half of that turned out not to fit:
+`GoApp` publishes one image per binary, and cpybkc publishes a *base* — a
+directory on `PATH` that other people's images copy into, owned by a pinned
+non-root user. Teaching the archetype that shape would be teaching it this
+repository's plugin model. So the image is assembled in
+[`.dagger/image.go`](.dagger/image.go), the four check stages gate a pull request
+exactly as before, and what is left for `GoApp` is the publish half, which the
+publishing story can take or leave on its own merits.
 
 Both dependencies in `dagger.json` are pinned to one `devex` commit, so a bump
 has to move them together.

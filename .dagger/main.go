@@ -13,15 +13,21 @@
 // nobody wrote down. Wrapping costs one dependency and keeps that impossible.
 //
 // GoLib rather than GoApp, even now that cmd/cpybkc-gen-go is a main package
-// (#48). What GoApp adds over GoLib is the multi-platform image build and the
-// publish half of the standard, and both of those are what #54 and #55 specify
-// and build — the base-image contract decides what is in the image, which
-// platforms it carries and where it is published, and switching factories ahead
-// of those stories would produce an image nothing had described and a publish
-// stage with nowhere to publish to. The four check stages are what gate a pull
-// request, and they cover cmd/ under either archetype because they run over
-// ./... . The move to GoApp lands with the image, in #55: a change to which
-// factory this file calls, not a change to what the pipeline is.
+// (#48) and the image is built (#55). What GoApp adds over GoLib is a
+// multi-platform image build and the publish half of the standard, and this
+// story expected to reach the image by switching factories. It did not, and
+// image.go's own comment says why at length: GoApp publishes one image per
+// binary, and cpybkc publishes a *base* — a directory on PATH that other
+// people's images copy into, owned by a pinned non-root user. Four of the six
+// promises docs/container/SPEC.md makes are that shape rather than settings
+// GoApp is missing.
+//
+// So the factory stays GoLib, and the four check stages still gate a pull
+// request and still cover cmd/ because they run over ./... . The image is built
+// by this module in image.go — the shape avroc arrived at for the same reason
+// (avroc#166). What is left for GoApp is the publish half, which is #59's, and
+// which it will be able to take or leave on its own merits rather than because
+// the image came attached to it.
 //
 // # Why the stage functions exist alongside it
 //
@@ -77,6 +83,15 @@
 // smallest thing that can tell a static binary from a dynamic one without
 // reading its headers. It lands with the CLI (#147) rather than with the image
 // (#55) because it is a claim about the binary, and the binary exists first.
+//
+// # Why the image is built here too
+//
+// ImageContract builds the published base image on every platform this project
+// ships for and checks it against docs/container/SPEC.md (#55). It is in Ci for
+// the reason the artifact builds are: the image is a public contract named by
+// path from repositories this project cannot see, so the pull request that moves
+// a path is where that has to fail. image.go carries the argument for why the
+// image is assembled in this module rather than by the standard's app archetype.
 //
 // # Why the release artifacts are built here
 //
@@ -188,12 +203,13 @@ func New(
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
 // the Z5Labs standard defines them, over each of this repository's two Go
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
-// build of the three artifacts a release publishes, and the worked example
-// docs/container/SPEC.md hands an adopter. This is the single entrypoint — CI
-// is one `dagger call ci` and stays one, because a workflow step that reran any
-// of these stages would be a second definition of them.
+// build of the three artifacts a release publishes, the published base image on
+// every platform it ships for, and the worked example docs/container/SPEC.md
+// hands an adopter. This is the single entrypoint — CI is one `dagger call ci`
+// and stays one, because a workflow step that reran any of these stages would be
+// a second definition of them.
 //
-// The seven parts run concurrently and all are reported, for the reason the
+// The eight parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -201,10 +217,10 @@ func New(
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, exampleErr error
+	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr error
 
 	var wg sync.WaitGroup
-	wg.Add(7)
+	wg.Add(8)
 
 	go func() {
 		defer wg.Done()
@@ -240,12 +256,20 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
+		// Every published platform, because the promise is about the index a
+		// consumer pulls from and not about the one architecture this run
+		// happens to be on.
+		imageErr = m.ImageContract(ctx, "")
+	}()
+
+	go func() {
+		defer wg.Done()
 		exampleErr = m.WorkedExample(ctx)
 	}()
 
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, exampleErr)
+	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -486,15 +510,13 @@ func (m *Cpybkc) IrArtifacts(ctx context.Context) error {
 // It is a function on this module rather than steps in a workflow for the
 // reason IrDescriptorSet is: a recipe that only ever ran inside a workflow
 // would be a build nobody can reproduce locally.
+//
+// The engine's own platform, because that is what a contributor exporting one
+// wants. Every published image carries the same build with a platform argument
+// (image.go's binary), so there is one recipe for the executable and not one per
+// destination.
 func (m *Cpybkc) Binary() *dagger.File {
-	return dag.Go().
-		Build(m.Source, dagger.GoBuildOpts{
-			Pkg:          cliPackage,
-			ArtifactName: cliBinary,
-			Trimpath:     true,
-			DisableCgo:   true,
-		}).
-		File(cliBinary)
+	return m.binary("")
 }
 
 // Build builds the CLI and runs it in an empty image.
@@ -528,9 +550,19 @@ func (m *Cpybkc) Build(ctx context.Context) error {
 			"ships in: %w", err)
 	}
 
-	// Only that it is the version line's shape. What the line says is
-	// cmd/cpybkc's own test's business, and asserting the version here would
-	// pin a release number in the pipeline.
+	return checkVersionLine(line)
+}
+
+// checkVersionLine reports whether line is what `cpybkc --version` writes.
+//
+// Only the line's shape. What it says is cmd/cpybkc's own test's business, and
+// asserting the version here would pin a release number in the pipeline.
+//
+// It is shared with the image contract, which runs the same invocation through
+// the published image's entrypoint (#55): what "this is cpybkc answering" means
+// is a property of the line rather than of which container it came out of, and a
+// second spelling would be a second, weaker answer.
+func checkVersionLine(line string) error {
 	if !strings.HasPrefix(line, cliBinary+" ") || !strings.Contains(line, "IR version") {
 		return fmt.Errorf("cpybkc --version wrote %q, and the line names the program, its version and the IR "+
 			"version this build produces", line)

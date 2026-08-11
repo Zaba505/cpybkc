@@ -552,11 +552,18 @@ is what makes "runnable as written" something somebody measured rather than
 remembered — a heredoc that no longer parses, a Go program that no longer
 compiles, a module path that no longer resolves or a toolchain that has moved on
 all fail there, and so does an executable that comes out dynamically linked. The
-**final stage is interpreted rather than built**: `FROM ghcr.io/zaba505/cpybkc`
-names a published image, and its `FROM` line, its absence of a `RUN` and its
-`COPY` flags and paths are read and checked against the requirements above.
-Building that stage against the base image the pipeline itself produced is what
-#55 adds, when there is one to build it against.
+**final stage is replayed onto the image the pipeline just built** (#55): a
+`FROM` line cannot name a container that exists only inside a pipeline, so its
+`FROM` is required to name the published base and its `COPY` — the path, the
+`--chown` and the `--chmod` this document wrote — is applied to that base
+instead. What comes out is a real derived image, and it is checked against this
+document the same way the base is: the filesystem is the base's plus exactly the
+one file that was copied, and the entrypoint still answers as cpybkc.
+
+Checking against the base the pipeline built rather than against the published
+tag is the point. The tag is last release's image, so an edit that moved the
+plugin directory would pass against it and break the first adopter to pull the
+next release.
 
 The check refuses what it cannot replay: an instruction in the final stage other
 than the ones this document permits is an error naming it, rather than a line
@@ -574,7 +581,7 @@ change to any of them is a breaking change:
 | [The entrypoint](#the-entrypoint) | Is the cpybkc CLI, and takes its arguments |
 | [The user](#the-user) | UID 65532, GID 65532, non-root, overridable |
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
-| [Platforms](#why-linuxs390x-is-inside-the-guarantee) | `linux/amd64`, `linux/arm64` and `linux/s390x` |
+| [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
 | [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM |
 
@@ -597,34 +604,41 @@ depending on something that may change in a patch release, with no notice:
   label or annotation on the manifest.
 - Which UID owns a file that is not in the plugin directory.
 
-### Why `linux/s390x` is inside the guarantee
+### Why the platform set is the two it is
 
-The covered platform set is the deliberate part of that table, because it is the
-one place this contract does not follow the prior art it is otherwise modelled
-on: `avroc` publishes `linux/amd64` and `linux/arm64` and puts every further
-platform explicitly *outside* its guarantee.
+The covered platform set is the deliberate part of that table. An earlier draft
+of this document had a third entry, `linux/s390x`, on the reasoning that files
+composed of COBOL copybook records come from mainframes and that a shop with
+those files runs containers on Linux on Z. That reasoning was about the *files*
+and this table is about the *machine cpybkc executes on*, and the two are not
+the same place (#55, #56).
 
-cpybkc brings `linux/s390x` inside instead (#55, #56). The audience is the
-reason. Files composed of COBOL copybook records come from mainframes, and Linux
-on Z and z/OS Container Extensions are where a shop with those files already
-runs containers; a derived image that cannot be built for the machine holding
-the data is an extension mechanism that mostly works. It is also the only
-big-endian platform in the matrix, which makes it the leg that tests the
-[byte-order fork](https://github.com/Zaba505/cobol-go/blob/main/codec/SPEC.md)
-the generated code is written against rather than merely packaging for it — the
-class of bug that passes everywhere else (#56).
+cpybkc runs on developer machines. It is a code generator for a modern codebase
+that integrates with an existing mainframe ecosystem through a file format a
+copybook defines in part; it is not deployed to the mainframe, and nothing about
+using it requires it to run on one. So `linux/amd64` and `linux/arm64` are the
+platforms developers and their CI actually have, and a third leg would have been
+a published promise with no consumer behind it — which #56 said outright when it
+was closed as not planned.
 
-The cost is honest and small: CGO-free Go cross-compiles to it for nothing, and
-the emulated test leg (#56) is CI time rather than a promise. What putting it in
-the table buys is that a Dockerfile in a mainframe shop's repository may say
-`FROM` and mean it, and that dropping the platform later would be the breaking
-change it ought to be rather than a quiet change of mind.
+What this retires is a build target, and nothing else. The [byte-order
+fork](https://github.com/Zaba505/cobol-go/blob/main/codec/SPEC.md) the generated
+code is written against is a property of the **data being read**, not of the
+host CPU: big-endian files stay fully in scope, must decode correctly on both
+platforms above, and are tested there. A big-endian *host* is what is out of
+scope.
+
+Any platform beyond those two is explicitly outside this guarantee, which is the
+same position `avroc` takes for the same set. Adding one later is not a breaking
+change and needs no new major version; dropping one of these two is, and would
+go through [How a covered thing would change](#how-a-covered-thing-would-change)
+like any other covered value.
 
 The *set* is covered; the machinery that fills it is not. Which platforms a
 published index carries is something a consumer reads out of the index and
-builds against, so it is a guarantee. How each one is cross-compiled, tested
-under emulation or assembled is [out of
-scope](#how-the-image-is-built-and-published) like the rest of the build.
+builds against, so it is a guarantee. How each one is cross-compiled or
+assembled is [out of scope](#how-the-image-is-built-and-published) like the rest
+of the build.
 
 ### How a covered thing would change
 
@@ -644,8 +658,8 @@ deprecation notice somebody reads instead of a broken build somebody bisects.
 
 ### How the image is built and published
 
-The build, the platform matrix, emulated testing, signing, provenance and SBOM
-generation are **not specified here**.
+The build, the platform matrix, how each leg of it is cross-compiled or tested,
+signing, provenance and SBOM generation are **not specified here**.
 
 Reason: none of it is visible to a Dockerfile that says `FROM`. This document
 describes what an image consumer may depend on; the machinery producing it
@@ -694,11 +708,11 @@ Go install with no document that applies to them.
 | [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container` |
 | [What a tag carries besides the image](#what-a-tag-carries-besides-the-image) | #58 `container` |
 | [Worked example: adding a generator](#worked-example-adding-a-generator) | #54 `container` |
-| [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for building that stage against a base image of this pipeline's own |
+| [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for replaying that stage onto a base image of this pipeline's own |
 | [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container` |
-| [Why `linux/s390x` is inside the guarantee](#why-linuxs390x-is-inside-the-guarantee) | #54 `container` decides it, #55, #56 `container` build and test it |
+| [Why the platform set is the two it is](#why-the-platform-set-is-the-two-it-is) | #54 `container` decides it, #55 `container` builds it, #56 `container` retires the third leg it once had |
 | The IR proto shipped in the image — a consumer-visible file, sized here | #57 `container` |
-| Multi-platform build and s390x testing — out of scope, see above | #55, #56 `container` |
+| The multi-platform build itself — out of scope, see above | #55 `container` |
 | The Dagger module's default image tag — out of scope, see above | #104 `dagger` settles it in [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module); #61 `dagger` carries it onto the constructor |
 | Signing, provenance and SBOM — verifiable, so the tags section cites them | #58 `container` |
 | This document | #54 `container`; its shape and the settled `Scope`, `Governing sources` and `Out of Scope`, #15 `setup` |
