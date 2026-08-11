@@ -614,3 +614,43 @@ func TestTwoRecordsOverOneCopybookAreRenamedIndependently(t *testing.T) {
 			len(substitutes), substitutes)
 	}
 }
+
+// TestOneMissingCopybookIsReportedAgainstEveryRecordThatNamesIt is the rule
+// this repository collects faults for, applied to a file rather than to a form.
+//
+// The file is read once — the answer is the same whichever record asked — but
+// two records bound to it are two lines of the layout an adopter has to look at,
+// so both are reported. Reporting only the first would have them fix one line,
+// run again, and be told about the next.
+func TestOneMissingCopybookIsReportedAgainstEveryRecordThatNamesIt(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "orders.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 4))
+(record ORDER-OPEN  (copybook "cpy/orders.cpy" ORDER-REC))
+(record ORDER-CLOSE (copybook "cpy/orders.cpy" ORDER-REC))
+(discriminate ORDER-OPEN  single-record-type)
+(discriminate ORDER-CLOSE single-record-type)
+(sequence (seq ORDER-OPEN ORDER-CLOSE))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "orders.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	found := diag.Diagnostics(err)
+	if len(found) != 2 {
+		t.Fatalf("two records bound to one missing copybook report %d faults, want 2:\n%s",
+			len(found), diag.Render(err))
+	}
+
+	// Each points at its own `copybook` child, which is the line that record's
+	// reader has to edit.
+	if found[0].Spans[0] == found[1].Spans[0] {
+		t.Errorf("both faults point at %s, want one per record", found[0].Spans[0])
+	}
+}

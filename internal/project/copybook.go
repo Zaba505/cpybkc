@@ -45,39 +45,61 @@ type bindings struct {
 	byName map[string]binding
 }
 
+// source is one copybook file, read: the entries it holds, or why it holds
+// none.
+//
+// It is kept rather than the fragment alone so that a file can be read once and
+// still be reported against every record that named it. The two are separate
+// questions: reading is about the file, and a diagnostic is about the line of
+// the layout an adopter has to edit.
+type source struct {
+	// fragment is the copybook's entries, nil where reading it failed.
+	fragment *cobol.Fragment
+
+	// err is why it failed, nil where it did not.
+	err error
+
+	// missing reports that the file could not be opened at all, as against
+	// opening and not being COBOL this build can read. They are different
+	// faults with different fixes and different diagnostics.
+	missing bool
+}
+
 // bind opens every copybook the layout's `record` forms name and binds each
 // record to the top-level item inside it.
 //
-// A copybook file is read and parsed once however many records name it, and a
-// fresh item tree is built for each of them; see the package comment for why the
-// tree is not shared.
+// A copybook file is read and parsed **once** however many records name it —
+// the entries are the same whichever record asked for them, and a shared header
+// is read by every record in a layout — and a fresh item tree is built for each
+// of those records; see the package comment for why the tree is not shared.
 //
-// Every fault is reported rather than the first, in the order the records are
-// written: a layout generated against the wrong directory names every copybook
-// wrongly at once, and a reader that stopped at the first would be run once per
-// record.
+// A file that could not be read is nevertheless reported **once per record that
+// names it**, in the order the records are written. The read is not repeated,
+// but the diagnostic is: two records bound to one missing copybook are two lines
+// of the layout an adopter has to look at, and reporting only the first is the
+// "run once per fault" this repository collects faults to avoid — they would fix
+// the path on one line, run again, and be told about the next.
 func bind(dir string, records []layoutmodel.Record) (*bindings, error) {
 	b := &bindings{dir: dir, byName: make(map[string]binding, len(records))}
 
-	// One parse per file. The entries are the same whichever record asked for
-	// them, and a copybook a shared header is COPY'd into is read by every
-	// record in the layout.
-	parsed := make(map[string]*cobol.Fragment)
+	read := make(map[string]source)
 
 	for _, record := range records {
 		path := at(dir, record.Path)
 
-		fragment, read := parsed[path]
-		if !read {
-			fragment = b.read(record, path)
-			parsed[path] = fragment
+		file, already := read[path]
+		if !already {
+			file = readCopybook(path)
+			read[path] = file
 		}
 
-		if fragment == nil {
+		if file.err != nil {
+			b.unreadable(record, path, file)
+
 			continue
 		}
 
-		item := b.item(record, fragment)
+		item := b.item(record, file.fragment)
 		if item == nil {
 			continue
 		}
@@ -94,26 +116,11 @@ func bind(dir string, records []layoutmodel.Record) (*bindings, error) {
 	return b, nil
 }
 
-// read opens one copybook and parses it.
-//
-// The path is reported as the layout spells it, with the absolute path cpybkc
-// opened beside it, which is the pair docs/cli/SPEC.md requires: the first is
-// what the adopter can find in their layout, and the second is the "where it was
-// looked for" without which a relative path in a shared layout sends a reader
-// to the wrong directory.
-func (b *bindings) read(record layoutmodel.Record, path string) *cobol.Fragment {
+// readCopybook opens one copybook and parses it.
+func readCopybook(path string) source {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		b.Fail(&CopybookError{
-			Err: &diag.MissingCopybookError{
-				Pos:  span(record.Copybook),
-				Path: record.Path,
-				Err:  err,
-			},
-			LookedIn: absolute(path),
-		})
-
-		return nil
+		return source{err: err, missing: true}
 	}
 
 	// Fixed format, and see the package comment for why: nothing states a
@@ -121,22 +128,39 @@ func (b *bindings) read(record layoutmodel.Record, path string) *cobol.Fragment 
 	// library is written in.
 	file, err := cobol.Parse(bytes.NewReader(src), cobol.WithFragment(), cobol.WithSourceFormat(cobol.FixedFormat))
 	if err != nil {
-		b.Fail(&CopybookSourceError{Pos: span(record.Copybook), Path: record.Path, Err: err})
-
-		return nil
+		return source{err: err}
 	}
 
 	if file.Fragment == nil {
-		b.Fail(&CopybookSourceError{
-			Pos:  span(record.Copybook),
-			Path: record.Path,
-			Err:  errNoEntries,
-		})
-
-		return nil
+		return source{err: errNoEntries}
 	}
 
-	return file.Fragment
+	return source{fragment: file.Fragment}
+}
+
+// unreadable reports a copybook one record could not be bound to.
+//
+// A file that is not there names both paths, which is the pair
+// docs/cli/SPEC.md requires: the path **as the layout spells it**, which is what
+// the adopter can find in their file, and the absolute path cpybkc opened,
+// without which a relative path in a shared layout sends a reader to the wrong
+// directory. Both are this record's own — the spelling comes from the form being
+// reported, not from whichever record happened to read the file first.
+func (b *bindings) unreadable(record layoutmodel.Record, path string, file source) {
+	if file.missing {
+		b.Fail(&CopybookError{
+			Err: &diag.MissingCopybookError{
+				Pos:  span(record.Copybook),
+				Path: record.Path,
+				Err:  file.err,
+			},
+			LookedIn: absolute(path),
+		})
+
+		return
+	}
+
+	b.Fail(&CopybookSourceError{Pos: span(record.Copybook), Path: record.Path, Err: file.err})
 }
 
 // item builds this record's own tree out of a parsed copybook and finds the

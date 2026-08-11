@@ -44,6 +44,15 @@ var signalled = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
 // the notification is stopped as the first one is handled rather than when the
 // process ends.
 //
+// [signal.Stop] is the whole of that and no reset is needed. SIGINT and SIGTERM
+// are both `_SigNotify|_SigKill` to the Go runtime, so with no channel left
+// registered for one the runtime's handler stops delivering it and kills the
+// process with the signal instead — which is the default disposition, reached
+// by the path the runtime already takes for a program that never called
+// [signal.Notify] at all. [signal.Reset] would undo every caller's Notify for
+// those signals rather than this one's, which is a bigger claim than this
+// function is entitled to make.
+//
 // The returned function releases the notification and cancels the context. It
 // is safe to call more than once and is what a caller defers.
 func cancellable(ctx context.Context) (context.Context, func()) {
