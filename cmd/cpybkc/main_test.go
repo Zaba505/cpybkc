@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ import (
 func invoke(args ...string) (stdout, stderr string, code status) {
 	var out, errs bytes.Buffer
 
-	code = run(args, &out, &errs)
+	code = run(context.Background(), args, &out, &errs)
 
 	return out.String(), errs.String(), code
 }
@@ -159,13 +160,18 @@ func TestAUsageErrorExitsTwoAndSaysSoOnStandardError(t *testing.T) {
 	}
 }
 
-// TestARunFailsUntilThePipelineIsWired is what this scaffold does with a line
-// it understood.
+// TestARunWithNoProjectToRunFails is what this command does with a line it
+// understood and a project it cannot find.
 //
 // It fails rather than succeeding silently: silence is success for a generating
-// run by docs/cli/SPEC.md's own rule, so a scaffold exiting 0 having generated
+// run by docs/cli/SPEC.md's own rule, so a run exiting 0 having generated
 // nothing would be indistinguishable from a project whose generators all ran.
-func TestARunFailsUntilThePipelineIsWired(t *testing.T) {
+// The manifest is the first thing a run reads and there is none in the
+// directory a test runs in, so each of these is a run that got as far as
+// looking. The two --emit-ir lines fail for a second reason besides: writing a
+// descriptor where the flag names is #149, and this build resolves one and
+// generates from it.
+func TestARunWithNoProjectToRunFails(t *testing.T) {
 	t.Parallel()
 
 	for _, args := range [][]string{

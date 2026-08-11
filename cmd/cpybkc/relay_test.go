@@ -50,14 +50,14 @@ func descriptor() *irpb.Descriptor {
 	}
 }
 
-// generate runs one generator whose body is body, with its output rendered the
+// runGenerator runs one generator whose body is body, with its output rendered the
 // way this command renders it, and hands back that standard error, the
 // executable it ran and the run's verdict.
 //
 // The path comes back because a fault naming it names one under a directory the
 // operating system chose; a golden carrying that would be a golden that passes
 // on one machine, so [anonymise] is what a golden is compared against.
-func generate(t *testing.T, body string) (stderr, executable string, err error) {
+func runGenerator(t *testing.T, body string) (stderr, executable string, err error) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -128,7 +128,7 @@ const goldenChattyStdout = "note: go: wrote gen/orders/orders.go"
 func TestAGeneratorsDiagnosticsAreRelayedNamedAndAtTheirOwnSeverity(t *testing.T) {
 	t.Parallel()
 
-	stderr, _, err := generate(t, chatty)
+	stderr, _, err := runGenerator(t, chatty)
 	if err != nil {
 		t.Fatalf("a generator that exited zero failed the run: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestAGeneratorsDiagnosticsAreRelayedNamedAndAtTheirOwnSeverity(t *testing.T
 func TestNothingAGeneratorWroteIsRelayedToStandardOutput(t *testing.T) {
 	t.Parallel()
 
-	stderr, _, err := generate(t, chatty)
+	stderr, _, err := runGenerator(t, chatty)
 	if err != nil {
 		t.Fatalf("a generator that exited zero failed the run: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestNothingAGeneratorWroteIsRelayedToStandardOutput(t *testing.T) {
 func TestARelayedErrorDoesNotFailARunAndAWarningDoesNotEither(t *testing.T) {
 	t.Parallel()
 
-	stderr, _, err := generate(t, `echo 'error: ORDER-DETAIL: nothing was generated for this record' >&2
+	stderr, _, err := runGenerator(t, `echo 'error: ORDER-DETAIL: nothing was generated for this record' >&2
 echo 'warning: ORDER-TRAILER: no accessor was generated' >&2
 exit 0`)
 	if err != nil {
@@ -220,7 +220,7 @@ error: the generator "go" failed: it exited 2
 func TestAGeneratorCrashIsReportedWithWhatItSaidFirst(t *testing.T) {
 	t.Parallel()
 
-	stderr, executable, err := generate(t, `echo 'error: ORDER-DETAIL.OD-QTY: USAGE COMP-3 is not supported by this generator' >&2
+	stderr, executable, err := runGenerator(t, `echo 'error: ORDER-DETAIL.OD-QTY: USAGE COMP-3 is not supported by this generator' >&2
 echo 'panic: runtime error: index out of range [3]' >&2
 exit 2`)
 	if err == nil {
@@ -244,7 +244,7 @@ exit 2`)
 func TestAGeneratorKilledIsDistinguishableFromOneThatExited(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := generate(t, `kill -TERM $$; sleep 30`)
+	_, _, err := runGenerator(t, `kill -TERM $$; sleep 30`)
 	if err == nil {
 		t.Fatal("a generator killed by SIGTERM did not fail the run")
 	}
@@ -278,7 +278,7 @@ func TestAGeneratorKilledIsDistinguishableFromOneThatExited(t *testing.T) {
 func TestEveryRelayedLineOpensWithASeverity(t *testing.T) {
 	t.Parallel()
 
-	stderr, _, err := generate(t, `echo '' >&2
+	stderr, _, err := runGenerator(t, `echo '' >&2
 echo 'error: ' >&2
 echo 'error:something' >&2
 echo '    at frame 3' >&2
@@ -314,7 +314,7 @@ echo 'ERROR: shouting' >&2`)
 func TestALineThatIsNotADiagnosticIsRelayedVerbatim(t *testing.T) {
 	t.Parallel()
 
-	stderr, _, err := generate(t, `printf 'at frame 3   \n' >&2
+	stderr, _, err := runGenerator(t, `printf 'at frame 3   \n' >&2
 printf '\tgoroutine 1 [running]:  \n' >&2`)
 	if err != nil {
 		t.Fatalf("a generator that exited zero failed the run: %v", err)
@@ -335,7 +335,7 @@ printf '\tgoroutine 1 [running]:  \n' >&2`)
 func TestABlankLineIsRelayedAsTheSeverityAndTheNameAlone(t *testing.T) {
 	t.Parallel()
 
-	stderr, _, err := generate(t, `echo '' >&2`)
+	stderr, _, err := runGenerator(t, `echo '' >&2`)
 	if err != nil {
 		t.Fatalf("a generator that exited zero failed the run: %v", err)
 	}
