@@ -13,21 +13,32 @@
 // nobody wrote down. Wrapping costs one dependency and keeps that impossible.
 //
 // GoLib rather than GoApp, even now that cmd/cpybkc-gen-go is a main package
-// (#48) and the image is built (#55). What GoApp adds over GoLib is a
-// multi-platform image build and the publish half of the standard, and this
-// story expected to reach the image by switching factories. It did not, and
-// image.go's own comment says why at length: GoApp publishes one image per
-// binary, and cpybkc publishes a *base* — a directory on PATH that other
-// people's images copy into, owned by a pinned non-root user. Four of the six
-// promises docs/container/SPEC.md makes are that shape rather than settings
-// GoApp is missing.
+// (#48), the image is built (#55) and it is published (#59). What GoApp adds
+// over GoLib is a multi-platform image build and the publish half of the
+// standard, and the image story expected to reach the image by switching
+// factories. It did not, and image.go's own comment says why at length: GoApp
+// publishes one image per binary, and cpybkc publishes a *base* — a directory on
+// PATH that other people's images copy into, owned by a pinned non-root user.
+// Four of the six promises docs/container/SPEC.md makes are that shape rather
+// than settings GoApp is missing.
 //
 // So the factory stays GoLib, and the four check stages still gate a pull
 // request and still cover cmd/ because they run over ./... . The image is built
-// by this module in image.go — the shape avroc arrived at for the same reason
-// (avroc#166). What is left for GoApp is the publish half, which is #59's, and
-// which it will be able to take or leave on its own merits rather than because
-// the image came attached to it.
+// by this module in image.go and published by it in release.go — the shape avroc
+// arrived at for the same reason (avroc#166, avroc#168). The publish half went
+// the same way as the image half once the image did: what a release pushes is
+// the base this module assembles, under tags this module derives, and GoApp has
+// no notion of either.
+//
+// # Why the release is decided here too
+//
+// release.go decides whether a commit is a release, which tags it carries and
+// what its notes say about the image (#59). That decision is in the module and
+// not in .github/workflows/release.yaml because the alternative is the tag scheme
+// written down a second time, in a file that runs once per release and is
+// exercised nowhere else. TagScheme and ReleaseNotesContract are in Ci for the
+// same reason the artifact builds are: a recipe whose first real run is on a tag
+// is one whose failure is a release that did not happen.
 //
 // # Why the stage functions exist alongside it
 //
@@ -219,12 +230,12 @@ func New(
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
 // build of the three artifacts a release publishes, the published base image on
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
-// an adopter, and the attestations a release attaches to what it publishes. This
-// is the single entrypoint — CI is one `dagger call ci` and stays one, because a
-// workflow step that reran any of these stages would be a second definition of
-// them.
+// an adopter, the attestations a release attaches to what it publishes, and the
+// tag scheme and release notes a release is published under. This is the single
+// entrypoint — CI is one `dagger call ci` and stays one, because a workflow step
+// that reran any of these stages would be a second definition of them.
 //
-// The nine parts run concurrently and all are reported, for the reason the
+// The eleven parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -233,9 +244,10 @@ func New(
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr error
+	var tagErr, notesErr error
 
 	var wg sync.WaitGroup
-	wg.Add(9)
+	wg.Add(11)
 
 	go func() {
 		defer wg.Done()
@@ -287,9 +299,20 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		attestErr = m.Attestations(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		tagErr = m.TagScheme()
+	}()
+
+	go func() {
+		defer wg.Done()
+		notesErr = m.ReleaseNotesContract()
+	}()
+
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr)
+	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr,
+		tagErr, notesErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -567,16 +590,34 @@ func (m *Cpybkc) Binary() *dagger.File {
 // +check
 // +cache="session"
 func (m *Cpybkc) Build(ctx context.Context) error {
+	line, err := m.versionLine(ctx)
+	if err != nil {
+		return err
+	}
+
+	return checkVersionLine(line)
+}
+
+// versionLine runs `cpybkc --version` in an image holding nothing but the
+// binary, and returns what it wrote.
+//
+// Two callers want it for different reasons and one recipe serves both: Build
+// wants to know that the binary starts at all in an image with no loader and no
+// libc, and release.go's irVersion wants the IR version off the line, which is
+// the number the release notes state. Reading that number out of the artifact is
+// the whole point — a constant in the pipeline would be a second statement of
+// what the assembler stamps.
+func (m *Cpybkc) versionLine(ctx context.Context) (string, error) {
 	line, err := dag.Container().
 		WithFile(cliBinaryPath, m.Binary(), dagger.ContainerWithFileOpts{Permissions: 0o755}).
 		WithExec([]string{cliBinaryPath, "--version"}).
 		Stdout(ctx)
 	if err != nil {
-		return fmt.Errorf("cpybkc does not run in an image holding nothing but itself, which is the image it "+
+		return "", fmt.Errorf("cpybkc does not run in an image holding nothing but itself, which is the image it "+
 			"ships in: %w", err)
 	}
 
-	return checkVersionLine(line)
+	return line, nil
 }
 
 // checkVersionLine reports whether line is what `cpybkc --version` writes.

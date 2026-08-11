@@ -429,6 +429,14 @@ example](#worked-example-adding-a-generator) uses. A **prerelease** —
 the other three, because a release candidate is not a fix anybody consented to
 be given (#59).
 
+The three that move follow **the release being published**, not the highest
+version ever published. For releases cut in ascending order — which is how this
+project cuts them — the two are the same thing. They come apart only if a
+backport is released after the version that supersedes it, which would land `v0`
+and `latest` back on the older image; that is a constraint on the releaser
+rather than a licence for a consumer to see the moving tags go backwards, and
+the full version tag and the digest are unaffected either way.
+
 A digest is the only reference that pins the bytes rather than a promise about
 them, and it is what to use when reproducibility is the requirement — the
 position the plugin contract takes under [Plugin

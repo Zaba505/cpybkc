@@ -57,8 +57,9 @@
 // valid document per executable per platform tied to that platform's own binary.
 //
 // What is left unchecked until a release runs is the signing itself, and that is
-// stated rather than papered over: #59 is what first calls Attest with something
-// published, and the first release is where a wrong flag would show up.
+// stated rather than papered over: release.go's Release is what calls Attest
+// with something published (#59), and the first release is where a wrong flag
+// would show up.
 package main
 
 import (
@@ -207,10 +208,10 @@ func (m *Cpybkc) Provenance(
 // Attest signs a published image digest with cosign and attaches its provenance
 // and SBOMs (#58).
 //
-// It is the seam #59's release publishing comes through: that story resolves
+// It is the seam release publishing comes through: release.go's Release resolves
 // which tags a release carries and pushes them, and hands the digest they all
-// point at to this function. Nothing here decides what to publish or where —
-// where to publish is a property of the deployment, and a mirror or an internal
+// point at to this function (#59). Nothing here decides what to publish or where
+// — where to publish is a property of the deployment, and a mirror or an internal
 // registry serves the same release.
 //
 // The signature comes first and the attestations follow, deliberately. The
