@@ -64,9 +64,23 @@ func ParseValues(b []byte) (*Values, error) {
 		return nil, err
 	}
 
+	if faults := values.records(); len(faults) > 0 {
+		return nil, joined(faults)
+	}
+
+	return &values, nil
+}
+
+// records is what is wrong with the records of a values document, which is
+// everything the format asks of one beyond it being JSON.
+//
+// It is separate from [ParseValues] because a values document is read in two
+// places: on its own, as an entry's values.json, and as a member of the answer
+// document a runner writes (see [Answer]). Both hold it to this.
+func (v *Values) records() []error {
 	var faults []error
 
-	for i, record := range values.Records {
+	for i, record := range v.Records {
 		if record.Name == "" {
 			faults = append(faults, fmt.Errorf("record %d carries no name", i))
 		}
@@ -76,11 +90,7 @@ func ParseValues(b []byte) (*Values, error) {
 		}
 	}
 
-	if len(faults) > 0 {
-		return nil, joined(faults)
-	}
-
-	return &values, nil
+	return faults
 }
 
 // decodeOne reads exactly one JSON document out of b, and is how every JSON

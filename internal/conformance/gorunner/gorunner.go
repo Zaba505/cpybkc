@@ -82,21 +82,23 @@ type Runner struct {
 	Options []plugin.Option
 }
 
-// Run generates code for the entry, compiles it, and reads the entry's bytes
-// with it.
+// Run generates code for the entry, compiles it, reads the entry's bytes with
+// it, and writes the records it read back out with it.
 //
-// What comes back is what the generated code decoded, in the corpus's own value
-// language, which is what [github.com/Zaba505/cpybkc/internal/conformance.Compare]
-// holds against the entry. A file the generated reader refused is not an error
-// here: it is a [github.com/Zaba505/cpybkc/internal/conformance.Values] carrying
-// a failure, because an entry is allowed to expect one and only the comparison
-// knows whether this entry did.
+// What comes back is what the generated code made of the entry in both
+// directions, in the corpus's own value language, which is what
+// [github.com/Zaba505/cpybkc/internal/conformance.CompareAnswer] holds against
+// the entry. A file the generated reader refused is not an error here, and
+// neither is a record the generated writer refused: each is a
+// [github.com/Zaba505/cpybkc/internal/conformance.Values] carrying a failure,
+// because an entry is allowed to expect one and only the comparison knows
+// whether this entry did.
 //
 // An error is this harness failing rather than the generator disagreeing: the
 // generator exited non-zero, its output did not compile, or the driver could not
 // be run. Those are not conformance failures and are deliberately not reported
 // as one.
-func (r *Runner) Run(ctx context.Context, entry *conformance.Entry) (*conformance.Values, error) {
+func (r *Runner) Run(ctx context.Context, entry *conformance.Entry) (*conformance.Answer, error) {
 	if err := r.check(entry); err != nil {
 		return nil, err
 	}
@@ -196,12 +198,12 @@ func (r *Runner) generate(ctx context.Context, entry *conformance.Entry, out str
 	return nil
 }
 
-// drive builds and runs the driver, and reads the values document it wrote.
+// drive builds and runs the driver, and reads the answer it wrote.
 //
 // The go tool is run from the repository root so that it resolves the module
 // there: the generated package imports what this module already requires, which
 // is what lets a run need no network and no module of its own.
-func (r *Runner) drive(ctx context.Context, scratch, descriptor, input string) (*conformance.Values, error) {
+func (r *Runner) drive(ctx context.Context, scratch, descriptor, input string) (*conformance.Answer, error) {
 	rel, err := filepath.Rel(r.Root, filepath.Join(scratch, driverDir))
 	if err != nil {
 		return nil, fmt.Errorf("failed to name the driver to the go tool: %w", err)
@@ -218,12 +220,12 @@ func (r *Runner) drive(ctx context.Context, scratch, descriptor, input string) (
 		return nil, fmt.Errorf("the generated code did not compile or did not run: %w\n%s", err, errs.String())
 	}
 
-	values, err := conformance.ParseValues(out.Bytes())
+	answer, err := conformance.ParseAnswer(out.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("the driver wrote a values document this harness cannot read: %w", err)
+		return nil, fmt.Errorf("the driver wrote an answer this harness cannot read: %w", err)
 	}
 
-	return values, nil
+	return answer, nil
 }
 
 // recordTypes pairs each record node of the descriptor with the Go type the

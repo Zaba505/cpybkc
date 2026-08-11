@@ -45,10 +45,16 @@ jobs:
   # never as raw Go steps beside this one. `buf lint` over the IR schema is the
   # first of them and it is called by `ci` rather than by a second `dagger call`
   # here, so that the gate a contributor runs before pushing is the whole of what
-  # CI checks; the conformance corpus (#66-#68) lands the same way. A golden-file
-  # or corpus job written with `actions/setup-go` and `go test` would be a second
-  # toolchain, a second set of stage definitions and a second answer to what this
-  # repository checks.
+  # CI checks. A golden-file or corpus job written with `actions/setup-go` and
+  # `go test` would be a second toolchain, a second set of stage definitions and
+  # a second answer to what this repository checks.
+  #
+  # The conformance corpus (#66-#68) needed neither: it is Go tests under
+  # testdata/, so `go test` inside the standard pipeline already runs it, and a
+  # stage of its own would have been that same second definition arrived at from
+  # the other direction. That is also what makes it a gate on every platform in
+  # the matrix — the matrix is a matrix of this one call, so a platform added
+  # below carries the corpus with it rather than needing a job added beside it.
   ci:
     name: ci
     runs-on: ubuntu-latest

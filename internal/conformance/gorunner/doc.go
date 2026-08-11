@@ -4,8 +4,9 @@
 // https://opensource.org/licenses/MIT
 
 // Package gorunner runs a conformance corpus entry through a Go generator: it
-// invokes the generator on the entry's descriptor, compiles what came out, and
-// reads the entry's bytes with it (#66).
+// invokes the generator on the entry's descriptor, compiles what came out,
+// reads the entry's bytes with it, and writes those records back out with it
+// (#66, #68).
 //
 // It is the Go half of the corpus and it is deliberately a package of its own.
 // [github.com/Zaba505/cpybkc/internal/conformance] is the corpus — the tuple, the
@@ -25,14 +26,27 @@
 //     cpybkc hands a plugin in a real run.
 //  2. Writes a driver beside the generated package: a main program that opens
 //     the entry's bytes with the generated reader, walks each record it produces
-//     against the descriptor, and writes the corpus's own values document on
-//     standard output.
+//     against the descriptor, lays those records back out with the generated
+//     writer, reads that file too, and writes the corpus's own answer document
+//     on standard output.
 //  3. Builds and runs that driver with the Go toolchain.
 //
-// The answer comes back as [github.com/Zaba505/cpybkc/internal/conformance.Values],
-// which is what the entry states too, so a caller compares them with
-// [github.com/Zaba505/cpybkc/internal/conformance.Compare] and needs nothing
-// from this package to interpret the result.
+// The answer comes back as
+// [github.com/Zaba505/cpybkc/internal/conformance.Answer], a values document per
+// direction, and each is what the entry states too — so a caller compares them
+// with [github.com/Zaba505/cpybkc/internal/conformance.CompareAnswer] and needs
+// nothing from this package to interpret the result.
+//
+// # Why the writing direction is a second read and not a byte comparison
+//
+// docs/ir/SPEC.md's "Writing a file" makes byte identity a claim about a record
+// and not about a file, and the corpus holds entries whose bytes a correct
+// writer would not reproduce anyway — the lenient sign nibble of packed-ascii is
+// one. [github.com/Zaba505/cpybkc/internal/conformance.Answer] carries the whole
+// argument; what it means here is that the driver reads the file it wrote rather
+// than comparing it, and that the records handed to the writer are the ones the
+// reader produced rather than records rebuilt from the values, so that the bytes
+// retained for a slack node travel with them.
 //
 // # Why the driver reads the descriptor rather than being written against it
 //

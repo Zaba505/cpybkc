@@ -29,7 +29,7 @@ const (
 )
 
 // writeDriver writes the program that reads the entry's bytes with the code the
-// generator produced.
+// generator produced, and writes those records back out with it.
 //
 // The source is formatted before it is written, which is not tidiness: the
 // driver is never read by a person unless a run failed, and go/format is what
@@ -94,6 +94,7 @@ var driverTemplate = template.Must(template.New("driver").Parse(`// Code generat
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -131,8 +132,9 @@ func main() {
 	}
 }
 
-// run reads the file and writes what it decoded to, in the corpus's own value
-// language.
+// run reads the file, lays the records it read back out with the generated
+// writer, reads that file too, and writes what both directions produced in the
+// corpus's own value language.
 func run(descriptorPath, inputPath string) error {
 	encoded, err := os.ReadFile(descriptorPath)
 	if err != nil {
@@ -149,24 +151,59 @@ func run(descriptorPath, inputPath string) error {
 		nodes[node.GetId()] = node
 	}
 
-	input, err := os.Open(inputPath)
+	input, err := os.ReadFile(inputPath)
 	if err != nil {
 		return err
 	}
 
-	defer input.Close()
-
-	reader, err := corpus.NewReader(input, corpus.Encoding())
+	decoded, held, err := read(nodes, input)
 	if err != nil {
 		return err
+	}
+
+	answer := conformance.Answer{Decoded: decoded}
+
+	// A read that stopped at a failure has no complete set of records to write
+	// back, and an entry that expects one is an entry about the reading
+	// direction. The writing direction is exercised on every other entry.
+	if decoded.Failure == "" {
+		written, err := writeBack(nodes, held)
+		if err != nil {
+			return err
+		}
+
+		answer.Written = written
+	}
+
+	out := json.NewEncoder(os.Stdout)
+	out.SetIndent("", "  ")
+
+	return out.Encode(answer)
+}
+
+// read reads one file with the generated reader: what it decoded, in the
+// corpus's value language, and the records themselves, which are what the
+// writing direction is handed.
+//
+// The records are handed on as the reader produced them, and not rebuilt out of
+// the values beside them. docs/ir/SPEC.md's "Slack survives a read" is why: the
+// bytes no item covers travel with the record and are not a value anybody
+// decoded, so a record built from a values document is a different record — one
+// whose slack a writer fills rather than reproduces.
+func read(nodes map[uint64]*irpb.Node, file []byte) (*conformance.Values, []corpus.Record, error) {
+	reader, err := corpus.NewReader(bytes.NewReader(file), corpus.Encoding())
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Not nil: a file holding no record is a values document carrying an empty
 	// list, and a nil slice would render as one carrying nothing at all.
-	values := conformance.Values{Records: []conformance.Record{}}
+	values := &conformance.Values{Records: []conformance.Record{}}
+
+	var held []corpus.Record
 
 	for {
-		read, err := reader.Next()
+		one, err := reader.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -180,35 +217,76 @@ func run(descriptorPath, inputPath string) error {
 			break
 		}
 
-		held := reflect.ValueOf(read)
-		if held.Kind() != reflect.Pointer || held.IsNil() {
-			return fmt.Errorf("the reader produced %T, which is not a pointer to a record", read)
+		value := reflect.ValueOf(one)
+		if value.Kind() != reflect.Pointer || value.IsNil() {
+			return nil, nil, fmt.Errorf("the reader produced %T, which is not a pointer to a record", one)
 		}
 
-		name := held.Type().Elem().Name()
+		name := value.Type().Elem().Name()
 
 		id, ok := records[name]
 		if !ok {
-			return fmt.Errorf("the reader produced a %s, which stands for no record of this descriptor", name)
+			return nil, nil, fmt.Errorf("the reader produced a %s, which stands for no record of this descriptor", name)
 		}
 
 		record := nodes[id].GetRecord()
 
-		value, err := item(nodes, nodes[record.GetRootId()], held.Elem())
+		decoded, err := item(nodes, nodes[record.GetRootId()], value.Elem())
 		if err != nil {
-			return fmt.Errorf("record %d (%s): %w", len(values.Records)+1, record.GetNames().GetOriginal(), err)
+			return nil, nil, fmt.Errorf("record %d (%s): %w", len(values.Records)+1, record.GetNames().GetOriginal(), err)
 		}
 
 		values.Records = append(values.Records, conformance.Record{
 			Name:  record.GetNames().GetOriginal(),
-			Value: value,
+			Value: decoded,
 		})
+
+		held = append(held, one)
 	}
 
-	out := json.NewEncoder(os.Stdout)
-	out.SetIndent("", "  ")
+	return values, held, nil
+}
 
-	return out.Encode(values)
+// writeBack lays the records out again with the generated writer and reads the
+// file that came out.
+//
+// What comes back is a values document like any other, which is what lets the
+// comparison hold both directions to the one set of values the entry states.
+// The file itself is not compared: docs/ir/SPEC.md's "Writing a file" makes
+// byte identity a claim about a record and not about a file, and
+// conformance.Answer says so at length.
+//
+// A writer that refuses a record is an answer rather than a failure of this
+// program, for the reason a reader that refuses a file is one: it is something
+// the generated code did, and only the comparison against the entry knows what
+// the entry expected of it.
+func writeBack(nodes map[uint64]*irpb.Node, held []corpus.Record) (*conformance.Values, error) {
+	var file bytes.Buffer
+
+	writer, err := corpus.NewWriter(&file, corpus.Encoding())
+	if err != nil {
+		return nil, err
+	}
+
+	for i, one := range held {
+		if err := writer.Write(one); err != nil {
+			return &conformance.Values{
+				Records: []conformance.Record{},
+				Failure: fmt.Sprintf("writing record %d: %v", i+1, err),
+			}, nil
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return &conformance.Values{
+			Records: []conformance.Record{},
+			Failure: fmt.Sprintf("closing the file: %v", err),
+		}, nil
+	}
+
+	values, _, err := read(nodes, file.Bytes())
+
+	return values, err
 }
 
 // item is what one node of the descriptor holds in the value it was decoded

@@ -16,19 +16,27 @@ import (
 	"github.com/Zaba505/cpybkc/internal/conformance/gorunner"
 )
 
-// TestTheGeneratedCodeDecodesEveryEntry is the corpus, run against this
-// repository's own generator.
+// TestTheGeneratedCodeReadsAndWritesEveryEntry is the corpus, run against this
+// repository's own generator, in both directions.
 //
 // It is the whole of what a conformance run is: the entry's descriptor goes to
 // cpybkc-gen-go, what came back is compiled, the entry's bytes are read with it,
-// and the values that came out are held against the values the entry states.
-// Nothing here knows what the records are — the entry says, and a generator in
-// another language is checked by the same two calls (#66).
+// those records are written back out with it, and both answers are held against
+// the values the entry states. Nothing here knows what the records are — the
+// entry says, and a generator in another language is checked by the same two
+// calls (#66, #68).
 //
-// A failure names the entry and the section the entry cites, because whoever
-// reads it has to decide whether the generator is wrong or the entry is, and
-// that decision starts at where the expected answer came from.
-func TestTheGeneratedCodeDecodesEveryEntry(t *testing.T) {
+// It is an ordinary Go test and not a stage of its own, which is what makes it
+// a gate on every platform CI runs on: `dagger call ci` runs `go test ./...`
+// over this module, so the corpus is inside the one call CI makes rather than
+// beside it. A conformance job of its own would be a second gate, and a
+// platform added to the matrix would carry the first and not the second.
+//
+// Every failure names the entry and the section the entry cites, whether it is
+// a disagreement or a run that could not be made at all, because whoever reads
+// it has to decide whether the generator is wrong or the entry is, and that
+// decision starts at where the expected answer came from.
+func TestTheGeneratedCodeReadsAndWritesEveryEntry(t *testing.T) {
 	root := repoRoot(t)
 
 	entries, err := conformance.Load(conformance.CorpusPath(root))
@@ -46,10 +54,10 @@ func TestTheGeneratedCodeDecodesEveryEntry(t *testing.T) {
 		t.Run(entry.Name, func(t *testing.T) {
 			got, err := runner.Run(t.Context(), entry)
 			if err != nil {
-				t.Fatalf("%v", err)
+				t.Fatalf("%v", &conformance.RunError{Entry: entry.Name, Source: entry.Source, Err: err})
 			}
 
-			if err := conformance.Compare(entry.Values, got); err != nil {
+			if err := conformance.CompareAnswer(entry.Values, got); err != nil {
 				t.Fatalf("%v", &conformance.MismatchError{Entry: entry.Name, Source: entry.Source, Err: err})
 			}
 		})
@@ -97,7 +105,7 @@ func TestAnEntryTheGeneratedCodeDisagreesWith(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	if err := conformance.Compare(entry.Values, got); err == nil {
+	if err := conformance.CompareAnswer(entry.Values, got); err == nil {
 		t.Fatal("the comparison passed against values the file does not hold")
 	}
 }
