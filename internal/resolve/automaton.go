@@ -107,6 +107,31 @@ import (
 // (item HEADER SUM-COUNT))` compiles into an acceptance guard, because zero is
 // a test the set has.
 //
+// docs/layout/SPEC.md, "A `when` permits a record, and never requires one" is
+// that loss written where an adopter meets it, and it names the other way out:
+// where the governing value is the record's own discriminating item, two record
+// names over one copybook put the flagged record in a state of its own and the
+// records that must follow it are the only ones that state offers. No register
+// and no guard, because the value became a state (#144).
+//
+// # A guard lands on a position, and a repetition has two ways into one
+//
+// A `when` guards every transition entering a position inside the expression it
+// wraps, and the construction draws no distinction between the ways in. So
+// `(when <item> "Y" (+ <e>))` guards the transitions entering the repetition and
+// not its back edge, while `(+ (when <item> "Y" <e>))` guards both, the second
+// being the same transitions seen from inside the body.
+//
+// Nothing spells the back edge alone. A record name is one position however many
+// transitions reach it, which is what the position automaton buys above, and
+// telling two entries apart is making two positions — the `alt` of two record
+// names again. One consequence surfaces as a diagnostic about the read loop
+// rather than about the repetition: a guard on the back edge is a guard on the
+// way in, so `(+ (when (item DETAIL NEXT-FLAG) "X" DETAIL))` is refused by the
+// strictly-earlier proof below, because on the first pass nothing has bound the
+// register (docs/layout/SPEC.md, "A guard on a repetition guards every way into
+// its body", #144).
+//
 // # What is proved before a byte is read
 //
 // Two proofs run over the assembled graph, and each is docs/ir/SPEC.md asking
