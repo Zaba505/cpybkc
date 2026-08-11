@@ -56,7 +56,7 @@ const (
 `
 
 	// reachStraddle puts the target across the header's last byte: it begins
-	// at byte 9 of a record and ends at byte 12, so eight of its bytes are
+	// at byte 9 of a record and ends at byte 12, so two of its four bytes are
 	// inside the ten the header has and two are not.
 	reachStraddle = `01 D-REC.
    05 D-KEY PIC X(8).
@@ -209,9 +209,9 @@ func TestAPredicateInsideTheShortestRecordIsAnOrdinaryLayout(t *testing.T) {
 
 // TestATargetStraddlingTheBoundIsRejectedOnTheSameFooting is docs/ir/SPEC.md's
 // "a target past it, and a target beginning inside it and ending beyond": what a
-// consumer reads is the target's whole width, so eight bytes inside the header
-// and two outside it is as much a read past the record as four bytes wholly
-// outside it.
+// consumer reads is the target's whole width, so two bytes inside the header and
+// two outside it is as much a read past the record as four bytes wholly outside
+// it.
 func TestATargetStraddlingTheBoundIsRejectedOnTheSameFooting(t *testing.T) {
 	t.Parallel()
 
