@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -647,6 +648,68 @@ func TestWriteReplacesAnExistingFile(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("the replaced file is not the encoded descriptor: %d bytes on disk, %d encoded", len(got), len(want))
 	}
+}
+
+// TestWriteLeavesNothingBesideTheDescriptor holds the other half of the same
+// implementation: whatever a write puts beside the destination on the way is
+// gone afterwards, whether it succeeded or failed.
+//
+// A temporary left behind is not a cosmetic fault. The destination is a path
+// somebody typed, usually beside the layout it describes, and a run that
+// littered a checked-out tree with half-written descriptors would have every one
+// of them turn up in a diff.
+func TestWriteLeavesNothingBesideTheDescriptor(t *testing.T) {
+	t.Run("after a write that succeeded", func(t *testing.T) {
+		dir := t.TempDir()
+		dest := filepath.Join(dir, "ir.binpb")
+
+		if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		if got := entries(t, dir); len(got) != 1 || got[0] != "ir.binpb" {
+			t.Errorf("the directory holds %v, want the descriptor alone", got)
+		}
+	})
+
+	t.Run("after a write that failed", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// A destination that is an existing directory. The encoding succeeds and
+		// so does everything up to the rename, which is the one failure that
+		// reaches this function with a temporary already on disk.
+		dest := filepath.Join(dir, "ir.binpb")
+		if err := os.Mkdir(dest, 0o755); err != nil {
+			t.Fatalf("make %s: %v", dest, err)
+		}
+
+		if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err == nil {
+			t.Fatal("writing over a directory succeeded")
+		}
+
+		if got := entries(t, dir); len(got) != 1 || got[0] != "ir.binpb" {
+			t.Errorf("a failed write left %v behind, want the directory it could not replace alone", got)
+		}
+	})
+}
+
+// entries is the names in dir, sorted, for a message naming what is there.
+func entries(t *testing.T, dir string) []string {
+	t.Helper()
+
+	found, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+
+	names := make([]string, 0, len(found))
+	for _, entry := range found {
+		names = append(names, entry.Name())
+	}
+
+	sort.Strings(names)
+
+	return names
 }
 
 // TestWriteRejectsBadDestinations keeps the failure modes failures. Silently

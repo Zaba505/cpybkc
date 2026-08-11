@@ -8,6 +8,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Zaba505/cpybkc/internal/emit"
 )
 
 // The whole argument vector docs/cli/SPEC.md fixes, and nothing else:
@@ -20,6 +22,15 @@ import (
 // --out, no --include, no --jobs, no --verbose and no --config; that document's
 // "Out of Scope" refuses each one with its reason, and the refusal is only real
 // if the parser has no case for it.
+//
+// Every spelling here is a literal, including the two
+// [github.com/Zaba505/cpybkc/internal/emit] also names. These constants are what
+// the companion module's CLI-surface check reads to decide which flags this
+// command accepts, and it evaluates a literal or a spelling built from another
+// flag's and reports anything else as a value it could not read — so a name
+// imported from another package would turn a drift guard into a failure. They
+// are held to that package's names by a test instead
+// (TestTheEmissionFlagsAreSpelledTheWayTheEncoderNamesThem).
 const (
 	manifestFlag     = "--manifest"
 	emitIRFlag       = "--emit-ir"
@@ -47,6 +58,12 @@ const (
 // binaryFormat is the default because it is the form the rest of the system
 // uses — the canonical protobuf wire encoding a plugin is handed — and the
 // debug form is the one you ask for by name.
+//
+// They are the two encodings [github.com/Zaba505/cpybkc/internal/emit] produces,
+// spelled here and held to that package's by the same test the flag names are: a
+// format this parser accepted and [emit.Write] did not know would be a run that
+// fails after the manifest has been read, over a vector that was the thing that
+// was wrong.
 const (
 	binaryFormat = "binary"
 	jsonFormat   = "json"
@@ -59,7 +76,9 @@ const defaultManifest = "cpybkc.json"
 
 // standardOutput is what `--emit-ir -` names, and it is deliberately the
 // plugin contract's reading of a dash, so that the character means one thing
-// across this project.
+// across this project. It is handed to [emit.Write] unchanged, and a dash this
+// parser recognised and that function did not would be a file called "-", which
+// is the last of the spellings that test holds.
 const standardOutput = "-"
 
 // answer is what a command line asks cpybkc for.
@@ -118,6 +137,16 @@ func (inv invocation) manifestPath() string {
 
 // emitting reports whether this run writes a descriptor instead of generating.
 func (inv invocation) emitting() bool { return inv.emitIR != "" }
+
+// format is the encoding [emit.Write] is asked for.
+//
+// The conversion is safe by [parse]'s own rule rather than by assertion: a value
+// that is neither spelling is a usage error before anything is opened, so what
+// reaches here is one of the two constants above or the default they fall back
+// to. It is a method so that the conversion happens once, where the parser's
+// string meets the encoder's type, rather than at whatever use site got there
+// first.
+func (inv invocation) format() emit.Format { return emit.Format(inv.emitIRFormat) }
 
 // parse reads the argument vector.
 //
