@@ -504,12 +504,13 @@ identically. What is *not* an argument is which tags exist, for the reason above
 ## The companion Dagger module
 
 A second Dagger module ships from this repository: the consumer-facing one that
-runs the CLI for a caller, published as `github.com/Zaba505/cpybkc/<dir>` and
-unrelated to the `.dagger/` module that runs this repository's own pipeline. It
-does not exist yet — #61 writes it — and one thing about it had to be settled
-before it could be written, because the answer is a default value in a
-constructor, and a default in a module directory that is never renamed is public
-API from the first release.
+runs the CLI for a caller, published as
+`github.com/Zaba505/cpybkc/daggerverse/cpybkc` and unrelated to the `.dagger/`
+module that runs this repository's own pipeline. It lives in
+[`daggerverse/cpybkc/`](daggerverse/cpybkc/) (#61), and one thing about it had
+to be settled before it could be written, because the answer is a default value
+in a constructor, and a default in a module directory that is never renamed is
+public API from the first release.
 
 The module gets no `SPEC.md`. It is a convenience over the [base-image
 contract](docs/container/SPEC.md) rather than an interface of its own, and what
@@ -517,6 +518,44 @@ it needs to say it says in its module comment and in `dagger call --help`
 ([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*). What
 follows is the argument behind one of those comments, kept here because the
 argument is longer than the comment and outlives the reader who needs it.
+
+### The directory name is the public ref, so it is chosen once
+
+A Dagger module ref is a directory path inside a tag of this repository, which
+makes `daggerverse/cpybkc` as much public API as any default in it. Renaming
+the directory would not deprecate the old ref, it would delete it: a caller
+pinning `github.com/Zaba505/cpybkc/daggerverse/cpybkc@v0.3.1` resolves that path
+inside the tag they named, so a rename breaks every unpinned caller at once and
+strands every pinned one on a path that will never move again. There is no
+redirect to leave behind and no deprecation period to serve, so **the directory
+is not renamed** — a module that has to be called something else is a new
+directory published beside this one.
+
+`daggerverse/<module>` is the house layout, and it is where
+[`github.com/z5labs/devex`](https://github.com/z5labs/devex) publishes the two
+modules this repository's pipeline already depends on. The module is named for
+what it drives rather than for what it does, so a second module shipping from
+here later sits beside it without either being renamed.
+
+### One `engineVersion`, held by a dependency edge rather than by a check
+
+The root [`dagger.json`](dagger.json) declares the companion as a **local**
+dependency (`"source": "daggerverse/cpybkc"`). That edge is what keeps the two
+modules' `engineVersion` from drifting: bumping the engine is one commit that
+edits both files, because the root module will not load a dependency it
+disagrees with about the engine. The daggerverse modules this project depends on
+pin theirs independently and have already drifted, which is the failure being
+designed out.
+
+The same edge is how the pipeline gets to drive the module over the image built
+in the pull request rather than the last published release (#64). Both uses are
+served by one line, and the lock-step is a consequence of the wiring rather than
+a rule somebody has to remember.
+
+Both modules' generated code is committed, so a change to either is a
+`dagger develop` in that module and the generated files in the same commit —
+[*After changing the module*](#after-changing-the-module) applies to the
+companion exactly as it does to the root.
 
 ### The default image tag is the moving major tag
 
@@ -606,8 +645,8 @@ plugin distribution. Nothing else claims to.
 ### What the constructor says
 
 The escalation belongs on the argument and not only here, because a caller reads
-`dagger call --help` and never opens this file. #61 carries this onto `version`,
-and a change to the default is a change to both:
+`dagger call --help` and never opens this file. `New`'s `version` argument
+carries it (#61), and a change to the default is a change to both:
 
 ```go
 // Version is the tag of the published cpybkc image to run.
@@ -620,9 +659,13 @@ and a change to the default is a change to both:
 // override argument rather than here.
 ```
 
-How the default is spelled — a `+default` pragma or a zero-value check — is
-#61's, and so is the name of the container override the last sentence points at.
-What is settled here is the value and what the comment says about it.
+The default is spelled as a `+default="v0"` pragma rather than as a zero-value
+check, so that `dagger call --help` prints it: a default a caller cannot see is
+one they have to read source to learn. The container override the last sentence
+points at is named **`image`**, because it names the thing rather than a
+Dockerfile verb, and it reads as the noun it is at the call site —
+`--image=$(…)`. Both were #61's to settle; what was settled before it is the
+value and what the comment says about it.
 
 ### #65 is closed rather than left open
 
