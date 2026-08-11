@@ -53,8 +53,10 @@ different readers:
   recording of what `resolve` happens to do today, and the pipeline that will
   check it against a real resolution is the CLI's (#148).
 - **`ir.json`, handed to a generator, produces code that decodes `input.bin`
-  into `values.json`.** That is a claim about a consumer, and it is what a
-  generator author in any language can run today.
+  into `values.json` — and writes those records back into a file that decodes
+  to `values.json` again.** That is a claim about a consumer, in both
+  directions, and it is what a generator author in any language can run today
+  (#68).
 
 Carrying both is what lets a failure be attributed. A generator author who
 disagrees with cpybkc about what a *layout* means and one who disagrees about
@@ -161,19 +163,74 @@ Given an entry it:
    the generator under test, with whatever options that generator needs;
 2. compiles what came back;
 3. reads `input.bin` with it, top to bottom;
-4. writes a values document, in exactly the form `values.json` is written in, on
-   standard output.
+4. where that read reached the end of the file, writes those records back out
+   with the generated writer and reads *that* file with the generated reader;
+5. writes an answer document on standard output, carrying a values document for
+   each direction.
 
-The comparison is then a comparison of two values documents and needs neither the
+The comparison is then a comparison of values documents and needs neither the
 descriptor nor a decoder, which is what makes a runner for a language this
 repository has never seen comparable by the same rules.
 
 Two things a runner is not asked for. It is not asked to explain a difference —
 that is the comparison's — and it does not exit non-zero for a file the generated
-reader refused: that is an answer, written as `failure`, because an entry is
-allowed to expect one and only the comparison knows whether this entry did. A
-non-zero exit means the runner itself failed: the generator would not run, its
-output would not compile, or the runner could not write a document.
+reader refused, or for a record the generated writer refused: those are answers,
+written as `failure`, because an entry is allowed to expect one and only the
+comparison knows whether this entry did. A non-zero exit means the runner itself
+failed: the generator would not run, its output would not compile, or the runner
+could not write a document.
+
+### The answer document
+
+```json
+{
+  "decoded": {
+    "records": [ ... ]
+  },
+  "written": {
+    "records": [ ... ]
+  }
+}
+```
+
+`decoded` is what the generated reader made of `input.bin`. `written` is what the
+generated reader makes of the file the generated *writer* produced from those
+records. Both are values documents, in exactly the form `values.json` is written
+in, and both are compared against `values.json` — against the entry rather than
+against each other, because a reader and a writer that are wrong the same way
+agree with each other and only the entry knows what the file holds.
+
+`written` is absent in two cases: where the read did not reach the end of the
+file, since a run that stopped at a failure holds no complete set of records to
+write back; and where the generator emits no writer at all, which
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *Writing a file* leaves to the
+generator. It is present and carries a `failure` where the writer refused a
+record it was given.
+
+### Why the writing direction is checked by reading, and not by comparing bytes
+
+The obvious check is that the bytes the writer produced are `input.bin` again,
+and it is the wrong check twice over.
+
+*Writing a file* makes byte identity a claim about a **record** and deliberately
+not about a file: under an optional terminator a writer emits a final delimiter
+the input need not have carried, and under segmented framing it lays a record
+into as few segments as the largest allows, whatever the input did. A corpus
+demanding the input's bytes back would fail two of the four framings by design.
+
+It is wrong at the field level too, and this corpus already holds the case:
+[`packed-ascii`](packed-ascii) carries the lenient sign nibble `A`, which a
+reader admits as positive and a writer has no reason to emit — it writes the `C`
+the convention prescribes. The same goes for every encoding that admits more than
+one spelling of one value. Demanding the bytes back would make those entries
+unpassable by a correct generator, and dropping them would cost the corpus
+exactly the vectors it was seeded from.
+
+What *Writing a file* does make normative of a file is that a file a writer
+produces is one that a reader built from the same descriptor reads back as the
+records the writer was given. That holds for all four framings and every
+encoding, it is what `written` states, and it needs nothing of a runner that the
+reading direction did not already need.
 
 ## What this repository runs
 
@@ -191,9 +248,25 @@ how `cpybkc-gen-go` munges an identifier out of one. A copy would agree with the
 generator exactly until the rule changed, and then compare the wrong fields
 without failing.
 
+It hands the records the reader produced straight to the writer rather than
+rebuilding them from the values beside them, because a record built from a values
+document is a different record: *Slack survives a read* puts the bytes no item
+covers on the record a reader produced, and a constructed one has a writer fill
+them instead.
+
 `go test ./internal/conformance/...` runs the corpus against `cpybkc-gen-go`
-built from the tree under test. Making that a gate across the whole CI matrix,
-and exercising the encode direction as well as decode, is #68.
+built from the tree under test, in both directions and over every entry (#68).
+
+It is an ordinary Go test rather than a stage of its own, and that is what makes
+it a gate on every platform CI runs on. `dagger call ci` runs `go test` over this
+module, so the corpus is inside the one call CI makes rather than beside it: a
+platform added to the matrix carries the corpus with it, and a conformance job of
+its own would be a second gate that the new platform would silently not have. The
+matrix is one platform today, and
+[#56](https://github.com/Zaba505/cpybkc/issues/56) is why it holds no big-endian
+host — cpybkc runs on a developer's machine, and a big-endian *file* is a
+property of the data, which is what the byte-order entries here read on whatever
+platform they are run.
 
 ## Adding an entry
 

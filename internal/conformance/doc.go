@@ -36,10 +36,14 @@
 //     (#148); the descriptor an entry carries is hand-authored, so it is an
 //     oracle rather than a recording of what resolve happens to do today.
 //   - The IR, handed to a generator, produces code that decodes the entry's
-//     bytes into the entry's values. That is a claim about a *consumer*, it is
-//     what [github.com/Zaba505/cpybkc/internal/conformance/gorunner] checks for
-//     the Go generator, and it is what makes the corpus useful to a third party
-//     who has neither this repository's resolver nor its language.
+//     bytes into the entry's values — and writes those records back into a file
+//     that decodes to the entry's values again. That is a claim about a
+//     *consumer*, in both directions, it is what
+//     [github.com/Zaba505/cpybkc/internal/conformance/gorunner] checks for the
+//     Go generator, and it is what makes the corpus useful to a third party who
+//     has neither this repository's resolver nor its language. [Answer] carries
+//     both answers and says why the writing direction is checked by reading
+//     rather than by comparing bytes (#68).
 //
 // Both halves read the same entry, which is the point of carrying the IR in the
 // tuple rather than deriving it: a generator author who disagrees with cpybkc

@@ -302,9 +302,18 @@ go test ./internal/conformance/...
 ```
 
 That generates Go for every entry with `cpybkc-gen-go` built from the tree,
-compiles it, reads each entry's bytes with it, and holds what came out against
-what the entry says. `dagger call ci` runs it too, like every other test; the
-call above is for narrowing down what it reported.
+compiles it, reads each entry's bytes with it, writes those records back out with
+it, reads that file too, and holds both answers against what the entry says.
+`dagger call ci` runs it too, like every other test; the call above is for
+narrowing down what it reported.
+
+Being an ordinary test is what makes it a gate on every platform in the CI
+matrix: the matrix is a matrix of `dagger call ci`, and a conformance job of its
+own would be a second gate that a platform added to the matrix would silently not
+carry. What it is not is a check of the bytes the writer produced —
+[`docs/ir/SPEC.md`](docs/ir/SPEC.md)'s *Writing a file* makes byte identity a
+claim about a record and not about a file, and the corpus README's *Why the
+writing direction is checked by reading* is the rest of the argument.
 
 It exists because cpybkc is strictly a generator: nothing here reads a data file
 except the code a generator emitted, so nothing else holds two generators in two

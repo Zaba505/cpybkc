@@ -55,6 +55,34 @@ func (e *MismatchError) Error() string {
 
 func (e *MismatchError) Unwrap() error { return e.Err }
 
+// RunError is an entry a runner could not answer about at all: the generator
+// would not run, what it produced would not compile, or the runner could not be
+// driven.
+//
+// It carries the entry and its source for the reason [MismatchError] does, and
+// it is a separate type because the two send a reader somewhere different. A
+// mismatch is a disagreement about bytes, and whoever reads it decides whether
+// the generator or the entry is wrong. This one is the corpus failing to ask
+// the question, so nothing has been learned about either — and a run that
+// reported it as a disagreement would have a generator author reading a spec
+// section about a claim that was never tested (#68).
+type RunError struct {
+	// Entry is the entry's directory name.
+	Entry string
+
+	// Source is what the entry cites as the origin of its expected answer.
+	Source string
+
+	// Err is what stopped the run.
+	Err error
+}
+
+func (e *RunError) Error() string {
+	return fmt.Sprintf("conformance entry %s (%s) could not be run: %v", e.Entry, e.Source, e.Err)
+}
+
+func (e *RunError) Unwrap() error { return e.Err }
+
 // joined reports every fault at once, and nothing at all where there are none.
 //
 // It exists so that the readers above can accumulate into a slice and hand it

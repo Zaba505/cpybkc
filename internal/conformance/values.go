@@ -64,23 +64,37 @@ func ParseValues(b []byte) (*Values, error) {
 		return nil, err
 	}
 
-	var faults []error
-
-	for i, record := range values.Records {
-		if record.Name == "" {
-			faults = append(faults, fmt.Errorf("record %d carries no name", i))
-		}
-
-		if record.Value == nil {
-			faults = append(faults, fmt.Errorf("record %d (%s) carries no value", i, record.Name))
-		}
-	}
-
-	if len(faults) > 0 {
+	if faults := values.records(); len(faults) > 0 {
 		return nil, joined(faults)
 	}
 
 	return &values, nil
+}
+
+// records is what is wrong with the records of a values document, which is
+// everything the format asks of one beyond it being JSON.
+//
+// It is separate from [ParseValues] because a values document is read in two
+// places: on its own, as an entry's values.json, and as a member of the answer
+// document a runner writes (see [Answer]). Both hold it to this.
+func (v *Values) records() []error {
+	var faults []error
+
+	// Counted from one, as [Compare] counts and as the driver counts: a record
+	// is named to whoever is reading a values document beside the file it came
+	// from, and two numbering conventions in one report is one of them being
+	// off by one.
+	for i, record := range v.Records {
+		if record.Name == "" {
+			faults = append(faults, fmt.Errorf("record %d carries no name", i+1))
+		}
+
+		if record.Value == nil {
+			faults = append(faults, fmt.Errorf("record %d (%s) carries no value", i+1, record.Name))
+		}
+	}
+
+	return faults
 }
 
 // decodeOne reads exactly one JSON document out of b, and is how every JSON
