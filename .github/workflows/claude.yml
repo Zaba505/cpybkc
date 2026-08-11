@@ -30,6 +30,24 @@ jobs:
         with:
           fetch-depth: 1
 
+      # A reviewer that cannot build the code reviews by reading it, and this
+      # repository's verify command is `dagger call ci` rather than anything a
+      # bare runner already has. Both toolchains are installed the same way CI
+      # installs them, so what Claude can run here is what a contributor runs.
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Pinned to the engineVersion the module declares, read out of dagger.json
+      # rather than repeated here — the same reasoning as ci.yaml.
+      - name: Install the Dagger CLI
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
+              BIN_DIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -40,11 +58,10 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
-          # prompt: 'Update the pull request description to include a summary of changes.'
-
-          # Optional: Add claude_args to customize behavior and configuration
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-          # claude_args: '--allowed-tools Bash(gh pr *)'
+          # The tools the two steps above exist to make useful. `go test` is
+          # scoped by `-C` rather than a `cd`, because this repository is three
+          # modules and `./...` from the root reaches only one of them.
+          claude_args: >-
+            --allowed-tools
+            "Bash(go build:*),Bash(go test:*),Bash(go vet:*),Bash(go list:*),Bash(go doc:*),Bash(dagger call:*),Bash(gh pr:*)"
 

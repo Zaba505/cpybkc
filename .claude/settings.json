@@ -1,13 +1,23 @@
 {
+  "permissions": {
+    "allow": [
+      "LSP",
+      "Bash(go list*)",
+      "Bash(go doc*)",
+      "Bash(go env*)",
+      "Bash(go run*)"
+    ]
+  },
+  "enabledPlugins": {
+    "backlog@z5labs-devex": true
+  },
   "extraKnownMarketplaces": {
     "z5labs-devex": {
       "source": {
         "source": "github",
         "repo": "z5labs/devex"
-      }
+      },
+      "autoUpdate": true
     }
-  },
-  "enabledPlugins": {
-    "backlog@z5labs-devex": true
   }
 }
