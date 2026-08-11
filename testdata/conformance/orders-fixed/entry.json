@@ -1,0 +1,4 @@
+{
+  "description": "A fixed-length dataset of one record type: a four-byte key, an unsigned zoned count and a table of two occurrences, read from an ASCII file with no framing around a record.",
+  "source": "cobol-go codec/SPEC.md, \"Storage Widths\"; docs/ir/SPEC.md, \"Physical framing\""
+}

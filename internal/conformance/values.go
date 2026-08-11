@@ -1,0 +1,284 @@
+// Copyright (c) 2026 Richard Carson Derr
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+package conformance
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
+	"github.com/Zaba505/cpybkc/irpb"
+)
+
+// Values is what a file's bytes decode to: the records in the order they come
+// out of the file, and whether reading stopped at a failure.
+//
+// It is both halves of the comparison — what an entry's values.json states and
+// what a runner writes on standard output — because a runner and an entry that
+// spoke different dialects would need a translation nobody could test. See
+// testdata/conformance/README.md, "What a runner does", for the whole of the
+// contract this type is the Go reading of.
+type Values struct {
+	// Records are the records read, in file order.
+	Records []Record `json:"records"`
+
+	// Failure is present where reading stopped at a record the file does not
+	// carry correctly, and absent where the file was read to its end.
+	//
+	// The text is a note for whoever reads the report, and it is deliberately
+	// not compared: a diagnostic is a generator's own wording in its own
+	// language, so an entry demanding particular words would be an entry only
+	// one generator could pass. What is compared is that a failure happened,
+	// and that it happened after the records the entry lists.
+	Failure string `json:"failure,omitempty"`
+}
+
+// Record is one record of a file: which record type it is, and what it holds.
+type Record struct {
+	// Name is the record's name as the copybook spells it — the `original` of
+	// the record node's names, never an identifier munged from it.
+	Name string `json:"name"`
+
+	// Value is what the record's top-level node holds, in the shape the
+	// corpus's README describes: an object for a group, an array for an item
+	// that repeats, and a scalar for an elementary item.
+	Value any `json:"value"`
+}
+
+// ParseValues reads a values document, holding it to the shape the corpus
+// format states.
+//
+// Unknown fields are refused at both levels, for the reason entry.json refuses
+// one: a key an author wrote in the expectation that it means something is a
+// typo, and a document that silently ignores it is a document that passes for
+// the wrong reason.
+func ParseValues(b []byte) (*Values, error) {
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+
+	var values Values
+	if err := decoder.Decode(&values); err != nil {
+		return nil, err
+	}
+
+	var faults []error
+
+	for i, record := range values.Records {
+		if record.Name == "" {
+			faults = append(faults, fmt.Errorf("record %d carries no name", i))
+		}
+
+		if record.Value == nil {
+			faults = append(faults, fmt.Errorf("record %d (%s) carries no value", i, record.Name))
+		}
+	}
+
+	if len(faults) > 0 {
+		return nil, joined(faults)
+	}
+
+	return &values, nil
+}
+
+// check holds a values document to the descriptor of the entry it belongs to.
+//
+// What it checks is the record names, and only those. A pass walking the node
+// tree beside every value would be a second reading of what a descriptor means
+// — the reading the generated code already performs, and the one thing the
+// corpus exists to compare answers about — so a value of the wrong shape is
+// left to be reported as the disagreement it is, by [Compare], against a runner
+// that actually decoded the bytes.
+//
+// A name is worth checking here because it is the one part of a values document
+// that no runner can disagree with: the names come out of the descriptor, so an
+// entry naming a record the descriptor does not carry is a typo that would
+// otherwise be reported as every record in the file being unexpected.
+func (v *Values) check(descriptor *irpb.Descriptor) error {
+	names := recordNames(descriptor)
+
+	var faults []error
+
+	for _, record := range v.Records {
+		if !slices.Contains(names, record.Name) {
+			faults = append(faults, fmt.Errorf("%s: %s is not a record the descriptor carries; it carries %s",
+				ValuesName, record.Name, strings.Join(names, ", ")))
+		}
+	}
+
+	return joined(faults)
+}
+
+// recordNames is the copybook name of every record type the descriptor carries,
+// in node order.
+func recordNames(descriptor *irpb.Descriptor) []string {
+	var names []string
+
+	for _, node := range descriptor.GetNodes() {
+		if record := node.GetRecord(); record != nil {
+			names = append(names, record.GetNames().GetOriginal())
+		}
+	}
+
+	return names
+}
+
+// Compare reports every way in which got differs from want.
+//
+// The comparison is structural and knows no COBOL: both sides have already been
+// written in the corpus's own value language, where a number is a decimal
+// string and a run of bytes is base64, precisely so that comparing them needs
+// neither the descriptor nor a decoder. What that buys is that a runner for a
+// language this repository has never seen is compared by exactly this function.
+//
+// Every difference is reported rather than the first, each naming the path
+// through the record it is at, because a generator that gets one axis of the
+// encoding wrong gets every field along that axis wrong at once and a report
+// naming one of them sends its author looking for a single-field bug.
+func Compare(want, got *Values) error {
+	var faults []error
+
+	switch {
+	case want.Failure != "" && got.Failure == "":
+		faults = append(faults, fmt.Errorf("the file was read to its end, and the entry expects it to fail: %s", want.Failure))
+	case want.Failure == "" && got.Failure != "":
+		faults = append(faults, fmt.Errorf("reading the file failed, and the entry expects it not to: %s", got.Failure))
+	}
+
+	if len(want.Records) != len(got.Records) {
+		faults = append(faults, fmt.Errorf("the file holds %d records and the entry expects %d",
+			len(got.Records), len(want.Records)))
+	}
+
+	for i := range min(len(want.Records), len(got.Records)) {
+		wantRecord, gotRecord := want.Records[i], got.Records[i]
+
+		path := fmt.Sprintf("record %d", i+1)
+
+		if wantRecord.Name != gotRecord.Name {
+			faults = append(faults, fmt.Errorf("%s is a %s and the entry expects a %s",
+				path, gotRecord.Name, wantRecord.Name))
+
+			continue
+		}
+
+		faults = append(faults, difference(path+" "+wantRecord.Name, wantRecord.Value, gotRecord.Value)...)
+	}
+
+	return joined(faults)
+}
+
+// difference is the recursive half of [Compare]: everything at or beneath path
+// that got says differently from want.
+func difference(path string, want, got any) []error {
+	switch want := want.(type) {
+	case map[string]any:
+		gotObject, ok := got.(map[string]any)
+		if !ok {
+			return []error{fmt.Errorf("%s: %s, and the entry expects a group", path, described(got))}
+		}
+
+		return objectDifference(path, want, gotObject)
+	case []any:
+		gotArray, ok := got.([]any)
+		if !ok {
+			return []error{fmt.Errorf("%s: %s, and the entry expects %d occurrences", path, described(got), len(want))}
+		}
+
+		return arrayDifference(path, want, gotArray)
+	default:
+		// A group or a table where the entry expects one value is reported as
+		// the shape it is rather than as a value that differs: the two send a
+		// reader to different places, one to the bytes and the other to whether
+		// the item repeats at all.
+		switch got.(type) {
+		case map[string]any, []any:
+			return []error{fmt.Errorf("%s: %s, and the entry expects %s", path, described(got), rendered(want))}
+		}
+
+		if want != got {
+			return []error{fmt.Errorf("%s is %s and the entry expects %s", path, rendered(got), rendered(want))}
+		}
+
+		return nil
+	}
+}
+
+// objectDifference compares two groups, member by member.
+//
+// A key present on one side and absent on the other is reported as that rather
+// than as a value being wrong, because the two mean different things: an absent
+// key is the arm of a variant an occurrence does not hold, and a key nobody
+// expects is an item a generator surfaced that the entry does not describe.
+func objectDifference(path string, want, got map[string]any) []error {
+	var faults []error
+
+	for _, name := range slices.Sorted(maps.Keys(want)) {
+		gotValue, ok := got[name]
+		if !ok {
+			faults = append(faults, fmt.Errorf("%s: %s is not there, and the entry expects %s",
+				path, name, rendered(want[name])))
+
+			continue
+		}
+
+		faults = append(faults, difference(path+"."+name, want[name], gotValue)...)
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(got)) {
+		if _, ok := want[name]; !ok {
+			faults = append(faults, fmt.Errorf("%s: %s is %s, and the entry does not expect it at all",
+				path, name, rendered(got[name])))
+		}
+	}
+
+	return faults
+}
+
+// arrayDifference compares two runs of occurrences, occurrence by occurrence.
+func arrayDifference(path string, want, got []any) []error {
+	var faults []error
+
+	if len(want) != len(got) {
+		faults = append(faults, fmt.Errorf("%s holds %d occurrences and the entry expects %d",
+			path, len(got), len(want)))
+	}
+
+	for i := range min(len(want), len(got)) {
+		faults = append(faults, difference(fmt.Sprintf("%s[%d]", path, i), want[i], got[i])...)
+	}
+
+	return faults
+}
+
+// rendered is a value as a report should quote it: the JSON it was written as,
+// so that a string and the decimal string of a number are told apart by the
+// quotes around them.
+func rendered(value any) string {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+
+	return string(b)
+}
+
+// described says what kind of thing a value is, for the report that one side is
+// not the shape the other is.
+func described(value any) string {
+	switch value := value.(type) {
+	case map[string]any:
+		return "it is a group"
+	case []any:
+		return fmt.Sprintf("it holds %d occurrences", len(value))
+	case nil:
+		return "it is not there"
+	default:
+		return "it is " + rendered(value)
+	}
+}

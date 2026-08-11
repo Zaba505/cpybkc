@@ -36,6 +36,12 @@ profile.cov
 go.work
 go.work.sum
 
+# Where a conformance run generates, compiles and runs a corpus entry. The
+# leading underscore is what keeps it out of ./..., and so out of `go build`,
+# `go vet` and the linter; a run removes its own tree, and this covers the one a
+# killed run left behind. See testdata/conformance/README.md.
+/internal/conformance/gorunner/_scratch/
+
 # env file
 .env
 
