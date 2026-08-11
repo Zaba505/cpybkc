@@ -3,8 +3,9 @@
 ## The pipeline
 
 fmt, vet, golangci-lint, `go test -race`, `buf lint`, the three artifacts a
-release attaches, the published base image and the worked example in the
-base-image contract are defined once, in the root Dagger module under
+release attaches, the published base image, the worked example in the
+base-image contract and the attestations a release signs are defined once, in
+the root Dagger module under
 [`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:
 there is no arrangement of local commands that passes while CI fails, because
 they are the same functions.
@@ -20,8 +21,9 @@ four Go stages in parallel and reports every failure, not just the first, and it
 runs the schema lint, the IR module's own stages, a build of [the CLI
 itself](#building-the-cli), a build of the [release
 artifacts](#the-release-artifacts), a build of [the published
-image](#building-the-image) on every platform it ships for, and a build of the
-[base-image contract](docs/container/SPEC.md)'s worked example alongside them.
+image](#building-the-image) on every platform it ships for, a build of the
+[base-image contract](docs/container/SPEC.md)'s worked example, and the
+[attestations](#signing-a-release) a release attaches, alongside them.
 
 ### Running one stage
 
@@ -355,6 +357,52 @@ to exclude.
 
 `.github/workflows/release.yaml` attaches all three to a release when one is
 published, building them with the same three calls above at the release's tag.
+
+## Signing a release
+
+A published image carries a signature and two kinds of attestation, and
+[`.dagger/sign.go`](.dagger/sign.go) is where all three are produced. What a
+consumer does with them is [the base-image
+contract](docs/container/SPEC.md#verifying-a-signature)'s, including [after
+mirroring into an internal
+registry](docs/container/SPEC.md#after-mirroring-to-an-internal-registry); this
+is the side that makes them exist.
+
+Both halves are things you can build from a checkout:
+
+```sh
+dagger call sbom export --path=sbom                     # one document per executable per platform
+dagger call sbom --platform=linux/arm64 export --path=sbom
+dagger call provenance --image=ghcr.io/zaba505/cpybkc@sha256:… \
+  --builder=… contents                                  # the SLSA v1 predicate
+dagger call attestations                                # the check `ci` runs
+```
+
+`attest` is the third, and it is the one that needs a release: it signs a
+published digest and attaches the predicate and the SBOMs to it. #59 is what
+calls it, with the digest its publish returned.
+
+Four things about it are worth knowing before changing any of it:
+
+- **The signature is recursive; the attestations are not.** A tag resolves to a
+  multi-platform index, so `cosign sign --recursive` covers the index *and* each
+  per-platform manifest under it — otherwise the manifest a consumer's runtime
+  pulls is unsigned while `cosign verify` against their tag still passes. The
+  provenance and the SBOMs go on the index digest alone, because they are
+  statements about the release and the release is the index.
+- **Everything names a digest.** `attest` refuses a reference that is not
+  digest-qualified rather than resolving a tag itself. Three of the four
+  published tags move by design, and what gets signed has to be what was pushed.
+- **Signing is keyless.** There is no cpybkc key to hold or rotate; the identity
+  is the release workflow, certified for the length of one run from the OIDC
+  token GitHub mints. That is why `attest` takes the token request endpoint and
+  its bearer token, and why the release job needs `id-token: write`.
+- **Only half of it is checked on a pull request.** `attestations` covers the
+  provenance predicate's shape and the SBOM set — one valid SPDX 2.3 document per
+  executable per platform, each carrying its own binary's checksum. Producing a
+  real signature needs an OIDC token, a registry and a public transparency log,
+  none of which a pull request has, and a check that faked one would be checking
+  the fake. The signing flow is first exercised by a release.
 
 ## The companion Dagger module
 

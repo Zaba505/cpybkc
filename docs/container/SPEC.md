@@ -464,6 +464,121 @@ Nothing is ever attached to a **tag**, only to a digest. An attestation about a
 name that moves would say nothing, which is why verifying a moving tag is
 verifying whatever it resolves to at that moment.
 
+The SBOMs are **one SPDX 2.3 document per executable per platform** (#58), not
+one per image. Each document is tied to the SHA-256 of the binary it describes,
+so a single document for an index spanning two platforms would name one of those
+binaries and be wrong about the other — and a consumer matching an advisory
+against it would be matching against a build they are not running.
+
+### Verifying a signature
+
+Verification needs [cosign](https://github.com/sigstore/cosign) and nothing else
+— no key to fetch, no account, and no prior arrangement with this project (#58).
+
+Verify the signature on a full version tag:
+
+```console
+$ cosign verify \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
+    ghcr.io/zaba505/cpybkc:v0.2.0
+```
+
+Both flags carry the whole of what is being asked. A `cosign verify` without
+them checks that *somebody* signed the image and says nothing about who, which
+is not a question worth the command. The identity is the release workflow **at
+the tag being verified**, so it names a different ref for each release — which
+is why a moving tag is verified against a pattern rather than a literal:
+
+```console
+$ cosign verify \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp '^https://github\.com/Zaba505/cpybkc/\.github/workflows/release\.yaml@refs/tags/v' \
+    ghcr.io/zaba505/cpybkc:v0
+```
+
+Because the signature covers each manifest under the index, the same command
+verifies the per-platform manifest a runtime on that platform actually pulls —
+substitute its digest for the reference. That is the check a shop pinning a
+digest in a `FROM` line wants, and it is the reason the signature is recursive.
+
+The same two flags verify the attestations, with `--type` naming which of the
+two is wanted:
+
+```console
+$ cosign verify-attestation --type slsaprovenance1 \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
+    ghcr.io/zaba505/cpybkc:v0.2.0
+
+$ cosign verify-attestation --type spdxjson \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
+    ghcr.io/zaba505/cpybkc:v0.2.0
+```
+
+`--type spdxjson` returns every SBOM on the digest, one per executable per
+platform. Which build a document describes is inside the document rather than in
+how it was attached: its name and the SHA-256 on its subject package.
+
+Both attestation commands take the **index** — a tag, or the digest that tag
+resolves to. Asking a per-platform manifest for one finds nothing, and that is
+the arrangement rather than a fault.
+
+#### After mirroring to an internal registry
+
+A shop that mirrors this image into a registry of its own can verify it there,
+and the command does not change in the way people expect it to.
+
+**The identity does not move with the image.** `--certificate-identity` and
+`--certificate-oidc-issuer` name what *built* the release, not where it is
+stored, so they hold the same values against a mirror as against `ghcr.io`.
+Rewriting them to name the mirror would be asserting that the mirror built the
+release, which is exactly the claim the signature exists to distinguish.
+
+**Copy the signatures, not just the image.** A signature and an attestation are
+ordinary objects in the same repository as the image, under tags derived from
+its digest — `sha256-<digest>.sig` and `sha256-<digest>.att`. A mirror made by
+pulling one tag and pushing it elsewhere copies the image alone and leaves both
+behind, and the copy then fails to verify with nothing found. `cosign copy`
+moves all of it, and a mirroring tool that copies *every* tag in the repository
+does the same job, because those objects are tags:
+
+```console
+$ cosign copy ghcr.io/zaba505/cpybkc:v0.2.0 registry.internal/mirror/cpybkc:v0.2.0
+$ cosign verify \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
+    registry.internal/mirror/cpybkc:v0.2.0
+```
+
+**The digest is what carries across.** A mirror that copies bytes preserves the
+index digest, which is why everything above still applies: the signature and the
+attestations are statements about that digest and about nothing else. Something
+that *rebuilt* or repacked the image would produce a different digest, and
+nothing this project signed would apply to it — that is a rebuild rather than a
+mirror, however it is spelled in the pipeline that produced it.
+
+**Signatures kept somewhere else.** Where a mirror cannot hold those sibling
+tags — a registry that rejects the tag form, or a policy that keeps signatures
+apart from images — `COSIGN_REPOSITORY` names the repository to read them from,
+and the verification is otherwise identical:
+
+```console
+$ COSIGN_REPOSITORY=registry.internal/mirror/cpybkc-signatures cosign verify \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
+    registry.internal/mirror/cpybkc:v0.2.0
+```
+
+**Verifying without reaching the internet.** Keyless verification checks the
+signing certificate against sigstore's public trust root and the signature
+against a public transparency log. A keyless signature carries its own log entry
+beside it, so `--offline` verifies against that instead of asking the log; the
+trust root still has to be present, and `cosign initialize` is what fetches it
+on a machine that has a network, before verification happens on one that does
+not.
+
 That this verification is *possible* is in scope here, because it is something a
 consumer performs. How the signature comes to exist is not, and is under [Out of
 Scope](#how-the-image-is-built-and-published).
@@ -1060,6 +1175,8 @@ Go install with no document that applies to them.
 | [Shell or no shell](#shell-or-no-shell) | #55 `container` |
 | [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container` |
 | [What a tag carries besides the image](#what-a-tag-carries-besides-the-image) | #58 `container` |
+| [Verifying a signature](#verifying-a-signature) | #58 `container` |
+| [After mirroring to an internal registry](#after-mirroring-to-an-internal-registry) | #58 `container` |
 | [Worked example: adding a generator](#worked-example-adding-a-generator) | #54 `container` |
 | [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for replaying that stage onto a base image of this pipeline's own |
 | [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container` |
