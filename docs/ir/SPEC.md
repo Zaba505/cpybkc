@@ -3123,10 +3123,13 @@ compiler and no build step to decode a descriptor.
 The schema sources are published beside it, as **`ir-protos.tar.gz`**, each file
 at the path its protobuf package requires. That is for the consumer whose build
 *can* run a compiler and would rather generate bindings; the two are
-alternatives, and neither is derived from the other. The published image
-carries the same `ir.binpb` bytes at a path the [container
-contract](../container/SPEC.md) fixes (#57) — one artifact reachable two ways,
-not two artifacts.
+alternatives, and neither is derived from the other. The published image carries
+both, at paths the [container contract](../container/SPEC.md#the-ir-schema-in-the-image)
+fixes: the same `ir.binpb` bytes at `/usr/local/share/cpybkc/ir.binpb`, and the
+same sources, unpacked, under `/usr/local/share/cpybkc/proto/` (#57). Each is
+one artifact reachable two ways, not two artifacts, and that document's worked
+example is a generator decoding a descriptor with nothing but the first of
+them.
 
 ### What the set contains
 

@@ -1,6 +1,7 @@
-// This file checks docs/container/SPEC.md's worked example: the multi-stage
-// Dockerfile a stranger copies out of that document to add a generator cpybkc
-// has never heard of (#54).
+// This file checks docs/container/SPEC.md's worked examples: the multi-stage
+// Dockerfiles a stranger copies out of that document to add a generator cpybkc
+// has never heard of (#54), and to read the IR out of the descriptor set the
+// image ships (#57).
 //
 // # Why the pipeline reads a document
 //
@@ -61,10 +62,20 @@ const (
 	// Dockerfile it builds.
 	containerSpec = "docs/container/SPEC.md"
 
-	// workedExampleHeading is the section the Dockerfile is taken from, matched
-	// as a whole line. It is the fenced block a stranger is given; a second
-	// fenced Dockerfile elsewhere in the document is not this check's business.
-	workedExampleHeading = "## Worked example: adding a generator"
+	// The sections a Dockerfile is taken from, each matched as a whole line. The
+	// fenced block under one of these is a block a stranger is handed and runs;
+	// a fenced Dockerfile anywhere else in the document is an illustration and
+	// not this check's business.
+	//
+	// The first adds a generator cpybkc has never heard of, which is the
+	// extension mechanism. The second reads the IR out of the descriptor set the
+	// image ships, which is the other thing a plugin author has to be able to do
+	// with the image alone (#57) — and it is a worked example rather than a
+	// paragraph for the same reason the first one is: the claim is that the
+	// shipped file is sufficient, and only a program that decoded a descriptor
+	// with nothing else makes it.
+	addAGeneratorHeading = "## Worked example: adding a generator"
+	readTheIrHeading     = "## Worked example: reading the IR without generated code"
 
 	// publishedBaseImage is the repository half of the reference the final stage
 	// is required to name — without a tag, because which tag the document tells
@@ -83,12 +94,59 @@ const (
 	// against the one plugin whose absence from the base image nobody would
 	// notice.
 	ownGenerator = "go"
+
+	// minimalDescriptor is a cpybkc IR descriptor in the protobuf wire format,
+	// written out by hand: tag byte 0x08 is field 1 as a varint — Descriptor's
+	// version — and 0x01 is IR_VERSION_1. Nothing else, because a descriptor
+	// stating a version and carrying no nodes is the smallest one the IR permits
+	// and every obligation the example generator has attaches to the version.
+	//
+	// By hand rather than by importing irpb and marshalling one, which would be
+	// two lines shorter. The example exists to show that the shipped descriptor
+	// set is *sufficient* — that a consumer with no generated code can decode —
+	// and a check that built its input out of the generated types would be
+	// resting the whole demonstration on the tier the demonstration is about
+	// avoiding. Two bytes anybody can verify against proto/cpybkc/ir/v1/ir.proto
+	// is the input that keeps that honest.
+	minimalDescriptor = "\x08\x01"
+
+	// irVersionName is what the example generator has to get out of those two
+	// bytes: not the number 1, which it could have printed without reading
+	// anything, but the enum value's name — which exists only in the descriptor
+	// set the image ships and nowhere in the descriptor it was handed.
+	irVersionName = "IR_VERSION_1"
 )
 
-// WorkedExample is docs/container/SPEC.md's worked example checked rather than
-// read (#54): it extracts the Dockerfile from that document, builds its build
-// stage against an empty build context, and reads its final stage for the
-// promises the document makes about one.
+// workedExampleChecks is the set of examples this check reads out of the
+// document, and what each one earns beyond the common three groups.
+//
+// extra is nil where the example makes no claim past building and extending the
+// image, and it is deliberately per-example rather than a flag: the IR reader's
+// extra claim is that it *works*, which is a different kind of assertion from
+// anything the Dockerfile's shape can carry.
+func workedExampleChecks() []workedExampleCheck {
+	return []workedExampleCheck{
+		{heading: addAGeneratorHeading},
+		{heading: readTheIrHeading, extra: (*Cpybkc).checkReadsTheShippedIr},
+	}
+}
+
+// workedExampleCheck is one section of the document and the checks it earns.
+type workedExampleCheck struct {
+	heading string
+	extra   func(m *Cpybkc, ctx context.Context, e *workedExample, derived *dagger.Container) error
+}
+
+// WorkedExample is docs/container/SPEC.md's worked examples checked rather than
+// read (#54, #57): for each one it extracts the Dockerfile from that document,
+// builds its build stage against an empty build context, and reads its final
+// stage for the promises the document makes about one.
+//
+// Two examples, and they demonstrate the two halves of what the image is for: a
+// generator cpybkc has never heard of arriving on PATH, and the IR being decoded
+// out of the descriptor set the image ships. The second earns one check the
+// first does not — it is run, because "the shipped file is sufficient" is a
+// claim only a program that used it can make. See checkReadsTheShippedIr.
 //
 // Three groups, and each one is a sentence in that document that would otherwise
 // only be a sentence:
@@ -121,18 +179,123 @@ const (
 // +check
 // +cache="session"
 func (m *Cpybkc) WorkedExample(ctx context.Context) error {
-	example, err := m.workedExample(ctx)
+	var errs []error
+
+	// Every example, and every one of them reported: two examples that stopped
+	// building are one edit to the document and not two visits to CI.
+	for _, check := range workedExampleChecks() {
+		if err := m.workedExampleAt(ctx, check); err != nil {
+			errs = append(errs, fmt.Errorf("%q: %w", check.heading, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// workedExampleAt runs one section's checks.
+//
+// checkExtendsTheImage hands back the derived image it assembled so that extra
+// runs against the same container the contract passed over, rather than against
+// a second assembly of it that could differ.
+func (m *Cpybkc) workedExampleAt(ctx context.Context, check workedExampleCheck) error {
+	example, err := m.workedExample(ctx, check.heading)
 	if err != nil {
 		return err
 	}
 
 	built := example.build()
 
-	return errors.Join(
+	derived, extendsErr := m.checkExtendsTheImage(ctx, example, built)
+
+	errs := []error{
 		example.rules(),
 		example.checkBuilds(ctx, built),
-		m.checkExtendsTheImage(ctx, example, built),
+		extendsErr,
+	}
+
+	// Only against an image that was actually assembled: an example whose COPY
+	// could not be replayed has already been reported, and running a generator
+	// that is not in the image would bury that finding under a second one.
+	if check.extra != nil && derived != nil {
+		errs = append(errs, check.extra(m, ctx, example, derived))
+	}
+
+	return errors.Join(errs...)
+}
+
+// checkReadsTheShippedIr runs the example generator inside the derived image and
+// requires it to have decoded a descriptor through the shipped descriptor set
+// alone (#57).
+//
+// This is the claim the Dockerfile's shape cannot make. Everything else about
+// this example is identical to the first one — two stages, one static executable
+// copied into the plugin directory — and all of that would pass on a generator
+// that read the descriptor set's path and ignored it. What separates them is
+// whether the file at /usr/local/share/cpybkc/ir.binpb is present, readable and
+// sufficient, and the only thing that answers is a program that used it.
+//
+// Three promises fall out of the one exec:
+//
+//   - The descriptor set is sufficient. The generator was built with no
+//     dependency on this repository's Go module, so the message type it decodes
+//     with came out of the shipped file or it did not exist. The output has to
+//     name the IR version, which is an enum value name that appears in the
+//     descriptor set and not in the two bytes the generator was handed.
+//   - It is readable by an overridden UID. The exec runs as an arbitrary other
+//     user, which is the invocation docs/container/SPEC.md recommends whenever
+//     output lands in a bind mount, and a shipped file readable only by 65532
+//     would fail here rather than in an adopter's pipeline.
+//   - The output directory works. It is created under the image's temporary
+//     directory, owned by the running user, which is the arrangement cpybkc
+//     itself makes for a generator.
+func (m *Cpybkc) checkReadsTheShippedIr(
+	ctx context.Context,
+	e *workedExample,
+	derived *dagger.Container,
+) error {
+	const (
+		descriptor = tmpDir + "/descriptor.binpb"
+		out        = tmpDir + "/out"
 	)
+
+	generator := e.copies[0].operands[1]
+
+	// Not through the entrypoint: cpybkc is what would normally exec a
+	// generator, and what is under test is the generator reading the image's own
+	// files, so it is run directly at the path the document's COPY put it.
+	ran := derived.
+		WithUser(overrideUser).
+		WithNewFile(descriptor, minimalDescriptor, dagger.ContainerWithNewFileOpts{
+			Permissions: dataMode,
+		}).
+		WithDirectory(out, dag.Directory(), dagger.ContainerWithDirectoryOpts{
+			Owner: overrideUser,
+		}).
+		WithExec([]string{generator, "--descriptor", descriptor, "--out", out})
+
+	written, err := ran.Directory(out).Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("running %s in the derived image as user %s, against a descriptor stating %s: %w",
+			generator, overrideUser, irVersionName, err)
+	}
+
+	if len(written) != 1 {
+		return fmt.Errorf("%s wrote %d files under its output directory (%v); the example writes one, and a "+
+			"generator that wrote none decoded nothing", generator, len(written), written)
+	}
+
+	got, err := ran.File(path.Join(out, written[0])).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("reading what %s wrote: %w", generator, err)
+	}
+
+	if !strings.Contains(got, irVersionName) {
+		return fmt.Errorf("%s wrote %q, which does not name %s; that name is in the descriptor set the image "+
+			"ships and not in the descriptor the generator was handed, so output without it is output the "+
+			"shipped file was not read for", generator, got, irVersionName)
+	}
+
+	return nil
 }
 
 // workedExample is the document's Dockerfile, parsed and judged.
@@ -202,48 +365,49 @@ func (c copyInstruction) owner() (int, int, error) {
 	return uid, gid, nil
 }
 
-// workedExample reads the Dockerfile out of the document and parses it.
-func (m *Cpybkc) workedExample(ctx context.Context) (*workedExample, error) {
+// workedExample reads the Dockerfile out of the document's named section and
+// parses it.
+func (m *Cpybkc) workedExample(ctx context.Context, heading string) (*workedExample, error) {
 	spec, err := m.Source.File(containerSpec).Contents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", containerSpec, err)
 	}
 
-	dockerfile, err := workedExampleDockerfile(spec)
+	dockerfile, err := workedExampleDockerfile(spec, heading)
 	if err != nil {
 		return nil, err
 	}
 	return parseWorkedExample(dockerfile)
 }
 
-// workedExampleDockerfile returns the fenced dockerfile block under the worked
-// example heading, verbatim.
-func workedExampleDockerfile(spec string) (string, error) {
+// workedExampleDockerfile returns the fenced dockerfile block under the given
+// heading, verbatim.
+func workedExampleDockerfile(spec, heading string) (string, error) {
 	lines := strings.Split(spec, "\n")
 
 	i := 0
 	for ; i < len(lines); i++ {
-		if strings.TrimRight(lines[i], " ") == workedExampleHeading {
+		if strings.TrimRight(lines[i], " ") == heading {
 			break
 		}
 	}
 	if i == len(lines) {
 		return "", fmt.Errorf("%s: no %q heading; this check reads the Dockerfile out of that section",
-			containerSpec, workedExampleHeading)
+			containerSpec, heading)
 	}
 
 	for ; i < len(lines); i++ {
 		if lines[i] == "```dockerfile" {
 			break
 		}
-		if strings.HasPrefix(lines[i], "## ") && strings.TrimRight(lines[i], " ") != workedExampleHeading {
+		if strings.HasPrefix(lines[i], "## ") && strings.TrimRight(lines[i], " ") != heading {
 			return "", fmt.Errorf("%s: %q holds no ```dockerfile block; the worked example is what this check builds",
-				containerSpec, workedExampleHeading)
+				containerSpec, heading)
 		}
 	}
 	if i == len(lines) {
 		return "", fmt.Errorf("%s: %q holds no ```dockerfile block; the worked example is what this check builds",
-			containerSpec, workedExampleHeading)
+			containerSpec, heading)
 	}
 
 	i++
@@ -513,10 +677,14 @@ fi`, source)
 //
 // The fifth, CGO_ENABLED=0, is checkBuilds' — a property of the file, checked
 // where it is produced.
-func (m *Cpybkc) checkExtendsTheImage(ctx context.Context, e *workedExample, built *dagger.Container) error {
+func (m *Cpybkc) checkExtendsTheImage(
+	ctx context.Context,
+	e *workedExample,
+	built *dagger.Container,
+) (*dagger.Container, error) {
 	if len(e.copies) != 1 || len(e.copies[0].operands) != 2 {
 		// rules has already reported this; there is no COPY to replay.
-		return nil
+		return nil, nil
 	}
 	copied := e.copies[0]
 	source, destination := copied.operands[0], copied.operands[1]
@@ -527,11 +695,11 @@ func (m *Cpybkc) checkExtendsTheImage(ctx context.Context, e *workedExample, bui
 	// check invented would be a promise the document did not make.
 	mode, err := copied.mode()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	uid, gid, err := copied.owner()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	// The engine's own platform: the build stage compiled the generator for the
@@ -539,7 +707,12 @@ func (m *Cpybkc) checkExtendsTheImage(ctx context.Context, e *workedExample, bui
 	// copied onto. Which platforms the base is published for is ImageContract's.
 	platform, err := dag.DefaultPlatform(ctx)
 	if err != nil {
-		return fmt.Errorf("reading the engine's platform: %w", err)
+		return nil, fmt.Errorf("reading the engine's platform: %w", err)
+	}
+
+	protos, err := m.shippedProtos(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	derived := m.image(platform).WithFile(destination, built.File(source), dagger.ContainerWithFileOpts{
@@ -547,12 +720,14 @@ func (m *Cpybkc) checkExtendsTheImage(ctx context.Context, e *workedExample, bui
 		Permissions: mode,
 	})
 
-	errs := m.checkImageContents(ctx, derived, derivedImageContents(destination, imageEntry{uid, gid, mode}))
+	want := derivedImageContents(baseImageContents(protos), destination, imageEntry{kindFile, uid, gid, mode})
+
+	errs := m.checkImageContents(ctx, derived, want)
 	errs = append(errs, m.checkImageIsTheCLI(ctx, derived)...)
 
 	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("%s: the worked example's final stage, built onto the image this pipeline produces: %w",
-			containerSpec, err)
+		return derived, fmt.Errorf("%s: the worked example's final stage, built onto the image this pipeline "+
+			"produces: %w", containerSpec, err)
 	}
-	return nil
+	return derived, nil
 }

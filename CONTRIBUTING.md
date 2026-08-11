@@ -100,9 +100,10 @@ repository says `FROM ghcr.io/zaba505/cpybkc:v0` and names a path inside it, so
 [the base-image contract](docs/container/SPEC.md) is a document strangers depend
 on and `image-contract` is that document's compatibility guarantees table
 executed rather than read: the entrypoint, `Cmd`, the user, `PATH`, an exhaustive
-listing of every path in the filesystem with its owner and mode, the build
-settings the executable itself reports, and the entrypoint answering `--version`
-as the image's own user and as an overridden one.
+listing of every path in the filesystem with its kind, owner and mode, the build
+settings the executable itself reports, a byte comparison of the IR schema the
+image ships against the artifacts a release attaches, and the entrypoint
+answering `--version` as the image's own user and as an overridden one.
 
 It runs on every platform the image is published for, and reports each platform's
 failures separately — "it holds on amd64 and not on arm64" is the finding. The
@@ -336,6 +337,15 @@ Three properties are worth knowing before you touch any of them:
   by Go tests, in `irpb` and beside each tool under `internal/tools/`; the
   pipeline stages only check that the commands run to completion and leave a file
   behind.
+- **Both IR artifacts also ship inside the image**, at
+  `/usr/local/share/cpybkc/ir.binpb` and `/usr/local/share/cpybkc/proto/`, so
+  that a plugin author building `FROM` the image needs no download at all. They
+  are the same nodes — `image` copies in the file `ir-descriptor-set` produces,
+  rather than building its own — and `image-contract` compares the image's copy
+  against a fresh build byte for byte. That is what makes [the base-image
+  contract](docs/container/SPEC.md#these-are-the-release-assets-not-copies-of-them)'s
+  "two ways of getting one artifact, not two artifacts" a property of the
+  pipeline rather than a promise somebody has to keep.
 
 A `.proto` added under `proto/` that nothing reachable from
 `cpybkc.ir.v1.Descriptor` imports fails `TestPublishedFileDescriptorSetCoversTheSchema`.

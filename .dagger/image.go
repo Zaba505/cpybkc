@@ -49,6 +49,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -88,6 +89,17 @@ const (
 	// ordinary.
 	executableMode = 0o755
 
+	// dataMode is the mode every shipped data file has: readable by everybody
+	// and writable by nobody but root.
+	//
+	// Both halves are promises docs/container/SPEC.md makes about the IR schema
+	// below. World-readable is what makes `--user $(id -u):$(id -g)` an ordinary
+	// configuration for a generator that reads the descriptor set, since the
+	// running UID is a number this image has never heard of. Writable only by
+	// root is what makes "a derived image may copy it out, and MUST NOT modify
+	// it in place" hold for the running process rather than only on paper.
+	dataMode = 0o644
+
 	// dirMode is the mode of every directory in the image.
 	dirMode = 0o755
 
@@ -103,6 +115,35 @@ const (
 	// and the one that keeps working when a caller overrides the UID.
 	tmpDir     = "/tmp"
 	tmpDirMode = 0o1777
+
+	// irDir is where the IR schema ships, and the two paths under it are the
+	// ones docs/container/SPEC.md fixes for a consumer (#57).
+	//
+	// /usr/local/share for the same reason the plugin directory is
+	// /usr/local/bin: it is the conventional destination for architecture-
+	// independent data belonging to a locally installed program, so a reader who
+	// has never opened that document guesses it correctly, and a `COPY --from`
+	// naming it reads naturally. The cpybkc component is what keeps a derived
+	// image's own share of that directory from colliding with this one's.
+	irDir = "/usr/local/share/cpybkc"
+
+	// irDescriptorSetFile is the protobuf FileDescriptorSet describing
+	// cpybkc.ir.v1.Descriptor, under the name the release asset already has —
+	// they are two ways of getting one artifact rather than two artifacts, and a
+	// second name for it would be the first step towards two.
+	irDescriptorSetFile = "ir.binpb"
+
+	// irProtoDirName is the schema sources, and it is a directory rather than an
+	// archive because it is an include root: every file sits at the path its
+	// protobuf package requires, so `protoc -I` is pointed straight at it.
+	irProtoDirName = "proto"
+
+	irDescriptorSetPath = irDir + "/" + irDescriptorSetFile
+	irProtoDir          = irDir + "/" + irProtoDirName
+
+	// protoSource is the schema root in this repository, which is what both
+	// shipped forms are cut from.
+	protoSource = "proto"
 )
 
 // imagePlatforms is the set of platforms the image is published for, and the
@@ -125,8 +166,9 @@ func imagePlatforms() []dagger.Platform {
 // It is the image docs/container/SPEC.md describes, and every promise that
 // document makes is made here: the CLI in /usr/local/bin with that directory on
 // PATH, the CLI as the entrypoint with an empty Cmd, UID and GID 65532 owning
-// the plugin directory and running the process, a writable temporary directory,
-// and nothing else in the filesystem at all.
+// the plugin directory and running the process, the IR schema under
+// /usr/local/share/cpybkc in both published forms, a writable temporary
+// directory, and nothing else in the filesystem at all.
 //
 // No generator is in it, and that absence is a promise rather than an omission:
 // cpybkc-gen-go (#48-#53) reaches a user the way a stranger's generator does, as
@@ -164,10 +206,13 @@ func (m *Cpybkc) Image(
 //   - The OCI configuration — Entrypoint, Cmd, User and PATH. WorkingDir is not
 //     among them, because that document explicitly does not cover it: a caller
 //     passes their own, and the invocation the document gives them says so.
-//   - The filesystem, as an exact list of every path in it with its owner and
-//     its mode. Exact rather than a spot check, because "the base is scratch
-//     plus the files this document names" is the promise, and it is the same
-//     assertion as no shell, no libc and no package manager.
+//   - The filesystem, as an exact list of every path in it with its kind, its
+//     owner and its mode. Exact rather than a spot check, because "the base is
+//     scratch plus the files this document names" is the promise, and it is the
+//     same assertion as no shell, no libc and no package manager.
+//   - The IR schema it ships, byte for byte against the artifacts a release
+//     publishes. The listing above says those paths are world-readable regular
+//     files; this says they are the right bytes.
 //   - How the executable in it was built, read out of the binary itself: CGO
 //     off, -trimpath on, and the GOOS and GOARCH of the platform whose image it
 //     landed in.
@@ -231,6 +276,14 @@ func (m *Cpybkc) image(platform dagger.Platform) *dagger.Container {
 		WithDirectory(pluginDir, cli, dagger.ContainerWithDirectoryOpts{
 			Owner: imageUser,
 		}).
+		// The IR schema, in both the forms a release publishes: the
+		// FileDescriptorSet a plugin author decodes a descriptor against with no
+		// codegen in their build, and the .proto sources for the build that
+		// would rather compile them. Root-owned, unlike the plugin directory —
+		// these are read-only data, and the running user having no way to
+		// rewrite them is what makes "MUST NOT modify it in place" true of the
+		// filesystem rather than only of the document.
+		WithDirectory(irDir, m.irDirectory()).
 		// A temporary directory, because cpybkc writes each invocation's
 		// descriptor into one. Not owned by the image's user: 1777 is what makes
 		// it usable by whichever UID the container is actually running as.
@@ -291,17 +344,81 @@ func (m *Cpybkc) tmpDirectory() *dagger.Directory {
 		Directory(staging)
 }
 
+// irDirectory is the contents of irDir: the FileDescriptorSet beside an include
+// root holding the schema sources.
+//
+// The descriptor set is IrDescriptorSet's file — the same node the release
+// workflow exports and attaches — rather than a second recipe producing bytes
+// that agree today. That is the whole of what makes docs/container/SPEC.md's
+// "byte-identical to the ir.binpb asset on the matching release" a property of
+// the build instead of a promise somebody has to keep, and it is why the same
+// bytes land in every platform's image: a FileDescriptorSet is a function of the
+// schema and knows nothing about an architecture.
+//
+// Only .proto files are copied, naming what goes in rather than what stays out,
+// which is the rule internal/tools/ir-protos already applies to the archive for
+// the same reason: a generated file or an editor's leavings appearing under
+// proto/ would otherwise be published as part of the contract.
+//
+// The modes are set here rather than inherited from the checkout because
+// ImageContract's listing is exhaustive down to the mode, and a file's mode in a
+// git checkout is the contributor's umask. Without the chmod the image would be
+// a function of whose machine built it, and the contract check would fail for
+// somebody whose umask is not 022 — on a file they had not touched. u=rwX,go=rX
+// leaves directories traversable and files world-readable, which is what dataMode
+// and dirMode say and what the promise about an overridden UID rests on.
+func (m *Cpybkc) irDirectory() *dagger.Directory {
+	const staging = "/staging"
+
+	return dag.Go().
+		Container(m.Source).
+		WithFile(staging+"/"+irDescriptorSetFile, m.IrDescriptorSet()).
+		WithDirectory(staging+"/"+irProtoDirName, m.Source.Directory(protoSource),
+			dagger.ContainerWithDirectoryOpts{Include: []string{"**/*.proto"}}).
+		WithExec([]string{"chmod", "-R", "u=rwX,go=rX", staging}).
+		Directory(staging)
+}
+
+// shippedProtos is every .proto the image carries, as a path relative to the
+// include root, sorted.
+//
+// Read out of the source tree rather than listed here, so that a second .proto
+// arrives in the image and in the contract at once. The alternative — a constant
+// naming ir.proto — would make the exhaustive listing fail on the commit that
+// added a schema file rather than on the one that shipped it wrongly, which is a
+// check that punishes the wrong change.
+func (m *Cpybkc) shippedProtos(ctx context.Context) ([]string, error) {
+	names, err := m.Source.Directory(protoSource).Glob(ctx, "**/*.proto")
+	if err != nil {
+		return nil, fmt.Errorf("listing the schema sources under %s/: %w", protoSource, err)
+	}
+
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no .proto files under %s/: the image would ship an empty include root", protoSource)
+	}
+
+	slices.Sort(names)
+
+	return names, nil
+}
+
 // imageContractOn checks one platform's image.
 //
 // Every group is run and every failure collected rather than stopping at the
 // first: a change that broke the entrypoint most likely broke the user and the
 // plugin directory too, and one run should say so.
 func (m *Cpybkc) imageContractOn(ctx context.Context, platform dagger.Platform) error {
+	protos, err := m.shippedProtos(ctx)
+	if err != nil {
+		return err
+	}
+
 	image := m.image(platform)
 
 	errs := m.checkImageConfig(ctx, image)
-	errs = append(errs, m.checkImageContents(ctx, image, baseImageContents())...)
+	errs = append(errs, m.checkImageContents(ctx, image, baseImageContents(protos))...)
 	errs = append(errs, m.checkImageBuild(ctx, image, platform)...)
+	errs = append(errs, m.checkShippedIr(ctx, image)...)
 	errs = append(errs, m.checkImageIsTheCLI(ctx, image)...)
 
 	return errors.Join(errs...)
@@ -490,6 +607,50 @@ func (m *Cpybkc) checkImageBuild(
 	return errs
 }
 
+// checkShippedIr compares the IR schema in the image, byte for byte, against the
+// artifacts a release publishes.
+//
+// docs/container/SPEC.md promises the descriptor set in the image is identical
+// to the ir.binpb asset on the matching release — two ways of getting one
+// artifact rather than two artifacts — and the same of the sources against the
+// tree ir-protos.tar.gz is cut from. That promise is what lets a build fetch
+// whichever is cheaper and stop; two artifacts that merely agreed today would
+// make the choice a gamble on nobody having changed one recipe.
+//
+// The listing check beside this one is about the modes and owners of those
+// paths, and it would pass on a stale descriptor set with the right mode. This
+// one is about the bytes, and it would pass on a correct file nobody could read.
+// Neither subsumes the other.
+//
+// `diff --recursive --brief` rather than a comparison per file, because "Only in
+// …" is the finding for a schema file the image gained or lost, and a
+// file-by-file loop would only ever check the files somebody remembered to name.
+// It runs in the toolchain container over the image's filesystem mounted as
+// data: the image has no shell, and the executable being compared may be for
+// another architecture, which is irrelevant to a byte comparison.
+func (m *Cpybkc) checkShippedIr(ctx context.Context, image *dagger.Container) []error {
+	const (
+		mountedAt = "/image"
+		wantAt    = "/want"
+	)
+
+	_, err := dag.Go().
+		Container(m.Source).
+		WithMountedDirectory(mountedAt, image.Rootfs()).
+		WithFile(wantAt+"/"+irDescriptorSetFile, m.IrDescriptorSet()).
+		WithDirectory(wantAt+"/"+irProtoDirName, m.Source.Directory(protoSource),
+			dagger.ContainerWithDirectoryOpts{Include: []string{"**/*.proto"}}).
+		WithExec([]string{"diff", "--recursive", "--brief", wantAt, mountedAt + irDir}).
+		Sync(ctx)
+	if err != nil {
+		return []error{fmt.Errorf("the IR schema under %s is not the artifacts this repository publishes; the "+
+			"descriptor set in the image and the ir.binpb asset on a release are one artifact reachable two ways, "+
+			"and the sources are the tree ir-protos.tar.gz is cut from: %w", irDir, err)}
+	}
+
+	return nil
+}
+
 // buildSettings reads `go version -m` output into the settings it reports.
 //
 // Every line but the first is a tab-indented `<key>\t<value>` pair, and the ones
@@ -524,7 +685,10 @@ func buildSettings(out string) map[string]string {
 //
 // The parent directories are root-owned and that is intentional — only the
 // plugin directory is promised to the image's user, and a root-owned parent at
-// 0755 is what stops the running user replacing the tree above it.
+// 0755 is what stops the running user replacing the tree above it. The IR
+// schema is root-owned for the stronger form of the same reason: it is data a
+// derived image may copy out and must not modify, and 0644 owned by root is
+// that sentence enforced rather than asserted.
 //
 // Listing /tmp here does not make it a covered guarantee, and the two are not
 // the same kind of statement. Covered is about what a *consumer* may depend on,
@@ -537,16 +701,34 @@ func buildSettings(out string) map[string]string {
 // moved the temporary directory would edit this line in the same commit, which
 // is the difference between changing an implementation detail and changing it
 // without noticing.
-func baseImageContents() map[string]imageEntry {
-	contents := map[string]imageEntry{
-		"/usr":       {0, 0, dirMode},
-		"/usr/local": {0, 0, dirMode},
-		pluginDir:    {imageUID, imageGID, dirMode},
-		tmpDir:       {0, 0, tmpDirMode},
+// protos is every schema source the image carries, relative to the include root
+// — shippedProtos' answer, read out of the tree rather than named here.
+func baseImageContents(protos []string) map[string]imageEntry {
+	contents := map[string]imageEntry{}
+
+	for _, name := range []string{"/usr", "/usr/local", "/usr/local/share", irDir, irProtoDir} {
+		contents[name] = imageEntry{kindDir, 0, 0, dirMode}
 	}
 
+	contents[pluginDir] = imageEntry{kindDir, imageUID, imageGID, dirMode}
+	contents[tmpDir] = imageEntry{kindDir, 0, 0, tmpDirMode}
+	contents[irDescriptorSetPath] = imageEntry{kindFile, 0, 0, dataMode}
+
 	for _, name := range baseImageExecutables() {
-		contents[pluginDir+"/"+name] = imageEntry{imageUID, imageGID, executableMode}
+		contents[pluginDir+"/"+name] = imageEntry{kindFile, imageUID, imageGID, executableMode}
+	}
+
+	// Every directory a schema file's own package puts it in, so that the
+	// include root is listed the way it is shipped: cpybkc/ir/v1/ir.proto brings
+	// three directories with it, and a flattened copy would be a file whose
+	// FileDescriptorProto names a path this project does not publish.
+	for _, name := range protos {
+		full := irProtoDir + "/" + name
+		contents[full] = imageEntry{kindFile, 0, 0, dataMode}
+
+		for dir := path.Dir(full); dir != irProtoDir && dir != "/" && dir != "."; dir = path.Dir(dir) {
+			contents[dir] = imageEntry{kindDir, 0, 0, dirMode}
+		}
 	}
 
 	return contents
@@ -577,15 +759,31 @@ func baseImageExecutablePaths() []string {
 	return paths
 }
 
-// imageEntry is one path's expected ownership and mode.
+// imageEntry is one path's expected kind, ownership and mode.
 type imageEntry struct {
+	kind string
 	uid  int
 	gid  int
 	mode int
 }
 
+// The kinds `find -printf %y` reports for what this image is allowed to hold. A
+// third — `l`, a symbolic link — is deliberately not here: docs/container/SPEC.md
+// requires the files it names to be regular files, because a `COPY --from`
+// naming a symlink copies the link and a runtime resolving one inside an image
+// that has nothing else in it resolves a dangling name.
+const (
+	kindFile = "f"
+	kindDir  = "d"
+)
+
 func (e imageEntry) String() string {
-	return fmt.Sprintf("%d:%d %04o", e.uid, e.gid, e.mode)
+	kind := e.kind
+	if kind == "" {
+		kind = "?"
+	}
+
+	return fmt.Sprintf("%s %d:%d %04o", kind, e.uid, e.gid, e.mode)
 }
 
 // checkImageContents compares every path in an image against a listing of what
@@ -612,10 +810,15 @@ func (m *Cpybkc) checkImageContents(
 	// Numeric %U and %G rather than %u and %g: the listing container has no
 	// passwd entry for 65532, so the symbolic forms would print the number
 	// anyway on a good day and a name on a bad one.
+	//
+	// %y is the entry's kind, and it is here because "a regular file" is one of
+	// the promises: find reports a symbolic link as `l` and does not follow it,
+	// so a shipped file replaced by a link to one is a kind mismatch naming the
+	// path rather than a mode that happens not to match.
 	listing, err := dag.Go().
 		Container(m.Source).
 		WithMountedDirectory(mountedAt, image.Rootfs()).
-		WithExec([]string{"find", mountedAt, "-mindepth", "1", "-printf", `%U %G %m %p\n`}).
+		WithExec([]string{"find", mountedAt, "-mindepth", "1", "-printf", `%U %G %m %y %p\n`}).
 		Stdout(ctx)
 	if err != nil {
 		return []error{fmt.Errorf("listing the image filesystem: %w", err)}
@@ -664,11 +867,11 @@ func (m *Cpybkc) checkImageContents(
 	return errs
 }
 
-// parseFindLine reads one `%U %G %m %p` line and strips the mount prefix, so
+// parseFindLine reads one `%U %G %m %y %p` line and strips the mount prefix, so
 // that the paths compared are the paths inside the image.
 func parseFindLine(line, prefix string) (imageEntry, string, error) {
 	fields := strings.Fields(line)
-	if len(fields) != 4 {
+	if len(fields) != 5 {
 		return imageEntry{}, "", fmt.Errorf("unreadable listing line %q", line)
 	}
 
@@ -687,7 +890,7 @@ func parseFindLine(line, prefix string) (imageEntry, string, error) {
 		return imageEntry{}, "", fmt.Errorf("unreadable mode in %q: %w", line, err)
 	}
 
-	return imageEntry{uid, gid, int(mode)}, strings.TrimPrefix(fields[3], prefix), nil
+	return imageEntry{fields[3], uid, gid, int(mode)}, strings.TrimPrefix(fields[4], prefix), nil
 }
 
 // derivedImageContents is the base image's listing plus one file copied into the
@@ -699,8 +902,8 @@ func parseFindLine(line, prefix string) (imageEntry, string, error) {
 // stage only copies" becomes an assertion rather than a claim: a RUN that had
 // somehow worked, or a second file nobody mentioned, is a path in the listing
 // that nothing accounts for.
-func derivedImageContents(path string, entry imageEntry) map[string]imageEntry {
-	contents := maps.Clone(baseImageContents())
+func derivedImageContents(base map[string]imageEntry, path string, entry imageEntry) map[string]imageEntry {
+	contents := maps.Clone(base)
 	contents[path] = entry
 
 	return contents

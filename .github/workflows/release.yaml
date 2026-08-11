@@ -43,10 +43,12 @@ jobs:
   # version inside it rather than in its name, so that a file downloaded on its
   # own still says which version of the format it describes.
   #
-  # The same ir.binpb bytes will ship inside the published image (#57). That is
-  # two ways of getting one artifact rather than two artifacts, and what keeps it
-  # so is that both come from `dagger call ir-descriptor-set` rather than from
-  # two recipes that agree today.
+  # The same ir.binpb bytes ship inside the published image, at
+  # /usr/local/share/cpybkc/ir.binpb, and the same sources ship unpacked beside
+  # them (#57). That is two ways of getting one artifact rather than two
+  # artifacts, and what keeps it so is that the image copies in the file
+  # `dagger call ir-descriptor-set` produces rather than building its own —
+  # `dagger call image-contract` compares the two on every pull request.
   artifacts:
     name: Release artifacts
     runs-on: ubuntu-latest

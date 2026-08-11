@@ -63,7 +63,7 @@ func runGenerator(t *testing.T, body string) (stderr, executable string, err err
 	dir := t.TempDir()
 
 	path := filepath.Join(dir, plugin.Filename(generatorName))
-	if writeErr := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); writeErr != nil {
+	if writeErr := writeGenerator(path, "#!/bin/sh\n"+body+"\n"); writeErr != nil {
 		t.Fatalf("writing %s: %v", path, writeErr)
 	}
 
