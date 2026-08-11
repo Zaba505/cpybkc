@@ -26,7 +26,8 @@ it goes belongs here.
 In scope: what the published image guarantees to an image built `FROM` it — the
 directory a generator is copied into, the entrypoint, the user and UID the
 process runs as and the guidance for overriding it with
-`--user $(id -u):$(id -g)`, whether a shell is present and what follows if it is
+`--user $(id -u):$(id -g)`, the paths the IR schema ships at and what a
+consumer may do with them, whether a shell is present and what follows if it is
 not, the tags a derived image may pin to, and which of these are covered by a
 compatibility guarantee and which are implementation detail that may change
 without notice.
@@ -218,6 +219,117 @@ find. An overridden UID is an ordinary configuration and not a workaround.
 The default exists for the case where no host user is involved — a CI runner, a
 Kubernetes job, a Dagger pipeline — where running as a pinned non-root UID is
 what a policy wants to see.
+
+## The IR schema in the image
+
+A generator is handed a `cpybkc.ir.v1.Descriptor` and has to decode it. The
+schema that says how is **in the image**, at two paths, so that a plugin author
+building `FROM` it needs nothing else from this project — no download, no
+network at build time, and no arrangement with this repository at all (#57):
+
+| Path | What it is | Who it is for |
+| --- | --- | --- |
+| `/usr/local/share/cpybkc/ir.binpb` | the protobuf `FileDescriptorSet` describing `cpybkc.ir.v1.Descriptor` and the transitive closure of its imports | a generator whose build has no protobuf code generation in it, decoding dynamically |
+| `/usr/local/share/cpybkc/proto/` | the `.proto` sources, each file at the path its protobuf package requires | a build that would rather run a compiler and generate bindings |
+
+Both **MUST** exist. Each **MUST** be a **regular file** — not a symbolic link,
+not a directory where a file is named — because a `COPY --from` naming one
+copies what is there, and a link copies as a link into an image whose target
+does not exist. Both **MUST** be readable by the [image's user](#the-user) *and*
+by any UID a caller overrides it with: a generator run under
+`--user $(id -u):$(id -g)` reads the same file as one run under 65532, and a
+file readable only by the image's own user would make that recommended
+invocation fail on the one thing the image exists to hand it.
+
+`/usr/local/share/cpybkc/proto` is an **include root**. Every file under it sits
+at the path its protobuf package requires, so a compiler is pointed straight at
+the directory:
+
+```console
+$ protoc -I /usr/local/share/cpybkc/proto --python_out=. cpybkc/ir/v1/ir.proto
+```
+
+That layout is the reason it is a directory and not one flattened `ir.proto`. A
+`.proto`'s path is part of its identity — it is the name a `FileDescriptorProto`
+carries and the string another schema's `import` resolves — so a file moved out
+of its package's directory compiles into descriptors naming a path this project
+does not publish.
+
+### These are the release assets, not copies of them
+
+The bytes at `/usr/local/share/cpybkc/ir.binpb` **MUST** be identical to the
+`ir.binpb` asset attached to the matching release, and the files under
+`/usr/local/share/cpybkc/proto/` **MUST** be identical to the contents of that
+release's `ir-protos.tar.gz`. They are **two ways of getting one artifact, not
+two artifacts.**
+
+This is the guarantee that lets a build stop after the cheaper one. A pipeline
+that already pulls the image reads the file out of it and never touches the
+release page; a pipeline that does not want a container image downloads the
+asset. Neither has any reason to fetch both, and neither has to diff them to
+find out whether it should have. Two files that merely agreed today would make
+that a gamble on nobody having changed one of the two recipes, so there is one
+recipe: `dagger call ir-descriptor-set` produces the file the release attaches
+*and* the file the image carries, and the pipeline compares them on every pull
+request.
+
+For the same reason the bytes are identical across the platforms of one release.
+A `FileDescriptorSet` is a function of the schema and knows nothing about an
+architecture, so `linux/amd64` and `linux/arm64` carry the same file and a build
+that reads it out of either gets the same answer.
+
+### What a derived image may do with them
+
+A derived image **MAY** copy either path out — into a builder stage that runs
+`protoc`, or into a distroless image of its own:
+
+```dockerfile
+FROM ghcr.io/zaba505/cpybkc:v0 AS cpybkc
+
+FROM python:3.13
+COPY --from=cpybkc /usr/local/share/cpybkc/ir.binpb /opt/ir.binpb
+```
+
+A derived image **MUST NOT** modify either in place. An image that rewrote the
+descriptor set would be publishing a cpybkc whose shipped schema no longer
+describes the descriptors its own CLI emits, and every generator in it would
+decode against a contract the entrypoint does not implement. The files are
+root-owned and mode `0644`, so the running user cannot do it by accident; the
+requirement is on the build that could.
+
+### Their size, which is not a guarantee
+
+Descriptive, and stated because *"ships a protobuf descriptor set"* otherwise
+means anything from two kilobytes to a hundred megabytes, which is the
+difference between `COPY --from`-ing it into a distroless image without thinking
+and not doing it at all: `ir.binpb` is roughly **five kilobytes** and the
+sources are roughly **forty-five**, so the whole of
+`/usr/local/share/cpybkc` is tens of kilobytes.
+
+Those numbers are **not covered**. They move with the schema, and a release that
+added a message would change both without changing anything a consumer depends
+on. What is covered is that the paths are there, are regular files, are readable
+and are the release's own bytes.
+
+### Why both, when the descriptor set alone would do
+
+The descriptor set is the one that serves the consumer with the least: a runtime
+that can load a `FileDescriptorSet` — which is every protobuf runtime — needs no
+compiler, no build step and no generated code. If only one form could ship, it
+would be that one.
+
+The sources ship as well because the consumer who *can* run a compiler is not
+served by it. Generating bindings from a `.proto` gives them named types, their
+language's own field accessors and their own build's error messages, and asking
+them to reconstruct a `.proto` from a descriptor set to get there is asking them
+to write a decompiler. The two are alternatives rather than a fallback pair, and
+[`ir/SPEC.md`](../ir/SPEC.md#reading-a-descriptor-without-generated-code) is
+normative for what each contains.
+
+There is a third way to read a descriptor and it ships nothing, because it needs
+nothing: cpybkc renders one as JSON on request, and the entrypoint is already in
+the image. That is the [IR specification's](../ir/SPEC.md#a-descriptor-is-readable-by-a-person),
+and it is a CLI flag rather than a file.
 
 ## Shell or no shell
 
@@ -570,6 +682,228 @@ than the ones this document permits is an error naming it, rather than a line
 that quietly goes unchecked. A worked example that grows an `ENV` teaches the
 pipeline what an `ENV` means before CI accepts it.
 
+## Worked example: reading the IR without generated code
+
+The example above put a generator on `PATH` and said nothing about how it reads
+what cpybkc hands it. This one is the other half, and it is the reason [the IR
+schema](#the-ir-schema-in-the-image) is in the image at all: a generator that
+decodes a descriptor using **only the `FileDescriptorSet` at
+`/usr/local/share/cpybkc/ir.binpb`**. Nothing in its build context is generated
+from cpybkc's schema, nothing in its `go.mod` comes from this repository, and it
+never downloads anything — the schema arrives with the base image.
+
+It is written in Go because the final stage has [no
+shell](#shell-or-no-shell) and every plugin is a static executable, but nothing
+below is Go-specific: the four calls are `decode a FileDescriptorSet`, `build a
+registry`, `look up a message by name`, `decode into a dynamic message of that
+type`, and every protobuf runtime has them. [`ir/SPEC.md`, *Reading a descriptor
+without generated code*](../ir/SPEC.md#reading-a-descriptor-without-generated-code)
+is normative for them.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+FROM golang:1.25 AS build
+WORKDIR /src
+
+COPY <<'EOF' go.mod
+module example.com/cpybkc-gen-irdump
+
+go 1.24
+EOF
+
+COPY <<'EOF' main.go
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
+)
+
+// Everything this generator knows about the IR comes out of the image it is
+// running in. There is no import of cpybkc's Go module here and no ir.proto in
+// the build context; the schema is the file below.
+const (
+	shippedDescriptorSet = "/usr/local/share/cpybkc/ir.binpb"
+	descriptorMessage    = "cpybkc.ir.v1.Descriptor"
+
+	// The one IR version this generator implements, by name. A generator built
+	// against generated code compares an enum constant; one that decodes
+	// dynamically has the value's name and nothing else, and the name is in the
+	// descriptor set above.
+	irVersion     = "IR_VERSION_1"
+	pluginVersion = "0.1.0"
+)
+
+func main() {
+	descriptor, out := "", ""
+
+	args := os.Args[1:]
+	for len(args) > 0 && args[0] != "--" {
+		if len(args) < 2 {
+			fail("%s: missing value", args[0])
+		}
+		flag, value := args[0], args[1]
+		args = args[2:]
+		switch flag {
+		case "--descriptor":
+			descriptor = value
+		case "--out":
+			out = value
+		default:
+			fail("%s: unrecognised flag", flag)
+		}
+	}
+	if descriptor == "" || out == "" {
+		fail("--descriptor and --out are both required")
+	}
+
+	// The schema, read out of the image.
+	schema, err := os.ReadFile(shippedDescriptorSet)
+	if err != nil {
+		fail("%v", err)
+	}
+
+	var set descriptorpb.FileDescriptorSet
+	if err := proto.Unmarshal(schema, &set); err != nil {
+		fail("%s is not a FileDescriptorSet: %v", shippedDescriptorSet, err)
+	}
+
+	// A registry of every file in it, and the one message a generator is
+	// handed. Both come from the shipped bytes; neither needs a compiler.
+	files, err := protodesc.NewFiles(&set)
+	if err != nil {
+		fail("%s does not build a registry: %v", shippedDescriptorSet, err)
+	}
+
+	found, err := files.FindDescriptorByName(descriptorMessage)
+	if err != nil {
+		fail("%s describes no %s: %v", shippedDescriptorSet, descriptorMessage, err)
+	}
+
+	message, ok := found.(protoreflect.MessageDescriptor)
+	if !ok {
+		fail("%s is not a message", descriptorMessage)
+	}
+
+	encoded, err := os.ReadFile(descriptor)
+	if err != nil {
+		fail("%v", err)
+	}
+
+	root := dynamicpb.NewMessage(message)
+	if err := proto.Unmarshal(encoded, root); err != nil {
+		fail("the descriptor is not a %s: %v", descriptorMessage, err)
+	}
+
+	// The version before anything else in the message, and a refusal rather
+	// than a walk. That obligation binds a consumer that decoded dynamically
+	// exactly as it binds one with generated code — more visibly, if anything,
+	// since nothing here would have failed to compile against a newer IR.
+	field := message.Fields().ByName("version")
+	stated := field.Enum().Values().ByNumber(root.Get(field).Enum())
+	if stated == nil || string(stated.Name()) != irVersion {
+		fail("descriptor IR version %v; cpybkc-gen-irdump %s implements %s",
+			root.Get(field), pluginVersion, irVersion)
+	}
+
+	// A descriptor is a flat list of nodes, and a record names itself through a
+	// Names message. Reading either by field name is the whole of what the
+	// descriptor set bought.
+	report := &strings.Builder{}
+	fmt.Fprintf(report, "ir version: %s\n", stated.Name())
+
+	nodes := root.Get(message.Fields().ByName("nodes")).List()
+	fmt.Fprintf(report, "nodes: %d\n", nodes.Len())
+
+	for i := range nodes.Len() {
+		node := nodes.Get(i).Message()
+
+		kind := node.WhichOneof(node.Descriptor().Oneofs().ByName("kind"))
+		if kind == nil || kind.Name() != "record" {
+			continue
+		}
+
+		record := node.Get(kind).Message()
+		names := record.Get(record.Descriptor().Fields().ByName("names")).Message()
+
+		fmt.Fprintf(report, "record: %s\n",
+			names.Get(names.Descriptor().Fields().ByName("original")).String())
+	}
+
+	name := filepath.Join(out, "ir.txt")
+	if err := os.WriteFile(name, []byte(report.String()), 0o644); err != nil {
+		fail("%v", err)
+	}
+}
+
+func fail(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
+	os.Exit(1)
+}
+EOF
+
+RUN go mod tidy \
+ && CGO_ENABLED=0 go build -trimpath -o /out/cpybkc-gen-irdump .
+
+FROM ghcr.io/zaba505/cpybkc:v0
+COPY --from=build --chown=65532:65532 --chmod=0755 \
+     /out/cpybkc-gen-irdump /usr/local/bin/cpybkc-gen-irdump
+```
+
+Build it and run cpybkc against a project whose `cpybkc.json` names the
+`irdump` generator, and `ir.txt` names the IR version and every record in the
+descriptor:
+
+```console
+$ docker build -t cpybkc-irdump .
+$ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src \
+    cpybkc-irdump <arguments>
+$ cat out/ir.txt
+ir version: IR_VERSION_1
+nodes: 42
+record: CUSTOMER-RECORD
+```
+
+Three things in it are the contract rather than the example:
+
+- `/usr/local/share/cpybkc/ir.binpb` is a path, written into the program, with
+  no fetch behind it. That is what [the IR schema in the
+  image](#the-ir-schema-in-the-image) guarantees, and it is why this Dockerfile
+  has no `ADD`, no `curl` and no build argument naming a release.
+- The file is opened by a process running as whatever UID the caller passed.
+  The `--user "$(id -u):$(id -g)"` above is the recommended invocation and it is
+  an ordinary one here too, because the shipped file is world-readable.
+- Nothing past the argument parsing knows the schema at compile time. Swap
+  `--python_out` for `go build` and the same four calls are the same four calls;
+  the only thing that would change is which of the two shipped forms the build
+  reaches for.
+
+### This example is built and run by the pipeline
+
+`dagger call worked-example` checks this Dockerfile exactly as it checks the
+[first one](#this-example-is-built-by-the-pipeline) — the build stage handed to
+the builder as committed, the final stage replayed onto the base image the
+pipeline just built — and then does one thing more: it **runs the generator**
+inside that derived image, as an overridden UID, against a descriptor stating an
+IR version and nothing else, and requires the output to name the version.
+
+That last step is the only thing that can tell this example from a program which
+merely mentions the path. Everything else about it — two stages, one static
+executable, one `COPY` into the plugin directory — would pass on a generator
+that never opened the file. The claim being checked is that the shipped
+descriptor set is *sufficient*: the version's name, `IR_VERSION_1`, appears in
+`ir.binpb` and nowhere in the bytes the generator was handed, so output carrying
+it is output that read the image's own copy of the schema.
+
 ## Compatibility guarantees
 
 **Covered.** Within a major version of the image each of these holds, and a
@@ -580,6 +914,8 @@ change to any of them is a breaking change:
 | [The plugin directory](#the-plugin-directory) | `/usr/local/bin`, on `PATH`, existing and owned by the image's user |
 | [The entrypoint](#the-entrypoint) | Is the cpybkc CLI, and takes its arguments |
 | [The user](#the-user) | UID 65532, GID 65532, non-root, overridable |
+| [The IR `FileDescriptorSet`](#the-ir-schema-in-the-image) | `/usr/local/share/cpybkc/ir.binpb`, a world-readable regular file, byte-identical to the release asset |
+| [The IR `.proto` sources](#the-ir-schema-in-the-image) | `/usr/local/share/cpybkc/proto/`, an include root of world-readable regular files, byte-identical to the release archive's contents |
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
@@ -603,6 +939,13 @@ depending on something that may change in a patch release, with no notice:
 - Layer count, layer ordering, image size, build timestamps, and every other
   label or annotation on the manifest.
 - Which UID owns a file that is not in the plugin directory.
+- The **size** of either IR artifact, and the number of files under
+  `/usr/local/share/cpybkc/proto/`. Both move with the schema; [the figures
+  given](#their-size-which-is-not-a-guarantee) are a description of one release
+  and not a promise about the next.
+- Anything else appearing under `/usr/local/share/cpybkc/`. The two paths named
+  above are the contract; a third file arriving beside them is not one to depend
+  on until this document names it.
 
 ### Why the platform set is the two it is
 
@@ -711,7 +1054,8 @@ Go install with no document that applies to them.
 | [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for replaying that stage onto a base image of this pipeline's own |
 | [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container` |
 | [Why the platform set is the two it is](#why-the-platform-set-is-the-two-it-is) | #54 `container` decides it, #55 `container` builds it, #56 `container` retires the third leg it once had |
-| The IR proto shipped in the image — a consumer-visible file, sized here | #57 `container` |
+| [The IR schema in the image](#the-ir-schema-in-the-image) | #57 `container` |
+| [Worked example: reading the IR without generated code](#worked-example-reading-the-ir-without-generated-code) | #57 `container`; #19 `ir` for what the descriptor set contains |
 | The multi-platform build itself — out of scope, see above | #55 `container` |
 | The Dagger module's default image tag — out of scope, see above | #104 `dagger` settles it in [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module); #61 `dagger` carries it onto the constructor |
 | Signing, provenance and SBOM — verifiable, so the tags section cites them | #58 `container` |

@@ -204,7 +204,7 @@ func New(
 // the Z5Labs standard defines them, over each of this repository's two Go
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
 // build of the three artifacts a release publishes, the published base image on
-// every platform it ships for, and the worked example docs/container/SPEC.md
+// every platform it ships for, and the worked examples docs/container/SPEC.md
 // hands an adopter. This is the single entrypoint — CI is one `dagger call ci`
 // and stays one, because a workflow step that reran any of these stages would be
 // a second definition of them.
@@ -393,10 +393,11 @@ func (m *Cpybkc) ProtoGen() *dagger.Directory {
 //
 //	dagger call ir-descriptor-set export --path=ir.binpb
 //
-// It is what the release workflow attaches to a release, and what the base image
-// will copy in at the path docs/container/SPEC.md fixes (#57). Both forms are
-// two ways of getting one artifact rather than two artifacts, which only holds
-// while there is one recipe; this is it.
+// It is what the release workflow attaches to a release, and — the same node,
+// not a second build of it — what image.go copies into the published image at
+// /usr/local/share/cpybkc/ir.binpb (#57). Both forms are two ways of getting one
+// artifact rather than two artifacts, which only holds while there is one
+// recipe; this is it, and ImageContract compares the two on every run.
 //
 // It is a function on this module rather than steps in a workflow for the reason
 // .github/workflows/ci.yaml already gives: repo-specific work lands here and is
@@ -432,6 +433,11 @@ func (m *Cpybkc) IrDescriptorSet() *dagger.File {
 // IrDescriptorSet is not for: the one whose build can run protoc and would
 // rather generate bindings than decode dynamically. internal/tools/ir-protos
 // carries the argument for why it is an archive and not the one .proto file.
+//
+// The published image carries the same sources unpacked, under
+// /usr/local/share/cpybkc/proto/ (#57) — an archive would be one a stage with no
+// shell could not open, and the layout inside it is exactly the include root the
+// image needs anyway.
 //
 // Its bytes are a function of the schema too — every tar field the filesystem
 // could have supplied is a constant and the entries are sorted — so the same
