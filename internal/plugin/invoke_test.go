@@ -36,11 +36,28 @@ func generator(t *testing.T, name, body, out string) Invocation {
 
 	path := filepath.Join(t.TempDir(), Filename(name))
 
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+	if err := writeGenerator(path, body); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
 	}
 
 	return Invocation{Name: name, Path: path, Out: out}
+}
+
+// writeGenerator writes an executable plugin, under [syscall.ForkLock] held for
+// reading.
+//
+// The lock is what stops the exec that follows failing ETXTBSY: a fork
+// concurrent with the write inherits the descriptor the script is open for
+// writing on, and a file open for writing anywhere cannot be executed
+// (golang/go#22315). This package's tests run several generators at once by
+// design, so the window is not theoretical — it has been seen as `text file
+// busy` under load, and the two other packages here that write a script and
+// then run it hold the lock for the same reason.
+func writeGenerator(path, body string) error {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+
+	return os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755)
 }
 
 // env is an environment for a generator: PATH, so that a shell script can reach

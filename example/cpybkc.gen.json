@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "files": [
+    "ledger/codec.go",
+    "ledger/doc.go",
+    "ledger/file.go",
+    "ledger/records.go"
+  ]
+}

@@ -1,0 +1,97 @@
+;; A ledger extract on a variable-length dataset: a header, any number of
+;; postings, and a trailer.
+;;
+;; What is hard about it, and why it is the worked example, is in README.md
+;; beside this file. In short: the postings are six record types resolved out
+;; of one 01-level by three REDEFINES over two independent runs, and this file
+;; discriminates at two different offsets -- the header and the trailer on the
+;; field they open with, a posting on a type code behind the account key every
+;; posting shares.
+
+;; The encoding profile. All four axes, always, with no default for any.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; The dataset. VB rather than F, so every record is behind the record
+;; descriptor word DFSMS defines and the framing layer is on the path the
+;; round-trip tests run.
+(framing
+  (recfm VB)
+  (lrecl 512))
+
+;; The record types. The two that stand alone.
+(record LEDGER-HEADER  (copybook "header.cpy" LEDGER-HEADER))
+(record LEDGER-TRAILER (copybook "trailer.cpy" LEDGER-TRAILER))
+
+;; And the six the postings' copybook resolves to. Each `record` form names the
+;; same 01-level and states which description of each redefined run it means:
+;; one `alternative` child per run, and the two together select one of the six
+;; combinations. The pairing is stated here and is never inferred from which
+;; alternative a discriminator happens to reach into.
+(record DEBIT-POSTING
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item DEBIT-POSTING PST-DEBIT))
+  (alternative (item DEBIT-POSTING PST-TAIL)))
+
+(record DEBIT-POSTING-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item DEBIT-POSTING-REF PST-DEBIT))
+  (alternative (item DEBIT-POSTING-REF PST-TAIL-REF)))
+
+(record CREDIT-POSTING
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item CREDIT-POSTING PST-CREDIT))
+  (alternative (item CREDIT-POSTING PST-TAIL)))
+
+(record CREDIT-POSTING-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item CREDIT-POSTING-REF PST-CREDIT))
+  (alternative (item CREDIT-POSTING-REF PST-TAIL-REF)))
+
+(record MEMO-POSTING
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item MEMO-POSTING PST-BODY))
+  (alternative (item MEMO-POSTING PST-TAIL)))
+
+(record MEMO-POSTING-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item MEMO-POSTING-REF PST-BODY))
+  (alternative (item MEMO-POSTING-REF PST-TAIL-REF)))
+
+;; Six record types over one 01-level carry one name between them -- the one the
+;; copybook's 01-level gives them -- until a rename says otherwise. Nothing in
+;; the layout format requires one, because whether one name on six record types
+;; is a problem is a property of the target language. It is a problem in Go, and
+;; `cpybkc-gen-go` refuses rather than munging six record types into one
+;; identifier, so this layout names them.
+(rename DEBIT-POSTING      "DEBIT-POSTING")
+(rename DEBIT-POSTING-REF  "DEBIT-POSTING-REF")
+(rename CREDIT-POSTING     "CREDIT-POSTING")
+(rename CREDIT-POSTING-REF "CREDIT-POSTING-REF")
+(rename MEMO-POSTING       "MEMO-POSTING")
+(rename MEMO-POSTING-REF   "MEMO-POSTING-REF")
+
+;; How to tell them apart. The header and the trailer are selected on the field
+;; they open with; every posting is selected on PST-TYPE, which sits twelve
+;; bytes into the record behind the key it shares. Both are `equals` on an item
+;; reference -- one strategy, two offsets.
+(discriminate LEDGER-HEADER      (equals (item LEDGER-HEADER HDR-TYPE) "01"))
+(discriminate LEDGER-TRAILER     (equals (item LEDGER-TRAILER TRL-TYPE) "99"))
+(discriminate DEBIT-POSTING      (equals (item DEBIT-POSTING PST-TYPE) "DA"))
+(discriminate DEBIT-POSTING-REF  (equals (item DEBIT-POSTING-REF PST-TYPE) "DB"))
+(discriminate CREDIT-POSTING     (equals (item CREDIT-POSTING PST-TYPE) "CA"))
+(discriminate CREDIT-POSTING-REF (equals (item CREDIT-POSTING-REF PST-TYPE) "CB"))
+(discriminate MEMO-POSTING       (equals (item MEMO-POSTING PST-TYPE) "MA"))
+(discriminate MEMO-POSTING-REF   (equals (item MEMO-POSTING-REF PST-TYPE) "MB"))
+
+;; The order they may appear in.
+(sequence
+  (seq LEDGER-HEADER
+       (times (alt DEBIT-POSTING DEBIT-POSTING-REF
+                   CREDIT-POSTING CREDIT-POSTING-REF
+                   MEMO-POSTING MEMO-POSTING-REF)
+              (item LEDGER-HEADER HDR-COUNT))
+       LEDGER-TRAILER))

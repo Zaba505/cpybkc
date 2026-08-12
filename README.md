@@ -112,6 +112,23 @@ line. [The `cpybkc.json` project
 manifest](docs/plugin/SPEC.md#the-cpybkcjson-project-manifest) is where the
 plugin contract says so, and why.
 
+## A worked example
+
+[`example/`](example/) carries one artifact from a layout to bytes: a layout, the
+copybooks it names, the manifest, and the Go package cpybkc writes for them, all
+checked in. A test regenerates that package from those inputs and requires it
+byte for byte, so the path an adopter takes — write a layout, generate, read a
+file — is one this repository runs on every pull request rather than one it
+describes.
+
+Its layout is deliberately a hard one, because a worked example is what an
+adopter reads to find out whether their own file is describable: six record
+types resolved out of one `01`-level by three redefines over two independent
+runs, a type code
+that sits at two different offsets depending on the record, and a redefine
+shorter than the run it describes. [`example/README.md`](example/README.md) is
+what to read first.
+
 ## The companion Dagger module
 
 [`daggerverse/cpybkc/`](daggerverse/cpybkc/) runs the published image as a step
