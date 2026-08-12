@@ -580,10 +580,91 @@ func TestTheGeneratorReachesCodecsUnsignedBinaryAccessors(t *testing.T) {
 		}
 	}
 
-	// And none of the signed ones, because neither item carries an S.
-	for _, unwanted := range []string{"Int16", "Int32", "Int64"} {
+	// And none of the signed ones, because neither item carries an S. The
+	// accessors are named in full rather than matched on the family alone: a
+	// bare "Int64" is a substring of plenty of generated code that has nothing
+	// to do with which accessor was chosen.
+	for _, unwanted := range []string{
+		"ReadBinaryInt16", "ReadBinaryInt32", "ReadBinaryInt64", "ReadBinaryBig",
+		"ReadComp5Int16", "ReadComp5Int32", "ReadComp5Int64", "ReadComp5Big",
+		"WriteBinaryInt16", "WriteBinaryInt32", "WriteBinaryInt64", "WriteBinaryBig",
+		"WriteComp5Int16", "WriteComp5Int32", "WriteComp5Int64", "WriteComp5Big",
+	} {
 		if strings.Contains(source, unwanted) {
 			t.Errorf("%s reads an unsigned item through a %s accessor\n%s", codecFile, unwanted, source)
 		}
+	}
+}
+
+// TestAnUnsignedBinaryRegisterSourceIsRangeCheckedRatherThanWidenedSilently
+// pins the one place the unsigned family does not simply widen.
+//
+// A register holds an int64, and every signed binary item fits one. An unsigned
+// one takes a uint64, and a COMP-5 item is bounded by its storage rather than
+// by the decimal range its PICTURE declares — which is the whole reason this
+// story reads it unsigned — so an unsigned PIC 9(18) COMP-5 is eight bytes and
+// reads back anything up to 2^64 - 1. Converting that to int64 unchecked binds
+// a negative number from a positive one, and every guard downstream then tests
+// a value the file never held. The reader refuses it instead.
+func TestAnUnsignedBinaryRegisterSourceIsRangeCheckedRatherThanWidenedSilently(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		source  *irpb.Node
+		guarded bool
+	}{
+		"an unsigned COMP-5 register source": {source: comp5(102, "DTL-COUNT", 8, 18, false), guarded: true},
+		"an unsigned COMP register source":   {source: binary(102, "DTL-COUNT", 8, 18, false), guarded: true},
+
+		// The signed items of the same width widen for free, so a range check
+		// on them would be a comparison no value can fail.
+		"a signed COMP-5 register source": {source: comp5(102, "DTL-COUNT", 8, 18, true)},
+		"a signed COMP register source":   {source: binary(102, "DTL-COUNT", 8, 18, true)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			d := &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+						Framing:      &irpb.File_Unframed{Unframed: &irpb.Unframed{}},
+						StartStateId: 2,
+					}}},
+					{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{
+						Accepts: true, TransitionIds: []uint64{10},
+					}}},
+					edge(10, 100, 2, nil, nil, []uint64{40}),
+					counter(20),
+					binds(40, 20, 102),
+
+					record(100, "HEADER-RECORD", 105),
+					group(105, "HEADER-RECORD", nil, 101, 102),
+					alphanumeric(101, "TYPE-CODE", 1),
+					tc.source,
+				},
+			}
+
+			out := t.TempDir()
+
+			if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+
+			source := written(t, out)[fileMachineFile]
+
+			// Whichever it is, the register is still bound, and still bound
+			// through an int64 conversion.
+			if !strings.Contains(source, "r.register20 = int64(") {
+				t.Fatalf("%s never binds the register\n%s", fileMachineFile, source)
+			}
+
+			// 9223372036854775807 is math.MaxInt64, written out because the
+			// generated file reaches it as an untyped constant.
+			check := "> 9223372036854775807 {"
+			if got := strings.Contains(source, check); got != tc.guarded {
+				t.Errorf("%s contains %q = %v, want %v\n%s", fileMachineFile, check, got, tc.guarded, source)
+			}
+		})
 	}
 }

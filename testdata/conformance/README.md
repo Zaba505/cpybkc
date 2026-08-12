@@ -372,8 +372,10 @@ That is the corpus doing its job one step early: what it found is a
 disagreement between the generator and the specification, found while an entry
 was being written rather than after one was.
 
-The **`PIC 9(4) COMP`, 65535, `FF FF`** row stood here beside it for the same
-reason and no longer does. `cpybkc-gen-go` selected its binary accessor by digit
+### A row that stood there and is an entry now
+
+The **`PIC 9(4) COMP`, 65535, `FF FF`** row was listed above for the same reason
+and no longer is. `cpybkc-gen-go` selected its binary accessor by digit
 count alone, so an unsigned four-digit item was read as a signed `int16` and
 65535 came back as -1; [#163](https://github.com/Zaba505/cpybkc/issues/163) is
 that defect, and [`binary-unsigned-comp5`](binary-unsigned-comp5) is the vector

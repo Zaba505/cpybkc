@@ -248,6 +248,21 @@ place the rule stops is 19 digits and up, which is sixteen bytes: `codec` has
 only the `Big` family there, so an item that wide takes a `*big.Int` whether it
 is signed or not.
 
+The unsigned rows are **new**, and regenerating an existing package moves every
+unsigned binary field off the `int16`, `int32` or `int64` it used to take. That
+is a source-breaking change for code already written against a generated
+package: an assignment into a narrower variable, or a helper taking an `int64`,
+stops compiling until the call site is updated. It is deliberate — the old types
+were the defect, and `PIC 9(4) COMP-5` holding 65535 read back as -1 through them
+— and a compiler error at every such call site is the loudest way to say so.
+
+A **register** an unsigned binary field is bound into is the one place a `uint64`
+does not simply widen. A register holds an `int64`, and a `COMP-5` item is
+bounded by its storage rather than by the decimal range its PICTURE declares, so
+an unsigned `PIC 9(18) COMP-5` can hold a value no register can. The generated
+reader range-checks it and reports, rather than converting it to a negative
+number every guard downstream would then test.
+
 A **scaled** item takes an integer all the same, and it holds the *unscaled*
 one — the digits as they are stored, with the implied decimal point not applied.
 Go has no decimal type and `codec`'s accessors return integers, so a scale
