@@ -165,7 +165,19 @@ func Assemble(opts Options) (*irpb.Descriptor, error) {
 	}
 
 	for _, rename := range opts.Renames {
+		// A rename with no record reaches nothing, and a descriptor assembled
+		// past one is well formed and missing every override the layout asked
+		// for. It is reported here rather than ignored for that reason: the
+		// output of ignoring it is indistinguishable from a layout that wrote no
+		// renames at all.
 		if rename.Record == "" {
+			named := ""
+			if rename.Item != nil {
+				named = itemName(rename.Item)
+			}
+
+			a.faults.Fail(&UnnamedRenameError{Substitute: rename.Substitute, Item: named})
+
 			continue
 		}
 

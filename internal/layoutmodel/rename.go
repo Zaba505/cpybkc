@@ -88,9 +88,12 @@ func (r Rename) Original() string {
 // target is what makes two renames name one thing: the reference's spelling for
 // an item, and the record name for a record.
 //
-// The two cannot collide. An item's identity opens with `(item ` and a record's
-// with a symbol, so one map holds both without a rename on a record ever reading
-// as a rename on an item called the same thing.
+// The `record ` prefix is what keeps the two apart, and it is load-bearing
+// rather than decorative — one map holds both, and without it a rename on a
+// record would read as a rename on an item spelled the same way. It is not
+// enough that an item's identity happens to open with `(item `: that is
+// [ItemRef.String]'s business, and a key relying on it would break here when
+// that rendering changed.
 func (r Rename) target() string {
 	if r.NamesRecord() {
 		return "record " + r.Record

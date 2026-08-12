@@ -79,6 +79,47 @@ func (e *DuplicateRecordError) Diagnostic() diag.Diagnostic {
 	}
 }
 
+// UnnamedRenameError is a [Rename] handed over without the record type it was
+// written under.
+//
+// A rename is per record (docs/layout/SPEC.md, "Many records may name one
+// copybook, and two may name one item"), so a rename naming no record reaches
+// nothing. It is reported rather than ignored because the descriptor that comes
+// out of ignoring it is well formed: every node carries its copybook name and
+// none carries the override the caller asked for, which is a layout's `rename`
+// forms silently doing nothing at all.
+//
+// It is the shape a caller written against the older [Rename] produces — one
+// carrying an item and a substitute and no record — and that caller still
+// compiles, so a diagnostic is the only thing standing between it and output
+// nobody checks.
+type UnnamedRenameError struct {
+	// Substitute is the name the rename asked for, which is what a caller can
+	// find in the layout that wrote it.
+	Substitute string
+
+	// Item is the copybook item it named, and is empty where it named none.
+	Item string
+}
+
+// Error implements the error interface.
+func (e *UnnamedRenameError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *UnnamedRenameError) Diagnostic() diag.Diagnostic {
+	target := "a record type"
+	if e.Item != "" {
+		target = e.Item
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"the rename substituting %s for %s names no record type, and a rename is per record",
+			e.Substitute, target),
+		Spans: []diag.Span{{Note: "every rename carries the record its layout form was written under"}},
+	}
+}
+
 // UnknownRecordError is a transition admitting a record type nothing defines.
 //
 // The automaton names the records its transitions admit, and every one of them

@@ -137,12 +137,18 @@ func (l *layers) assemble(bound *bindings) (*irpb.Descriptor, error) {
 	overrides, flat := l.overrides(bound)
 	redefines := l.redefines(bound)
 	renames := l.substitutes(bound)
+	chosen := l.alternatives(bound)
 
+	// Every item reference the layout writes is resolved before this line, and
+	// nothing below resolves another. A reference that names no item reports
+	// itself against `bound`, and `bound` is read exactly here — so a stage that
+	// resolved a reference of its own would record a fault nobody ever reads,
+	// and its record would be dropped from the run without a diagnostic.
 	if bound.Failed() {
 		return nil, bound.Err()
 	}
 
-	records, sequenced, err := l.resolve(bound, overrides, redefines)
+	records, sequenced, err := l.resolve(bound, overrides, redefines, chosen)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +183,7 @@ func (l *layers) resolve(
 	bound *bindings,
 	overrides map[string][]resolve.EncodingOverride,
 	redefines map[string][]resolve.Redefine,
+	chosen map[string][]*copybook.Field,
 ) ([]assemble.Record, []resolve.SequencedRecord, error) {
 	var faults diag.List
 
@@ -199,15 +206,15 @@ func (l *layers) resolve(
 			continue
 		}
 
-		chosen := l.choose(bound, &faults, b, resolved)
-		if chosen == nil {
+		alternative := choose(&faults, b, chosen[b.Record.Name], resolved)
+		if alternative == nil {
 			continue
 		}
 
 		records = append(records, assemble.Record{
 			Name:     b.Record.Name,
 			Copybook: b.Record.Path,
-			Resolved: chosen,
+			Resolved: alternative,
 		})
 
 		sequenced = append(sequenced, resolve.SequencedRecord{
@@ -223,6 +230,32 @@ func (l *layers) resolve(
 	}
 
 	return records, sequenced, nil
+}
+
+// alternatives resolves each `record` form's `alternative` children to the
+// copybook items they name, keyed by the record they were written under.
+//
+// It sits beside [layers.overrides] and [layers.redefines] rather than inside
+// the resolving loop because every one of the three resolves item references,
+// and a reference that names no item reports itself against `bound` — which
+// [layers.assemble] reads at one point, before any of them has been resolved
+// twice and before the loop begins. Resolving one later would record a fault
+// nobody reads and drop a record type from the run in silence.
+func (l *layers) alternatives(bound *bindings) map[string][]*copybook.Field {
+	chosen := make(map[string][]*copybook.Field)
+
+	for _, b := range bound.bound {
+		for _, ref := range b.Record.Alternatives {
+			item := bound.field(ref)
+			if item == nil {
+				continue
+			}
+
+			chosen[b.Record.Name] = append(chosen[b.Record.Name], item)
+		}
+	}
+
+	return chosen
 }
 
 // choose picks the one record type a `record` form means out of what its
@@ -245,26 +278,12 @@ func (l *layers) resolve(
 // by the same message a wrong choice is. Nothing here guesses: a record whose
 // children match no combination is refused, with every combination named, rather
 // than resolved to whichever one this program met first.
-func (l *layers) choose(
-	bound *bindings,
+func choose(
 	faults *diag.List,
 	b binding,
+	chosen []*copybook.Field,
 	resolved []*resolve.Record,
 ) *resolve.Record {
-	chosen := make([]*copybook.Field, 0, len(b.Record.Alternatives))
-
-	for _, ref := range b.Record.Alternatives {
-		item := bound.field(ref)
-		if item == nil {
-			// The reference names no item, and `bind` has already said so
-			// against the copybook it looked in. A second message here would
-			// name the same line twice.
-			return nil
-		}
-
-		chosen = append(chosen, item)
-	}
-
 	for _, candidate := range resolved {
 		if sameAlternatives(candidate.Alternatives, chosen) {
 			return candidate
@@ -285,6 +304,14 @@ func (l *layers) choose(
 
 // sameAlternatives reports whether two choices are the same set of items.
 //
+// Containment is required in both directions rather than in one beside a length
+// check, so that the answer is set equality whatever the layout wrote. One
+// direction plus a length is equality only where neither side repeats an item,
+// and the reader's duplicate guard counts an alternative as chosen twice by the
+// *spelling* of the reference — which is an identity for a reference and not for
+// the item behind one. A rule holding only because two spellings cannot reach
+// one item is a rule that reads the reference grammar from another package.
+//
 // Pointer identity is the test because both sides come out of one item tree:
 // `bind` builds a fresh tree per record and resolves that record's references
 // against it, so two references to one item are one pointer and two items with
@@ -297,6 +324,12 @@ func sameAlternatives(resolved, chosen []*copybook.Field) bool {
 
 	for _, item := range chosen {
 		if !slices.Contains(resolved, item) {
+			return false
+		}
+	}
+
+	for _, item := range resolved {
+		if !slices.Contains(chosen, item) {
 			return false
 		}
 	}

@@ -824,3 +824,192 @@ func TestOneMissingCopybookIsReportedAgainstEveryRecordThatNamesIt(t *testing.T)
 		t.Errorf("both faults point at %s, want one per record", found[0].Spans[0])
 	}
 }
+
+// TestTwoRedefinesAreChosenAsASetAndNotInOrder is the case the whole naming
+// decision rests on, and the only one that exercises the choice as a set.
+//
+// Two independent redefines in one `01`-level resolve to one record type per
+// *combination*, which is why a record node cannot take an alternative's name —
+// there are two of them and neither names the record. So the two `alternative`
+// children are a set: written in either order they choose the same record type,
+// and a layout that swapped its two lines would otherwise mean something else.
+func TestTwoRedefinesAreChosenAsASetAndNotInOrder(t *testing.T) {
+	t.Parallel()
+
+	// A-or-B beside C-or-D: four record types, each carrying the whole record.
+	copybook := fixed(
+		"01  PAIR-REC.",
+		"    05  PAIR-A      PIC X(4).",
+		"    05  PAIR-B REDEFINES PAIR-A PIC X(4).",
+		"    05  PAIR-C      PIC X(6).",
+		"    05  PAIR-D REDEFINES PAIR-C PIC X(6).",
+	)
+
+	layoutFor := func(first, second string) string {
+		return `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 10))
+(record PAIR (copybook "pair.cpy" PAIR-REC)
+  (alternative (item PAIR ` + first + `))
+  (alternative (item PAIR ` + second + `)))
+(discriminate PAIR single-record-type)
+(sequence (* PAIR))
+`
+	}
+
+	// Both orders name one record type, and it is the one holding B and D.
+	for _, order := range [][2]string{{"PAIR-B", "PAIR-D"}, {"PAIR-D", "PAIR-B"}} {
+		dir := t.TempDir()
+
+		write(t, filepath.Join(dir, "pair.cpy"), copybook)
+		write(t, filepath.Join(dir, "pair.sexpr"), layoutFor(order[0], order[1]))
+		write(t, filepath.Join(dir, manifest.Name),
+			`{"layout": "pair.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+		run, err := project.Load(filepath.Join(dir, manifest.Name))
+		if err != nil {
+			t.Fatalf("(alternative %s) then (alternative %s) does not resolve:\n%s",
+				order[0], order[1], diag.Render(err))
+		}
+
+		if got := records(run.Descriptor); got != 1 {
+			t.Fatalf("choosing %v resolves to %d record types, want 1", order, got)
+		}
+
+		fields := fieldNames(run.Descriptor)
+		for name, want := range map[string]int{"PAIR-A": 0, "PAIR-B": 1, "PAIR-C": 0, "PAIR-D": 1} {
+			if fields[name] != want {
+				t.Errorf("choosing %v, %s stands %d times, want %d", order, name, fields[name], want)
+			}
+		}
+	}
+}
+
+// TestAChoiceThatIsNoCombinationNamesEveryCombination is the diagnostic over the
+// same copybook: a record choosing one alternative where two redefines want two
+// is refused, and every combination there was to choose from is in the message.
+//
+// One redefine chosen twice is refused by the reader before this, so the shapes
+// that reach here are a choice that is short, long, or names something that is
+// no alternative at all — and one message answers all of them.
+func TestAChoiceThatIsNoCombinationNamesEveryCombination(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "pair.cpy"), fixed(
+		"01  PAIR-REC.",
+		"    05  PAIR-A      PIC X(4).",
+		"    05  PAIR-B REDEFINES PAIR-A PIC X(4).",
+		"    05  PAIR-C      PIC X(6).",
+		"    05  PAIR-D REDEFINES PAIR-C PIC X(6).",
+	))
+
+	write(t, filepath.Join(dir, "pair.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 10))
+(record PAIR (copybook "pair.cpy" PAIR-REC)
+  (alternative (item PAIR PAIR-B)))
+(discriminate PAIR single-record-type)
+(sequence (* PAIR))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "pair.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	var alternatives *project.AlternativesError
+	if !errors.As(err, &alternatives) {
+		t.Fatalf("a short choice reads as %v, want an AlternativesError", err)
+	}
+
+	rendered := diag.Render(err)
+
+	// Four combinations of two, rendered one entry apiece rather than flattened
+	// into eight names — a copybook with two redefines offers four choices.
+	for _, want := range []string{
+		`"PAIR-A" with "PAIR-C"`,
+		`"PAIR-A" with "PAIR-D"`,
+		`"PAIR-B" with "PAIR-C"`,
+		`"PAIR-B" with "PAIR-D"`,
+		"which is none of the 4 it describes",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the diagnostic does not carry %s:\n%s", want, rendered)
+		}
+	}
+}
+
+// TestAnAlternativeOverACopybookWithNoRedefineIsRefused is the other end of the
+// same rule: a copybook with nothing to choose among resolves to one record type
+// choosing nothing, and a form choosing something has named an item that is no
+// alternative.
+func TestAnAlternativeOverACopybookWithNoRedefineIsRefused(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "flat.cpy"), fixed(
+		"01  FLAT-REC.",
+		"    05  FLAT-KEY   PIC X(4).",
+	))
+
+	write(t, filepath.Join(dir, "flat.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 4))
+(record FLAT (copybook "flat.cpy" FLAT-REC)
+  (alternative (item FLAT FLAT-KEY)))
+(discriminate FLAT single-record-type)
+(sequence (* FLAT))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "flat.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	var alternatives *project.AlternativesError
+	if !errors.As(err, &alternatives) {
+		t.Fatalf("an alternative over a copybook with no redefine reads as %v, want an AlternativesError", err)
+	}
+
+	if !strings.Contains(diag.Render(err), "no alternative") {
+		t.Errorf("the diagnostic does not say there was nothing to choose:\n%s", diag.Render(err))
+	}
+}
+
+// TestAnAlternativeNamingNoItemIsReported is the fault the resolving order
+// exists for: an `alternative` naming an item the copybook does not declare is
+// reported against the layout, rather than dropping its record type out of the
+// run in silence.
+func TestAnAlternativeNamingNoItemIsReported(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "txn.cpy"), fixed(
+		"01  TXN-REC.",
+		"    05  TXN-PURCHASE  PIC X(4).",
+		"    05  TXN-REFUND REDEFINES TXN-PURCHASE PIC X(4).",
+	))
+
+	write(t, filepath.Join(dir, "txn.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 4))
+(record PURCHASE (copybook "txn.cpy" TXN-REC) (alternative (item PURCHASE TXN-CHARGE)))
+(discriminate PURCHASE single-record-type)
+(sequence (* PURCHASE))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "txn.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	var unknown *project.UnknownItemError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("an alternative naming no item reads as %v, want an UnknownItemError", err)
+	}
+}

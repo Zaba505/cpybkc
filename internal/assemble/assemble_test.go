@@ -1171,3 +1171,34 @@ func TestARenameOnARecordNamesTheRecordNode(t *testing.T) {
 		t.Errorf("the record nodes carry the overrides %q, want %q", overrides, want)
 	}
 }
+
+// TestARenameNamingNoRecordIsReported holds a rename with no record to being a
+// fault rather than a no-op.
+//
+// A rename is per record, so one naming none reaches nothing — and the
+// descriptor that comes out of ignoring it is well formed and carries no
+// override at all, which is indistinguishable from a layout that wrote no
+// renames. It is also the shape a caller written against the older [Rename]
+// produces, and that caller still compiles.
+func TestARenameNamingNoRecordIsReported(t *testing.T) {
+	opts := twoOrders(t)
+
+	opts.Renames = []Rename{{
+		Item:       fieldNamed(t, opts.Records[0].Resolved.Item, "ORD-NO"),
+		Substitute: "OpeningOrderNumber",
+	}}
+
+	_, err := Assemble(opts)
+	if err == nil {
+		t.Fatal("a rename naming no record assembles")
+	}
+
+	var unnamed *UnnamedRenameError
+	if !errors.As(err, &unnamed) {
+		t.Fatalf("a rename naming no record reads as %v, want an UnnamedRenameError", err)
+	}
+
+	if !strings.Contains(err.Error(), "ORD-NO") || !strings.Contains(err.Error(), "OpeningOrderNumber") {
+		t.Errorf("the diagnostic names neither the item nor the substitute: %v", err)
+	}
+}
