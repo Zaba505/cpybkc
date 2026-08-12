@@ -183,6 +183,13 @@ func usageOf(field *copybook.Field) irpb.Usage {
 		return irpb.Usage_USAGE_BINARY
 	case copybook.UsageComp5:
 		return irpb.Usage_USAGE_COMP_5
+	// COMP-6 is the one member of this list that is not an alias of anything.
+	// It is a GnuCOBOL and Micro Focus extension — packed with no sign nibble —
+	// and it collapses into no other member: `PIC 9(4) COMP-6` is two bytes
+	// where `PIC 9(4) COMP-3` is three, so a descriptor naming PACKED-DECIMAL
+	// for it would be one byte wide and one accessor wrong at once.
+	case copybook.UsageComp6:
+		return irpb.Usage_USAGE_COMP_6
 	case copybook.UsageComp1:
 		return irpb.Usage_USAGE_COMP_1
 	case copybook.UsageComp2:

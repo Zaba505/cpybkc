@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"name": "COMP6-RECORD", "value": {"C6-VALUE": "1234"}}
+  ],
+  "failure": "the last nibble of the second record is C, and every nibble of a COMP-6 field is a digit"
+}

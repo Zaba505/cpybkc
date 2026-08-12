@@ -683,7 +683,12 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, true, "int32"},
 		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, false, "int32"},
 		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 18, true, "int64"},
-		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, true, "int32"},
+		// A COMP-6 item is always unsigned — there is no sign nibble in the
+		// field to hold an S — and it takes the packed family's Go types all
+		// the same, because codec's COMP-6 accessors return them.
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, false, "int32"},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 18, false, "int64"},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
 
 		// A binary item stores two's complement, where the top bit is a digit
 		// in an unsigned item and the sign in a signed one, so the S is what
@@ -733,6 +738,40 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s of %d digits, signed=%t, is %s, want %s", tc.usage, tc.digits, tc.signed, got, tc.want)
 		}
+	}
+}
+
+// TestASignedComp6ItemHasNoGoTypeEither is the type table's own share of the
+// rule that a COMP-6 item is always unsigned.
+//
+// The refusal belongs to the usage rather than to one code path, and this is
+// the half of that claim [TestASignedComp6ItemIsRefused] cannot make: that one
+// generates a whole package, so it reaches the accessors, and a `fieldType`
+// still handing back an `int32` for the item would not show up in it.
+func TestASignedComp6ItemHasNoGoTypeEither(t *testing.T) {
+	t.Parallel()
+
+	e, err := newEmitter(&irpb.Descriptor{})
+	if err != nil {
+		t.Fatalf("newEmitter: %v", err)
+	}
+
+	got, err := e.fieldType(&irpb.Field{
+		Usage: irpb.Usage_USAGE_COMP_6, Encoding: resolvedEncoding(),
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4, Signed: true},
+		Names:   &irpb.Names{Original: "ON-HAND"},
+	})
+	if err == nil {
+		t.Fatalf("fieldType gave a signed COMP-6 item the type %s, want a refusal", got)
+	}
+
+	var refusal *malformedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("fieldType returned %v, want a malformed descriptor", err)
+	}
+
+	if !strings.Contains(refusal.Error(), "ON-HAND") {
+		t.Errorf("the refusal reads %q and does not name the item", refusal)
 	}
 }
 
@@ -997,6 +1036,18 @@ func zoned(id uint64, name string, width, digits uint32, scale int32, signed boo
 // packed is a PACKED-DECIMAL item.
 func packed(id uint64, name string, width, digits uint32, scale int32, signed bool) *irpb.Node {
 	return numericItem(id, name, irpb.Usage_USAGE_PACKED_DECIMAL, width, digits, scale, signed)
+}
+
+// comp6 is a COMP-6 item: packed with no sign nibble, so its width is
+// ceil(digits/2) rather than the packed ceil((digits+1)/2), and it carries no S.
+func comp6(id uint64, name string, width, digits uint32, scale int32) *irpb.Node {
+	return numericItem(id, name, irpb.Usage_USAGE_COMP_6, width, digits, scale, false)
+}
+
+// signedComp6 is the item docs/ir/SPEC.md says no producer may emit: a COMP-6
+// picture carrying an operational sign there is nowhere in the field to store.
+func signedComp6(id uint64, name string, width, digits uint32) *irpb.Node {
+	return numericItem(id, name, irpb.Usage_USAGE_COMP_6, width, digits, 0, true)
 }
 
 // binary is a COMP item.

@@ -210,9 +210,10 @@ width is what the item occupies in the file, and the two agree only for
 | The item | Go type |
 |---|---|
 | Alphabetic, alphanumeric and both edited categories — `PIC A`, `PIC X`, `PIC ZZ9.99`, `USAGE DISPLAY` | `string` |
-| Numeric `DISPLAY` (zoned), `PACKED-DECIMAL` or `COMP-6`, up to 9 digits | `int32` |
+| Numeric `DISPLAY` (zoned) or `PACKED-DECIMAL`, up to 9 digits | `int32` |
 | … 10 to 18 digits | `int64` |
 | … 19 digits or more | `*big.Int` |
+| `COMP-6` — the three rows above, by digit count | `int32`, `int64`, `*big.Int` |
 | **Signed** `BINARY`, `COMP`, `COMP-4` or `COMP-5` — `PIC S9(n)` — up to 4 digits | `int16` |
 | … 5 to 9 digits | `int32` |
 | … 10 to 18 digits | `int64` |
@@ -262,6 +263,27 @@ bounded by its storage rather than by the decimal range its PICTURE declares, so
 an unsigned `PIC 9(18) COMP-5` can hold a value no register can. The generated
 reader range-checks it and reports, rather than converting it to a negative
 number every guard downstream would then test.
+
+A **`COMP-6`** item shares a row's worth of Go types with `PACKED-DECIMAL` and
+shares nothing else. It is packed decimal with **no sign nibble at all**, so it
+is `ceil(digits / 2)` bytes where `PACKED-DECIMAL` of the same digit count is
+`ceil((digits + 1) / 2)` — `PIC 9(4) COMP-6` is two bytes where `PIC 9(4) COMP-3`
+is three — and it is always unsigned, because there is nowhere in the field for a
+sign to be recorded. It is therefore read and written through `codec`'s own
+`ReadComp6*` and `WriteComp6*` accessors and never the packed ones: a packed
+reader over a `COMP-6` field takes the item's last digit for a sign and consumes
+a byte past the end of it, which moves every field behind it in the record. An
+item whose PICTURE carries an `S` under `COMP-6` is refused rather than read as
+unsigned, and the refusal names the item.
+
+Those accessors are `codec`'s and not this generator's, which was a decision
+rather than a given: `codec` shipped no `COMP-6` family at all when the defect
+was found, and emitting the nibble arithmetic into every generated package was
+the alternative. Upstream won for the reason every other usage is served from
+there — the byte-level meaning of a `USAGE` is `codec/SPEC.md`'s, a generator
+that carried its own would be a second reading of it, and a generator in another
+language would then need a third. What this generator decides is which accessor
+an item takes, and that is the whole of its share of the question.
 
 A **scaled** item takes an integer all the same, and it holds the *unscaled*
 one — the digits as they are stored, with the implied decimal point not applied.

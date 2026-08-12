@@ -301,6 +301,41 @@ them (#32).
 A record carries no length either, for the same reason: it is the sum of what is
 in it.
 
+### `COMP-6` is not `PACKED-DECIMAL`
+
+The `USAGE` enumeration is a set of *representations* rather than of spellings:
+`COMP`, `COMP-4` and `BINARY` are one member because they are one byte layout
+under every dialect this project supports. `COMP-6` looks like it belongs to
+`PACKED-DECIMAL` the same way and does not, and this section says so out loud
+because reading one as the other is a defect nothing in a file disagrees with.
+
+`COMP-6` (GnuCOBOL, Micro Focus) is packed decimal **with no sign nibble at
+all**. `codec/SPEC.md`'s *`COMP-6`* section is normative for its bytes; the two
+consequences a producer and a consumer of this IR each have to act on are:
+
+- **It is always unsigned.** There is nowhere in the field to record a sign. A
+  producer **MUST NOT** emit a field of usage `COMP_6` whose picture is signed,
+  and a consumer **MUST** refuse one rather than read it as unsigned — a
+  descriptor that says `S` and bytes that cannot hold one disagree about the
+  data, and the reading that discards the `S` is wrong on exactly the values it
+  is silent about.
+- **It is `ceil(digits / 2)` bytes**, where `PACKED-DECIMAL` of the same digit
+  count is `ceil((digits + 1) / 2)`. The widths coincide at every odd digit
+  count and differ by a byte at every even one, so a `PIC 9(4) COMP-6` item is
+  two bytes where `PIC 9(4) COMP-3` is three. That width is carried on the field
+  node like every other, per [Ordering and width, and no
+  offset](#ordering-and-width-and-no-offset), and a consumer **MUST NOT**
+  rederive it.
+
+A consumer **MUST** read and write a `COMP_6` field with an accessor of its own,
+and **MUST NOT** substitute a packed one. The substitution is not a rounding
+error: at an even digit count it consumes a byte too many and shifts every field
+behind it in the record, and at every digit count it takes the item's last digit
+nibble for a sign. The reverse substitution is the same defect mirrored. Neither
+is detectable from the bytes alone at an odd digit count, which is why the rule
+is stated here rather than left to whichever accessor a generator author reaches
+for first (#162).
+
 ### Members never overlap, and `REDEFINES` is resolved away
 
 The sum has a premise: no two members of a group occupy the same byte. A member

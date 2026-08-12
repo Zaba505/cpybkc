@@ -1,0 +1,4 @@
+{
+  "description": "A COMP-6 field whose last nibble is C, which is a sign nibble and not a digit — which is what a COMP-3 field read at a COMP-6 offset looks like.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.4, the COMP-6 negative tests"
+}

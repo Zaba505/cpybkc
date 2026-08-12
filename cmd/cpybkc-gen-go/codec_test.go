@@ -352,6 +352,131 @@ func TestASignedDisplayItemWithNoSignPositionIsRefused(t *testing.T) {
 	}
 }
 
+// TestAComp6ItemIsReadAndWrittenWithComp6Accessors is the pairing this
+// generator got wrong: COMP-6 shared a case with PACKED-DECIMAL and was read
+// with the packed accessors, which consume a sign nibble a COMP-6 item does not
+// carry (#162).
+//
+// The assertion is over the generated source rather than over bytes because it
+// is about which accessor is called; that the two accessors disagree over one
+// file is TestTheTwoPackedReadingsOfTheSameBytesDifferByTheAccessorAlone's, and
+// the corpus entry packed-comp6 is the two joined up through a compiled package.
+//
+// The packed forms are asserted absent as well as the COMP-6 ones present. A
+// test that only looks for what it wants would pass on a generator that emitted
+// both, and it is the *substitution* that is the defect here rather than an
+// omission.
+func TestAComp6ItemIsReadAndWrittenWithComp6Accessors(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		item    *irpb.Node
+		want    []string
+		unwant  []string
+		comment string
+	}{
+		"four digits, an even count where the widths differ": {
+			item: comp6(3, "QUANTITY", 2, 4, 0),
+			want: []string{
+				"Quantity int32",
+				"r.ReadComp6Int32(4)",
+				"w.WriteComp6Int32(x.Quantity, 4)",
+			},
+			unwant: []string{"ReadPackedInt32", "WritePackedInt32"},
+		},
+		"five digits, an odd count where they coincide": {
+			item: comp6(3, "QUANTITY", 3, 5, 0),
+			want: []string{
+				"r.ReadComp6Int32(5)",
+				"w.WriteComp6Int32(x.Quantity, 5)",
+			},
+			unwant: []string{"ReadPackedInt32", "WritePackedInt32"},
+		},
+		"eighteen digits, the int64 family": {
+			item: comp6(3, "QUANTITY", 9, 18, 0),
+			want: []string{
+				"Quantity int64",
+				"r.ReadComp6Int64(18)",
+				"w.WriteComp6Int64(x.Quantity, 18)",
+			},
+			unwant: []string{"ReadPackedInt64", "WritePackedInt64"},
+		},
+		"nineteen digits, the big family": {
+			item: comp6(3, "QUANTITY", 10, 19, 0),
+			want: []string{
+				"r.ReadComp6Big(19)",
+				"w.WriteComp6Big(x.Quantity, 19)",
+			},
+			unwant: []string{"ReadPackedBig", "WritePackedBig"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			d := &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "COUNT-RECORD", 2),
+					group(2, "COUNT-RECORD", nil, 3),
+					tc.item,
+				},
+			}
+
+			out := t.TempDir()
+
+			if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+
+			files := written(t, out)
+			source := files[recordsFile] + files[codecFile]
+
+			for _, want := range tc.want {
+				if !strings.Contains(source, want) {
+					t.Errorf("the generated package does not contain %q\n%s", want, source)
+				}
+			}
+
+			for _, unwant := range tc.unwant {
+				if strings.Contains(source, unwant) {
+					t.Errorf("the generated package reaches for %q, which reads a sign nibble a COMP-6 item does not carry\n%s", unwant, source)
+				}
+			}
+		})
+	}
+}
+
+// TestASignedComp6ItemIsRefused is the other half of parting the two usages.
+//
+// A COMP-6 field is one nibble per digit and nothing else, so an S on its
+// picture describes a sign the bytes have no room for. docs/ir/SPEC.md makes
+// that a producer's error, and a consumer that read it as unsigned anyway would
+// be silently right about every value it was ever shown and wrong about the
+// negative ones — so it is refused here instead, by name.
+func TestASignedComp6ItemIsRefused(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "COUNT-RECORD", 2),
+			group(2, "COUNT-RECORD", nil, 3),
+			signedComp6(3, "ON-HAND", 2, 4),
+		},
+	}
+
+	err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+	var refusal *malformedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("generate returned %v, want a malformed descriptor", err)
+	}
+
+	if !strings.Contains(refusal.Error(), "ON-HAND") {
+		t.Errorf("the refusal reads %q and does not name the item", refusal)
+	}
+}
+
 // TestTheReceiverIsTheManifestsAndNotThisGeneratorsChoice covers the one option
 // that changes the source without changing what it does.
 func TestTheReceiverIsTheManifestsAndNotThisGeneratorsChoice(t *testing.T) {

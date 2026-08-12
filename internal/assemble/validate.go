@@ -38,6 +38,11 @@ import (
 //     also what makes containment acyclic.
 //   - No closed set carries its unspecified zero: not an encoding axis, not a
 //     USAGE, not a register's kind, not a delimiter's placement.
+//   - No field is a COMP-6 item whose PICTURE carries an S. That is the one
+//     place a USAGE and a PICTURE attribute contradict each other on the face of
+//     the message — a COMP-6 field has no sign nibble to hold one — and it is a
+//     contradiction a consumer cannot resolve, since reading it as unsigned is
+//     silently right about every value but the negative ones.
 //   - Every field states all four encoding axes. docs/ir/SPEC.md makes this a
 //     requirement on the producer and a refusal on the consumer, because each
 //     of the four fails silently when wrong: a charset yields a plausible
@@ -334,6 +339,18 @@ func (v *validator) field(id uint64, field *irpb.Field) {
 
 	if picture := field.GetPicture(); picture != nil && picture.GetCategory() == irpb.Category_CATEGORY_UNSPECIFIED {
 		v.fault(id, "carries a PICTURE of no category")
+	}
+
+	// The one pairing of a USAGE and a PICTURE attribute this pass reads, and
+	// it reads it rather than deriving it: docs/ir/SPEC.md states outright that
+	// a COMP-6 item is always unsigned, so the two fields of the message
+	// contradict each other and no COBOL has to be consulted to see it. Checked
+	// here because a consumer cannot recover from it — there is no sign nibble
+	// in the field to read and codec's writer takes no signedness — so a
+	// producer that emits one has written a descriptor whose reading is wrong on
+	// exactly the values it is silent about.
+	if field.GetUsage() == irpb.Usage_USAGE_COMP_6 && field.GetPicture().GetSigned() {
+		v.fault(id, "is a COMP-6 item whose PICTURE carries an S, and a COMP-6 item is packed with no sign nibble to record one")
 	}
 
 	v.repetition(id, field.GetRepetition())

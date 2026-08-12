@@ -282,6 +282,40 @@ func TestAFieldSaysWhatItsBytesAreAndHowManyOfThem(t *testing.T) {
 	})
 }
 
+// TestASignedComp6FieldIsRefused holds the one contradiction between a USAGE
+// and a PICTURE this pass reads.
+//
+// A COMP-6 item is packed with no sign nibble, so there is nowhere in the field
+// for an S to be recorded and docs/ir/SPEC.md forbids a producer to emit one.
+// It is refused here rather than left to a generator because it is a fault a
+// consumer cannot recover from — reading the item as unsigned is silently right
+// about every value it is ever shown but the negative ones — and because this
+// repository is itself a producer: `cobol-go` admits `COMP-6` as a spelling and
+// assigns no meaning to pairing it with an `S`, so a copybook may write one.
+func TestASignedComp6FieldIsRefused(t *testing.T) {
+	t.Run("signed", func(t *testing.T) {
+		d := valid()
+		field := node(t, d, 3).GetField()
+		field.Usage = irpb.Usage_USAGE_COMP_6
+		field.Picture = &irpb.Picture{
+			Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4, Signed: true,
+		}
+
+		refused(t, d, "is a COMP-6 item whose PICTURE carries an S")
+	})
+
+	t.Run("unsigned", func(t *testing.T) {
+		d := valid()
+		field := node(t, d, 3).GetField()
+		field.Usage = irpb.Usage_USAGE_COMP_6
+		field.Picture = &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4}
+
+		if err := Validate(d); err != nil {
+			t.Fatalf("an unsigned COMP-6 field was refused: %v", err)
+		}
+	})
+}
+
 // TestAnOverrideWithNoOriginalIsRefused holds the original to being present even
 // where a substitute is, which is what lets generated code point back at the
 // copybook it came from.
