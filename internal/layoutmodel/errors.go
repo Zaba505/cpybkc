@@ -973,16 +973,21 @@ func (e *ArmOverlapError) Error() string {
 	)
 }
 
-// RenameFormError is a `rename` that is not `(rename <item-ref> "<name>")`.
+// RenameFormError is a `rename` that is neither `(rename <item-ref> "<name>")`
+// nor `(rename <record-name> "<name>")`.
 //
 // It covers both shapes the fault takes — a form carrying something other than
-// an item and a name, and a name written as anything but text — because what is
+// a target and a name, and a name written as anything but text — because what is
 // wrong with each is the same thing: the form takes two things and holds
 // something else. A reference that is written and wrong is an
-// [ItemReferenceError] instead, which is also what a rename naming its target
-// with a bare name gets: a bare name is not a reference, and it is not one
-// because duplicate data names are legal COBOL and a name alone is not an
-// identity.
+// [ItemReferenceError] instead.
+//
+// A bare name in the target position is not one of these. It is a record name
+// (docs/layout/SPEC.md, "A rename may name a record"), and a bare name that is
+// not a record the layout defines is an [UnknownRecordError]. An *item* still
+// cannot be named by a bare name, because duplicate data names are legal COBOL
+// and a name alone is not an identity — but a record's is, since the `record`
+// form defines it.
 type RenameFormError struct {
 	// Pos is the form, or the part of it that is wrong.
 	Pos layout.Pos
@@ -993,7 +998,11 @@ type RenameFormError struct {
 
 // Error implements the error interface.
 func (e *RenameFormError) Error() string {
-	return fmt.Sprintf("%s: a rename is written (rename <item-ref> \"<name>\"), and this has %s", e.Pos, e.Found)
+	return fmt.Sprintf(
+		"%s: a rename is written (rename <item-ref> \"<name>\") or (rename <record-name> \"<name>\"), "+
+			"and this has %s",
+		e.Pos, e.Found,
+	)
 }
 
 // EmptyRenameError is a rename substituting a name of no characters.
@@ -1005,15 +1014,25 @@ type EmptyRenameError struct {
 	// Pos is the string.
 	Pos layout.Pos
 
-	// Item is the item it was written for.
+	// Item is the item it was written for, and is the zero reference where the
+	// rename names a record.
 	Item ItemRef
+
+	// Record is the record it was written for, and is empty where the rename
+	// names an item.
+	Record string
 }
 
 // Error implements the error interface.
 func (e *EmptyRenameError) Error() string {
+	target := e.Item.String()
+	if e.Record != "" {
+		target = "record " + quote(e.Record)
+	}
+
 	return fmt.Sprintf(
 		"%s: the rename on %s substitutes a name of no characters, and a name is at least one",
-		e.Pos, e.Item,
+		e.Pos, target,
 	)
 }
 
@@ -1039,6 +1058,94 @@ func (e *DuplicateRenameError) Error() string {
 	return fmt.Sprintf(
 		"%s: %s is renamed twice, and is renamed first at %s; a rename names an item at most once",
 		e.Pos, e.Item, e.First,
+	)
+}
+
+// DuplicateRecordRenameError is a second `rename` naming a record another one
+// already named.
+//
+// It is [DuplicateRenameError]'s case for the other spelling, and it is a
+// message of its own rather than that one carrying an empty reference: what an
+// adopter has renamed twice is a record, and a message quoting `(item …)` about
+// it would name a reference nobody wrote.
+type DuplicateRecordRenameError struct {
+	// Pos is the second rename.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Record is the record both name.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *DuplicateRecordRenameError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s is renamed twice, and is renamed first at %s; a rename names a record at most once",
+		e.Pos, quote(e.Record), e.First,
+	)
+}
+
+// RecordRenameCollisionError is one name substituted for two records.
+//
+// A record node has no parent, so this is not [RenameCollisionError]'s
+// sibling rule: what two record types share is the descriptor, and two of them
+// answering to one name is the ambiguity a rename exists to remove wherever it
+// arises. Both spans are carried for [RenameCollisionError]'s reason — either
+// rename is a perfectly good one on its own.
+type RecordRenameCollisionError struct {
+	// Pos is the second substitute.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Records are the two records, in the order the layout renames them.
+	Records [2]string
+
+	// Name is what both are called.
+	Name string
+}
+
+// Error implements the error interface.
+func (e *RecordRenameCollisionError) Error() string {
+	return fmt.Sprintf(
+		"%s: name %s is substituted for records %s and %s, and is substituted first at %s",
+		e.Pos, quote(e.Name), quote(e.Records[0]), quote(e.Records[1]), e.First,
+	)
+}
+
+// RecordRenameShadowsError is a substitute equal to the top-level item another
+// record is bound to.
+//
+// That item's name is the name the other record answers to (docs/ir/SPEC.md,
+// "Names"), and it answers to it still where it has been renamed, because the
+// original is carried beside a substitute rather than in place of it. So this is
+// [RenameShadowsSiblingError]'s rule read over record types, and it is decidable
+// from the layout alone: a `copybook` child states the item name.
+type RecordRenameShadowsError struct {
+	// Pos is the substitute.
+	Pos layout.Pos
+
+	// First is the `copybook` child's item name it collides with.
+	First layout.Pos
+
+	// Record is the record being renamed.
+	Record string
+
+	// Other is the record already answering to the name.
+	Other string
+
+	// Name is the substitute.
+	Name string
+}
+
+// Error implements the error interface.
+func (e *RecordRenameShadowsError) Error() string {
+	return fmt.Sprintf(
+		"%s: name %s is substituted for record %s, and record %s is bound to the item of that name at %s",
+		e.Pos, quote(e.Name), quote(e.Record), quote(e.Other), e.First,
 	)
 }
 
@@ -1415,6 +1522,84 @@ func (e *EmptyCopybookPathError) Error() string {
 	return fmt.Sprintf(
 		"%s: record %s is bound to a copybook path of no characters, and a path names a file",
 		e.Pos, quote(e.Record),
+	)
+}
+
+// AlternativeFormError is an `alternative` child that is not `(alternative
+// <item-ref>)`.
+//
+// The child carries one reference and nothing else. What is wrong *inside* the
+// reference is an [ItemReferenceError], so this answers only for a child
+// carrying no reference or more than one.
+type AlternativeFormError struct {
+	// Pos is the child.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *AlternativeFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: an alternative is written (alternative <item-ref>), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// AlternativeRootError is an `alternative` child whose reference is rooted at
+// some record other than the one carrying it.
+//
+// An item reference is rooted at a record name, and the alternative a `record`
+// form chooses is an item of the `01`-level *that* form is bound to
+// (docs/layout/SPEC.md, "Which alternative a record is"). A reference rooted
+// elsewhere would be looked up in another record's item tree, so the choice
+// would be read against a copybook this record is not bound to — and once it had
+// been, no later diagnostic could say that was what happened.
+type AlternativeRootError struct {
+	// Pos is the reference.
+	Pos layout.Pos
+
+	// Record is the record the child was written under.
+	Record string
+
+	// Ref is the reference as the layout wrote it.
+	Ref ItemRef
+}
+
+// Error implements the error interface.
+func (e *AlternativeRootError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s chooses alternative %s, which is rooted at record %s; an alternative is "+
+			"an item of the record choosing it",
+		e.Pos, quote(e.Record), e.Ref, quote(e.Ref.Record),
+	)
+}
+
+// DuplicateAlternativeError is a second `alternative` child naming an item
+// another one already named.
+//
+// A record carries one child per redefine its `01`-level writes outside a
+// repeating group, and two naming one item choose one redefine twice — which
+// leaves another one unchosen while looking, by the count alone, as though every
+// redefine had been answered.
+type DuplicateAlternativeError struct {
+	// Pos is the second child.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Ref is the reference both name.
+	Ref ItemRef
+}
+
+// Error implements the error interface.
+func (e *DuplicateAlternativeError) Error() string {
+	return fmt.Sprintf(
+		"%s: alternative %s is chosen twice, and is chosen first at %s; a record chooses each "+
+			"alternative once",
+		e.Pos, e.Ref, e.First,
 	)
 }
 

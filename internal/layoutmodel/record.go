@@ -10,9 +10,14 @@ import (
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
-// The tag the binding half of the record definitions layer reads. `record` is
-// the form; `copybook` is its one child.
-const childCopybook = "copybook"
+// The tags the binding half of the record definitions layer reads. `record` is
+// the form; `copybook` is its one required child, and `alternative` the
+// repeatable one that says which alternative of a record-level `REDEFINES` the
+// form means.
+const (
+	childCopybook    = "copybook"
+	childAlternative = "alternative"
+)
 
 // Record is one `record` form: the name it defines, and the copybook item it
 // binds that name to.
@@ -57,6 +62,23 @@ type Record struct {
 
 	// ItemPos is the item name itself.
 	ItemPos layout.Pos
+
+	// Alternatives are the `alternative` children, in the order the form
+	// writes them: one item reference per `REDEFINES` the bound `01`-level
+	// carries outside a repeating group, naming the alternative this record
+	// type is (docs/layout/SPEC.md, "Which alternative a record is").
+	//
+	// Nothing at this layer knows how many there should be, or whether a
+	// reference names an alternative at all: both are facts about the copybook
+	// and are `resolve`'s. What is checked here is what the layout decides on
+	// its own — that each reference is rooted at the record carrying it, and
+	// that no two of them name one item.
+	//
+	// The order is the layout's and carries no meaning. Two redefines name two
+	// distinct runs of bytes, so which is written first decides nothing, and a
+	// consumer pairing them by position would be inventing the rule this child
+	// exists to state.
+	Alternatives []ItemRef
 }
 
 // ReadRecords reads the record definitions out of a parsed layout, in the order
@@ -68,11 +90,14 @@ type Record struct {
 //
 // What it enforces is what a declaration cannot state and a copybook is not
 // needed for: that a layout defines at least one record, that each `record` is
-// written as a name over one `copybook` child, that the path and the names are
-// written at all, and that no two forms define one name. Everything else about
-// a binding needs the file — whether the path names something that can be
-// opened, and whether what it opens declares the item — and is the CLI's, which
-// is the one place that knows where a copybook is looked for.
+// written as a name over one `copybook` child and any number of `alternative`
+// children, that the path and the names are written at all, that every
+// `alternative` names an item through the record carrying it and no two of them
+// name one item, and that no two forms define one name. Everything else about a
+// binding needs the file — whether the path names something that can be opened,
+// whether what it opens declares the item, and how many alternatives its
+// `01`-level has for the children to choose among — and is `resolve`'s or the
+// CLI's, which is the one place that knows where a copybook is looked for.
 //
 // Two records naming one copybook and one item is not a fault and is the
 // ordinary way a layout tells one `01`-level apart by where it sits
@@ -127,7 +152,7 @@ type recordReader struct {
 
 // record reads one `record` form.
 func (r *recordReader) record(form layout.Form) (Record, bool) {
-	if len(form.Elements) != 2 {
+	if len(form.Elements) < 2 {
 		r.Fail(&RecordFormError{Pos: form.Pos, Found: shortfall(form.Elements)})
 
 		return Record{}, false
@@ -154,13 +179,87 @@ func (r *recordReader) record(form layout.Form) (Record, bool) {
 
 	record := Record{Pos: form.Pos, Name: name.Value, NamePos: name.Pos, Copybook: child.Pos}
 
-	// The two halves are read whatever the other said, for the reason a rename
-	// is held to every rule past the first it breaks: a record whose name is
-	// already taken and whose copybook has no path is two things to fix rather
-	// than one to discover on the next run.
+	// Every half is read whatever the ones before it said, for the reason a
+	// rename is held to every rule past the first it breaks: a record whose
+	// name is already taken and whose copybook has no path is two things to fix
+	// rather than one to discover on the next run.
 	sound := r.binding(&record, child)
+	sound = r.alternatives(&record, form) && sound
 
 	return record, r.name(form, name) && sound
+}
+
+// alternatives reads the `alternative` children of a `record` form.
+//
+// They follow the `copybook` child, and every element past it is one: the form
+// admits no other child, so a tag that is not `alternative` there is answered by
+// the same message a wrong first child is.
+//
+// Two things are checked, and they are the two the layout decides on its own. A
+// reference is rooted at a record, and an `alternative` naming an alternative of
+// some *other* record's copybook is a statement about a copybook this record is
+// not bound to — it would be read against the wrong item tree, and no diagnostic
+// afterwards could say so. And two children naming one item choose one
+// alternative twice, which leaves the record's other redefine unchosen while
+// looking like it was answered.
+func (r *recordReader) alternatives(record *Record, form layout.Form) bool {
+	sound := true
+
+	named := make(map[string]layout.Pos, len(form.Elements))
+
+	for _, element := range form.Elements[2:] {
+		child, ok := element.(layout.Form)
+		if !ok || child.Tag != childAlternative {
+			r.Fail(&ChildError{
+				Pos:    element.Position(),
+				Form:   form.Tag,
+				Found:  describe(element),
+				Admits: []string{childAlternative},
+			})
+
+			sound = false
+
+			continue
+		}
+
+		if len(child.Elements) != 1 {
+			r.Fail(&AlternativeFormError{Pos: child.Pos, Found: count(len(child.Elements))})
+
+			sound = false
+
+			continue
+		}
+
+		ref, err := readItemRef(child.Elements[0])
+		if err != nil {
+			r.Fail(err)
+
+			sound = false
+
+			continue
+		}
+
+		if ref.Record != record.Name {
+			r.Fail(&AlternativeRootError{Pos: ref.Pos, Record: record.Name, Ref: ref})
+
+			sound = false
+
+			continue
+		}
+
+		if first, already := named[ref.identity()]; already {
+			r.Fail(&DuplicateAlternativeError{Pos: child.Pos, First: first, Ref: ref})
+
+			sound = false
+
+			continue
+		}
+
+		named[ref.identity()] = child.Pos
+		record.Alternatives = append(record.Alternatives, ref)
+	}
+
+	return sound
 }
 
 // binding reads the `copybook` child: the path, and the top-level item in it.

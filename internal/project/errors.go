@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/Zaba505/cobol-go/copybook"
 
@@ -236,20 +237,24 @@ func (e *AmbiguousItemError) Diagnostic() diag.Diagnostic {
 	}
 }
 
-// AlternativesError is a `record` bound to an `01`-level that resolves to more
-// than one record type.
+// AlternativesError is a `record` form whose `alternative` children choose no
+// combination of alternatives its copybook actually has.
 //
 // A copybook holding a REDEFINES outside a repeating group describes one run of
 // bytes several ways, and `resolve` reads it the way docs/ir/SPEC.md says: one
-// record type per combination of alternatives. Nothing in the layout format
-// carries that across. A `record` form binds a name to an `01`-level and every
-// alternative of that level is the same level, so there is no spelling that
-// gives two of them two names and no rule saying which alternative a form meant.
+// record type per combination of alternatives. Which of them a `record` form
+// means is the layout's own statement — one `alternative` child per redefine,
+// naming the alternative chosen (docs/layout/SPEC.md, "Which alternative a
+// record is") — and this is the choice not landing on one.
 //
-// #164 is the story that decides both, and until it does this is refused rather
-// than answered by a rule this program invented — pairing the forms to the
-// alternatives by position is a rule an adopter could not read anywhere, and one
-// they would only find out about from generated code naming the wrong fields.
+// It covers every way that happens, because they are one fault from an
+// adopter's side and one message answers all of them: a record over a redefined
+// `01`-level carrying no children at all, one carrying too few or too many, one
+// naming an item that is an alternative of a redefine *inside* a repeating group
+// or no alternative at all, and one carrying a child over a copybook with no
+// redefine in it. What the message does in each case is name what was chosen and
+// list every combination there was to choose from, so that the fix is readable
+// off the diagnostic rather than out of the copybook.
 type AlternativesError struct {
 	// Pos is the `record` form.
 	Pos diag.Span
@@ -263,8 +268,13 @@ type AlternativesError struct {
 	// Item is the top-level item it is bound to.
 	Item string
 
-	// Alternatives is how many record types the item resolved to.
-	Alternatives int
+	// Chosen is what the `alternative` children named, in the order the form
+	// writes them.
+	Chosen []string
+
+	// Resolved is every combination the copybook resolved to, in the order
+	// `resolve` enumerated them.
+	Resolved [][]string
 }
 
 // Error implements the error interface.
@@ -274,15 +284,62 @@ func (e *AlternativesError) Error() string { return e.Diagnostic().String() }
 func (e *AlternativesError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
-			"record %s is bound to %s in %s, which REDEFINES describes %d ways, "+
-				"and nothing in this layout says which of them the record is",
-			strconv.Quote(e.Record), strconv.Quote(e.Item), strconv.Quote(e.Path), e.Alternatives),
+			"record %s is bound to %s in %s, and chooses %s, which is none of the %d it describes",
+			strconv.Quote(e.Record), strconv.Quote(e.Item), strconv.Quote(e.Path),
+			chosenAs(e.Chosen), len(e.Resolved)),
 		Spans: []diag.Span{
 			e.Pos,
-			{Note: "a record form names an 01-level, and every alternative of it is that same level; " +
-				"naming and selecting one is #164"},
+			{Note: "it describes " + offered(e.Resolved) +
+				"; a record form carries one (alternative <item-ref>) child per REDEFINES outside a " +
+				"repeating group, naming the alternative it is"},
 		},
 	}
+}
+
+// chosenAs is how a diagnostic reads back what a record chose.
+func chosenAs(chosen []string) string {
+	if len(chosen) == 0 {
+		return "no alternative"
+	}
+
+	return strings.Join(quoteAll(chosen), " with ")
+}
+
+// offered is how a diagnostic lists the combinations there were to choose from.
+//
+// Each combination is one choice however many items it took, so they are
+// rendered as one entry apiece rather than flattened — a copybook with two
+// redefines offers four choices of two items and not eight of one.
+func offered(resolved [][]string) string {
+	if len(resolved) == 0 {
+		return "nothing to choose"
+	}
+
+	entries := make([]string, 0, len(resolved))
+
+	for _, combination := range resolved {
+		if len(combination) == 0 {
+			entries = append(entries, "no alternative")
+
+			continue
+		}
+
+		entries = append(entries, strings.Join(quoteAll(combination), " with "))
+	}
+
+	return strings.Join(entries, ", ")
+}
+
+// quoteAll quotes every name of a combination, so that an item called `with`
+// cannot read as the word joining two of them.
+func quoteAll(names []string) []string {
+	quoted := make([]string, 0, len(names))
+
+	for _, name := range names {
+		quoted = append(quoted, strconv.Quote(name))
+	}
+
+	return quoted
 }
 
 // GeneratorError is a generator the manifest names that could not be resolved to

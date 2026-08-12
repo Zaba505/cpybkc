@@ -9,6 +9,9 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
+
+	"github.com/Zaba505/cobol-go/copybook"
 
 	"github.com/Zaba505/cpybkc/internal/assemble"
 	"github.com/Zaba505/cpybkc/internal/diag"
@@ -134,12 +137,18 @@ func (l *layers) assemble(bound *bindings) (*irpb.Descriptor, error) {
 	overrides, flat := l.overrides(bound)
 	redefines := l.redefines(bound)
 	renames := l.substitutes(bound)
+	chosen := l.alternatives(bound)
 
+	// Every item reference the layout writes is resolved before this line, and
+	// nothing below resolves another. A reference that names no item reports
+	// itself against `bound`, and `bound` is read exactly here — so a stage that
+	// resolved a reference of its own would record a fault nobody ever reads,
+	// and its record would be dropped from the run without a diagnostic.
 	if bound.Failed() {
 		return nil, bound.Err()
 	}
 
-	records, sequenced, err := l.resolve(bound, overrides, redefines)
+	records, sequenced, err := l.resolve(bound, overrides, redefines, chosen)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +183,7 @@ func (l *layers) resolve(
 	bound *bindings,
 	overrides map[string][]resolve.EncodingOverride,
 	redefines map[string][]resolve.Redefine,
+	chosen map[string][]*copybook.Field,
 ) ([]assemble.Record, []resolve.SequencedRecord, error) {
 	var faults diag.List
 
@@ -196,31 +206,15 @@ func (l *layers) resolve(
 			continue
 		}
 
-		// A copybook holding a REDEFINES outside a repeating group resolves to
-		// one record type per combination of alternatives, and nothing in the
-		// layout format names them apart: a `record` form binds a name to an
-		// `01`-level, and every alternative of that level is the same level. So
-		// there is no rule for pairing the forms to the alternatives and no
-		// spelling that would give two of them two names, and #164 is the story
-		// that decides both. Refusing the layout is the honest answer until it
-		// does — pairing them by position would be a rule this program invented
-		// and an adopter could not read anywhere.
-		if len(resolved) != 1 {
-			faults.Fail(&AlternativesError{
-				Pos:          span(b.Record.Pos),
-				Record:       b.Record.Name,
-				Path:         b.Record.Path,
-				Item:         b.Record.Item,
-				Alternatives: len(resolved),
-			})
-
+		alternative := choose(&faults, b, chosen[b.Record.Name], resolved)
+		if alternative == nil {
 			continue
 		}
 
 		records = append(records, assemble.Record{
 			Name:     b.Record.Name,
 			Copybook: b.Record.Path,
-			Resolved: resolved[0],
+			Resolved: alternative,
 		})
 
 		sequenced = append(sequenced, resolve.SequencedRecord{
@@ -236,6 +230,144 @@ func (l *layers) resolve(
 	}
 
 	return records, sequenced, nil
+}
+
+// alternatives resolves each `record` form's `alternative` children to the
+// copybook items they name, keyed by the record they were written under.
+//
+// It sits beside [layers.overrides] and [layers.redefines] rather than inside
+// the resolving loop because every one of the three resolves item references,
+// and a reference that names no item reports itself against `bound` — which
+// [layers.assemble] reads at one point, before any of them has been resolved
+// twice and before the loop begins. Resolving one later would record a fault
+// nobody reads and drop a record type from the run in silence.
+func (l *layers) alternatives(bound *bindings) map[string][]*copybook.Field {
+	chosen := make(map[string][]*copybook.Field)
+
+	for _, b := range bound.bound {
+		for _, ref := range b.Record.Alternatives {
+			item := bound.field(ref)
+			if item == nil {
+				continue
+			}
+
+			chosen[b.Record.Name] = append(chosen[b.Record.Name], item)
+		}
+	}
+
+	return chosen
+}
+
+// choose picks the one record type a `record` form means out of what its
+// copybook resolved to.
+//
+// A copybook holding a REDEFINES outside a repeating group resolves to one
+// record type per combination of alternatives (docs/ir/SPEC.md, "Members never
+// overlap, and `REDEFINES` is resolved away"), and the `alternative` children
+// are where the layout says which of them the form is (docs/layout/SPEC.md,
+// "Which alternative a record is", #164).
+//
+// The match is on the *set* of items chosen and not on their order. Two
+// redefines describe two distinct runs of bytes, so the order the children are
+// written in decides nothing, and matching by position would make a layout mean
+// something different when its two lines were swapped.
+//
+// A copybook with no redefine at all resolves to one record type choosing
+// nothing, and the empty set matches it — so an ordinary record needs no
+// `alternative` child and a form carrying one over such a copybook is reported
+// by the same message a wrong choice is. Nothing here guesses: a record whose
+// children match no combination is refused, with every combination named, rather
+// than resolved to whichever one this program met first.
+func choose(
+	faults *diag.List,
+	b binding,
+	chosen []*copybook.Field,
+	resolved []*resolve.Record,
+) *resolve.Record {
+	for _, candidate := range resolved {
+		if sameAlternatives(candidate.Alternatives, chosen) {
+			return candidate
+		}
+	}
+
+	faults.Fail(&AlternativesError{
+		Pos:      span(b.Record.Pos),
+		Record:   b.Record.Name,
+		Path:     b.Record.Path,
+		Item:     b.Record.Item,
+		Chosen:   alternativeNames(chosen),
+		Resolved: combinations(resolved),
+	})
+
+	return nil
+}
+
+// sameAlternatives reports whether two choices are the same set of items.
+//
+// Containment is required in both directions rather than in one beside a length
+// check, so that the answer is set equality whatever the layout wrote. One
+// direction plus a length is equality only where neither side repeats an item,
+// and the reader's duplicate guard counts an alternative as chosen twice by the
+// *spelling* of the reference — which is an identity for a reference and not for
+// the item behind one. A rule holding only because two spellings cannot reach
+// one item is a rule that reads the reference grammar from another package.
+//
+// Pointer identity is the test because both sides come out of one item tree:
+// `bind` builds a fresh tree per record and resolves that record's references
+// against it, so two references to one item are one pointer and two items with
+// one COBOL name are two. Comparing names would make a copybook's duplicate data
+// names — legal COBOL — into one alternative.
+func sameAlternatives(resolved, chosen []*copybook.Field) bool {
+	if len(resolved) != len(chosen) {
+		return false
+	}
+
+	for _, item := range chosen {
+		if !slices.Contains(resolved, item) {
+			return false
+		}
+	}
+
+	for _, item := range resolved {
+		if !slices.Contains(chosen, item) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// alternativeNames is what a diagnostic calls a set of chosen items.
+func alternativeNames(items []*copybook.Field) []string {
+	names := make([]string, 0, len(items))
+
+	for _, item := range items {
+		names = append(names, itemName(item))
+	}
+
+	return names
+}
+
+// combinations is every set of alternatives a copybook resolved to, in the order
+// `resolve` enumerated them, which is what a record choosing none of them is
+// offered instead.
+func combinations(resolved []*resolve.Record) [][]string {
+	found := make([][]string, 0, len(resolved))
+
+	for _, record := range resolved {
+		found = append(found, alternativeNames(record.Alternatives))
+	}
+
+	return found
+}
+
+// itemName is what a diagnostic calls one copybook item.
+func itemName(item *copybook.Field) string {
+	if item == nil || item.Filler || item.Name == "" {
+		return "a FILLER item"
+	}
+
+	return item.Name
 }
 
 // discriminator is the strategy the layout's `discriminate` form chose for a
@@ -320,21 +452,43 @@ func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 	return redefines
 }
 
-// substitutes resolves each `rename` to the copybook item it names.
+// substitutes resolves each `rename` to what it names: a copybook item, or the
+// record type itself.
 //
-// They are one list rather than keyed by record because `assemble` takes one:
-// a rename reaches every node standing for that item, and an item belongs to
-// one record's tree, so the list is already partitioned by the fields in it.
+// Every one carries the record it was written under, because a rename is per
+// record (docs/layout/SPEC.md, "Many records may name one copybook, and two may
+// name one item"). Two records over one `01`-level hold two item trees here, so
+// the fields alone would in fact partition — but that is this package's
+// arrangement rather than `assemble`'s contract, and a rename saying which
+// record it belongs to is the difference between independence that holds and
+// independence that happens to (#164).
+//
+// A rename naming a record contributes no item: the name it stands beside is the
+// record node's, which is the `01`-level's, and that is the one item an item
+// reference cannot reach.
 func (l *layers) substitutes(bound *bindings) []assemble.Rename {
 	renames := make([]assemble.Rename, 0, len(l.renames))
 
 	for _, rename := range l.renames {
+		if rename.NamesRecord() {
+			renames = append(renames, assemble.Rename{
+				Record:     rename.Record,
+				Substitute: rename.Substitute,
+			})
+
+			continue
+		}
+
 		item := bound.field(rename.Item)
 		if item == nil {
 			continue
 		}
 
-		renames = append(renames, assemble.Rename{Item: item, Substitute: rename.Substitute})
+		renames = append(renames, assemble.Rename{
+			Record:     rename.Item.Record,
+			Item:       item,
+			Substitute: rename.Substitute,
+		})
 	}
 
 	return renames

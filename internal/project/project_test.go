@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -422,10 +423,11 @@ func TestEveryFaultInOnePassIsReported(t *testing.T) {
 // composition found and did not paper over.
 //
 // `resolve` reads one `01`-level holding a REDEFINES outside a repeating group
-// as one record type per alternative, and nothing in the layout format names
-// them apart or says which alternative a `record` form meant. Pairing them by
-// position would be a rule an adopter could not read anywhere, so the layout is
-// refused with a diagnostic naming #164 — the story that decides it.
+// as one record type per alternative, and the `alternative` children are where a
+// layout says which of them a `record` form is. A form carrying none over such a
+// copybook has chosen nothing, and pairing it to an alternative by position
+// would be a rule an adopter could not read anywhere — so it is refused, with
+// every alternative there was to choose from named in the message.
 func TestARecordLevelRedefineIsRefusedRatherThanGuessedAt(t *testing.T) {
 	t.Parallel()
 
@@ -457,9 +459,175 @@ func TestARecordLevelRedefineIsRefusedRatherThanGuessedAt(t *testing.T) {
 		t.Fatalf("a record-level redefine reads as %v, want an AlternativesError", err)
 	}
 
-	if !strings.Contains(diag.Render(err), "#164") {
-		t.Errorf("the diagnostic does not name the story that decides it:\n%s", diag.Render(err))
+	// The message names what there was to choose from, because the fix is
+	// writing one of them down and an adopter should not have to open the
+	// copybook to find out what the choices were.
+	rendered := diag.Render(err)
+
+	for _, want := range []string{"TXN-PURCHASE", "TXN-REFUND", "alternative"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the diagnostic does not name %s:\n%s", want, rendered)
+		}
 	}
+}
+
+// TestARecordFormChoosesItsAlternativeByName is #164 end to end on the layout
+// side: one `01`-level redefined three ways, discriminated behind a shared key,
+// resolves to three record types, each of them the alternative its `record` form
+// named and each carrying the name its `rename` gave it.
+//
+// Every half of the decision is asserted rather than described. The pairing is
+// the layout's statement — swap the two lines and the two record types swap with
+// them — and the naming is a rename on the record, because the `01`-level's name
+// is what all three of them carry as an original (docs/ir/SPEC.md, "Names").
+func TestARecordFormChoosesItsAlternativeByName(t *testing.T) {
+	t.Parallel()
+
+	run, err := project.Load(filepath.Join(redefinedTransactions(t), manifest.Name))
+	if err != nil {
+		t.Fatalf("the project does not resolve:\n%s", diag.Render(err))
+	}
+
+	if got := records(run.Descriptor); got != 3 {
+		t.Fatalf("the descriptor carries %d record types, want one per alternative", got)
+	}
+
+	// The original is the `01`-level's on all three: every alternative is a
+	// description of that level, and taking an alternative's name would leave a
+	// copybook with two redefines with nothing to take.
+	overrides := make([]string, 0, 3)
+
+	for _, node := range run.Descriptor.GetNodes() {
+		record := node.GetRecord()
+		if record == nil {
+			continue
+		}
+
+		if got := record.GetNames().GetOriginal(); got != "TXN-REC" {
+			t.Errorf("a record node is named %q, want the 01-level's TXN-REC", got)
+		}
+
+		overrides = append(overrides, record.GetNames().GetOverrideName())
+	}
+
+	want := []string{"TXN-PURCHASE-REC", "TXN-REFUND-REC", "TXN-ADJUST-REC"}
+	if !slices.Equal(overrides, want) {
+		t.Errorf("the record nodes carry %v, want %v", overrides, want)
+	}
+
+	// The pairing reached the fields: PURCHASE holds the purchase alternative's
+	// items and neither of the others', which is what says the choice selected a
+	// record type rather than being carried along beside one.
+	fields := fieldNames(run.Descriptor)
+
+	for _, name := range []string{"PUR-AMT", "REF-ORIG", "ADJ-REASON"} {
+		if got := fields[name]; got != 1 {
+			t.Errorf("%s stands in %d record types, want exactly the one that chose it", name, got)
+		}
+	}
+}
+
+// TestAnAlternativeIsRootedAtTheRecordChoosingIt is the half of the choice the
+// layout reader decides on its own: a reference is rooted at a record, and an
+// `alternative` rooted at another record would be looked up in another record's
+// item tree.
+func TestAnAlternativeIsRootedAtTheRecordChoosingIt(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "txn.cpy"), fixed(
+		"01  TXN-REC.",
+		"    05  TXN-PURCHASE  PIC X(4).",
+		"    05  TXN-REFUND REDEFINES TXN-PURCHASE PIC X(4).",
+	))
+
+	write(t, filepath.Join(dir, "txn.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 4))
+(record PURCHASE (copybook "txn.cpy" TXN-REC) (alternative (item REFUND TXN-PURCHASE)))
+(record REFUND   (copybook "txn.cpy" TXN-REC) (alternative (item REFUND TXN-REFUND)))
+(discriminate PURCHASE single-record-type)
+(discriminate REFUND   single-record-type)
+(sequence (seq PURCHASE REFUND))
+`)
+	write(t, filepath.Join(dir, manifest.Name), `{"layout": "txn.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+	if err == nil {
+		t.Fatal("the reader accepts an alternative rooted at another record")
+	}
+
+	if !strings.Contains(err.Error(), "rooted at record") {
+		t.Errorf("the diagnostic does not say what is wrong with it:\n%s", diag.Render(err))
+	}
+}
+
+// redefinedTransactions writes the worked shape #164 decides — one `01`-level
+// redefined three ways, discriminated on a code behind a shared account key —
+// and hands back the directory holding it.
+//
+// The same shape is written again in `cpybkc-gen-go`'s tests, which assert that
+// the descriptor generates without a collision — the other half of #164, and the
+// half that cannot be asserted from here, because a generator is a program this
+// package runs rather than a package it imports.
+func redefinedTransactions(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "txn.cpy"), fixed(
+		"01  TXN-REC.",
+		"    05  TXN-ACCT        PIC X(4).",
+		"    05  TXN-PURCHASE.",
+		"        10  PUR-CODE    PIC X(2).",
+		"        10  PUR-AMT     PIC X(6).",
+		"    05  TXN-REFUND REDEFINES TXN-PURCHASE.",
+		"        10  REF-CODE    PIC X(2).",
+		"        10  REF-ORIG    PIC X(6).",
+		"    05  TXN-ADJUST REDEFINES TXN-PURCHASE.",
+		"        10  ADJ-CODE    PIC X(2).",
+		"        10  ADJ-REASON  PIC X(6).",
+	))
+
+	write(t, filepath.Join(dir, "txn.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 12))
+
+(record PURCHASE (copybook "txn.cpy" TXN-REC) (alternative (item PURCHASE TXN-PURCHASE)))
+(record REFUND   (copybook "txn.cpy" TXN-REC) (alternative (item REFUND   TXN-REFUND)))
+(record ADJUST   (copybook "txn.cpy" TXN-REC) (alternative (item ADJUST   TXN-ADJUST)))
+
+(rename PURCHASE "TXN-PURCHASE-REC")
+(rename REFUND   "TXN-REFUND-REC")
+(rename ADJUST   "TXN-ADJUST-REC")
+
+(discriminate PURCHASE (equals (item PURCHASE TXN-PURCHASE PUR-CODE) "PU"))
+(discriminate REFUND   (equals (item REFUND   TXN-REFUND   REF-CODE) "RF"))
+(discriminate ADJUST   (equals (item ADJUST   TXN-ADJUST   ADJ-CODE) "AJ"))
+
+(sequence (* (alt PURCHASE REFUND ADJUST)))
+`)
+
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "txn.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	return dir
+}
+
+// fieldNames is how many field nodes of a descriptor carry each copybook name.
+func fieldNames(d *irpb.Descriptor) map[string]int {
+	found := make(map[string]int)
+
+	for _, node := range d.GetNodes() {
+		if field := node.GetField(); field != nil {
+			found[field.GetNames().GetOriginal()]++
+		}
+	}
+
+	return found
 }
 
 // records is how many record nodes a descriptor carries, which is one per
@@ -556,10 +724,12 @@ func TestAnItemReferenceThatNamesNothingCarriesTwoSpans(t *testing.T) {
 // is assembled into one item tree per `record` form.
 //
 // docs/layout/SPEC.md requires two records over one `01`-level to be renamed,
-// discriminated and encoding-overridden independently, and `assemble` keys its
-// renames on the copybook field. So a shared tree would make a rename written
-// for one record reach the other, and the two record nodes would come out with
-// the same substituted names.
+// discriminated and encoding-overridden independently. `assemble` keys a rename
+// on the record it was written under as well as on the copybook item (#164), so
+// a shared tree would no longer make a rename reach the wrong record — but every
+// item reference here would still resolve into one tree, and an
+// encoding-override or a discriminator written for one record would be looked up
+// against the other's items.
 func TestTwoRecordsOverOneCopybookAreRenamedIndependently(t *testing.T) {
 	t.Parallel()
 
@@ -652,5 +822,194 @@ func TestOneMissingCopybookIsReportedAgainstEveryRecordThatNamesIt(t *testing.T)
 	// reader has to edit.
 	if found[0].Spans[0] == found[1].Spans[0] {
 		t.Errorf("both faults point at %s, want one per record", found[0].Spans[0])
+	}
+}
+
+// TestTwoRedefinesAreChosenAsASetAndNotInOrder is the case the whole naming
+// decision rests on, and the only one that exercises the choice as a set.
+//
+// Two independent redefines in one `01`-level resolve to one record type per
+// *combination*, which is why a record node cannot take an alternative's name —
+// there are two of them and neither names the record. So the two `alternative`
+// children are a set: written in either order they choose the same record type,
+// and a layout that swapped its two lines would otherwise mean something else.
+func TestTwoRedefinesAreChosenAsASetAndNotInOrder(t *testing.T) {
+	t.Parallel()
+
+	// A-or-B beside C-or-D: four record types, each carrying the whole record.
+	copybook := fixed(
+		"01  PAIR-REC.",
+		"    05  PAIR-A      PIC X(4).",
+		"    05  PAIR-B REDEFINES PAIR-A PIC X(4).",
+		"    05  PAIR-C      PIC X(6).",
+		"    05  PAIR-D REDEFINES PAIR-C PIC X(6).",
+	)
+
+	layoutFor := func(first, second string) string {
+		return `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 10))
+(record PAIR (copybook "pair.cpy" PAIR-REC)
+  (alternative (item PAIR ` + first + `))
+  (alternative (item PAIR ` + second + `)))
+(discriminate PAIR single-record-type)
+(sequence (* PAIR))
+`
+	}
+
+	// Both orders name one record type, and it is the one holding B and D.
+	for _, order := range [][2]string{{"PAIR-B", "PAIR-D"}, {"PAIR-D", "PAIR-B"}} {
+		dir := t.TempDir()
+
+		write(t, filepath.Join(dir, "pair.cpy"), copybook)
+		write(t, filepath.Join(dir, "pair.sexpr"), layoutFor(order[0], order[1]))
+		write(t, filepath.Join(dir, manifest.Name),
+			`{"layout": "pair.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+		run, err := project.Load(filepath.Join(dir, manifest.Name))
+		if err != nil {
+			t.Fatalf("(alternative %s) then (alternative %s) does not resolve:\n%s",
+				order[0], order[1], diag.Render(err))
+		}
+
+		if got := records(run.Descriptor); got != 1 {
+			t.Fatalf("choosing %v resolves to %d record types, want 1", order, got)
+		}
+
+		fields := fieldNames(run.Descriptor)
+		for name, want := range map[string]int{"PAIR-A": 0, "PAIR-B": 1, "PAIR-C": 0, "PAIR-D": 1} {
+			if fields[name] != want {
+				t.Errorf("choosing %v, %s stands %d times, want %d", order, name, fields[name], want)
+			}
+		}
+	}
+}
+
+// TestAChoiceThatIsNoCombinationNamesEveryCombination is the diagnostic over the
+// same copybook: a record choosing one alternative where two redefines want two
+// is refused, and every combination there was to choose from is in the message.
+//
+// One redefine chosen twice is refused by the reader before this, so the shapes
+// that reach here are a choice that is short, long, or names something that is
+// no alternative at all — and one message answers all of them.
+func TestAChoiceThatIsNoCombinationNamesEveryCombination(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "pair.cpy"), fixed(
+		"01  PAIR-REC.",
+		"    05  PAIR-A      PIC X(4).",
+		"    05  PAIR-B REDEFINES PAIR-A PIC X(4).",
+		"    05  PAIR-C      PIC X(6).",
+		"    05  PAIR-D REDEFINES PAIR-C PIC X(6).",
+	))
+
+	write(t, filepath.Join(dir, "pair.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 10))
+(record PAIR (copybook "pair.cpy" PAIR-REC)
+  (alternative (item PAIR PAIR-B)))
+(discriminate PAIR single-record-type)
+(sequence (* PAIR))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "pair.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	var alternatives *project.AlternativesError
+	if !errors.As(err, &alternatives) {
+		t.Fatalf("a short choice reads as %v, want an AlternativesError", err)
+	}
+
+	rendered := diag.Render(err)
+
+	// Four combinations of two, rendered one entry apiece rather than flattened
+	// into eight names — a copybook with two redefines offers four choices.
+	for _, want := range []string{
+		`"PAIR-A" with "PAIR-C"`,
+		`"PAIR-A" with "PAIR-D"`,
+		`"PAIR-B" with "PAIR-C"`,
+		`"PAIR-B" with "PAIR-D"`,
+		"which is none of the 4 it describes",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the diagnostic does not carry %s:\n%s", want, rendered)
+		}
+	}
+}
+
+// TestAnAlternativeOverACopybookWithNoRedefineIsRefused is the other end of the
+// same rule: a copybook with nothing to choose among resolves to one record type
+// choosing nothing, and a form choosing something has named an item that is no
+// alternative.
+func TestAnAlternativeOverACopybookWithNoRedefineIsRefused(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "flat.cpy"), fixed(
+		"01  FLAT-REC.",
+		"    05  FLAT-KEY   PIC X(4).",
+	))
+
+	write(t, filepath.Join(dir, "flat.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 4))
+(record FLAT (copybook "flat.cpy" FLAT-REC)
+  (alternative (item FLAT FLAT-KEY)))
+(discriminate FLAT single-record-type)
+(sequence (* FLAT))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "flat.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	var alternatives *project.AlternativesError
+	if !errors.As(err, &alternatives) {
+		t.Fatalf("an alternative over a copybook with no redefine reads as %v, want an AlternativesError", err)
+	}
+
+	if !strings.Contains(diag.Render(err), "no alternative") {
+		t.Errorf("the diagnostic does not say there was nothing to choose:\n%s", diag.Render(err))
+	}
+}
+
+// TestAnAlternativeNamingNoItemIsReported is the fault the resolving order
+// exists for: an `alternative` naming an item the copybook does not declare is
+// reported against the layout, rather than dropping its record type out of the
+// run in silence.
+func TestAnAlternativeNamingNoItemIsReported(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "txn.cpy"), fixed(
+		"01  TXN-REC.",
+		"    05  TXN-PURCHASE  PIC X(4).",
+		"    05  TXN-REFUND REDEFINES TXN-PURCHASE PIC X(4).",
+	))
+
+	write(t, filepath.Join(dir, "txn.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 4))
+(record PURCHASE (copybook "txn.cpy" TXN-REC) (alternative (item PURCHASE TXN-CHARGE)))
+(discriminate PURCHASE single-record-type)
+(sequence (* PURCHASE))
+`)
+	write(t, filepath.Join(dir, manifest.Name),
+		`{"layout": "txn.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	_, err := project.Load(filepath.Join(dir, manifest.Name))
+
+	var unknown *project.UnknownItemError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("an alternative naming no item reads as %v, want an UnknownItemError", err)
 	}
 }

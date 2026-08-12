@@ -221,3 +221,107 @@ func TestOtherLayersAreNotRead(t *testing.T) {
 		t.Fatalf("the layout defines %d records, want 1", len(records))
 	}
 }
+
+// TestARecordChoosesItsAlternativesByName is docs/layout/SPEC.md's "Which
+// alternative a record is", read: the children arrive in the order the form
+// writes them, each carrying the reference the layout wrote.
+func TestARecordChoosesItsAlternativesByName(t *testing.T) {
+	t.Parallel()
+
+	records, err := recordsOf(t, `(record TXN
+  (copybook "cpy/txn.cpy" TXN-REC)
+  (alternative (item TXN TXN-PURCHASE))
+  (alternative (item TXN TXN-BODY TXN-CARD)))
+`)
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("the layout defines %d records, want 1", len(records))
+	}
+
+	chosen := make([]string, 0, 2)
+	for _, ref := range records[0].Alternatives {
+		chosen = append(chosen, ref.String())
+	}
+
+	want := []string{"(item TXN TXN-PURCHASE)", "(item TXN TXN-BODY TXN-CARD)"}
+	if strings.Join(chosen, " ") != strings.Join(want, " ") {
+		t.Errorf("the record chooses %v, want %v", chosen, want)
+	}
+}
+
+// TestARecordWithNoAlternativeChoosesNone is the ordinary case, stated so that
+// the reading above cannot start applying to every record.
+func TestARecordWithNoAlternativeChoosesNone(t *testing.T) {
+	t.Parallel()
+
+	records, err := recordsOf(t, "(record ORDER (copybook \"cpy/orders.cpy\" ORDER-REC))\n")
+	if err != nil {
+		t.Fatalf("records: %v", err)
+	}
+
+	if len(records[0].Alternatives) != 0 {
+		t.Errorf("a record with no alternative child chooses %v", records[0].Alternatives)
+	}
+}
+
+// TestReadRecordsRejectsAlternatives is the half of the choice the reader
+// decides without a copybook. How many alternatives there are to choose among is
+// `resolve`'s and is not here.
+func TestReadRecordsRejectsAlternatives(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "an alternative rooted at another record",
+			source: `(record TXN (copybook "cpy/txn.cpy" TXN-REC)
+  (alternative (item OTHER TXN-PURCHASE)))`,
+			want: "layout.sexpr:2:16: record \"TXN\" chooses alternative (item OTHER TXN-PURCHASE), which is " +
+				"rooted at record \"OTHER\"; an alternative is an item of the record choosing it",
+		},
+		{
+			name: "one alternative chosen twice",
+			source: `(record TXN (copybook "cpy/txn.cpy" TXN-REC)
+  (alternative (item TXN TXN-PURCHASE))
+  (alternative (item TXN TXN-PURCHASE)))`,
+			want: "layout.sexpr:3:3: alternative (item TXN TXN-PURCHASE) is chosen twice, and is chosen " +
+				"first at layout.sexpr:2:3; a record chooses each alternative once",
+		},
+		{
+			name: "an alternative carrying no reference",
+			source: `(record TXN (copybook "cpy/txn.cpy" TXN-REC)
+  (alternative))`,
+			want: "layout.sexpr:2:3: an alternative is written (alternative <item-ref>), and this has no value",
+		},
+		{
+			name: "a child the form does not admit",
+			source: `(record TXN (copybook "cpy/txn.cpy" TXN-REC)
+  (copybook "cpy/other.cpy" OTHER-REC))`,
+			want: "layout.sexpr:2:3: form \"record\" admits alternative, and this is form \"copybook\"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			read, err := recordsOf(t, testCase.source)
+			if err == nil {
+				t.Fatalf("the reader accepts %s", testCase.source)
+			}
+
+			if read != nil {
+				t.Errorf("the reader hands back records beside the fault: %+v", read)
+			}
+
+			if got := err.Error(); got != testCase.want {
+				t.Errorf("the reader reports\n%s\nwant\n%s", got, testCase.want)
+			}
+		})
+	}
+}

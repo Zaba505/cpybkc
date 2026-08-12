@@ -632,13 +632,15 @@ and an adopter who guesses gives up a diagnostic without being told.
 
 ```
 (record <name>
-  (copybook "<path>" <top-level-name>))
+  (copybook "<path>" <top-level-name>)
+  (alternative <item-ref>) …)
 ```
 
 | Argument or child | Arity | Value |
 |---|---|---|
 | `<name>` | 1 | a symbol, unique among the layout's records |
 | `copybook` | 1 | a path, and the name of the item in it this record is |
+| `alternative` | 0..n | one alternative of a `REDEFINES` outside a repeating group; see [Which alternative a record is](#which-alternative-a-record-is) |
 
 A record name is the layout's own identifier for a record type. It **MAY** be
 the same symbol as the copybook item's name and does not have to be, and nothing
@@ -684,11 +686,61 @@ names the item as it is reached through `ORDER-DETAIL`, so two records over one
 neither reaches the other. [A
 rename](#a-rename-substitutes-a-name-and-keeps-the-original)'s at-most-one rule
 counts per record for that reason: the item it may name once is the item
-reached through the record it names, not the copybook item behind it.
+reached through the record it names, not the copybook item behind it. A rename
+is therefore **per record and not per item**, and an implementation keying one
+on the copybook item alone has one substitute where this section promises two
+(#164).
 
 Whether two paths name one copybook is a question about the files they resolve
 to rather than about how they are spelled, and the resolving is the CLI's. No
 rule here is stated over `copybook` children carrying equal strings.
+
+### Which alternative a record is
+
+A `REDEFINES` outside a repeating group is resolved away into one record type
+per alternative
+([`ir/SPEC.md`](../ir/SPEC.md#members-never-overlap-and-redefines-is-resolved-away)),
+and a `record` form names an `01`-level rather than an alternative of one. The
+`alternative` child is where the layout says which of them the form means:
+
+```
+(record PURCHASE
+  (copybook "txn.cpy" TXN-REC)
+  (alternative (item PURCHASE TXN-PURCHASE)))
+
+(record REFUND
+  (copybook "txn.cpy" TXN-REC)
+  (alternative (item REFUND TXN-REFUND)))
+```
+
+The reference names the alternative as an ordinary [item
+reference](#an-item-reference), rooted at the record whose choice it is stating.
+It is a reference rather than a bare name for the reason every other position
+takes one: duplicate data names are legal COBOL, so a name alone is not an
+identity, and a redefine may sit at any depth under the `01`-level.
+
+A `record` form **MUST** carry exactly one `alternative` child per `REDEFINES`
+the copybook writes into its `01`-level outside a repeating group, and **MUST
+NOT** carry one where the copybook writes none. Two independent redefines are
+two children, in either order — each names a distinct run of bytes, so nothing
+depends on which is written first — and together they select exactly one of the
+combinations [`ir/SPEC.md`](../ir/SPEC.md#members-never-overlap-and-redefines-is-resolved-away)
+enumerates. How many a copybook writes, and whether a reference names an
+alternative at all, are `resolve`'s: both need the copybook.
+
+**The pairing is stated and never inferred.** Matching a record form to the
+alternative containing its discriminator's target is a rule that works on the
+shape a discriminator reaches into and answers nothing for an alternative no
+`discriminate` form touches, and pairing by the order the forms are written in
+is a rule an adopter could not read anywhere. Either would be a program's
+convention deciding which bytes a record type describes, silently, and changing
+its answer when a copybook gains a redefine in a file no layout is stored beside.
+
+A redefine **inside** a repeating group is not this. The alternative there is
+chosen once per occurrence rather than once per record, so it is a
+[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table) and
+never an `alternative` child; a layout naming one here is naming an item that is
+not a record-level alternative, and is a diagnostic on those terms.
 
 ### Composition is the copybook's, and `COPY` is where it is written
 
@@ -779,11 +831,12 @@ span](#every-diagnostic-carries-a-span-and-some-carry-two) is protecting.
 
 ```
 (rename <item-ref> "<name>")
+(rename <record-name> "<name>")
 ```
 
-A rename gives the item an override name, carried in the IR beside the original
-rather than in place of it, so that generated code can still point back at the
-copybook it came from
+A rename gives its target an override name, carried in the IR beside the
+original rather than in place of it, so that generated code can still point back
+at the copybook it came from
 ([`ir/SPEC.md`](../ir/SPEC.md#names)). The substitute is a string and is carried
 verbatim: it is language-neutral, and no implementation **MAY** apply the casing
 or identifier conventions of any language to it — turning a name into an
@@ -795,6 +848,59 @@ repeats, in which case the substitute is the name of the item and reaches every
 occurrence of it. The substitute is a name and not an occurrence's, for the
 reason [an item reference](#an-item-reference) names an item and not an
 occurrence of one: a table of a hundred entries has one field there, named once.
+
+A rename is **per record**, not per copybook item. Its target is the item as it
+is reached through the record the reference is rooted at, so a rename written
+under one of two records over one `01`-level does not reach the other — which is
+[Many records may name one
+copybook](#many-records-may-name-one-copybook-and-two-may-name-one-item)'s
+independence, and is a requirement on an implementation rather than a
+consequence of how it happens to hold its copybook items (#164).
+
+### A rename may name a record
+
+The second spelling takes a **record name** where the first takes a reference,
+and it substitutes a name for the record type's own — the name the IR carries on
+a record node, which is the one the copybook's `01`-level gives it
+([`ir/SPEC.md`](../ir/SPEC.md#names)):
+
+```
+(record PURCHASE (copybook "txn.cpy" TXN-REC) (alternative (item PURCHASE TXN-PURCHASE)))
+(record REFUND   (copybook "txn.cpy" TXN-REC) (alternative (item REFUND   TXN-REFUND)))
+
+(rename PURCHASE "TXN-PURCHASE-REC")
+(rename REFUND   "TXN-REFUND-REC")
+```
+
+It is a record name rather than `(item PURCHASE)` because [an item
+reference](#an-item-reference) does not repeat the top-level item's own name —
+the `record` form has already stated it — so the one item whose name a record
+node carries is the one item a reference cannot reach. Admitting a reference
+naming a record and no item below it would put two meanings on a spelling every
+other position in this format refuses.
+
+It is the same form as the first spelling, and not a new one, because it says
+exactly what the first says: a substitute carried beside an original that
+survives. A record's own name is a name like any other, and the alternative was
+a second form differing from `rename` in nothing but what stands in its first
+position.
+
+The rules carry over unchanged in the shape they can. At most one rename **MAY**
+name a given record. Two renames **MUST NOT** substitute one name for two
+records, and a rename **MUST NOT** substitute a name another record's `copybook`
+child spells as its top-level item — both decidable from the layout alone, and
+both the same ambiguity [A substitute is a name nothing beside it already
+answers to](#a-substitute-is-a-name-nothing-beside-it-already-answers-to)
+removes between siblings. There is no parent for a record node to have siblings
+under, so no rule beyond those two is stated.
+
+**Nothing requires a record to be renamed**, including two records over one
+`01`-level, which carry one name between them until a rename says otherwise
+([`ir/SPEC.md`](../ir/SPEC.md#names)). Whether one name on two record types is a
+problem is a property of the target language: a generator munging both into one
+identifier refuses and says which two collided (#50), and a generator that
+qualifies its output has nothing to refuse. Requiring the rename here would put
+one language's collision rule in the layer every language's generator reads.
 
 ### A substitute is a name nothing beside it already answers to
 
@@ -1507,9 +1613,13 @@ arms of one variant naming one alternative, or naming one target and one
 literal; an arm whose target is rooted at another record, stands under another
 outermost group than the variant, or descends through the variant or one of its
 arms; a record name in the sequencing expression that no `record` form defines,
-and a `record` the expression never names; a second `rename` naming one item, a
-name substituted for two items under one parent, and a substitute equal to the
-name of an item the layout itself references under that parent; a `blksize`,
+and a `record` the expression never names; an `alternative` child whose
+reference is rooted at another record, and two of them naming one item; a second
+`rename` naming one item or one record, a
+name substituted for two items under one parent or for two records, a substitute
+equal to the
+name of an item the layout itself references under that parent, and a substitute
+equal to the top-level item another record's `copybook` child names; a `blksize`,
 `lrecl`, `max-segment` or `delimiter` under a spelling that does not admit it;
 and the framing spellings rejected by name — `U`, a carriage-control suffix,
 `(blocks in-stream)`.
@@ -1517,7 +1627,10 @@ and the framing spellings rejected by name — `U`, a carriage-control suffix,
 **`resolve`** (#32–#38) has the copybooks too, and reports everything that needs
 them: a `copybook` child naming a file it cannot read, and one naming a
 top-level item the copybook it read does not declare (#27); an item reference
-naming no item or more than one; a reference that
+naming no item or more than one; a `record` form whose `alternative` children do
+not name exactly one alternative per `REDEFINES` its `01`-level carries outside
+a repeating group, and one naming an item that is no such alternative; a
+reference that
 repeats or sits inside a repeating group where the position forbids it; a
 discriminator behind a variable item; a rename whose substitute is the name of
 an item beside its target that the layout itself never references; a literal
@@ -1772,7 +1885,7 @@ computed once by `resolve`.
 | [The surface syntax](#the-surface-syntax) | #22 `layout` |
 | [The encoding profile](#the-encoding-profile) | #25 `layout` |
 | [Physical framing](#physical-framing) | #26 `layout` |
-| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve` |
+| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
 | [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |

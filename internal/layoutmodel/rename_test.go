@@ -248,13 +248,16 @@ func TestReadRenamesRejects(t *testing.T) {
 		want   []string
 	}{
 		{
-			// Duplicate data names are legal COBOL, so a bare name is not an
-			// identity and the format has no spelling for one.
-			name:   "a target named by a bare name",
+			// A bare name in the target position is a record name, so a bare
+			// name that is not one is a rename on a record that is not there —
+			// and never an item named without a reference. Duplicate data names
+			// are legal COBOL, so a bare name is still not an identity for an
+			// *item*, and the format has no spelling for one.
+			name:   "a bare name that is not a record the layout defines",
 			source: renaming([]string{"DETAIL"}, `(rename D-CUST-NO "CustomerNumber")`),
 			want: []string{
-				"layout.sexpr:2:9: an item reference is written (item <record-name> <name> ...), and this is " +
-					"the symbol \"D-CUST-NO\"",
+				"layout.sexpr:2:9: form \"rename\" names record \"D-CUST-NO\", and the layout defines no " +
+					"record of that name",
 			},
 		},
 		{
@@ -277,23 +280,23 @@ func TestReadRenamesRejects(t *testing.T) {
 			name:   "a rename carrying no name",
 			source: renaming([]string{"DETAIL"}, `(rename (item DETAIL D-CUST-NO))`),
 			want: []string{
-				"layout.sexpr:2:1: a rename is written (rename <item-ref> \"<name>\"), and this has an item and " +
+				"layout.sexpr:2:1: a rename is written (rename <item-ref> \"<name>\") or (rename <record-name> \"<name>\"), and this has a target and " +
 					"no name",
 			},
 		},
 		{
-			name:   "a rename carrying no item",
+			name:   "a rename carrying no target",
 			source: renaming([]string{"DETAIL"}, `(rename "CustomerNumber")`),
 			want: []string{
-				"layout.sexpr:2:1: a rename is written (rename <item-ref> \"<name>\"), and this has a name and " +
-					"no item",
+				"layout.sexpr:2:1: a rename is written (rename <item-ref> \"<name>\") or (rename <record-name> \"<name>\"), and this has a name and " +
+					"no target",
 			},
 		},
 		{
 			name:   "a rename carrying two names",
 			source: renaming([]string{"DETAIL"}, `(rename (item DETAIL D-CUST-NO) "CustomerNumber" "CustNo")`),
 			want: []string{
-				"layout.sexpr:2:1: a rename is written (rename <item-ref> \"<name>\"), and this has several",
+				"layout.sexpr:2:1: a rename is written (rename <item-ref> \"<name>\") or (rename <record-name> \"<name>\"), and this has several",
 			},
 		},
 		{
@@ -303,7 +306,7 @@ func TestReadRenamesRejects(t *testing.T) {
 			name:   "a name written as a symbol",
 			source: renaming([]string{"DETAIL"}, `(rename (item DETAIL D-CUST-NO) CustomerNumber)`),
 			want: []string{
-				"layout.sexpr:2:33: a rename is written (rename <item-ref> \"<name>\"), and this has the symbol " +
+				"layout.sexpr:2:33: a rename is written (rename <item-ref> \"<name>\") or (rename <record-name> \"<name>\"), and this has the symbol " +
 					"\"CustomerNumber\"",
 			},
 		},
@@ -438,8 +441,18 @@ func TestRenameFaultsAreAssertable(t *testing.T) {
 		assert func(*testing.T, error)
 	}{
 		{
-			name:   "a bare name is a reference fault",
+			name:   "a bare name naming no record is a record fault",
 			source: renaming([]string{"DETAIL"}, `(rename D-CUST-NO "CustomerNumber")`),
+			assert: func(t *testing.T, err error) {
+				var fault *UnknownRecordError
+				if !errors.As(err, &fault) {
+					t.Fatalf("no UnknownRecordError in %v", err)
+				}
+			},
+		},
+		{
+			name:   "a reference that is not one is still a reference fault",
+			source: renaming([]string{"DETAIL"}, `(rename (item DETAIL) "CustomerNumber")`),
 			assert: func(t *testing.T, err error) {
 				var fault *ItemReferenceError
 				if !errors.As(err, &fault) {
@@ -571,5 +584,115 @@ func TestTheSpecsWorkedExampleRenames(t *testing.T) {
 
 	if read[0].Substitute != "CustomerNumber" || read[0].Original() != "OH-CUST-NO" {
 		t.Errorf("the example renames %q to %q, want \"OH-CUST-NO\" to \"CustomerNumber\"", read[0].Original(), read[0].Substitute)
+	}
+}
+
+// TestARenameMayNameARecord is docs/layout/SPEC.md's "A rename may name a
+// record": the target position takes a bare record name as well as a reference,
+// and which of the two was written is decided by its shape.
+func TestARenameMayNameARecord(t *testing.T) {
+	t.Parallel()
+
+	read, err := renamesOf(t, renaming([]string{"PURCHASE", "REFUND"},
+		`(rename PURCHASE "TXN-PURCHASE-REC")`,
+		`(rename (item REFUND R-KEY) "RefundKey")`,
+	))
+	if err != nil {
+		t.Fatalf("renames: %v", err)
+	}
+
+	if len(read) != 2 {
+		t.Fatalf("the layout carries %d renames, want 2", len(read))
+	}
+
+	if !read[0].NamesRecord() || read[0].Record != "PURCHASE" {
+		t.Errorf("the first rename names %+v, want record PURCHASE", read[0])
+	}
+
+	// A record rename has no original here. The name it stands beside is the
+	// record's `01`-level, which the `copybook` child names and this model does
+	// not carry.
+	if read[0].Original() != "" {
+		t.Errorf("a record rename carries the original %q", read[0].Original())
+	}
+
+	if read[1].NamesRecord() {
+		t.Errorf("the second rename reads as a record rename: %+v", read[1])
+	}
+}
+
+// TestReadRenamesRejectsRecordRenames is the collision rule read over record
+// types: a record node has no parent, so what is checked is the two halves that
+// are still decidable from the layout alone.
+func TestReadRenamesRejectsRecordRenames(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "one record renamed twice",
+			source: renaming([]string{"PURCHASE"},
+				`(rename PURCHASE "One")`,
+				`(rename PURCHASE "Two")`,
+			),
+			want: "layout.sexpr:3:1: record \"PURCHASE\" is renamed twice, and is renamed first at " +
+				"layout.sexpr:2:1; a rename names a record at most once",
+		},
+		{
+			name: "one name substituted for two records",
+			source: renaming([]string{"PURCHASE", "REFUND"},
+				`(rename PURCHASE "Txn")`,
+				`(rename REFUND   "Txn")`,
+			),
+			want: "layout.sexpr:4:18: name \"Txn\" is substituted for records \"PURCHASE\" and \"REFUND\", " +
+				"and is substituted first at layout.sexpr:3:18",
+		},
+		{
+			name: "a substitute another record is bound to",
+			source: renaming([]string{"PURCHASE", "REFUND"},
+				`(rename PURCHASE "REFUND-REC")`,
+			),
+			want: "layout.sexpr:3:18: name \"REFUND-REC\" is substituted for record \"PURCHASE\", and record " +
+				"\"REFUND\" is bound to the item of that name at layout.sexpr:2:38",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			read, err := renamesOf(t, testCase.source)
+			if err == nil {
+				t.Fatalf("the reader accepts %s", testCase.source)
+			}
+
+			if read != nil {
+				t.Errorf("the reader hands back renames beside the fault: %+v", read)
+			}
+
+			if got := err.Error(); got != testCase.want {
+				t.Errorf("the reader reports\n%s\nwant\n%s", got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestARecordRenamedToItsOwnBindingIsAdmitted is the "not its own collision"
+// half, which the sibling rules have too: a rename substituting the name its own
+// record is already bound to says the same thing twice and leaves every name
+// where it was.
+func TestARecordRenamedToItsOwnBindingIsAdmitted(t *testing.T) {
+	t.Parallel()
+
+	read, err := renamesOf(t, renaming([]string{"PURCHASE"}, `(rename PURCHASE "PURCHASE-REC")`))
+	if err != nil {
+		t.Fatalf("the reader refuses a record renamed to its own binding: %v", err)
+	}
+
+	if len(read) != 1 {
+		t.Fatalf("the layout carries %d renames, want 1", len(read))
 	}
 }
