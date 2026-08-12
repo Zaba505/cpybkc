@@ -309,6 +309,7 @@ with four items in it.
 | [`packed-invalid-sign`](packed-invalid-sign) | A sign nibble of `5`, which is a digit and means no sign. |
 | [`packed-invalid-digit`](packed-invalid-digit) | A digit nibble of `A`. |
 | [`packed-invalid-pad`](packed-invalid-pad) | A non-zero pad nibble on an item of an even digit count. |
+| [`packed-comp6`](packed-comp6) | `COMP-6`, which is packed with no sign nibble: both parities of the digit count, and an alphanumeric item behind them that only stays in place if neither was read a byte wide. |
 | [`binary-big-endian`](binary-big-endian) | Binary integers: a positive, a negative, a zero, and the four-to-five digit width step. |
 | [`binary-little-endian`](binary-little-endian) | The same values, the other byte order. |
 | [`binary-byte-order-detected`](binary-byte-order-detected) | A big-endian field read little-endian, caught by the range `PIC S9(4)` declares. |
@@ -339,6 +340,10 @@ no row. So the pairing follows the axis the vector actually varies along:
   as `packed-ascii` and `packed-ebcdic`, whose `input.bin` and `values.json` are
   byte for byte the same file: the invariance is the claim, and two entries
   differing only in the axis that does not apply are how a corpus states one.
+  A.4's `COMP-6` rows are the exception, and `packed-comp6` is here once: the
+  claim is stated by the pair above, restating it costs a second entry for
+  nothing, and `COMP-6` is an extension of the compilers that do not run on the
+  mainframe — so the one charset it is in is ASCII.
 - **A.5 varies by byte order** and **A.6 by float format**, not by charset. Their
   pairs are `binary-big-endian`/`binary-little-endian` and
   `float-ieee754`/`float-hfp`.
@@ -360,25 +365,31 @@ its right answer is written down. `batch-fixed` is in the same position, and bot
 carry Appendix A.7's record inside them so that the bytes of a *record* stay
 traceable to a vector even where the bytes around it are not.
 
-### One row of Appendix A that is deliberately not an entry
+### No row of Appendix A is deliberately absent, and two once were
 
-- **`PIC 9(4) COMP-6`, `12 34`.** `cobol-go`'s `codec` ships no COMP-6 accessor,
-  and `cpybkc-gen-go` reads a `COMP-6` item with the packed ones — which consume
-  a sign nibble a COMP-6 item does not carry. An entry for it would fail on the
-  generator rather than on the corpus, which is a defect to report and not a
-  vector to seed.
+Every row of Appendix A is now an entry. This section used to list the ones that
+were not, and both of them were held out for the same reason: the vector was
+correct, the generator could not read it, and an entry would have failed on the
+generator rather than on the corpus. Each is here because the defect it found was
+fixed, and each is kept written down because the sequence is the point — the
+corpus did its job one step early both times, catching a disagreement between the
+generator and the specification while an entry was being written rather than
+after one was.
 
-That is the corpus doing its job one step early: what it found is a
-disagreement between the generator and the specification, found while an entry
-was being written rather than after one was.
+The **`PIC 9(4) COMP`, 65535, `FF FF`** row was the first. `cpybkc-gen-go`
+selected its binary accessor by digit count alone, so an unsigned four-digit item
+was read as a signed `int16` and 65535 came back as -1;
+[#163](https://github.com/Zaba505/cpybkc/issues/163) is that defect, and
+[`binary-unsigned-comp5`](binary-unsigned-comp5) is the vector it was found by,
+seeded once the generator could read it. The row is `TRUNC(BIN)`/`COMP-5` only —
+65535 is outside four decimal digits — so the entry declares `COMP-5` and needs
+the unsigned accessor as well as the `COMP-5` one.
 
-### A row that stood there and is an entry now
-
-The **`PIC 9(4) COMP`, 65535, `FF FF`** row was listed above for the same reason
-and no longer is. `cpybkc-gen-go` selected its binary accessor by digit
-count alone, so an unsigned four-digit item was read as a signed `int16` and
-65535 came back as -1; [#163](https://github.com/Zaba505/cpybkc/issues/163) is
-that defect, and [`binary-unsigned-comp5`](binary-unsigned-comp5) is the vector
-it was found by, seeded once the generator could read it. The row is
-`TRUNC(BIN)`/`COMP-5` only — 65535 is outside four decimal digits — so the entry
-declares `COMP-5` and needs the unsigned accessor as well as the `COMP-5` one.
+The two **`COMP-6`** rows were the second. `cpybkc-gen-go` read a `COMP-6` item
+with the packed accessors, which consume a sign nibble a `COMP-6` item does not
+carry, so `PIC 9(4) COMP-6` was read a byte wide and every field behind it moved;
+[#162](https://github.com/Zaba505/cpybkc/issues/162) is that defect and
+[`packed-comp6`](packed-comp6) is the entry. It carries both rows — the even
+digit count, where the two usages differ by a byte, and the odd one, where they
+do not — and an alphanumeric item behind them, which is what turns the width
+error into a visible one.

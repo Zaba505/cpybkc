@@ -51,12 +51,18 @@ func (c *coder) readCall(f *irpb.Field, rdr string) (string, error) {
 		}
 
 		return fmt.Sprintf("%s.ReadZoned%s(%d, %s)", rdr, decimalFamily(f.GetPicture().GetDigits()), f.GetPicture().GetDigits(), position), nil
-	case irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Usage_USAGE_COMP_6:
+	case irpb.Usage_USAGE_PACKED_DECIMAL:
 		if err := numeric(f); err != nil {
 			return "", err
 		}
 
 		return fmt.Sprintf("%s.ReadPacked%s(%d)", rdr, decimalFamily(f.GetPicture().GetDigits()), f.GetPicture().GetDigits()), nil
+	case irpb.Usage_USAGE_COMP_6:
+		if err := unsignedPacked(f); err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf("%s.ReadComp6%s(%d)", rdr, decimalFamily(f.GetPicture().GetDigits()), f.GetPicture().GetDigits()), nil
 	case irpb.Usage_USAGE_BINARY:
 		if err := numeric(f); err != nil {
 			return "", err
@@ -114,12 +120,22 @@ func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 		}
 
 		return fmt.Sprintf("%s.WriteZoned%s(%s, %d, %s)", wtr, decimalFamily(f.GetPicture().GetDigits()), value, f.GetPicture().GetDigits(), position), nil
-	case irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Usage_USAGE_COMP_6:
+	case irpb.Usage_USAGE_PACKED_DECIMAL:
 		if err := numeric(f); err != nil {
 			return "", err
 		}
 
 		return fmt.Sprintf("%s.WritePacked%s(%s, %d, %s)", wtr, decimalFamily(f.GetPicture().GetDigits()), value, f.GetPicture().GetDigits(), signedness(f)), nil
+	case irpb.Usage_USAGE_COMP_6:
+		if err := unsignedPacked(f); err != nil {
+			return "", err
+		}
+
+		// No Signedness argument, and that is the whole difference on this
+		// side: there is nowhere in a COMP-6 field to record a sign, so codec's
+		// writer takes none and refuses a negative value rather than storing its
+		// magnitude.
+		return fmt.Sprintf("%s.WriteComp6%s(%s, %d)", wtr, decimalFamily(f.GetPicture().GetDigits()), value, f.GetPicture().GetDigits()), nil
 	case irpb.Usage_USAGE_BINARY:
 		if err := numeric(f); err != nil {
 			return "", err
@@ -237,6 +253,29 @@ func signPosition(f *irpb.Field) (string, error) {
 
 		return "codec.SignUnsigned", nil
 	}
+}
+
+// unsignedPacked is [numeric] plus the one attribute a COMP-6 item may not
+// carry: an operational sign.
+//
+// A COMP-6 field is one nibble per digit and nothing else — no sign nibble, no
+// zone, no separate byte — so there is nowhere in it for an S to be recorded.
+// docs/ir/SPEC.md makes that a requirement on the producer, and this is the
+// refusal on the consumer, for the reason every other refusal in this file
+// exists: a signed COMP-6 item read through the accessors below would come back
+// as its magnitude on every negative value and would be written back as one, and
+// nothing in the file would disagree.
+func unsignedPacked(f *irpb.Field) error {
+	if err := numeric(f); err != nil {
+		return err
+	}
+
+	if f.GetPicture().GetSigned() {
+		return malformed(fmt.Sprintf("%s is a COMP-6 item and its picture carries an S", f.GetNames().GetOriginal()),
+			"a COMP-6 item is packed with no sign nibble and is therefore always unsigned; see docs/ir/SPEC.md, \"COMP-6 is not PACKED-DECIMAL\"")
+	}
+
+	return nil
 }
 
 // signedness is codec's name for whether the item's PICTURE carries an S.

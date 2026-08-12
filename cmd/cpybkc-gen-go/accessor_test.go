@@ -127,6 +127,125 @@ func TestAnUnsignedComp5ItemRoundTripsAtTheTopOfItsRange(t *testing.T) {
 	}
 }
 
+// TestTheTwoPackedReadingsOfTheSameBytesDifferByTheAccessorAlone is the COMP-6
+// premise: the same bytes, the two accessors, and a disagreement about the value
+// *and* about how many bytes were consumed.
+//
+// A COMP-6 item is packed with no sign nibble, so `PIC 9(4) COMP-6` is two bytes
+// where `PIC 9(4) COMP-3` is three. The record here is that item holding 234
+// followed by a `PIC S9(3) COMP-3` item holding +45 — six digits of data in
+// three bytes — and the packed reading of the first item swallows the second
+// one's byte and returns a number built out of both.
+//
+// The leading digit is zero on purpose. A non-zero one puts a digit in the
+// nibble a packed reader checks for zero padding, and the substitution then
+// fails loudly on the first field it is tried on; codec/SPEC.md's "COMP-6" is
+// explicit that this is luck rather than a guarantee. What needs pinning is the
+// half that is not loud, because a reader that is only wrong sometimes is a
+// reader nobody catches.
+func TestTheTwoPackedReadingsOfTheSameBytesDifferByTheAccessorAlone(t *testing.T) {
+	t.Parallel()
+
+	stored := []byte{0x02, 0x34, 0x5C}
+
+	r, err := codec.NewReader(bytes.NewReader(stored), unsignedEncoding())
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+
+	held, err := r.ReadComp6Int32(4)
+	if err != nil {
+		t.Fatalf("ReadComp6Int32(4): %v", err)
+	}
+
+	if held != 234 {
+		t.Errorf("PIC 9(4) COMP-6 over 02 34 is %d, want 234", held)
+	}
+
+	if r.Offset() != 2 {
+		t.Errorf("PIC 9(4) COMP-6 consumed %d bytes, want the 2 the item occupies", r.Offset())
+	}
+
+	// The same bytes through the accessor this generator used to emit for both
+	// usages.
+	r, err = codec.NewReader(bytes.NewReader(stored), unsignedEncoding())
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+
+	packed, err := r.ReadPackedInt32(4)
+	if err != nil {
+		t.Fatalf("ReadPackedInt32(4): %v", err)
+	}
+
+	if packed == held {
+		t.Errorf("both accessors read %d, and the whole point of choosing between them is that they do not", held)
+	}
+
+	if packed != 2345 {
+		t.Errorf("PIC 9(4) COMP-3 over 02 34 5C is %d, want the 2345 it builds out of two items", packed)
+	}
+
+	if r.Offset() != 3 {
+		t.Errorf("the packed accessor consumed %d bytes of a two-byte item, want 3", r.Offset())
+	}
+}
+
+// TestAComp6ItemRoundTripsByteIdentically is the value going back into the
+// bytes it came from, over both parities of the digit count.
+//
+// Byte identity is the assertion rather than value equality because a COMP-6
+// field has a nibble in it that no value can be read out of: the pad nibble an
+// odd digit count carries. A writer that filled it with anything but zero would
+// round-trip every value correctly and still write a file the next reader
+// refuses.
+func TestAComp6ItemRoundTripsByteIdentically(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		digits int
+		stored []byte
+		want   int32
+	}{
+		// Appendix A.4's two COMP-6 rows.
+		"an even digit count fills its bytes exactly": {digits: 4, stored: []byte{0x12, 0x34}, want: 1234},
+		"an odd digit count carries a pad nibble":     {digits: 3, stored: []byte{0x01, 0x23}, want: 123},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r, err := codec.NewReader(bytes.NewReader(tc.stored), unsignedEncoding())
+			if err != nil {
+				t.Fatalf("NewReader: %v", err)
+			}
+
+			held, err := r.ReadComp6Int32(tc.digits)
+			if err != nil {
+				t.Fatalf("ReadComp6Int32(%d): %v", tc.digits, err)
+			}
+
+			if held != tc.want {
+				t.Errorf("% X read as %d digits is %d, want %d", tc.stored, tc.digits, held, tc.want)
+			}
+
+			var out bytes.Buffer
+
+			w, err := codec.NewWriter(&out, unsignedEncoding())
+			if err != nil {
+				t.Fatalf("NewWriter: %v", err)
+			}
+
+			if err := w.WriteComp6Int32(held, tc.digits); err != nil {
+				t.Fatalf("WriteComp6Int32(%d, %d): %v", held, tc.digits, err)
+			}
+
+			if !bytes.Equal(out.Bytes(), tc.stored) {
+				t.Errorf("%d written back is % X, want % X", held, out.Bytes(), tc.stored)
+			}
+		})
+	}
+}
+
 // TestAnUnsignedFourDigitCompItemIsOutOfRangeAtTheTopOfTwoBytes is the other
 // half of why COMP-5 is the usage the corpus entry declares.
 //

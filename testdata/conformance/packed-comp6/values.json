@@ -1,0 +1,8 @@
+{
+  "records": [
+    {
+      "name": "COMP6-RECORD",
+      "value": {"C6-EVEN": "1234", "C6-ODD": "123", "C6-TRAILER": "END"}
+    }
+  ]
+}

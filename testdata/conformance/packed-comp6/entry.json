@@ -1,0 +1,4 @@
+{
+  "description": "COMP-6: packed decimal with no sign nibble, at both parities of the digit count, with an alphanumeric item behind it that only stays in place if neither COMP-6 item consumed a byte too many.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.4, the two COMP-6 rows"
+}

@@ -64,6 +64,12 @@ func TestWidthsFollowTheStorageWidthVectors(t *testing.T) {
 		{name: "packed four digits", picture: "PIC S9(4) COMP-3", vector: "A.4 `01 23 4D`", want: 3},
 		{name: "packed with a scale", picture: "PIC S9(3)V99 COMP-3", vector: "A.4 `12 34 5D`", want: 3},
 
+		// A.4's last two rows, COMP-6: one nibble per digit and no
+		// sign nibble, so the pad nibble appears at an *odd* digit
+		// count rather than at an even one.
+		{name: "comp-6 four digits", picture: "PIC 9(4) COMP-6", vector: "A.4 `12 34`", want: 2},
+		{name: "comp-6 three digits", picture: "PIC 9(3) COMP-6", vector: "A.4 `01 23`", want: 2},
+
 		// A.5, binary: the width is a function of the *digit count* and
 		// not of the value, which is the staircase a generator must
 		// never rediscover.
@@ -82,6 +88,49 @@ func TestWidthsFollowTheStorageWidthVectors(t *testing.T) {
 			record := resolveOne(t, fmt.Sprintf("01 R.\n   05 A %s.\n", tc.picture))
 			if got := widthOf(t, record, "A"); got != tc.want {
 				t.Fatalf("%s resolved to %d bytes, want %d from %s", tc.picture, got, tc.want, tc.vector)
+			}
+		})
+	}
+}
+
+// TestAComp6ItemIsTheSignNibbleNarrowerThanAPackedOne is the width difference
+// between the two usages, held as a difference rather than as two numbers.
+//
+// It is stated this way because the defect it guards against is a substitution:
+// a consumer that reads a COMP-6 item with a packed accessor consumes
+// `ceil((digits+1)/2)` bytes where the item is `ceil(digits/2)`, and every field
+// behind it in the record moves. Pinning the pair per digit count is what makes
+// that byte visible — and it also pins the half of the range where it is *not*
+// visible, because at every odd digit count the two coincide and nothing but the
+// nibbles can tell them apart (`codec/SPEC.md`, "COMP-6").
+func TestAComp6ItemIsTheSignNibbleNarrowerThanAPackedOne(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		digits int
+		comp6  int
+		packed int
+	}{
+		{digits: 1, comp6: 1, packed: 1},
+		{digits: 2, comp6: 1, packed: 2},
+		{digits: 3, comp6: 2, packed: 2},
+		{digits: 4, comp6: 2, packed: 3},
+		{digits: 5, comp6: 3, packed: 3},
+		{digits: 8, comp6: 4, packed: 5},
+		{digits: 9, comp6: 5, packed: 5},
+		{digits: 18, comp6: 9, packed: 10},
+	} {
+		t.Run(fmt.Sprintf("%d digits", tc.digits), func(t *testing.T) {
+			t.Parallel()
+
+			record := resolveOne(t, fmt.Sprintf("01 R.\n   05 A PIC 9(%d) COMP-6.\n", tc.digits))
+			if got := widthOf(t, record, "A"); got != tc.comp6 {
+				t.Errorf("PIC 9(%d) COMP-6 resolved to %d bytes, want %d", tc.digits, got, tc.comp6)
+			}
+
+			record = resolveOne(t, fmt.Sprintf("01 R.\n   05 A PIC 9(%d) COMP-3.\n", tc.digits))
+			if got := widthOf(t, record, "A"); got != tc.packed {
+				t.Errorf("PIC 9(%d) COMP-3 resolved to %d bytes, want %d", tc.digits, got, tc.packed)
 			}
 		})
 	}

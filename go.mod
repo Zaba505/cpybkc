@@ -22,7 +22,13 @@ require google.golang.org/protobuf v1.36.11
 // as soon as one exists: a pseudo-version is a commit an adopter cannot reason
 // about, and this is a dependency of the module `go install` builds the CLI
 // from.
-require github.com/Zaba505/cobol-go v0.0.0-20260807050409-dbcadd3bdb8a
+//
+// This commit is the one that added COMP-6 — the usage-type, its storage width,
+// and the codec accessors that read and write a field with no sign nibble in it
+// (#162). Before it the copybook reader refused `COMP-6` outright and codec
+// offered nothing that fit, so the IR could name a usage no part of this
+// repository could resolve or emit code for.
+require github.com/Zaba505/cobol-go v0.0.0-20260812022219-b6beeac1efe8
 
 // The grammar underneath the layout format. docs/layout/SPEC.md delegates the
 // lexis and the parse of a layout file to it — what a symbol is, where a number

@@ -1,0 +1,25 @@
+;; Appendix A.4's two COMP-6 rows, in an ASCII file.
+;;
+;; A.4 is charset-invariant and the packed pair states that already
+;; (packed-ascii and packed-ebcdic are one input.bin and one values.json under
+;; two charsets), so this entry does not restate it. It is ASCII because COMP-6
+;; is a GnuCOBOL and Micro Focus extension — the compilers that have it are the
+;; ones that do not run on the mainframe — and because the trailing
+;; alphanumeric item this entry turns on is the one item in the record that a
+;; charset does govern.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 7))
+
+(record COMP6
+  (copybook "comp6.cpy" COMP6-RECORD))
+
+(discriminate COMP6 single-record-type)
+
+(sequence (* COMP6))

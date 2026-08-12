@@ -534,6 +534,11 @@ func (e *emitter) fieldType(f *irpb.Field) (string, error) {
 		// here rather than bytes because its storage is characters in the
 		// field's charset — the edited text, as it stands in the record.
 		return "string", nil
+	// The two share an arm here and nowhere else. A COMP-6 item is stored
+	// differently from a packed one and is read and written with accessors of
+	// its own ([coder.readCall]), but the Go type it is read *into* is the same
+	// one at the same digit counts, because codec's COMP-6 family is the packed
+	// family's types: an int32, an int64 and a big.Int.
 	case irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Usage_USAGE_COMP_6:
 		if err := numeric(f); err != nil {
 			return "", err
