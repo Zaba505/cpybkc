@@ -538,42 +538,82 @@ func (f *filer) emitFieldBinding(b *strings.Builder, t transition, id, field uin
 		return nil
 	}
 
-	value, err := f.integerValue(t, node, source)
+	bound, err := f.integerValue(t, node, source)
 	if err != nil {
 		return err
 	}
 
-	line(b, "%s.%s = %s", holder, register(id), value)
+	if bound.guard != "" {
+		line(b, "if %s {", bound.guard)
+		line(b, "%sfmt.Errorf(%q, %s.ordinal, %s)", fail,
+			fmt.Sprintf("record %%d: %s is bound into the register the descriptor carries as node %d and holds %%d, which is above the %s an integer register holds",
+				escaped(originalOf(node)), id, maxInt64),
+			holder, bound.path)
+		line(b, "}")
+		line(b, "")
+	}
+
+	line(b, "%s.%s = %s", holder, register(id), bound.value)
 	line(b, "%s.%s = true", holder, held(id))
 	line(b, "")
 
 	return nil
 }
 
+// maxInt64 is the largest value an integer register holds, written out because
+// the generated file reaches it as an untyped constant rather than through a
+// math import it would otherwise not need.
+const maxInt64 = "9223372036854775807"
+
+// integerBinding is how an integer register is bound from a field: the Go
+// expression it takes, and the condition under which taking it would lose the
+// value.
+type integerBinding struct {
+	// value is the expression assigned to the register.
+	value string
+	// path is the field the value is read from, before any conversion.
+	path string
+	// guard is the condition the reader refuses on, empty for a field whose
+	// type cannot hold a value an int64 register cannot.
+	guard string
+}
+
 // integerValue is the Go expression an integer register is bound from.
-func (f *filer) integerValue(t transition, node *irpb.Node, source *irpb.Field) (string, error) {
+func (f *filer) integerValue(t transition, node *irpb.Node, source *irpb.Field) (integerBinding, error) {
 	typ, err := f.fieldType(source)
 	if err != nil {
-		return "", err
+		return integerBinding{}, err
 	}
 
 	path, found, err := f.pathTo(t.record.GetRootId(), node.GetId(), "rec")
 	if err != nil {
-		return "", err
+		return integerBinding{}, err
 	}
 
 	if !found {
-		return "", malformed(fmt.Sprintf("%s is bound into a register and is not in the record the transition admits", originalOf(node)),
+		return integerBinding{}, malformed(fmt.Sprintf("%s is bound into a register and is not in the record the transition admits", originalOf(node)),
 			"a producer MUST NOT name a field of any other record; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 	}
 
 	switch typ {
+	// A register holds an int64, so every signed integer type but the big one
+	// widens into it and cannot lose anything on the way.
 	case "int16", "int32", "int64":
-		return "int64(" + path + ")", nil
+		return integerBinding{value: "int64(" + path + ")", path: path}, nil
+	// An unsigned binary item takes a uint64 whatever its digit count, and that
+	// one does not widen for free. A COMP-5 item is bounded by its storage
+	// rather than by the decimal range its PICTURE declares — which is the
+	// whole reason it is read unsigned — so an unsigned PIC 9(18) COMP-5 is
+	// eight bytes and reads back anything up to 2^64 - 1. Converting that to
+	// int64 unchecked would bind a negative number from a positive one and
+	// every guard downstream would then test the wrong value, silently. The
+	// reader refuses it instead; see [integerBinding].
+	case "uint64":
+		return integerBinding{value: "int64(" + path + ")", path: path, guard: path + " > " + maxInt64}, nil
 	case bigIntType:
-		return path + ".Int64()", nil
+		return integerBinding{value: path + ".Int64()", path: path}, nil
 	default:
-		return "", malformed(fmt.Sprintf("%s is bound into an integer register and its value is a %s", originalOf(node), typ),
+		return integerBinding{}, malformed(fmt.Sprintf("%s is bound into an integer register and its value is a %s", originalOf(node), typ),
 			"a producer MUST NOT bind a field whose value does not decode to the register's kind; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 	}
 }

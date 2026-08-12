@@ -467,6 +467,12 @@ func scalar(value reflect.Value) (any, error) {
 		return value.String(), nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return strconv.FormatInt(value.Int(), 10), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		// An unsigned binary item, which a generator gives an unsigned type
+		// because the accessor that reads it returns one. The digits are the
+		// digits either way: the value language has one spelling for a number
+		// and it is the decimal one.
+		return strconv.FormatUint(value.Uint(), 10), nil
 	case reflect.Float32, reflect.Float64:
 		return value.Float(), nil
 	case reflect.Slice:

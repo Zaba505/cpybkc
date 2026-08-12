@@ -1,0 +1,11 @@
+{
+  "records": [
+    {
+      "name": "COMP5-RECORD",
+      "value": {
+        "C5-UNSIGNED": "65535",
+        "C5-SIGNED": "-1"
+      }
+    }
+  ]
+}

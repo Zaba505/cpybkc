@@ -1,0 +1,4 @@
+{
+  "description": "An unsigned COMP-5 item holding 65535, beside a signed one holding -1 over the same FF FF bytes.",
+  "source": "cobol-go codec/SPEC.md, Appendix A, A.5, the PIC 9(4) COMP / 65535 / FF FF row; codec.Reader.ReadComp5Uint64"
+}

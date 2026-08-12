@@ -665,33 +665,59 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 		usage    irpb.Usage
 		category irpb.Category
 		digits   uint32
+		signed   bool
 		want     string
 	}{
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHABETIC, 0, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC, 0, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC_EDITED, 0, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC_EDITED, 0, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, "int32"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 10, "int64"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 19, bigIntType},
-		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, "int32"},
-		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 18, "int64"},
-		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, "int32"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, "int16"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 5, "int32"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, "int64"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, bigIntType},
-		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, "int16"},
-		{irpb.Usage_USAGE_COMP_1, irpb.Category_CATEGORY_UNSPECIFIED, 0, "float32"},
-		{irpb.Usage_USAGE_COMP_2, irpb.Category_CATEGORY_UNSPECIFIED, 0, "float64"},
-		{irpb.Usage_USAGE_INDEX, irpb.Category_CATEGORY_UNSPECIFIED, 0, "[]byte"},
-		{irpb.Usage_USAGE_POINTER, irpb.Category_CATEGORY_UNSPECIFIED, 0, "[]byte"},
-		{irpb.Usage_USAGE_NATIONAL, irpb.Category_CATEGORY_UNSPECIFIED, 0, "[]byte"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHABETIC, 0, false, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC, 0, false, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC_EDITED, 0, false, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC_EDITED, 0, false, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, true, "int32"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 10, true, "int64"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 19, true, bigIntType},
+
+		// A zoned or packed item takes a signed type whichever it is: the sign
+		// lives in a zone or a nibble, so an unsigned one is a reading that
+		// never comes back negative rather than a different accessor.
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, false, "int32"},
+		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, true, "int32"},
+		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, false, "int32"},
+		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 18, true, "int64"},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, true, "int32"},
+
+		// A binary item stores two's complement, where the top bit is a digit
+		// in an unsigned item and the sign in a signed one, so the S is what
+		// picks the family and the Go type with it.
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, true, "int16"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 5, true, "int32"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, true, "int64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, true, bigIntType},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 1, false, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, false, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 9, false, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, false, "uint64"},
+
+		// Nineteen digits and up is sixteen bytes, where codec has only the
+		// Big family: a *big.Int whether the PICTURE carries an S or not.
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
+		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, true, "int16"},
+		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, false, "uint64"},
+		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
+
+		{irpb.Usage_USAGE_COMP_1, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "float32"},
+		{irpb.Usage_USAGE_COMP_2, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "float64"},
+		{irpb.Usage_USAGE_INDEX, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "[]byte"},
+		{irpb.Usage_USAGE_POINTER, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "[]byte"},
+		{irpb.Usage_USAGE_NATIONAL, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "[]byte"},
 	} {
 		f := &irpb.Field{Usage: tc.usage, Encoding: resolvedEncoding()}
 
 		if tc.category != irpb.Category_CATEGORY_UNSPECIFIED {
-			f.Picture = &irpb.Picture{Category: tc.category, Digits: tc.digits}
+			f.Picture = &irpb.Picture{Category: tc.category, Digits: tc.digits, Signed: tc.signed}
+
+			if tc.signed && tc.usage == irpb.Usage_USAGE_DISPLAY {
+				f.Picture.SignPosition = irpb.SignPosition_SIGN_POSITION_TRAILING
+			}
 		}
 
 		e, err := newEmitter(&irpb.Descriptor{})
@@ -701,11 +727,11 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 
 		got, err := e.fieldType(f)
 		if err != nil {
-			t.Fatalf("fieldType(%s, %s, %d digits): %v", tc.usage, tc.category, tc.digits, err)
+			t.Fatalf("fieldType(%s, %s, %d digits, signed=%t): %v", tc.usage, tc.category, tc.digits, tc.signed, err)
 		}
 
 		if got != tc.want {
-			t.Errorf("%s of %d digits is %s, want %s", tc.usage, tc.digits, got, tc.want)
+			t.Errorf("%s of %d digits, signed=%t, is %s, want %s", tc.usage, tc.digits, tc.signed, got, tc.want)
 		}
 	}
 }
@@ -976,6 +1002,13 @@ func packed(id uint64, name string, width, digits uint32, scale int32, signed bo
 // binary is a COMP item.
 func binary(id uint64, name string, width, digits uint32, signed bool) *irpb.Node {
 	return numericItem(id, name, irpb.Usage_USAGE_BINARY, width, digits, 0, signed)
+}
+
+// comp5 is a COMP-5 item, which is a binary one with TRUNC(BIN) range
+// semantics: the same bytes, and the full range of the storage rather than the
+// decimal range the PICTURE declares.
+func comp5(id uint64, name string, width, digits uint32, signed bool) *irpb.Node {
+	return numericItem(id, name, irpb.Usage_USAGE_COMP_5, width, digits, 0, signed)
 }
 
 func numericItem(id uint64, name string, usage irpb.Usage, width, digits uint32, scale int32, signed bool) *irpb.Node {
