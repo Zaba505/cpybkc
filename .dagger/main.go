@@ -234,12 +234,13 @@ func New(
 // build of the three artifacts a release publishes, the published base image on
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
 // an adopter, the attestations a release attaches to what it publishes, the tag
-// scheme and release notes a release is published under, and the companion
-// module's coverage of the CLI's flags. This is the single entrypoint — CI is
+// scheme and release notes a release is published under, the companion
+// module's coverage of the CLI's flags, and that module's own functions driven
+// over the image this run just built. This is the single entrypoint — CI is
 // one `dagger call ci` and stays one, because a workflow step that reran any of
 // these stages would be a second definition of them.
 //
-// The fifteen parts run concurrently and all are reported, for the reason the
+// The sixteen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -248,10 +249,10 @@ func New(
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr error
-	var tagErr, notesErr, companionErr, engineErr, surfaceErr, pipelineErr error
+	var tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr error
 
 	var wg sync.WaitGroup
-	wg.Add(15)
+	wg.Add(16)
 
 	go func() {
 		defer wg.Done()
@@ -330,13 +331,18 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
+		moduleErr = m.CompanionModule(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
 		pipelineErr = m.PipelineCi(ctx)
 	}()
 
 	wg.Wait()
 
 	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr,
-		tagErr, notesErr, companionErr, engineErr, surfaceErr, pipelineErr)
+		tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.

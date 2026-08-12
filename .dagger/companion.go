@@ -2,7 +2,7 @@
 // daggerverse/cpybkc that runs the published image for somebody else's pipeline
 // (#61). It is not that module; it is this pipeline's opinion about it.
 //
-// Three things are checked here, and they are separate because they fail for
+// Four things are checked here, and they are separate because they fail for
 // unrelated reasons and a run should say which.
 //
 // CompanionCi runs the standard Go pipeline over the module, exactly as IrCi
@@ -20,6 +20,12 @@
 // The module curates deliberately rather than mapping the flag table one-to-one
 // (#62), and a curated surface is only safe if adding a flag to the CLI forces
 // somebody to say which side of the curation it falls on.
+//
+// CompanionModule runs the module's functions — over the image this pull request
+// built rather than over the last release (#64). The three above read the
+// module's source, its dagger.json and its function names; this one is the only
+// place the calls are made, so it is the only place a composition that no longer
+// composes can fail.
 package main
 
 import (
@@ -363,4 +369,273 @@ func goFiles(ctx context.Context, source *dagger.Directory, dir string) (map[str
 	}
 
 	return files, nil
+}
+
+const (
+	// companionExampleDir is the committed worked example (#177): the inputs a
+	// caller writes, and the tree cpybkc writes for them, checked in whole.
+	//
+	// It is the golden tree example/regenerate_test.go already holds the CLI to,
+	// and reusing it rather than generating something smaller here is the whole
+	// assertion. A smoke test saying that the module's calls *ran* would pass on
+	// a module that composed an image which generated the wrong thing; what is
+	// worth asserting is that the module reproduced the committed example byte
+	// for byte, and this repository already has that tree.
+	companionExampleDir = "example"
+
+	// generatorExecutable is what the CLI's PATH-based discovery looks for, and
+	// generatorPackage is what builds it.
+	//
+	// Both are assembled from worked_example.go's two constants rather than
+	// written out, so the executable this check installs is the one
+	// docs/plugin/SPEC.md's discovery rule names rather than a second spelling of
+	// it, and the command directory is not a third.
+	generatorExecutable = generatorPrefix + ownGenerator
+	generatorPackage    = "./cmd/" + generatorExecutable
+
+	// neverPulledRepository is the registry repository this check hands the
+	// module, and it is deliberately one that cannot exist: `.invalid` is
+	// reserved by RFC 2606 and resolves nowhere, ever.
+	//
+	// It is what turns *this pull request's image, never a published one* from a
+	// convention into a failure. The module pulls `<repository>-gen-<name>` only
+	// when with-generator is called without an image, and every call below passes
+	// one — but a call added later that forgot would pull the *released*
+	// generator, generate with it, and pass, quietly checking the last release
+	// instead of the change. Pointing the coordinates at a host with no registry
+	// behind it makes that call fail instead, naming this constant.
+	//
+	// The version is left at the module's own default. Nothing resolves it here
+	// for the same reason, and overriding it would only add a second unused
+	// value to read.
+	neverPulledRepository = "cpybkc.invalid/never-pulled"
+)
+
+// CompanionModule drives the companion module's functions over the image this
+// pipeline just built, and requires what comes out to be the committed worked
+// example byte for byte (#64).
+//
+// # Why the module's own functions need a check at all
+//
+// CompanionCi, EngineLock and CliSurface read the module — its Go source, its
+// dagger.json and its function names. None of them makes a call, so a module
+// whose calls no longer compose into a working image would fail none of them.
+// This is the only place `dagger call -m daggerverse/cpybkc …` actually happens,
+// and the module is a convenience over docs/container/SPEC.md rather than a
+// contract of its own, which is exactly why a broken one is worse than none: a
+// caller reaches for it because they did not want to learn the contract
+// underneath, so the failure lands on somebody with no reason to know where to
+// look.
+//
+// # Why it drives the image built here
+//
+// The module's defaults pull `ghcr.io/zaba505/cpybkc:v0`, which is a *released*
+// image. A check that used them would be checking the last release, and would
+// keep passing through a pull request that broke both the module and the image
+// it drives. So the base image this pipeline just built is passed through the
+// same --image argument a caller uses to try an unreleased cpybkc, the generator
+// is the one built from this tree, and the coordinates that would resolve
+// anything else point at [neverPulledRepository]. Nothing here reaches a
+// registry.
+//
+// That is also the only reason the module takes --image at all, which is worth
+// knowing before anybody removes it as unused: it is used here, on every pull
+// request.
+//
+// # What is checked
+//
+// Both ways of adding a generator (#63), against the same expected tree:
+//
+//   - with-generator, taking the executable out of a generator image — this is
+//     `COPY --from`, and it is the documented adopter path.
+//   - with-generator-executable, taking the same executable as a file straight
+//     from the build. This is the generator author's path, before anything of
+//     theirs is published, and it is the one nobody would notice breaking.
+//
+// Requiring both to produce the committed example is what makes them
+// interchangeable rather than merely both present.
+//
+// Then the two functions that are not part of that pair, because a check that
+// exercised only what it needed would leave the rest of the module's surface
+// covered by nothing: image, whose plugin directory has to hold the generator
+// the CLI resolves on PATH, and run, the escape hatch, asked the one question
+// docs/cli/SPEC.md requires to succeed against nothing at all.
+//
+// Both compositions start from the base image this pipeline built, which carries
+// the CLI and no generator — so a generation that succeeded did so with the
+// generator these calls installed and not with something that was lying around
+// in the image.
+//
+// Every call is checked and every failure reported rather than stopping at the
+// first, because *it works from the image and not from the file* is the finding
+// rather than a detail, and each message names the module function that broke.
+//
+// # One platform
+//
+// The engine's own, rather than every published one. What varies per platform is
+// the executable, and ImageContract already builds and checks the image on each
+// of them; what this adds is that the module's calls compose into a working
+// image, which is not a property a second architecture can disagree about.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) CompanionModule(ctx context.Context) error {
+	platform, err := dag.DefaultPlatform(ctx)
+	if err != nil {
+		return fmt.Errorf("resolving the engine's platform, which is the one this check runs on: %w", err)
+	}
+
+	committed := m.Source.Directory(companionExampleDir)
+
+	fromImage := m.companion(platform).WithGenerator(ownGenerator, dagger.CompanionWithGeneratorOpts{
+		Image: m.generatorImage(platform),
+	})
+	fromExecutable := m.companion(platform).WithGeneratorExecutable(ownGenerator, m.generatorBinary(platform))
+
+	var errs []error
+
+	if err := m.diffTrees(ctx, committed, fromImage.Generate(committed), "/companion-module/image"); err != nil {
+		errs = append(errs, fmt.Errorf(
+			"with-generator composed the generator out of an image and generate did not reproduce the committed %s/: %w",
+			companionExampleDir, err))
+	}
+
+	if err := m.diffTrees(ctx, committed, fromExecutable.Generate(committed), "/companion-module/executable"); err != nil {
+		errs = append(errs, fmt.Errorf(
+			"with-generator-executable composed the generator out of a file and generate did not reproduce the "+
+				"committed %s/: %w",
+			companionExampleDir, err))
+	}
+
+	if err := m.checkComposedImage(ctx, fromImage.Image()); err != nil {
+		errs = append(errs, fmt.Errorf("image handed back a container the CLI could not find the generator in: %w", err))
+	}
+
+	// --version through the escape hatch, with no project: it is the one
+	// invocation docs/cli/SPEC.md requires to succeed touching nothing, so a
+	// failure here is run failing to reach the CLI rather than anything about a
+	// manifest. The line's shape is checked by the same function Build and the
+	// image contract use, because what "this is cpybkc answering" means is a
+	// property of the line and not of which container it came out of.
+	line, err := fromImage.Run([]string{"--version"}).Stdout(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("run did not reach the CLI in the composed image: %w", err))
+	} else if err := checkVersionLine(line); err != nil {
+		errs = append(errs, fmt.Errorf("run reached the CLI in the composed image and %w", err))
+	}
+
+	return errors.Join(errs...)
+}
+
+// companion is the module bound to the image this pipeline built, and it is the
+// one construction of it: both compositions come through here, so there is no
+// arrangement in which one of them is driving a released image and the other the
+// change.
+//
+// The container is passed rather than the coordinates because that is what pins
+// bytes — --version and --repository name a tag, and a tag is not a build. See
+// [neverPulledRepository] for what the coordinates are set to instead and why
+// they are set at all.
+func (m *Cpybkc) companion(platform dagger.Platform) *dagger.Companion {
+	return dag.Companion(dagger.CompanionOpts{
+		Image:      m.image(platform),
+		Repository: neverPulledRepository,
+	})
+}
+
+// generatorBinary builds cpybkc's own generator for one platform.
+//
+// It is image.go's binary with a different package and name, and it carries the
+// same CGO and -trimpath switches for the same reasons: what a generator image
+// ships has to start in a scratch image, which is the requirement
+// docs/container/SPEC.md states as `CGO_ENABLED=0` and leaves to whoever builds
+// the generator.
+func (m *Cpybkc) generatorBinary(platform dagger.Platform) *dagger.File {
+	return dag.Go().
+		Build(m.Source, dagger.GoBuildOpts{
+			Pkg:          generatorPackage,
+			ArtifactName: generatorExecutable,
+			Trimpath:     true,
+			DisableCgo:   true,
+			Platform:     string(platform),
+		}).
+		File(generatorExecutable)
+}
+
+// generatorImage is a generator image for cpybkc's own generator: the base image
+// this pipeline built, plus one executable in the plugin directory.
+//
+// That is the shape docs/container/SPEC.md fixes for a generator image — "an
+// image built FROM the base, adding one executable at the path this section
+// names and changing nothing else" — so with-generator is handed the thing an
+// adopter's generator image actually is rather than a container assembled to
+// suit this check. Deriving it from the same base also settles the platform:
+// with-generator refuses a generator image built for another one, and a
+// container that came from image() cannot be for another one.
+//
+// It is not published and never will be. What #48 ships is a release's business;
+// this is one file in a container that exists for the length of one call.
+func (m *Cpybkc) generatorImage(platform dagger.Platform) *dagger.Container {
+	return m.image(platform).WithFile(
+		pluginDir+"/"+generatorExecutable,
+		m.generatorBinary(platform),
+		dagger.ContainerWithFileOpts{Owner: imageUser, Permissions: executableMode},
+	)
+}
+
+// checkComposedImage requires the composed image's plugin directory to hold the
+// CLI and the generator, and nothing else.
+//
+// The directory is listed rather than the image run, because the image is a
+// scratch one: there is no shell and no `ls` in it, and the only thing that can
+// be executed is cpybkc itself. Reading the directory out of the container
+// answers the question anyway, and it answers it about the exact path the CLI
+// resolves a generator on — PATH in this image is the plugin directory and
+// nothing more.
+//
+// Exhaustive rather than a containment check. A composition that installed the
+// generator twice under two names, or left something else behind, is a
+// with-generator this pipeline should report rather than a detail it tolerates.
+func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Container) error {
+	entries, err := composed.Directory(pluginDir).Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("listing %s in the composed image: %w", pluginDir, err)
+	}
+
+	want := []string{cliBinary, generatorExecutable}
+	slices.Sort(want)
+	slices.Sort(entries)
+
+	if !slices.Equal(entries, want) {
+		return fmt.Errorf("%s holds %v and the composition put %v there: the CLI resolves a generator on PATH, "+
+			"and PATH in this image is that directory alone", pluginDir, entries, want)
+	}
+
+	return nil
+}
+
+// diffTrees requires two directory trees to be identical and reports how they
+// differ when they are not.
+//
+// A real diff rather than a walk comparing file contents, because the failure
+// this reports is one somebody has to act on: which file, which line, and what
+// changed is the whole of the diagnostic, and a boolean would send them to
+// regenerate the example locally to find out. --text because every file cpybkc
+// writes is text, and a diff that said only "binary files differ" would report
+// the failure without reporting what it was.
+//
+// The trees are mounted under one directory named by the caller, so a run with
+// more than one comparison in it says which comparison the paths in the output
+// belong to.
+func (m *Cpybkc) diffTrees(ctx context.Context, want, got *dagger.Directory, at string) error {
+	wantAt, gotAt := at+"/want", at+"/got"
+
+	_, err := dag.Go().
+		Container(m.Source).
+		WithMountedDirectory(wantAt, want).
+		WithMountedDirectory(gotAt, got).
+		WithExec([]string{"diff", "--recursive", "--unified", "--text", wantAt, gotAt}).
+		Sync(ctx)
+
+	return err
 }

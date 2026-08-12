@@ -605,10 +605,10 @@ imports no Dagger is what turns the published default
 `ghcr.io/zaba505/cpybkc:v0` into a string a test pins rather than a string a
 comment asserts.
 
-This is not #64. That story drives the module's *functions* over the image
-built in the same pull request, which needs an engine and a built image; this
-is the ordinary Go pipeline over the module's source, and the two catch
-different things.
+This is not [`companion-module`](#the-modules-own-calls-are-checked-against-the-image-this-pull-request-built).
+That one drives the module's *functions* over the image built in the same pull
+request, which needs an engine and a built image; this is the ordinary Go
+pipeline over the module's source, and the two catch different things.
 
 Both modules' generated code is committed, so a change to either is a
 `dagger develop` in that module and the generated files in the same commit —
@@ -777,6 +777,72 @@ published as variants of one index, and the loop belongs to the caller because
 the index does: which platforms a derived image serves is a property of who will
 run it, and a module that decided it would be publishing this project's platform
 table as somebody else's. The module comment carries the loop.
+
+### The module's own calls are checked against the image this pull request built
+
+Everything above reads the module. `companion-ci` runs `go test` over its
+source, `engine-lock` reads its `dagger.json` and `cli-surface` reads its
+function *names* — and none of the three makes a call, so a module whose calls
+no longer compose into a working image would fail none of them. `dagger call
+companion-module` is the one place `dagger call -m daggerverse/cpybkc …`
+actually happens, and it is in `ci` (#64):
+
+```sh
+dagger call companion-module
+```
+
+That matters more than it would for a contract, because the module is a
+*convenience* over the [base-image contract](docs/container/SPEC.md) rather than
+an interface of its own. A caller reaches for it precisely because they did not
+want to learn the contract underneath, so a convenience that has quietly stopped
+working lands the failure on somebody with no reason to know where to look.
+
+**It drives the image this run built, never a published one.** The module's
+defaults pull `ghcr.io/zaba505/cpybkc:v0`, which is a *released* image: a check
+that used them would be checking the last release and would keep passing through
+a pull request that broke both the module and the image it drives. So the base
+image [`image.go`](.dagger/image.go) just built is passed through the same
+`--image` argument a caller uses to try an unreleased cpybkc, and the generator
+is `cmd/cpybkc-gen-go` built from the tree under test. That is also the only
+reason the module takes `--image` at all, which is worth knowing before anybody
+removes it as unused — it is used here, on every pull request, and the [local
+dependency edge](#one-engineversion-held-by-a-dependency-edge-and-one-check) is
+what makes it reachable.
+
+*Never* is enforced rather than intended. The module is constructed with
+`--repository` pointing at `cpybkc.invalid/never-pulled` — `.invalid` is
+reserved by RFC 2606 and resolves nowhere — so a `with-generator` call added
+later that forgot to pass an image fails naming that host, instead of pulling
+the *released* generator, generating with it and passing. That is the failure
+worth designing against: it would look exactly like a green run while checking
+the last release instead of the change.
+
+**The assertion is the committed example, byte for byte.** The module composes a
+generator, runs `generate` over [`example/`](example/) and has to reproduce that
+tree exactly — the same golden tree
+[`example/regenerate_test.go`](example/regenerate_test.go) holds the CLI to. A
+smoke test saying the calls *ran* would pass on a module that composed an image
+which generated the wrong thing.
+
+**Both compositions, against that same tree.** `with-generator` from a generator
+image and `with-generator-executable` from a file are required to produce it,
+which is what makes the two
+[interchangeable](#composing-a-generator-is-copy---from-split-across-two-methods)
+rather than merely both present (#63). Both start from the base image, which
+carries the CLI and **no** generator — so a generation that succeeded did so with
+the generator these calls installed and not with something lying around in the
+image. `image` and `run` are checked too, since a check that exercised only what
+it needed would leave the rest of the module's surface covered by nothing.
+
+Every call is checked and every failure reported rather than stopping at the
+first, and each message names the module function that broke: *it works from the
+image and not from the file* is the finding, not a detail.
+
+It runs on the **engine's own platform only**. What varies per platform is the
+executable, and `image-contract` already builds and checks the image on each
+platform this project publishes for; what this adds is that the module's calls
+compose into a working image, which is not a property a second architecture can
+disagree about.
 
 ### The pipeline module is checked like any other Go module here
 
