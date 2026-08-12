@@ -494,21 +494,40 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 
 	var errs []error
 
+	// The wrapper names the calls the tree came through rather than asserting
+	// which of them broke, because it cannot know: a composition that failed
+	// before generate ran arrives here too, and the one this check is built to
+	// produce — a with-generator that forgot its image, reaching for
+	// [neverPulledRepository] — is exactly that shape. The wrapped error is what
+	// says which, and it names the registry host when that is the answer.
 	if err := m.diffTrees(ctx, committed, fromImage.Generate(committed), "/companion-module/image"); err != nil {
 		errs = append(errs, fmt.Errorf(
-			"with-generator composed the generator out of an image and generate did not reproduce the committed %s/: %w",
+			"with-generator taking the generator out of an image, then generate, did not hand back the committed "+
+				"%s/ (or did not get that far — the wrapped error says which): %w",
 			companionExampleDir, err))
 	}
 
 	if err := m.diffTrees(ctx, committed, fromExecutable.Generate(committed), "/companion-module/executable"); err != nil {
 		errs = append(errs, fmt.Errorf(
-			"with-generator-executable composed the generator out of a file and generate did not reproduce the "+
-				"committed %s/: %w",
+			"with-generator-executable taking the generator out of a file, then generate, did not hand back the "+
+				"committed %s/ (or did not get that far — the wrapped error says which): %w",
 			companionExampleDir, err))
 	}
 
+	// Both compositions, not just the first. Generate succeeding says only that
+	// *a* working generator was resolvable on PATH; it does not say the plugin
+	// directory holds what it should, so a with-generator-executable that
+	// installed a second copy under another name would pass every assertion
+	// above.
 	if err := m.checkComposedImage(ctx, fromImage.Image()); err != nil {
-		errs = append(errs, fmt.Errorf("image handed back a container the CLI could not find the generator in: %w", err))
+		errs = append(errs, fmt.Errorf(
+			"with-generator, then image, handed back a container the CLI could not resolve the generator in: %w", err))
+	}
+
+	if err := m.checkComposedImage(ctx, fromExecutable.Image()); err != nil {
+		errs = append(errs, fmt.Errorf(
+			"with-generator-executable, then image, handed back a container the CLI could not resolve the "+
+				"generator in: %w", err))
 	}
 
 	// --version through the escape hatch, with no project: it is the one
@@ -593,9 +612,11 @@ func (m *Cpybkc) generatorImage(platform dagger.Platform) *dagger.Container {
 // resolves a generator on — PATH in this image is the plugin directory and
 // nothing more.
 //
-// Exhaustive rather than a containment check. A composition that installed the
-// generator twice under two names, or left something else behind, is a
-// with-generator this pipeline should report rather than a detail it tolerates.
+// Exhaustive rather than a containment check, and run over both compositions
+// rather than one. A composition that installed the generator twice under two
+// names, or left something else behind, is a composition this pipeline should
+// report rather than a detail it tolerates — and generate succeeding says
+// nothing about it, because a run only needs *a* generator resolvable on PATH.
 func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Container) error {
 	entries, err := composed.Directory(pluginDir).Entries(ctx)
 	if err != nil {
@@ -607,8 +628,8 @@ func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Contai
 	slices.Sort(entries)
 
 	if !slices.Equal(entries, want) {
-		return fmt.Errorf("%s holds %v and the composition put %v there: the CLI resolves a generator on PATH, "+
-			"and PATH in this image is that directory alone", pluginDir, entries, want)
+		return fmt.Errorf("%s holds %v where the composition should have left %v: the CLI resolves a generator on "+
+			"PATH, and PATH in this image is that directory alone", pluginDir, entries, want)
 	}
 
 	return nil
