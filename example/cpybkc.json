@@ -1,0 +1,13 @@
+{
+  "layout": "ledger.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "ledger",
+      "options": {
+        "package_name": "ledger",
+        "receiver": "p"
+      }
+    }
+  ]
+}
