@@ -1,0 +1,20 @@
+;; Appendix A.4's COMP-6 negative tests. The digit check is the whole of what
+;; catches a COMP-3 field read at a COMP-6 offset: the two usages are the same
+;; width at every odd digit count, so at those counts nothing but the nibbles
+;; can tell one reading from the other -- codec/SPEC.md's "COMP-6".
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 2))
+
+(record COMP6
+  (copybook "comp6.cpy" COMP6-RECORD))
+
+(discriminate COMP6 single-record-type)
+
+(sequence (* COMP6))

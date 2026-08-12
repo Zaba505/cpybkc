@@ -688,6 +688,7 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 		// the same, because codec's COMP-6 accessors return them.
 		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, false, "int32"},
 		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 18, false, "int64"},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
 
 		// A binary item stores two's complement, where the top bit is a digit
 		// in an unsigned item and the sign in a signed one, so the S is what
@@ -737,6 +738,40 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s of %d digits, signed=%t, is %s, want %s", tc.usage, tc.digits, tc.signed, got, tc.want)
 		}
+	}
+}
+
+// TestASignedComp6ItemHasNoGoTypeEither is the type table's own share of the
+// rule that a COMP-6 item is always unsigned.
+//
+// The refusal belongs to the usage rather than to one code path, and this is
+// the half of that claim [TestASignedComp6ItemIsRefused] cannot make: that one
+// generates a whole package, so it reaches the accessors, and a `fieldType`
+// still handing back an `int32` for the item would not show up in it.
+func TestASignedComp6ItemHasNoGoTypeEither(t *testing.T) {
+	t.Parallel()
+
+	e, err := newEmitter(&irpb.Descriptor{})
+	if err != nil {
+		t.Fatalf("newEmitter: %v", err)
+	}
+
+	got, err := e.fieldType(&irpb.Field{
+		Usage: irpb.Usage_USAGE_COMP_6, Encoding: resolvedEncoding(),
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4, Signed: true},
+		Names:   &irpb.Names{Original: "ON-HAND"},
+	})
+	if err == nil {
+		t.Fatalf("fieldType gave a signed COMP-6 item the type %s, want a refusal", got)
+	}
+
+	var refusal *malformedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("fieldType returned %v, want a malformed descriptor", err)
+	}
+
+	if !strings.Contains(refusal.Error(), "ON-HAND") {
+		t.Errorf("the refusal reads %q and does not name the item", refusal)
 	}
 }
 

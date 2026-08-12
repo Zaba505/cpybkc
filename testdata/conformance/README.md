@@ -309,7 +309,8 @@ with four items in it.
 | [`packed-invalid-sign`](packed-invalid-sign) | A sign nibble of `5`, which is a digit and means no sign. |
 | [`packed-invalid-digit`](packed-invalid-digit) | A digit nibble of `A`. |
 | [`packed-invalid-pad`](packed-invalid-pad) | A non-zero pad nibble on an item of an even digit count. |
-| [`packed-comp6`](packed-comp6) | `COMP-6`, which is packed with no sign nibble: both parities of the digit count, and an alphanumeric item behind them that only stays in place if neither was read a byte wide. |
+| [`packed-comp6`](packed-comp6) | `COMP-6`, which is packed with no sign nibble: both parities of the digit count, and an alphanumeric item behind them that only stays in place if neither was read a byte too wide. |
+| [`comp6-invalid-digit`](comp6-invalid-digit) | A `COMP-6` field ending in `C`, which is a sign nibble and so not a digit — what a `COMP-3` field read at a `COMP-6` offset looks like. |
 | [`binary-big-endian`](binary-big-endian) | Binary integers: a positive, a negative, a zero, and the four-to-five digit width step. |
 | [`binary-little-endian`](binary-little-endian) | The same values, the other byte order. |
 | [`binary-byte-order-detected`](binary-byte-order-detected) | A big-endian field read little-endian, caught by the range `PIC S9(4)` declares. |
@@ -387,9 +388,12 @@ the unsigned accessor as well as the `COMP-5` one.
 
 The two **`COMP-6`** rows were the second. `cpybkc-gen-go` read a `COMP-6` item
 with the packed accessors, which consume a sign nibble a `COMP-6` item does not
-carry, so `PIC 9(4) COMP-6` was read a byte wide and every field behind it moved;
-[#162](https://github.com/Zaba505/cpybkc/issues/162) is that defect and
+carry, so `PIC 9(4) COMP-6` was read a byte too wide and every field behind it
+moved; [#162](https://github.com/Zaba505/cpybkc/issues/162) is that defect and
 [`packed-comp6`](packed-comp6) is the entry. It carries both rows — the even
 digit count, where the two usages differ by a byte, and the odd one, where they
 do not — and an alphanumeric item behind them, which is what turns the width
-error into a visible one.
+error into a visible one. A.4's COMP-6 negative tests came with it as
+[`comp6-invalid-digit`](comp6-invalid-digit), and that entry is the odd digit
+count's only defence: where the two widths coincide, nothing but the nibbles can
+tell a `COMP-3` field read as `COMP-6` from a `COMP-6` field.
