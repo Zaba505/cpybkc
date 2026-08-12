@@ -34,25 +34,70 @@ type Rename struct {
 	// Pos is the `rename` form.
 	Pos layout.Pos
 
-	// Item is what is renamed. It names its target in full: a reference is
-	// rooted at a record and carries one name per level down to the item, which
-	// is what makes it an identity where a bare name is not — duplicate data
-	// names are legal COBOL, and a rename that named one would not say which
-	// item it meant.
+	// Item is what is renamed, where the target is an item. It names its target
+	// in full: a reference is rooted at a record and carries one name per level
+	// down to the item, which is what makes it an identity where a bare name is
+	// not — duplicate data names are legal COBOL, and a rename that named one
+	// would not say which item it meant.
+	//
+	// It is the zero reference where the target is a record; [Rename.Record]
+	// says which of the two this is.
 	Item ItemRef
+
+	// Record is the record renamed, where the target is a record rather than an
+	// item, and is empty otherwise.
+	//
+	// A record's own name in the IR is the one its copybook `01`-level carries
+	// (docs/ir/SPEC.md, "Names"), and that is the one item an item reference
+	// cannot reach — the `record` form has already stated it, so a path never
+	// repeats it. So the target is written as a bare record name
+	// (docs/layout/SPEC.md, "A rename may name a record"), and this is where it
+	// lands.
+	Record string
+
+	// RecordPos is the record name itself, and is the zero position for an item
+	// rename.
+	RecordPos layout.Pos
 
 	// Substitute is the name to carry beside the original, exactly as the
 	// layout wrote it.
 	Substitute string
 
 	// SubstitutePos is the string itself, which is what a diagnostic about the
-	// name rather than about the item points at.
+	// name rather than about the target points at.
 	SubstitutePos layout.Pos
 }
 
+// NamesRecord reports whether the rename names a record rather than an item
+// inside one.
+func (r Rename) NamesRecord() bool { return r.Record != "" }
+
 // Original is the name the copybook gives the renamed item, which a substitute
 // stands beside and never replaces.
-func (r Rename) Original() string { return r.Item.Name() }
+//
+// A record rename has none here: the name it stands beside is the record's
+// `01`-level, which the `copybook` child names and this model does not carry.
+func (r Rename) Original() string {
+	if r.NamesRecord() {
+		return ""
+	}
+
+	return r.Item.Name()
+}
+
+// target is what makes two renames name one thing: the reference's spelling for
+// an item, and the record name for a record.
+//
+// The two cannot collide. An item's identity opens with `(item ` and a record's
+// with a symbol, so one map holds both without a rename on a record ever reading
+// as a rename on an item called the same thing.
+func (r Rename) target() string {
+	if r.NamesRecord() {
+		return "record " + r.Record
+	}
+
+	return r.Item.identity()
+}
 
 // ReadRenames reads the renames out of a parsed layout, in the order the layout
 // writes them.
@@ -63,14 +108,21 @@ func (r Rename) Original() string { return r.Item.Name() }
 // fault — the form's arity is zero or more.
 //
 // What it enforces is what a declaration cannot state and a copybook is not
-// needed for: that a rename names its target as a reference rather than as a
-// bare name, that the record it is rooted at is one the layout defines, that at
-// most one rename names a given item, and the collisions decidable from the
-// layout alone — two renames substituting one name for two items under one
-// parent, and a substitute equal to the name of an item the layout itself
-// references under that parent. The rest of the collision rule needs the
-// copybook's sibling list and is `resolve`'s, as is whether the path names an
-// item at all (#31, #32).
+// needed for: that a rename names an item as a reference rather than as a bare
+// name, that the record it names or is rooted at is one the layout defines, that
+// at most one rename names a given item or a given record, and the collisions
+// decidable from the layout alone — two renames substituting one name for two
+// items under one parent or for two records, a substitute equal to the name of
+// an item the layout itself references under that parent, and a substitute equal
+// to the top-level item another record is bound to. The rest of the collision
+// rule needs the copybook's sibling list and is `resolve`'s, as is whether the
+// path names an item at all (#31, #32).
+//
+// A rename **MAY** name a record instead of an item, and that spelling is a bare
+// record name rather than a reference (docs/layout/SPEC.md, "A rename may name a
+// record"). It is not an exception to the paragraph below: a record's own name
+// is stated by its `record` form, so there is nothing about it for a path to be
+// ambiguous over.
 //
 // Nothing here restricts what a rename may name below the record. The reference
 // **MAY** name a group, and **MAY** name an item that repeats or sit inside
@@ -79,9 +131,10 @@ func (r Rename) Original() string { return r.Item.Name() }
 // occurrence. Whether a given path is either of those needs the copybook, so a
 // rule keyed on it could not be enforced here even if the format had one.
 //
-// What a rename cannot name is the record's top-level item, and that is the
+// What a *reference* cannot name is the record's top-level item, and that is the
 // reference grammar's rather than this reader's: a path carries the names below
-// the top-level item and the `record` form has already stated that one.
+// the top-level item and the `record` form has already stated that one. Which is
+// why renaming that item is spelled by naming the record.
 //
 // Top-level forms belonging to other layers are not read here and are not
 // faults, but their item references are: an item the layout names anywhere is
@@ -138,11 +191,25 @@ func (r *renameReader) rename(read []Rename, form layout.Form) (Rename, bool) {
 		return Rename{}, false
 	}
 
-	item, err := readItemRef(form.Elements[0])
-	if err != nil {
-		r.Fail(err)
+	rename := Rename{Pos: form.Pos}
 
-		return Rename{}, false
+	// A record name is a symbol where an item reference is a form, so which of
+	// the two spellings was written is decided by the shape of the first
+	// element and never by looking a name up. A symbol that is not a record the
+	// layout defines is a rename on a record that is not there, which is the
+	// message an adopter needs; reading it as a malformed item reference would
+	// send them to the reference grammar instead.
+	if symbol, ok := form.Elements[0].(layout.Symbol); ok {
+		rename.Record, rename.RecordPos = symbol.Value, symbol.Pos
+	} else {
+		item, err := readItemRef(form.Elements[0])
+		if err != nil {
+			r.Fail(err)
+
+			return Rename{}, false
+		}
+
+		rename.Item = item
 	}
 
 	name, ok := form.Elements[1].(layout.Text)
@@ -152,16 +219,16 @@ func (r *renameReader) rename(read []Rename, form layout.Form) (Rename, bool) {
 		return Rename{}, false
 	}
 
-	rename := Rename{Pos: form.Pos, Item: item, Substitute: name.Value, SubstitutePos: name.Pos}
+	rename.Substitute, rename.SubstitutePos = name.Value, name.Pos
 
 	// Every check below is run whatever the ones before it said, for the reason
 	// a discriminator's strategy is read past a misspelled record name: a rename
 	// rooted at a record nobody defined and substituting a name a sibling
 	// carries is two things to fix rather than one to discover on the next run.
-	sound := r.target(form, item)
+	sound := r.target(form, rename)
 
 	if name.Value == "" {
-		r.Fail(&EmptyRenameError{Pos: name.Pos, Item: item})
+		r.Fail(&EmptyRenameError{Pos: name.Pos, Item: rename.Item, Record: rename.Record})
 
 		// A name of no characters collides with nothing, and every message the
 		// collision rules could produce about it would name the empty string.
@@ -171,19 +238,34 @@ func (r *renameReader) rename(read []Rename, form layout.Form) (Rename, bool) {
 	return rename, r.collisions(read, rename) && sound
 }
 
-// target holds the item a rename names to what can be checked without a
-// copybook: the record it is rooted at, and the renames already read.
-func (r *renameReader) target(form layout.Form, item ItemRef) bool {
+// target holds what a rename names to what can be checked without a copybook:
+// that the record it names, or is rooted at, is one the layout defines, and that
+// nothing has been renamed twice.
+func (r *renameReader) target(form layout.Form, rename Rename) bool {
 	sound := true
 
-	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == item.Record }) {
-		r.Fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
+	named := rename.Record
+	if !rename.NamesRecord() {
+		named = rename.Item.Record
+	}
+
+	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == named }) {
+		pos := rename.RecordPos
+		if !rename.NamesRecord() {
+			pos = rename.Item.Pos
+		}
+
+		r.Fail(&UnknownRecordError{Pos: pos, Record: named, Form: form.Tag})
 
 		sound = false
 	}
 
-	if first, already := r.renamed[item.identity()]; already {
-		r.Fail(&DuplicateRenameError{Pos: form.Pos, First: first, Item: item})
+	if first, already := r.renamed[rename.target()]; already {
+		if rename.NamesRecord() {
+			r.Fail(&DuplicateRecordRenameError{Pos: form.Pos, First: first, Record: rename.Record})
+		} else {
+			r.Fail(&DuplicateRenameError{Pos: form.Pos, First: first, Item: rename.Item})
+		}
 
 		return false
 	}
@@ -192,7 +274,7 @@ func (r *renameReader) target(form layout.Form, item ItemRef) bool {
 		r.renamed = make(map[string]layout.Pos)
 	}
 
-	r.renamed[item.identity()] = form.Pos
+	r.renamed[rename.target()] = form.Pos
 
 	return sound
 }
@@ -218,6 +300,10 @@ func (r *renameReader) target(form layout.Form, item ItemRef) bool {
 // leaves every name where it was — and a second rename on one item is reported
 // as the duplicate it is and not as a collision between an item and itself.
 func (r *renameReader) collisions(read []Rename, rename Rename) bool {
+	if rename.NamesRecord() {
+		return r.recordCollisions(read, rename)
+	}
+
 	sound := true
 
 	// An item is not its own sibling here either: two renames on one item are a
@@ -251,6 +337,59 @@ func (r *renameReader) collisions(read []Rename, rename Rename) bool {
 			Item:    rename.Item,
 			Sibling: r.named[sibling],
 			Name:    rename.Substitute,
+		})
+
+		sound = false
+	}
+
+	return sound
+}
+
+// recordCollisions reports a substitute for a record's name that another record
+// already answers to.
+//
+// A record node has no parent, so there are no siblings to be ambiguous among
+// and the sibling rules above do not carry over. What carries over is the
+// ambiguity they remove, between the names two record types answer to in one
+// descriptor, and two halves of it are decidable from the layout alone: a name
+// substituted for two records, and a name equal to the `01`-level another record
+// is bound to — which is the name that record answers to, because the original
+// is carried beside a substitute rather than in place of it (docs/ir/SPEC.md,
+// "Names").
+//
+// A record is not its own collision under either check. A rename substituting
+// the name of the `01`-level its own record is bound to says the same thing
+// twice and leaves every name where it was, and a second rename on one record is
+// reported as the duplicate it is.
+func (r *renameReader) recordCollisions(read []Rename, rename Rename) bool {
+	sound := true
+
+	earlier := slices.IndexFunc(read, func(other Rename) bool {
+		return other.NamesRecord() &&
+			other.Substitute == rename.Substitute &&
+			other.Record != rename.Record
+	})
+	if earlier >= 0 {
+		r.Fail(&RecordRenameCollisionError{
+			Pos:     rename.SubstitutePos,
+			First:   read[earlier].SubstitutePos,
+			Records: [2]string{read[earlier].Record, rename.Record},
+			Name:    rename.Substitute,
+		})
+
+		sound = false
+	}
+
+	bound := slices.IndexFunc(r.records, func(record recordDefinition) bool {
+		return record.name != rename.Record && record.item == rename.Substitute
+	})
+	if bound >= 0 {
+		r.Fail(&RecordRenameShadowsError{
+			Pos:    rename.SubstitutePos,
+			First:  r.records[bound].itemPos,
+			Record: rename.Record,
+			Other:  r.records[bound].name,
+			Name:   rename.Substitute,
 		})
 
 		sound = false
@@ -310,7 +449,7 @@ func itemsNamed(file *layout.File) []ItemRef {
 	return named
 }
 
-// renameShortfall names what a `rename` form carries where an item and a name
+// renameShortfall names what a `rename` form carries where a target and a name
 // belong.
 func renameShortfall(elements []layout.Node) string {
 	switch {
@@ -320,9 +459,9 @@ func renameShortfall(elements []layout.Node) string {
 		return "several"
 	default:
 		if _, ok := elements[0].(layout.Text); ok {
-			return "a name and no item"
+			return "a name and no target"
 		}
 
-		return "an item and no name"
+		return "a target and no name"
 	}
 }

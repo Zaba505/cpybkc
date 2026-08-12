@@ -313,14 +313,25 @@ func ReadDiscrimination(file *layout.File) (*Discrimination, error) {
 type recordDefinition struct {
 	name string
 	pos  layout.Pos
+
+	// item is the top-level item the `copybook` child binds the record to, and
+	// itemPos is where that name was written. Both are zero for a form this
+	// could not read a binding out of.
+	//
+	// It is read here because a record's own name in the IR is that item's
+	// (docs/ir/SPEC.md, "Names"), so a rename substituting a name for a record
+	// collides with it exactly as a rename on an item collides with a sibling —
+	// and both halves of that are in the layout, with no copybook needed.
+	item    string
+	itemPos layout.Pos
 }
 
 // recordNames gathers the records a layout defines, in source order.
 //
-// Only the name is read. What a record is bound to is the record-definitions
-// layer's (#27, #30), and a `record` form this cannot read a name out of is that
-// layer's fault to report: a second message about it here would name the same
-// line twice.
+// Only the name and the item it is bound to are read. Whether that binding is
+// well formed is the record-definitions layer's (#27, #30), and a `record` form
+// this cannot read a name out of is that layer's fault to report: a second
+// message about it here would name the same line twice.
 func recordNames(file *layout.File) []recordDefinition {
 	var records []recordDefinition
 
@@ -329,9 +340,22 @@ func recordNames(file *layout.File) []recordDefinition {
 			continue
 		}
 
-		if symbol, ok := form.Elements[0].(layout.Symbol); ok {
-			records = append(records, recordDefinition{name: symbol.Value, pos: form.Pos})
+		symbol, ok := form.Elements[0].(layout.Symbol)
+		if !ok {
+			continue
 		}
+
+		record := recordDefinition{name: symbol.Value, pos: form.Pos}
+
+		if len(form.Elements) > 1 {
+			if child, ok := form.Elements[1].(layout.Form); ok && child.Tag == childCopybook && len(child.Elements) == 2 {
+				if item, ok := child.Elements[1].(layout.Symbol); ok {
+					record.item, record.itemPos = item.Value, item.Pos
+				}
+			}
+		}
+
+		records = append(records, record)
 	}
 
 	return records

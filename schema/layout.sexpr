@@ -78,6 +78,12 @@
 ;; One alternative of a variant, and what selects it.
 (sort variant-arm (form arm))
 
+;; What a rename may name: an item inside a record, or a record itself. A record
+;; is admitted here and nowhere else, because a record's top-level item is the
+;; one item an item reference cannot reach — the `record` form has already
+;; stated it, so a path never repeats it.
+(sort rename-target item-ref record-name)
+
 ;; A sequencing expression: a record name, or one of the seven operators. The
 ;; set is closed for the same reason the strategies are.
 (sort expression
@@ -181,16 +187,24 @@
 
 (form record (in top-level) (arity one-or-more) (layer record-definitions)
   (argument name symbol exactly-one)
-  (child copybook exactly-one))
+  (child copybook exactly-one)
+  (child alternative zero-or-more))
 
 (form copybook
   (argument path text exactly-one)
   (argument top-level-name symbol exactly-one))
 
+;; One alternative of a REDEFINES outside a repeating group, chosen by naming
+;; it. How many a record needs — one per redefine the copybook writes outside a
+;; repeating group, and none where it writes none — is `resolve`'s, because
+;; counting them needs the copybook.
+(form alternative
+  (argument item item-ref exactly-one))
+
 ;; The substitute name is text and is carried verbatim: it is language-neutral,
 ;; and turning a name into an identifier is a generator's work.
 (form rename (in top-level) (arity zero-or-more) (layer record-definitions)
-  (argument item item-ref exactly-one)
+  (argument target rename-target exactly-one)
   (argument name text exactly-one))
 
 (form copybook-reading (in top-level) (arity at-most-one) (layer record-definitions)

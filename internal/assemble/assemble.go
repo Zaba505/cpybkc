@@ -57,20 +57,29 @@ type Options struct {
 	// [github.com/Zaba505/cpybkc/internal/resolve.Record] per combination of
 	// alternatives, each of which is its own record type with its own
 	// discriminator (docs/ir/SPEC.md, "Members never overlap, and `REDEFINES`
-	// is resolved away"), and which of them a given transition admits is a
-	// question about the layout rather than about the resolved records. So the
-	// pairing arrives made: a caller hands over one entry per name a
-	// transition may admit, and this package neither splits nor merges them.
+	// is resolved away").
+	//
+	// Which of them a `record` form means is the layout's own statement and not
+	// a rule anything infers: the form carries one `alternative` child per
+	// redefine, naming the alternative it is (docs/layout/SPEC.md, "Which
+	// alternative a record is", #164). So a caller hands over one entry per name
+	// a transition may admit, having made the pairing the layout wrote, and this
+	// package neither splits nor merges them.
 	Records []Record
 
-	// Renames are the renames the layout wrote, resolved to the copybook items
-	// they name.
+	// Renames are the renames the layout wrote, resolved to what they name.
 	//
 	// A rename substitutes a name and keeps the original, so what one
 	// contributes is the override beside the name the copybook gave the item
-	// (docs/ir/SPEC.md, "Names"). It reaches every node standing for that item,
-	// in every record type that holds it: a rename is a name, and a name is per
-	// item rather than per record.
+	// (docs/ir/SPEC.md, "Names").
+	//
+	// It is **per record**, not per copybook item. Two record types over one
+	// `01`-level are renamed independently and neither reaches the other
+	// (docs/layout/SPEC.md, "Many records may name one copybook, and two may
+	// name one item"), so a rename carries the record it was written under and
+	// reaches only that record's nodes. Keying on the copybook item alone would
+	// make the independence a property of whether a caller happened to build one
+	// item tree per record rather than a property of this package (#164).
 	Renames []Rename
 }
 
@@ -95,7 +104,20 @@ type Record struct {
 
 // Rename is one `rename` form, resolved.
 type Rename struct {
-	// Item is the copybook item renamed.
+	// Record is the name of the record type the rename was written under: the
+	// [Record.Name] of the entry whose nodes it reaches, and no other's.
+	//
+	// It is required. A rename with no record reaches nothing, which is the
+	// honest reading of a substitute nobody said where to apply.
+	Record string
+
+	// Item is the copybook item renamed, or nil where the rename names the
+	// record type itself.
+	//
+	// The nil case is docs/layout/SPEC.md's "A rename may name a record": a
+	// record node's name is its `01`-level's, which is the one item an item
+	// reference cannot reach, so the layout names the record and this carries
+	// no item.
 	Item *copybook.Field
 
 	// Substitute is the name carried beside the original, exactly as the
@@ -133,18 +155,27 @@ func Assemble(opts Options) (*irpb.Descriptor, error) {
 	}
 
 	a := &assembler{
-		opts:       opts,
-		byName:     make(map[string]*scope, len(opts.Records)),
-		renames:    make(map[*copybook.Field]string, len(opts.Renames)),
-		registers:  make(map[*resolve.Register]uint64),
-		states:     make(map[*resolve.State]uint64),
-		predicates: make(map[predicateKey]uint64),
+		opts:              opts,
+		byName:            make(map[string]*scope, len(opts.Records)),
+		renames:           make(map[renameKey]string, len(opts.Renames)),
+		recordSubstitutes: make(map[string]string),
+		registers:         make(map[*resolve.Register]uint64),
+		states:            make(map[*resolve.State]uint64),
+		predicates:        make(map[predicateKey]uint64),
 	}
 
 	for _, rename := range opts.Renames {
-		if rename.Item != nil {
-			a.renames[rename.Item] = rename.Substitute
+		if rename.Record == "" {
+			continue
 		}
+
+		if rename.Item == nil {
+			a.recordSubstitutes[rename.Record] = rename.Substitute
+
+			continue
+		}
+
+		a.renames[renameKey{record: rename.Record, item: rename.Item}] = rename.Substitute
 	}
 
 	descriptor := a.assemble()
@@ -172,7 +203,12 @@ type assembler struct {
 	// byName is the record types under the name a transition admits each by.
 	byName map[string]*scope
 
-	renames    map[*copybook.Field]string
+	// renames is the substitute for each renamed item, under the record it was
+	// written for. recordSubstitutes is the substitute for a record type's own
+	// name, by the name a transition admits it by.
+	renames           map[renameKey]string
+	recordSubstitutes map[string]string
+
 	registers  map[*resolve.Register]uint64
 	states     map[*resolve.State]uint64
 	predicates map[predicateKey]uint64
@@ -206,6 +242,21 @@ type scope struct {
 	// names an elementary one.
 	nodes  map[*resolve.Node]uint64
 	fields map[*copybook.Field]uint64
+}
+
+// renameKey is what a rename applies to: the record type it was written under,
+// and the copybook item it names.
+//
+// The record is half of the key rather than the item alone, because
+// docs/layout/SPEC.md has two record types over one `01`-level renamed
+// independently — "neither reaches the other". A caller that builds one item
+// tree per record makes the item pointer unique already, but that is the
+// caller's arrangement rather than this package's contract, and a rename that
+// leaked into a second record type would leak silently: both record nodes would
+// come out well-formed, carrying a name only one of them was given.
+type renameKey struct {
+	record string
+	item   *copybook.Field
 }
 
 // predicateKey is what makes two references to one predicate the same node: the
@@ -294,8 +345,32 @@ func (a *assembler) record(record Record) {
 
 	node.Kind = &irpb.Node_Record{Record: &irpb.Record{
 		RootId: s.nodes[record.Resolved.Root],
-		Names:  a.names(record.Resolved.Item),
+		Names:  a.recordName(record),
 	}}
+}
+
+// recordName is what a record node carries: the name its copybook `01`-level
+// has, and the substitute a rename on the record asked for beside it.
+//
+// The original is the `01`-level's whichever alternative of a record-level
+// REDEFINES this record type is. Every alternative describes that same
+// `01`-level, and a producer taking an alternative's name instead would have
+// nothing to take for a copybook with two redefines in it, where the record
+// types are one per combination (docs/ir/SPEC.md, "Names", #164). So several
+// record nodes of one descriptor may carry one original, and what tells them
+// apart is the override.
+func (a *assembler) recordName(record Record) *irpb.Names {
+	field := record.Resolved.Item
+	if field == nil || field.Filler || field.Name == "" {
+		return nil
+	}
+
+	names := &irpb.Names{Original: field.Name}
+	if substitute, renamed := a.recordSubstitutes[record.Name]; renamed {
+		names.OverrideName = proto.String(substitute)
+	}
+
+	return names
 }
 
 // allocate hands an identifier to every node of a record's tree, in containment
@@ -334,7 +409,7 @@ func (a *assembler) fill(s *scope, node *resolve.Node) {
 
 		at.Kind = &irpb.Node_Group{Group: &irpb.Group{
 			MemberIds:  members,
-			Names:      a.names(node.Field),
+			Names:      a.names(s, node.Field),
 			Repetition: a.repetition(s, node.Repetition),
 		}}
 	case resolve.KindField:
@@ -343,7 +418,7 @@ func (a *assembler) fill(s *scope, node *resolve.Node) {
 			Encoding:   encodingOf(node.Encoding),
 			Usage:      usageOf(node.Field),
 			Picture:    pictureOf(node.Field),
-			Names:      a.names(node.Field),
+			Names:      a.names(s, node.Field),
 			Repetition: a.repetition(s, node.Repetition),
 		}}
 	case resolve.KindVariant:
@@ -427,13 +502,16 @@ func (a *assembler) repetition(s *scope, repetition *resolve.Repetition) *irpb.R
 // standing for a FILLER: an item COBOL gives no data-name has no original for a
 // substitute to stand beside, and docs/ir/SPEC.md's "Names" makes the original
 // the member that **MUST** be present.
-func (a *assembler) names(field *copybook.Field) *irpb.Names {
+//
+// The lookup is per record type, which is what makes a rename written under one
+// of two records over one `01`-level reach that record and not the other.
+func (a *assembler) names(s *scope, field *copybook.Field) *irpb.Names {
 	if field == nil || field.Filler || field.Name == "" {
 		return nil
 	}
 
 	names := &irpb.Names{Original: field.Name}
-	if substitute, renamed := a.renames[field]; renamed {
+	if substitute, renamed := a.renames[renameKey{record: s.name, item: field}]; renamed {
 		names.OverrideName = proto.String(substitute)
 	}
 

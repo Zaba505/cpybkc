@@ -1746,6 +1746,28 @@ The original **MUST** be present even where an override is. A rename substitutes
 a name, and the substitute is carried beside the original rather than in place
 of it, so that generated code can still point back at the copybook it came from.
 
+**A record node resolved from a `REDEFINES` carries the `01`-level's name**, and
+not the alternative's. [Members never overlap, and `REDEFINES` is resolved
+away](#members-never-overlap-and-redefines-is-resolved-away) turns one
+`01`-level into one record node per alternative, and every one of them describes
+that `01`-level: `TXN-REC` is what the copybook calls the record each of them
+is, and the alternative is which description of its bytes was taken. So several
+record nodes of one descriptor **MAY** carry one original, and a producer
+**MUST NOT** substitute an alternative's name for the `01`-level's to tell them
+apart (#164).
+
+Taking the alternative's name would read well for a copybook with one redefine
+in it and answer nothing for a copybook with two, where the record nodes are one
+per *combination* and no single alternative names any of them. A rule that
+changed what a record node was called when a second `REDEFINES` was added to a
+copybook would change it in a file no layout is stored beside.
+
+What tells them apart is the override, which the layout supplies — [`layout/SPEC.md`](../layout/SPEC.md#a-rename-may-name-a-record)
+spells it — and nothing here requires one. Two record nodes carrying one name
+are a descriptor this document admits; whether that is a problem is the
+consuming generator's, and `cpybkc-gen-go` refuses the pair it cannot munge into
+two identifiers (#50).
+
 A name is local. Qualification — COBOL's `OF`/`IN` form, whose grammar is
 cobol-go's root `SPEC.md`'s — is the chain of enclosing nodes, and the IR
 carries no materialized qualified path for the same reason it carries no
@@ -3622,7 +3644,7 @@ records offer them.
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir` |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
-| [Names](#names) | #30 `layout`, #38 `resolve` |
+| [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir` |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |

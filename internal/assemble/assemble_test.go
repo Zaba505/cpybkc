@@ -634,7 +634,7 @@ func TestAnOverrideStandsBesideTheOriginal(t *testing.T) {
 	opts := options(t, countedRun, countedRunCopybooks())
 
 	item := fieldNamed(t, opts.Records[0].Resolved.Item, "DTL-COUNT")
-	opts.Renames = []Rename{{Item: item, Substitute: "detail_count"}}
+	opts.Renames = []Rename{{Record: opts.Records[0].Name, Item: item, Substitute: "detail_count"}}
 
 	descriptor, err := Assemble(opts)
 	if err != nil {
@@ -652,11 +652,11 @@ func TestAnOverrideStandsBesideTheOriginal(t *testing.T) {
 }
 
 // TestARenameReachesOneItemAndNoOther holds a rename to being about the item it
-// names, which is what makes it safe for it to be keyed on the copybook item
-// rather than on a record.
+// names and no other, under the one record type it was written for.
 func TestARenameReachesOneItemAndNoOther(t *testing.T) {
 	opts := options(t, countedRun, countedRunCopybooks())
 	opts.Renames = []Rename{{
+		Record:     opts.Records[0].Name,
 		Item:       fieldNamed(t, opts.Records[0].Resolved.Item, "HDR-TYPE"),
 		Substitute: "kind",
 	}}
@@ -1045,4 +1045,129 @@ func fieldNodeNamed(t *testing.T, d *irpb.Descriptor, original string) *irpb.Fie
 	t.Fatalf("no field node is named %s", original)
 
 	return nil
+}
+
+// twoOverOne is a layout binding two record names to one copybook item, which is
+// the shape docs/layout/SPEC.md's "Many records may name one copybook, and two
+// may name one item" admits and the one every rename rule below turns on.
+const twoOverOne = `(framing (recfm FB) (lrecl 8))
+(encoding (charset cp037) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))
+(record ORDER-OPEN (copybook "ord.cpy" ORD-REC))
+(record ORDER-CLOSE (copybook "ord.cpy" ORD-REC))
+(discriminate ORDER-OPEN (equals (item ORDER-OPEN ORD-TYPE) "O"))
+(discriminate ORDER-CLOSE (equals (item ORDER-CLOSE ORD-TYPE) "C"))
+(sequence (seq ORDER-OPEN ORDER-CLOSE))`
+
+// order is the copybook both of them name.
+const order = `01 ORD-REC.
+   05 ORD-TYPE PIC X(1).
+   05 ORD-NO PIC X(7).
+`
+
+// twoOrders is that layout resolved: two record types over one copybook item,
+// each with an item tree of its own, exactly as the pipeline in front of this
+// package builds them.
+func twoOrders(t *testing.T) Options {
+	t.Helper()
+
+	opts := options(t, twoOverOne, map[string]string{"ORDER-OPEN": order, "ORDER-CLOSE": order})
+	if len(opts.Records) != 2 {
+		t.Fatalf("the layout resolved to %d record types, want 2", len(opts.Records))
+	}
+
+	return opts
+}
+
+// TestARenameIsPerRecordAndNotPerCopybookItem is #164's half of the rename rule:
+// a rename belongs to the record type it was written under, and reaches no node
+// of any other.
+//
+// The rename below names ORDER-OPEN's own ORD-NO item and is written under
+// ORDER-CLOSE, which is a rename an adopter cannot write and this package can
+// nevertheless be handed. It has to reach nothing. Keyed on the copybook item
+// alone it would reach ORDER-OPEN — the record it was not written for — and the
+// descriptor would come out well-formed, carrying a name only the other record
+// was given.
+func TestARenameIsPerRecordAndNotPerCopybookItem(t *testing.T) {
+	opts := twoOrders(t)
+
+	opts.Renames = []Rename{{
+		Record:     "ORDER-CLOSE",
+		Item:       fieldNamed(t, opts.Records[0].Resolved.Item, "ORD-NO"),
+		Substitute: "OpeningOrderNumber",
+	}}
+
+	descriptor, err := Assemble(opts)
+	if err != nil {
+		t.Fatalf("assembling the descriptor: %v", err)
+	}
+
+	for _, node := range descriptor.GetNodes() {
+		names := node.GetField().GetNames()
+		if names.GetOriginal() == "ORD-NO" && names.OverrideName != nil {
+			t.Errorf("an ORD-NO node carries %q, and the rename was written under the other record",
+				names.GetOverrideName())
+		}
+	}
+
+	// The same rename under the record it names does reach it, so the check
+	// above is about the record and not about the item having been missed.
+	opts.Renames[0].Record = "ORDER-OPEN"
+
+	descriptor, err = Assemble(opts)
+	if err != nil {
+		t.Fatalf("assembling the descriptor: %v", err)
+	}
+
+	substitutes := make([]string, 0, 2)
+
+	for _, node := range descriptor.GetNodes() {
+		names := node.GetField().GetNames()
+		if names.GetOriginal() == "ORD-NO" {
+			substitutes = append(substitutes, names.GetOverrideName())
+		}
+	}
+
+	if want := []string{"OpeningOrderNumber", ""}; !slices.Equal(substitutes, want) {
+		t.Errorf("the two ORD-NO nodes carry %q, want %q", substitutes, want)
+	}
+}
+
+// TestARenameOnARecordNamesTheRecordNode is the other half: a rename carrying no
+// item substitutes a name for the record type's own, which is the one name an
+// item reference cannot reach.
+//
+// The original stays the `01`-level's, and both record nodes carry it: every
+// alternative of a redefined level is a description of that level, and the
+// override is what tells two of them apart (docs/ir/SPEC.md, "Names").
+func TestARenameOnARecordNamesTheRecordNode(t *testing.T) {
+	opts := twoOrders(t)
+
+	opts.Renames = []Rename{{Record: "ORDER-CLOSE", Substitute: "ORD-CLOSE-REC"}}
+
+	descriptor, err := Assemble(opts)
+	if err != nil {
+		t.Fatalf("assembling the descriptor: %v", err)
+	}
+
+	originals := make([]string, 0, 2)
+	overrides := make([]string, 0, 2)
+
+	for _, node := range descriptor.GetNodes() {
+		record := node.GetRecord()
+		if record == nil {
+			continue
+		}
+
+		originals = append(originals, record.GetNames().GetOriginal())
+		overrides = append(overrides, record.GetNames().GetOverrideName())
+	}
+
+	if want := []string{"ORD-REC", "ORD-REC"}; !slices.Equal(originals, want) {
+		t.Errorf("the record nodes are named %q, want %q", originals, want)
+	}
+
+	if want := []string{"", "ORD-CLOSE-REC"}; !slices.Equal(overrides, want) {
+		t.Errorf("the record nodes carry the overrides %q, want %q", overrides, want)
+	}
 }
