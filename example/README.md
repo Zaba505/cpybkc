@@ -119,8 +119,11 @@ how many postings follow, and the sequence counts them:
 transitions out of the counting state carry guards over it. A posting is
 admitted while the count is outstanding and the trailer once it is spent, so no
 state offers both and the two offsets never have to be told apart from each
-other. The register is on the path here too: a file whose header says six and
-whose body holds five is reported as truncated rather than accepted.
+other. The register is on the path here too, and asserted from both ends: a file
+whose header says six and whose body holds five is reported rather than returned
+as the five records it managed, and a writer closed a posting short of its own
+header count is reported rather than emitting the file its reader would have
+complained about one build later.
 
 The other way to write it is to put the two records at different points in the
 sequence outright. Either way, the rule is about *states* and not about offsets:
@@ -151,6 +154,7 @@ The generator is found on `PATH` by name, which is the whole of how a generator
 is identified — the manifest names `go`, and cpybkc looks for `cpybkc-gen-go`.
 
 Then commit what changed. `go test ./example/...` is what fails if you do not:
-it regenerates into a temporary directory and holds the result against what is
-checked in, printing both sides, so the new bytes come out of the test's own
-output.
+it makes the same run into a temporary directory and holds the result against
+what is checked in, naming the file and the first line the two disagree on. It
+does not print the new file — regenerating is the two commands above, and
+`ledger/file.go` alone is several thousand lines.

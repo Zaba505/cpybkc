@@ -24,6 +24,7 @@ package example
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -66,10 +67,26 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 		copyFile(t, name, filepath.Join(project, name))
 	}
 
+	// The record of the last generation goes in too, even though it is output
+	// rather than an input a caller writes. It is what cpybkc reads to prune a
+	// file a layout no longer describes, so a run made without it is not the
+	// run the README documents — the prune path would be the one path this
+	// test never took, and a change in it would surface as a working-tree diff
+	// nobody's test predicted.
+	copyFile(t, recordName, filepath.Join(project, recordName))
+
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	cmd := exec.Command(filepath.Join(bin, executable("cpybkc")),
 		"--manifest", filepath.Join(project, manifestName))
+
+	// The run is made standing in the copy, which is where a person running the
+	// documented command stands. cpybkc resolves a manifest's `layout` and `out`
+	// against the manifest rather than against the working directory, so this
+	// changes nothing today — and that is the point: were it ever to resolve one
+	// against the working directory, this test would rewrite the checked-in
+	// package and then fail for a reason that named the wrong thing.
+	cmd.Dir = project
 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generating the example: %v\n%s", err, out)
@@ -87,7 +104,7 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 		}
 
 		if got != want {
-			t.Errorf("the generated %s is not the one checked in\n got:\n%s\nwant:\n%s", name, got, want)
+			t.Errorf("the generated %s is not the one checked in%s", name, difference(got, want))
 		}
 	}
 
@@ -96,6 +113,29 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 			t.Errorf("%s was generated and the example does not carry it", name)
 		}
 	}
+}
+
+// difference is where two versions of one generated file first disagree, as a
+// diagnostic.
+//
+// The first differing line and its neighbours rather than both files whole:
+// `ledger/file.go` is several thousand lines, the emitter changing is the
+// ordinary reason this test fires rather than the rare one, and a failure that
+// dumps two copies of it is one nobody reads. The bytes are not lost by leaving
+// them out — regenerating is two commands, and README.md is where they are
+// written down.
+func difference(got, want string) string {
+	gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")
+
+	for i := range min(len(gotLines), len(wantLines)) {
+		if gotLines[i] != wantLines[i] {
+			return fmt.Sprintf("\nline %d\n got: %s\nwant: %s\n\nRegenerate it with the two commands in example/README.md and commit the result.",
+				i+1, gotLines[i], wantLines[i])
+		}
+	}
+
+	return fmt.Sprintf("\nthe first %d lines agree and the generated file has %d of them against the %d checked in\n\nRegenerate it with the two commands in example/README.md and commit the result.",
+		min(len(gotLines), len(wantLines)), len(gotLines), len(wantLines))
 }
 
 // inputs is what a caller writes: the manifest, the layout and the copybooks

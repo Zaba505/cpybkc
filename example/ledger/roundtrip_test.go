@@ -354,18 +354,118 @@ func TestTheBytesACreditPostingDoesNotDescribeSurviveARead(t *testing.T) {
 	t.Parallel()
 
 	records := read(t, Encoding(), fileBytes(t))
+	if len(records) != 8 {
+		t.Fatalf("the file holds eight records and the reader produced %d", len(records))
+	}
 
 	credit, ok := records[3].(*CreditPosting)
 	if !ok {
 		t.Fatalf("record 4 is a %s, want a CreditPosting", recordType(records[3]))
 	}
 
-	if len(credit.slack) != 1 {
-		t.Fatalf("the record retains %d runs of slack, want one", len(credit.slack))
+	// The run is retained rather than merely declared. The field is an array
+	// of one, so its length says nothing about the read; what does is whether
+	// the read put anything in it, since a nil run is one the record does not
+	// carry and an empty run is a run of no bytes.
+	if credit.slack[0] == nil {
+		t.Fatal("the record retains no bytes for the run PST-CREDIT does not describe")
 	}
 
 	if want := []byte{0x01, 0x02, 0x03, 0x04}; !bytes.Equal(credit.slack[0], want) {
 		t.Errorf("the retained run is % x, want % x", credit.slack[0], want)
+	}
+}
+
+// TestAFileHoldingFewerPostingsThanItsHeaderCountsIsTruncated is the register
+// on the path.
+//
+// The header's count is what separates the state admitting a posting from the
+// one admitting the trailer, which is what lets this file discriminate at two
+// different offsets at all. So it is not decoration: a file whose header says
+// six and whose body holds five ends in a state that does not accept, and a
+// reader that returned the five records it had would be an automaton nobody
+// checked the accepting states of.
+func TestAFileHoldingFewerPostingsThanItsHeaderCountsIsTruncated(t *testing.T) {
+	t.Parallel()
+
+	enc := Encoding()
+
+	var b bytes.Buffer
+
+	b.Write(framed(headerBytes(t, enc, 6)))
+
+	for range 5 {
+		b.Write(framed(debitBytes(t, enc, "DA", plainTail)))
+	}
+
+	r, err := NewReader(bytes.NewReader(b.Bytes()), enc)
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+
+	for range 6 {
+		if _, err := r.Next(); err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+	}
+
+	_, err = r.Next()
+	if err == nil || errors.Is(err, io.EOF) {
+		t.Fatalf("a file one posting short of its own count read as complete, and Next reported %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "describes a record to come") {
+		t.Errorf("the report reads %q and does not say the file is not finished", err)
+	}
+}
+
+// TestAWriterClosedAPostingShortOfTheCountIsReported is that rule from the
+// other side, and it is the half that matters more.
+//
+// A reader that accepted a short file reports a file somebody else wrote. A
+// writer that closed one emits the file the reader will complain about one
+// build later, so the count is checked where it can still be acted on.
+func TestAWriterClosedAPostingShortOfTheCountIsReported(t *testing.T) {
+	t.Parallel()
+
+	var b bytes.Buffer
+
+	w, err := NewWriter(&b, Encoding())
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+
+	header := &LedgerHeader{
+		HdrType:     "01",
+		HdrLedgerId: "GL-MAIN",
+		HdrPeriod:   202601,
+		HdrCurrency: "USD",
+		HdrCount:    2,
+	}
+
+	if err := w.Write(header); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	posting := &MemoPosting{
+		PstAccount:  "4001200000",
+		PstSequence: 1,
+		PstType:     "MA",
+		PstBody:     "MEMO ONLY, NO POSTING",
+		PstTail:     "TAIL0001",
+	}
+
+	if err := w.Write(posting); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	err = w.Close()
+	if err == nil {
+		t.Fatal("a writer closed one posting short of its own header count reported nothing")
+	}
+
+	if !strings.Contains(err.Error(), "describes a record to come") {
+		t.Errorf("the report reads %q and does not say the file is not finished", err)
 	}
 }
 

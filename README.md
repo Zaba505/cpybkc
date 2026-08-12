@@ -123,7 +123,8 @@ describes.
 
 Its layout is deliberately a hard one, because a worked example is what an
 adopter reads to find out whether their own file is describable: six record
-types resolved out of one `01`-level by two independent redefines, a type code
+types resolved out of one `01`-level by three redefines over two independent
+runs, a type code
 that sits at two different offsets depending on the record, and a redefine
 shorter than the run it describes. [`example/README.md`](example/README.md) is
 what to read first.
