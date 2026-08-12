@@ -321,6 +321,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).CompanionCi(&parent, ctx)
+		case "CompanionModule":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Cpybkc).CompanionModule(&parent, ctx)
 		case "EngineLock":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
