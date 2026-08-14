@@ -1260,6 +1260,30 @@ sentence in `cmd/cpybkc-gen-go`'s README about the order they are emitted in: a
 promise that was load-bearing, unenforced, and would have compared each record
 against the wrong node without anything saying so.
 
+### The generator that is not a conformance subject
+
+The corpus tests **codecs**: an entry is bytes and the values those bytes decode
+to, so asking about one means handing a file to something that reads files.
+`cpybkc-gen-graph` emits a diagram. It never opens `input.bin`, there is no
+reader to hand one to, and `gen-docs`, `gen-sql`, `gen-avro`, `gen-json-schema`
+and `gen-copybook` would all be in the same category.
+
+[`internal/conformance/descriptive`](internal/conformance/descriptive) is the
+adapter for that category, and a conversation with it is four frames long: it
+declares `kind: "descriptive"` at the handshake, and an engine that hears that
+sends it nothing but `bye` and reports the run as **not applicable**. One
+command serves the whole category, because a descriptive adapter is asked
+nothing that could differ between its members — and it invokes no generator at
+all, since there is nothing it could be asked that one could answer.
+
+The two shapes that reporting has to avoid are a descriptive generator scored
+`0/n` of the corpus and one declining every entry in turn. Neither is true and
+both read as failures, so the truthful answer is reachable in one member of the
+first frame. What such a generator should be held to *instead* — whether a
+descriptive track is worth having, and what would grade it — is an open question
+in discussion #193, and nothing here answers it: this is only the framework
+being able to decline a subject it cannot test.
+
 ## Specs
 
 Seven of this project's interfaces are built against from outside it — the
