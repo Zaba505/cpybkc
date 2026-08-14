@@ -77,13 +77,16 @@ func TestSourceDateEpochReachesAGeneratorFromCpybkcsOwnEnvironment(t *testing.T)
 // descriptor a generator is handed to what lands in a project's tree.
 //
 // TestEveryGeneratorThisRepositoryShipsIsOnThatList is what adds the next
-// generator here, rather than somebody remembering to.
+// generator here, rather than somebody remembering to. cpybkc-gen-graph (#186)
+// is the second, and arrived the same way the first did — in the commit that
+// scaffolded it, while it still drew nothing.
 //
 // A list rather than a scan of everything, because a command that resolves a
 // plugin against PATH has to read the environment to do it, and a check that
 // had to exempt cpybkc's own command is a check nobody would trust.
 var decidesOutput = []string{
 	"cmd/cpybkc-gen-go",
+	"cmd/cpybkc-gen-graph",
 	"internal/assemble",
 	"internal/emit",
 	"internal/generate",
