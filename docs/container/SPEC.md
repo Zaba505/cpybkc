@@ -125,15 +125,23 @@ The base image holds **no** executable in the plugin directory (#55, #185).
 way a stranger's does: as an image built `FROM` the base, adding one executable at
 the path this section names and changing nothing else.
 
-It is **published**, and where is [named below](#where-this-projects-own-generators-are-published)
-(#180). That sentence used to describe an intention rather than a release: the
-first release published the base image alone, and the generator reference this
-document sent a reader to — the one the [companion Dagger
-module](#also-out-of-scope) resolves by default — answered `NAME_UNKNOWN`. So the
-one documented way to get `cpybkc-gen-go` was unavailable to everybody outside
-this repository, while three places in the tree said it existed. What closed the
-gap is the generator image being cut from the same release as the base, over the
-same platforms, under the same tags, signed and attested the same way.
+**Every release from the next one on publishes it**, at the repository
+[named below](#where-this-projects-own-generators-are-published) (#180).
+
+That is a change of state and not just of wording. The sentence above described
+an intention for as long as it stood alone: `v0.0.0` published the base image
+alone, and the generator reference this document sent a reader to — the one the
+[companion Dagger module](#also-out-of-scope) resolves by default — answered
+`NAME_UNKNOWN`. So the one documented way to get `cpybkc-gen-go` was unavailable
+to everybody outside this repository, while three places in the tree said it
+existed. What closes the gap is the generator image being cut from the same
+release as the base, over the same platforms, under the same tags, signed and
+attested the same way.
+
+Until that release is cut, the references below resolve to nothing. They are
+written here ahead of it deliberately — the rule they follow is what the release
+is built against — but a reader arriving between this document and that release
+should expect the same `NAME_UNKNOWN` this paragraph is about.
 
 The CLI is not in there either. It used to be, and its path was never part of
 this contract — see [The CLI's own path is not part of the
@@ -155,15 +163,16 @@ reference in a consumer's Dockerfile.
 
 A generator this project publishes for `<name>` is at the **base image's own
 repository with `-gen-<name>` appended**, in the same registry, under the same
-release's tags (#180). Today that is one image:
+release's tags (#180). One generator is published under that rule, from the first
+release to carry it onwards:
 
 | Image | Repository | Tags |
 | --- | --- | --- |
 | The cpybkc CLI | `<repository>` | [the family a release publishes](#tags-and-what-pinning-one-buys) |
 | The `go` generator | `<repository>-gen-go` | the same family, from the same release |
 
-So against the published release, and with `ghcr.io/zaba505/cpybkc` as the
-repository:
+So with `ghcr.io/zaba505/cpybkc` as the repository, a release published under
+this rule is pulled as:
 
 ```console
 $ docker pull ghcr.io/zaba505/cpybkc:v0
@@ -181,8 +190,8 @@ cannot see it reaching back out on the second pull rather than the first.
 **This is a covered guarantee**, and that is a decision rather than an
 observation. Until #180 the derivation was described in the companion module's
 own source as "this project's publishing rule rather than anybody's contract" —
-which was true while nothing was published under it, and stopped being true the
-moment a release was. Two things now depend on it from outside this repository: a
+which is true only for as long as nothing is published under it, and the release
+that publishes the first generator image is what ends that. Two things now depend on it from outside this repository: a
 derived `Dockerfile` writing `COPY --from=<repository>-gen-go`, in a repository
 this project cannot see and cannot warn; and the [companion Dagger
 module](#also-out-of-scope)'s `with-generator`, whose default with no `--image`

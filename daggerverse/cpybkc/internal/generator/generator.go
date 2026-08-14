@@ -82,10 +82,11 @@ func Path(name string) string {
 // The derivation is a promise the base-image contract makes — "Where this
 // project's own generators are published", covered by its compatibility
 // guarantees. It was described here as an internal publishing rule binding
-// nobody until #180, which was true for exactly as long as nothing was published
+// nobody until #180, which held for exactly as long as nothing was published
 // under it: this module's default with no --image resolves precisely this
-// reference, so the first release to push a generator image made the rule
-// something a published module's public API rests on. It is written down at both
+// reference, so the first release to push a generator image is what makes the
+// rule something a published module's public API rests on, and #180 is the
+// change that arranges for that release to happen. It is written down at both
 // ends now, and the literals in TestRepository are one end of the drift guard —
 // .dagger's TagScheme is the other, because the two spellings are in Go modules
 // that cannot import each other.

@@ -240,22 +240,33 @@ func (m *Cpybkc) Release(
 	// generatorRepository gives: a mirror redirects the whole family by moving
 	// the CLI image, and a caller who could name the two independently could
 	// publish a generator the companion module's default would never look for.
+	//
+	// # The generator is first, and the order is the mitigation
+	//
+	// This slice is iterated for the gate and again for the push, so its order is
+	// the push order. The generator leads because its repository is the one that
+	// might not be writable: the first release under #180 *creates*
+	// `<repository>-gen-<name>`, and a registry that will accept a push to an
+	// existing package does not necessarily accept the creation of a new one. So
+	// the question that has never been answered is asked first, while the answer
+	// still costs nothing.
+	//
+	// Ordering is a mitigation and not a fix, because there is no fix available
+	// here — see the push loop below.
 	images := []struct {
 		app        *dagger.Z5LabsApp
 		repository string
 		check      func(context.Context, *dagger.Container, dagger.Platform) []error
 	}{
 		{
+			app:        m.generatorApp(version),
+			repository: generatorRepository(repository, ownGenerator),
+			check:      m.checkGeneratorImage,
+		},
+		{
 			app:        m.baseApp(version),
 			repository: repository,
 			check:      m.checkBaseImage,
-		},
-		{
-			app:        m.generatorApp(version),
-			repository: generatorRepository(repository, ownGenerator),
-			check: func(ctx context.Context, image *dagger.Container, _ dagger.Platform) []error {
-				return m.checkGeneratorImage(ctx, image)
-			},
 		},
 	}
 
@@ -269,10 +280,16 @@ func (m *Cpybkc) Release(
 	// so that a check added to ImageContract is a check this gate acquires.
 	//
 	// Both are gated before either is pushed, rather than each image being checked
-	// and then published in turn. A publish is not atomic across repositories, and
-	// a release that pushed the base and then found its generator unpublishable
-	// would leave a version tag out that this project's contract says is never
-	// repointed.
+	// and then published in turn, so that an image failing its contract cannot be
+	// discovered after the other one is already out.
+	//
+	// That rules out one cause of a half-published release and **not** the
+	// general case, which is worth saying plainly because the arrangement looks
+	// stronger than it is. The pushes below are sequential across two
+	// repositories and a registry has no transaction spanning them, so anything
+	// that fails at push time — a credential, a rate limit, a repository that
+	// cannot be created — still leaves the earlier image published under tags
+	// this project's contract says are never repointed.
 	var errs []error
 	for _, image := range images {
 		for _, platform := range imagePlatforms() {
@@ -290,6 +307,18 @@ func (m *Cpybkc) Release(
 
 	fmt.Fprintf(&report, "%s\n  version:    %s\n", registry, version)
 
+	// Two publishes, in the order the slice above fixes, and the failure of the
+	// second leaves the first published. What makes that survivable is that this
+	// whole function is safe to run again: each image is a function of the source,
+	// so a re-run pushes the same bytes and every tag lands back on the digest it
+	// already named. So the recovery from a half-published release is to fix
+	// whatever refused the push and re-run the job — not to hand-push the missing
+	// image, and never to repoint a tag.
+	//
+	// The report is written as it goes rather than at the end, and it is returned
+	// beside the error rather than discarded, precisely so a half-published
+	// release says which half. An error alone would leave whoever is holding it
+	// unable to tell a release that pushed nothing from one that pushed one image.
 	for _, image := range images {
 		published, err := image.app.
 			WithRegistry(registry, username, password).

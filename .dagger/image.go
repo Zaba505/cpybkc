@@ -554,11 +554,15 @@ func (m *Cpybkc) ImageContract(
 
 	var errs []error
 	for _, p := range platforms {
+		// Both branches name which image they are about. The base's used to be
+		// the only one and went unqualified; with two images in the loop, a
+		// reader would have had to know that a bare platform prefix meant the
+		// base — which stops being obvious the moment a third image arrives.
 		if err := errors.Join(m.checkBaseImage(ctx, m.baseImage(p), p)...); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", p, err))
+			errs = append(errs, fmt.Errorf("%s: the base image: %w", p, err))
 		}
 
-		if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p))...); err != nil {
+		if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p), p)...); err != nil {
 			errs = append(errs, fmt.Errorf("%s: the generator image: %w", p, err))
 		}
 	}
@@ -590,7 +594,7 @@ func (m *Cpybkc) checkBaseImage(
 
 	errs := m.checkImageConfig(ctx, image)
 	errs = append(errs, m.checkImageContents(ctx, image, baseImageContents(protos))...)
-	errs = append(errs, m.checkImageBuild(ctx, image, platform)...)
+	errs = append(errs, m.checkImageBuild(ctx, image, platform, cliPath())...)
 	errs = append(errs, m.checkShippedIr(ctx, image)...)
 	errs = append(errs, m.checkImageIsTheCLI(ctx, image)...)
 
@@ -620,7 +624,24 @@ func (m *Cpybkc) checkBaseImage(
 //     the generic App constructor exists to rule out — an image correct in every
 //     respect except the one the plugin contract reads — so it is asserted in
 //     the terms the contract reads it in, and not only as an entry in a map.
-func (m *Cpybkc) checkGeneratorImage(ctx context.Context, image *dagger.Container) []error {
+//   - How **the generator** was built, read out of that file: CGO off, -trimpath
+//     on, and the GOOS and GOARCH of the platform whose image it landed in.
+//
+// That last group is why this takes a platform. generatorApp's comment names
+// "the variant sets are paired platform by platform, so an arm64 base cannot
+// acquire an amd64 generator" as one of the things composition buys, and that is
+// a property of somebody else's module — asserted in a comment is not the same
+// as checked. The three groups above would all pass on an arm64 image carrying
+// an amd64 generator, because none of them reads the file's architecture; this
+// one does, over the *contributed* executable rather than the CLI, which is the
+// only one of the two whose route into the image #180 changed. The failure it
+// rules out is an exec format error in a stranger's image and nothing at all
+// here.
+func (m *Cpybkc) checkGeneratorImage(
+	ctx context.Context,
+	image *dagger.Container,
+	platform dagger.Platform,
+) []error {
 	protos, err := m.shippedProtos(ctx)
 	if err != nil {
 		return []error{err}
@@ -628,6 +649,7 @@ func (m *Cpybkc) checkGeneratorImage(ctx context.Context, image *dagger.Containe
 
 	errs := m.checkImageConfig(ctx, image)
 	errs = append(errs, m.checkImageContents(ctx, image, generatorImageContents(baseImageContents(protos)))...)
+	errs = append(errs, m.checkImageBuild(ctx, image, platform, pluginDir+"/"+generatorExecutable)...)
 
 	if err := m.checkComposedImage(ctx, image); err != nil {
 		errs = append(errs, err)
@@ -647,12 +669,23 @@ func (m *Cpybkc) checkGeneratorImage(ctx context.Context, image *dagger.Containe
 // them, because they are not anybody's choice: the archetype places a composed
 // application's entry itself.
 //
-// The mode and the owner are literals and not constants of this file's, and that
-// is deliberate. The nearest constant, derivedExecutableMode, is 0755 and
-// describes what an adopter's COPY --chown=65532:65532 --chmod=0755 writes —
-// which is what this image was built by before #180 and is not what the
-// archetype produces. Writing 0555 out here is what makes a check that would
-// otherwise have kept passing across that change say so.
+// The mode and the owner of that file are **both** literals and not constants of
+// this file's, and that is deliberate on two counts. The nearest mode constant,
+// derivedExecutableMode, is 0755 and describes what an adopter's
+// COPY --chown=65532:65532 --chmod=0755 writes — which is how this image was
+// built before #180 and is not what the archetype produces, so writing 0555 out
+// here is what makes a check that would otherwise have kept passing across that
+// change say so. And imageUID/imageGID describe the identity *this repository*
+// asks its own image to run as; what is being asserted here is that the
+// archetype's placement of a composed entry agrees with it. Expressing the
+// expectation in terms of this repository's constants would make the two move
+// together, so the day they diverged the check would follow the base image
+// instead of reporting the divergence — which is the whole thing being checked.
+//
+// The directory's row keeps dirMode, and that is not an inconsistency: that
+// constant means "the mode of a directory the archetype creates implicitly, on
+// the way to somewhere else", which is exactly what this directory is, and
+// nothing may depend on it either way.
 //
 // The plugin directory comes with it, because the base image does not have one:
 // since #185 nothing in the base creates it, so the composition is what does. It
@@ -665,7 +698,7 @@ func generatorImageContents(base map[string]imageEntry) map[string]imageEntry {
 	contents := maps.Clone(base)
 
 	contents[pluginDir] = imageEntry{kindDir, 0, 0, dirMode}
-	contents[pluginDir+"/"+generatorExecutable] = imageEntry{kindFile, imageUID, imageGID, 0o555}
+	contents[pluginDir+"/"+generatorExecutable] = imageEntry{kindFile, 65532, 65532, 0o555}
 
 	return contents
 }
@@ -867,10 +900,18 @@ func (m *Cpybkc) checkImageIsTheCLI(ctx context.Context, image *dagger.Container
 //     would produce an index whose arm64 manifest holds an amd64 executable,
 //     which fails for the first person to pull it on the platform they asked
 //     for and for nobody here.
+//
+// executable is the path inside the image to read, because the image whose
+// architecture is worth asserting is not always the base's: a generator image
+// carries a second executable, contributed by a different route, and it is the
+// one an arm64 image would be running if the composition had paired the variant
+// sets wrongly (#180). The caller names it rather than this function assuming
+// the CLI.
 func (m *Cpybkc) checkImageBuild(
 	ctx context.Context,
 	image *dagger.Container,
 	platform dagger.Platform,
+	executable string,
 ) []error {
 	const mountedAt = "/image"
 
@@ -887,10 +928,10 @@ func (m *Cpybkc) checkImageBuild(
 	out, err := dag.Go().
 		Container(m.Source).
 		WithMountedDirectory(mountedAt, image.Rootfs()).
-		WithExec([]string{"go", "version", "-m", mountedAt + cliPath()}).
+		WithExec([]string{"go", "version", "-m", mountedAt + executable}).
 		Stdout(ctx)
 	if err != nil {
-		return []error{fmt.Errorf("reading the build settings of the executable in the image: %w", err)}
+		return []error{fmt.Errorf("reading the build settings of %s in the image: %w", executable, err)}
 	}
 
 	settings := buildSettings(out)
@@ -912,11 +953,11 @@ func (m *Cpybkc) checkImageBuild(
 		got, ok := settings[w.setting]
 		switch {
 		case !ok:
-			errs = append(errs, fmt.Errorf("the executable in the image states no %s; it has to be %s, because %s",
-				w.setting, w.value, w.why))
+			errs = append(errs, fmt.Errorf("%s in the image states no %s; it has to be %s, because %s",
+				executable, w.setting, w.value, w.why))
 		case got != w.value:
-			errs = append(errs, fmt.Errorf("the executable in the image was built with %s=%s, want %s: %s",
-				w.setting, got, w.value, w.why))
+			errs = append(errs, fmt.Errorf("%s in the image was built with %s=%s, want %s: %s",
+				executable, w.setting, got, w.value, w.why))
 		}
 	}
 
