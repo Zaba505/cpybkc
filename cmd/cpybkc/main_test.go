@@ -65,9 +65,12 @@ func TestUsageNamesTheSettledCommandSet(t *testing.T) {
 		}
 	}
 
-	// No subcommand set, so no line offering one. Generating is what the
-	// command does when nothing else is asked of it, and a usage text that
-	// spelled a verb would be documenting a command set this document refuses.
+	// No verb line yet. Generating is what the command does when nothing else
+	// is asked of it, and that keeps the bare form whatever else the set gains
+	// — but docs/cli/SPEC.md now specifies one subcommand, `init`, which this
+	// build does not implement. A usage text spelling it would document a
+	// command nobody can run; #214 lands both together and flips this
+	// assertion.
 	for _, refused := range []string{"--out", "--include", "--jobs", "--verbose", "--config", "Commands:"} {
 		if strings.Contains(stdout, refused) {
 			t.Errorf("usage offers %s, which cpybkc does not have:\n%s", refused, stdout)

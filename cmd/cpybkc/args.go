@@ -330,9 +330,13 @@ func isFlag(argument string) bool {
 
 // operandError is a non-flag argument, wherever it appeared.
 //
-// The operand position is reserved and empty on purpose: it is where a
+// The operand position was reserved and left empty on purpose: it is where a
 // subcommand would go, and a CLI that has already spent it on a path can never
-// add one without deciding whether an argument is a file or a verb.
+// add one without deciding whether an argument is a file or a verb. It is spent
+// now — docs/cli/SPEC.md's "The first operand is a subcommand name" gives the
+// head of the vector to `init` — so this message is what every operand gets
+// until that parsing lands (#214), and after it, what every operand that is not
+// the subcommand name gets.
 func operandError(argument string) error {
 	return usagef("cpybkc takes no operand, and %q is one; every input is named by a flag, and the manifest "+
 		"is named by %s", argument, manifestFlag)

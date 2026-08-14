@@ -18,8 +18,11 @@ import (
 // free to the spellings it fixes, and every wording change would read as a
 // change to the surface.
 //
-// The synopsis is the document's, line for line, because the three forms are
-// the command set — one command, no subcommands, and no operand in any of them.
+// The synopsis is the document's, line for line, because the forms are the
+// command set. The three below are the whole of what this build implements:
+// docs/cli/SPEC.md's "One command, and one subcommand" now also specifies
+// `cpybkc init`, and the fourth synopsis line arrives with it (#214). Until
+// then a usage text offering a verb would document a command nobody can run.
 // -h is the one single-hyphen spelling that appears here; the document requires
 // any other to go undocumented.
 const usage = `cpybkc generates code from the copybooks a project's layout names.

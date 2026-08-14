@@ -254,6 +254,31 @@ only on its behaviour: it accepts cpybkc's arguments. The array itself is
 detail](#the-clis-own-path-is-not-part-of-the-contract), which is what allows
 the CLI to move without a major version.
 
+### The arrangement survives a subcommand
+
+The CLI's command set gained a subcommand — `init`, which scaffolds a layout
+from copybooks — and nothing above changed for it (#183). The arrangement is
+what made that affordable. `Cmd` is empty, so `docker run … <image>` with no
+arguments is still cpybkc's default action, which is generating; every derived
+image already
+published keeps working unaltered, and no `docker run` line in a repository this
+project cannot see had to be edited. A caller who wants the subcommand types it
+where they type every other argument:
+
+```console
+$ docker run --rm -v "$PWD:/src" -w /src ghcr.io/zaba505/cpybkc:v0 \
+    init --copybook cpy/posting.cpy --out layout.sexpr
+```
+
+A derived image **MAY** set `Cmd` to a subcommand and its flags, which is the
+permission this section already gives for default arguments and needs no new
+one. What a derived image **MUST NOT** do is assume the first argument reaching
+the entrypoint is a flag: it is a subcommand name or nothing, and which names
+are admitted is [the
+CLI's](../cli/SPEC.md#the-first-operand-is-a-subcommand-name) rather than this
+document's. Whether a breaking change to that command set moves
+this image's own major tag is a separate question, filed as #213.
+
 ## The user
 
 The image runs as UID **65532**, GID **65532** — `User` is the literal string
@@ -1370,6 +1395,7 @@ Go install with no document that applies to them.
 | [Where this project's own generators are published](#where-this-projects-own-generators-are-published) | #180 `container` decides the rule is covered rather than internal, and publishes the first image under it |
 | [The CLI's own path is not part of the contract](#the-clis-own-path-is-not-part-of-the-contract) | #55 `container`; #185 `container` is where it was spent |
 | [The entrypoint](#the-entrypoint) | #55 `container` |
+| [The arrangement survives a subcommand](#the-arrangement-survives-a-subcommand) | #183 `cli` adds the subcommand and restates the promise here; #213 `container` decides what a breaking CLI change does to this image's major tag |
 | [The user](#the-user) | #55 `container` |
 | [Shell or no shell](#shell-or-no-shell) | #55 `container` |
 | [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container`; #185 `container` moves the family's derivation to the shared pipeline |
