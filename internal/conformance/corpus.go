@@ -30,6 +30,17 @@ import (
 // wrong.
 const CorpusFile = "testdata/conformance"
 
+// PublishedCorpusDir is where the corpus sits inside cpybkc-conformance.tar.gz,
+// the archive a release attaches (#202).
+//
+// It is a second path because a release asset is not a checkout: an adopter
+// unpacks the archive and works in it, and `testdata/` there would name a
+// convention of a Go repository they do not have. It is a constant here, beside
+// [CorpusFile], for exactly the reason that one is — the tool that writes the
+// archive and the command that reads one have to mean the same directory, and
+// they are two programs.
+const PublishedCorpusDir = "corpus"
+
 // The names an entry's members are written under. They are fixed rather than
 // declared in entry.json because a tuple whose members could be anywhere is a
 // tuple every reader has to be told about, and a third-party runner reading the

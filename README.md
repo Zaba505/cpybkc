@@ -85,6 +85,23 @@ schema](docs/layout/SPEC.md#the-published-schema) is what it is and what it
 deliberately leaves to the reader; `schema/layout.sexpr` is the same file in
 this repository.
 
+Whoever wrote that plugin takes the fourth, `cpybkc-conformance.tar.gz`: the
+conformance corpus — small files with the right answer written down — a digest
+of it, and `cpybkc-conform` built for five platforms. Unpack it, write an
+[adapter](docs/adapter/SPEC.md) for your generator, and run
+
+```sh
+./bin/cpybkc-conform-linux-amd64 check --exec ../my-adapter
+```
+
+with no clone, no registry and no container runtime in front of you. [The
+published corpus](docs/conformance/SPEC.md#the-published-corpus) is the
+archive's layout and the digest rule; [the corpus
+format](docs/conformance/SPEC.md) is what an entry holds and the language a
+decoded record is written in. A run through `--exec` is your own working result
+rather than one to hand to somebody else — the door provides no isolation, and
+the report says so.
+
 ## The project manifest
 
 A project is driven by a `cpybkc.json` checked in beside the files it names, so

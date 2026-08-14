@@ -26,13 +26,14 @@
 // about how an image gets built:
 //
 //   - The contract checks. ImageContract, WorkedExample, CompanionModule,
-//     CliSurface, EngineLock, IrArtifacts, LayoutArtifact, IrDescriptorSet,
-//     IrProtos, LayoutSchema, ProtoLint, ProtoGen and Build are assertions about
-//     docs/container/SPEC.md, docs/plugin/SPEC.md and docs/cli/SPEC.md, and every
-//     one of them holds against a container whoever built it. They are also the
-//     evidence that adopting the archetype changed nothing a consumer can see
-//     that this change did not choose to change, which is the only thing that
-//     makes a change of this size reviewable.
+//     CliSurface, EngineLock, IrArtifacts, LayoutArtifact, ConformanceArtifact,
+//     IrDescriptorSet, IrProtos, LayoutSchema, ConformanceBundle, ProtoLint,
+//     ProtoGen and Build are assertions about docs/container/SPEC.md,
+//     docs/plugin/SPEC.md, docs/cli/SPEC.md and docs/conformance/SPEC.md, and
+//     every one of them holds against a container whoever built it. They are
+//     also the evidence that adopting the archetype changed nothing a consumer
+//     can see that this change did not choose to change, which is the only
+//     thing that makes a change of this size reviewable.
 //   - Whether this commit is a release. The archetype takes a version from its
 //     caller and derives the tag family from it; reading the refs at HEAD to
 //     decide whether there is a release here at all, refusing two version tags
@@ -145,16 +146,23 @@
 //
 // # Why the release artifacts are built here
 //
-// IrDescriptorSet and IrProtos produce two of the three files a release
-// attaches — the IR's FileDescriptorSet and the schema sources (#19) — and
+// IrDescriptorSet and IrProtos produce two of the four files a release
+// attaches — the IR's FileDescriptorSet and the schema sources (#19) —
 // LayoutSchema produces the third, the published layout schema a shop's layout
-// generator targets (#23). They are functions on this module for the same reason
-// ProtoLint is: a recipe that only ever ran inside
-// .github/workflows/release.yaml would be a build nobody can reproduce locally
-// and one that first runs on a tag, where a failure is a release that did not
-// happen. Here, `dagger call ir-descriptor-set` is a command a contributor runs,
-// and IrArtifacts and LayoutArtifact put all three builds inside Ci so the
-// recipes are exercised on every pull request rather than once per release.
+// generator targets (#23), and ConformanceBundle produces the fourth, the
+// conformance engine and corpus a generator author runs offline (#202). They are
+// functions on this module for the same reason ProtoLint is: a recipe that only
+// ever ran inside .github/workflows/release.yaml would be a build nobody can
+// reproduce locally and one that first runs on a tag, where a failure is a
+// release that did not happen. Here, `dagger call ir-descriptor-set` is a
+// command a contributor runs, and IrArtifacts, LayoutArtifact and
+// ConformanceArtifact put all four builds inside Ci so the recipes are exercised
+// on every pull request rather than once per release.
+//
+// The fourth is the one that is a program rather than a description of an
+// interface, and its check is correspondingly wider: which platforms the engine
+// is built for is decided here, so whether each of them compiled and landed in
+// the archive is a question only a run of the pipeline can answer.
 //
 // They are also the seam the container work builds on: #57 copies the same file
 // into the published image, from this function rather than from a second
@@ -216,6 +224,25 @@ const (
 	// The image has no PATH to find it on, which is the point of running it
 	// there at all.
 	cliBinaryPath = "/cpybkc"
+
+	// conformPackage is the main package the conformance engine is built from,
+	// and conformBinary is the stem every platform's executable is named after.
+	// It is the program cpybkc-conformance.tar.gz ships (#202), and the name is
+	// stated here for the reason cliBinary is: it is what a person types.
+	conformPackage = "./cmd/cpybkc-conform"
+	conformBinary  = "cpybkc-conform"
+
+	// conformanceBundle is the fourth asset a release attaches, and the first
+	// that is a program rather than a description of an interface.
+	conformanceBundle = "cpybkc-conformance.tar.gz"
+
+	// conformanceRoot is the one directory that archive unpacks into, as
+	// internal/tools/conformance-bundle writes it. This module is a Go module of
+	// its own and cannot import that package, so this is a second spelling of
+	// one name — pinned by ConformanceArtifact reading it back out of the
+	// artifact rather than by an import, which is the arrangement
+	// reportedVersion already lives under.
+	conformanceRoot = "cpybkc-conformance"
 )
 
 // Cpybkc is the root module type. Source and the lint configuration are bound
@@ -358,7 +385,7 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
 // the Z5Labs standard defines them, over each of this repository's four Go
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
-// build of the three artifacts a release publishes, the published base image on
+// build of the four artifacts a release publishes, the published base image on
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
 // an adopter, the release decision and the release notes a release is published
 // under, the companion module's coverage of the CLI's flags, and that module's
@@ -366,17 +393,19 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 // one `dagger call ci` and stays one, because a workflow step that reran any of
 // these stages would be a second definition of them.
 //
-// The fifteen parts run concurrently and all are reported, for the reason the
+// The sixteen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
 //
-// It was sixteen until #185. Attestations checked the provenance predicate and
-// the SBOM set this module used to render, and both are the archetype's now, so
-// the stage went with sign.go rather than being kept as a check on somebody
-// else's output.
+// It was fifteen between #185 and #202, and sixteen before that for a different
+// reason. Attestations checked the provenance predicate and the SBOM set this
+// module used to render, and both are the archetype's now, so that stage went
+// with sign.go rather than being kept as a check on somebody else's output.
+// ConformanceArtifact is the one that arrived, for the conformance archive a
+// release attaches (#202).
 //
-// ImageContract is one of the fifteen, and since #185 that stage builds an App —
+// ImageContract is one of the sixteen, and since #185 that stage builds an App —
 // so this call needs real git metadata and does not run from a git worktree. See
 // New.
 //
@@ -385,9 +414,10 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 func (m *Cpybkc) Ci(ctx context.Context) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr error
 	var tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr error
+	var conformanceErr error
 
 	var wg sync.WaitGroup
-	wg.Add(15)
+	wg.Add(16)
 
 	go func() {
 		defer wg.Done()
@@ -417,6 +447,11 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		layoutErr = m.LayoutArtifact(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		conformanceErr = m.ConformanceArtifact(ctx)
 	}()
 
 	go func() {
@@ -469,8 +504,8 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr,
-		tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr)
+	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, conformanceErr, imageErr,
+		exampleErr, tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -963,6 +998,212 @@ func (m *Cpybkc) LayoutArtifact(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// conformPlatforms is the set of platforms the conformance engine is built for
+// and shipped in cpybkc-conformance.tar.gz.
+//
+// It is wider than imagePlatforms, and the difference is not an oversight in
+// either. The image is a Linux container base, so its platforms are the ones a
+// registry serves; this archive is downloaded onto whatever machine somebody
+// writes a code generator on, and a great many of those are macOS laptops and
+// some are Windows. An author who has to compile the engine before they can run
+// it needs a Go toolchain in order to check a generator written in something
+// else, which is the whole cost this artifact exists to remove.
+//
+// Sorted, because the archive's listing is a function of the names in it and a
+// released artifact is compared across releases.
+//
+// Cross-compiled rather than built under emulation, for the reason binary gives:
+// nothing about a Go build needs the target's architecture to be executable, and
+// paying qemu to learn what `go build` already knows would be minutes per
+// platform per run.
+func conformPlatforms() []dagger.Platform {
+	return []dagger.Platform{
+		"darwin/amd64",
+		"darwin/arm64",
+		"linux/amd64",
+		"linux/arm64",
+		"windows/amd64",
+	}
+}
+
+// conformBinaryName is what one platform's engine is called inside the archive.
+//
+// The platform is in the name because all of them are in one archive: the point
+// of the artifact is that somebody with no egress can be handed a file, and one
+// file per platform would be a choice they have to make before they can
+// download anything. Windows keeps its .exe, because a Windows shell will not
+// run a file without one.
+func conformBinaryName(platform dagger.Platform) string {
+	name := conformBinary + "-" + strings.ReplaceAll(string(platform), "/", "-")
+
+	if strings.HasPrefix(string(platform), "windows/") {
+		name += ".exe"
+	}
+
+	return name
+}
+
+// conformEngines is the conformance engine built for every platform above, by
+// the name it carries inside the archive.
+//
+// One helper rather than a build at each site, so that ConformanceBundle and
+// ConformanceArtifact are about the same executables. They are the same Dagger
+// nodes, so the check is a check of what shipped rather than of a second build
+// that merely agrees with it — the same arrangement image copying in the file
+// IrDescriptorSet produces already lives under.
+func (m *Cpybkc) conformEngines() map[string]*dagger.File {
+	engines := map[string]*dagger.File{}
+
+	for _, platform := range conformPlatforms() {
+		name := conformBinaryName(platform)
+
+		engines[name] = dag.Go().
+			Build(m.Source, dagger.GoBuildOpts{
+				Pkg:          conformPackage,
+				ArtifactName: name,
+				// CGO-free and -trimpath for the reasons binary gives: a
+				// statically linked file is one that runs on a machine this
+				// project knows nothing about, and a binary carrying the path it
+				// was compiled under is a build that depends on where it ran —
+				// which a released artifact may not be.
+				Trimpath:   true,
+				DisableCgo: true,
+				Platform:   string(platform),
+			}).
+			File(name)
+	}
+
+	return engines
+}
+
+// ConformanceBundle builds the conformance archive — the published
+// cpybkc-conformance.tar.gz — carrying the corpus, a digest of it, and the
+// engine built for every platform above:
+//
+//	dagger call conformance-bundle export --path=cpybkc-conformance.tar.gz
+//
+// It is the fourth asset a release attaches and the one that is not a
+// description of an interface: a generator author downloads it, unpacks it, and
+// runs `cpybkc-conform check --exec ./their-adapter` with no registry, no
+// daemon and no image in front of them (#202).
+// internal/tools/conformance-bundle carries the argument for why that is worth
+// an artifact of its own, and for why the binaries are in it.
+//
+// It is a function on this module for the reason IrDescriptorSet is: a recipe
+// that only ever ran inside .github/workflows/release.yaml would be a build
+// nobody can reproduce locally and one that first runs on a tag, where a failure
+// is a release that did not happen.
+//
+// The archive's own bytes are a function of its contents — every tar field the
+// filesystem could have supplied is a constant and the entries are sorted — so
+// the same commit archives to the same wrapper. What is inside it is
+// reproducible on the toolchain's own terms, which is what CGO_ENABLED=0 and
+// -trimpath above are for.
+func (m *Cpybkc) ConformanceBundle() *dagger.File {
+	const (
+		out = "/out/" + conformanceBundle
+
+		// Not /bin, which the toolchain container already has and would be
+		// merged with rather than replaced — handing the archiver every
+		// executable in the image.
+		engineDir = "/engines"
+	)
+
+	engines := dag.Directory()
+	for name, engine := range m.conformEngines() {
+		engines = engines.WithFile(name, engine)
+	}
+
+	return dag.Go().
+		Container(m.Source).
+		WithDirectory(engineDir, engines).
+		WithExec([]string{"go", "run", "./internal/tools/conformance-bundle", "-bin", engineDir, "-o", out}).
+		File(out)
+}
+
+// ConformanceArtifact builds the conformance archive and checks that every
+// platform's engine is in it.
+//
+// It is IrArtifacts' counterpart for the conformance half of what a release
+// carries, and everything that comment says about why an artifact build belongs
+// in Ci applies here unchanged.
+//
+// What it asserts is more than the others do, and the reason is that this
+// artifact has a part the Go tests cannot reach. internal/tools/conformance-bundle
+// is tested against a stand-in for the engines, because building five of them in
+// a unit test would make it a cross-compilation; which platforms there are is
+// this file's, and whether each one compiled is a question only a run of the
+// pipeline can answer. A platform that silently produced nothing would otherwise
+// arrive as a downloader on a machine the archive has no engine for.
+//
+// The empty file is the same failure the other artifact checks name: it is what
+// a tool that created its parent directory and exited would leave behind, and it
+// uploads as happily as a good one.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) ConformanceArtifact(ctx context.Context) error {
+	var errs []error
+
+	engines := m.conformEngines()
+
+	names := make([]string, 0, len(engines))
+	for name := range engines {
+		names = append(names, name)
+	}
+
+	// Sorted, so that two runs failing on two different platforms report them in
+	// the same order rather than in whichever order the map produced.
+	slices.Sort(names)
+
+	for _, name := range names {
+		size, err := engines[name].Size(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to build %s: %w", name, err))
+
+			continue
+		}
+
+		if size == 0 {
+			errs = append(errs, fmt.Errorf("%s built to an empty file", name))
+		}
+	}
+
+	bundle := m.ConformanceBundle()
+
+	size, err := bundle.Size(ctx)
+	if err != nil {
+		return errors.Join(append(errs, fmt.Errorf("failed to build %s: %w", conformanceBundle, err))...)
+	}
+
+	if size == 0 {
+		return errors.Join(append(errs, fmt.Errorf("%s built to an empty file", conformanceBundle))...)
+	}
+
+	// Read out of the artifact rather than assumed from the build above. The
+	// two are the same Dagger nodes, so this is not a second opinion about
+	// whether they compiled — it is the claim that each of them was actually put
+	// in the archive, at the path the archive's own README tells somebody to run.
+	listing, err := dag.Go().
+		Container(m.Source).
+		WithFile("/tmp/"+conformanceBundle, bundle).
+		WithExec([]string{"tar", "-tzf", "/tmp/" + conformanceBundle}).
+		Stdout(ctx)
+	if err != nil {
+		return errors.Join(append(errs, fmt.Errorf("failed to read %s: %w", conformanceBundle, err))...)
+	}
+
+	archived := strings.Split(listing, "\n")
+
+	for _, name := range names {
+		if !slices.Contains(archived, conformanceRoot+"/bin/"+name) {
+			errs = append(errs, fmt.Errorf("%s does not carry bin/%s", conformanceBundle, name))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // stage returns the check builder the standard pipeline builds on, bound to

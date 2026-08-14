@@ -43,7 +43,8 @@ In scope: the directory an entry is, the members it holds and the one member
 that is reserved; the value language every decoded record is written in, down to
 the admissible spelling of each scalar; how a file the generated reader refused
 is reported; what a runner is asked to do and what it is deliberately not asked
-to do; and the answer document it returns.
+to do; the answer document it returns; and how the corpus is published, down to
+the digest a downloader checks it against.
 
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
@@ -651,6 +652,89 @@ records the writer was given. That holds for all four framings and every
 encoding, it is what `written` states, and it needs nothing of a runner that the
 reading direction did not already need.
 
+## The published corpus
+
+Every release attaches the corpus as `cpybkc-conformance.tar.gz`, so that
+running it needs neither a clone of this repository nor a container runtime
+(#202). The archive unpacks into one directory:
+
+```
+cpybkc-conformance/
+  README.md            how to run it
+  corpus.sha256        the digest of corpus/
+  corpus/              the corpus, one directory per entry
+  bin/                 this repository's engine, built per platform
+```
+
+`corpus/` is the corpus and is what this document specifies: one directory per
+entry, each holding exactly what [*An entry*](#an-entry) says. `bin/` and
+`README.md` are cpybkc's own, and a runner may ignore both — the archive is a
+way of getting the corpus onto a machine, not a second definition of it.
+
+A published corpus is a *snapshot*. It grows an entry whenever one is written,
+so two archives are two corpora and comparing a result against one of them says
+nothing about the other; which release an archive came from is the release it is
+attached to.
+
+### The corpus digest
+
+`corpus.sha256` is a SHA-256 over `corpus/`, written as 64 lowercase hexadecimal
+characters followed by a newline and nothing else.
+
+A runner that unpacked an archive **SHOULD** check it before it runs anything,
+and **MUST NOT** report a result as being about the published corpus where it
+does not match. A download that finished halfway is otherwise indistinguishable
+from a generator disagreeing with entries nobody published, and the entries it
+disagrees with are the ones that arrived.
+
+The digest is computed over every regular file under `corpus/`, taken in
+ascending order of the slash-separated path each is at relative to `corpus/`.
+For each file in that order, the hash is fed:
+
+1. the path, as UTF-8;
+2. one zero byte;
+3. the file's length in bytes, written in decimal as ASCII;
+4. one zero byte;
+5. the file's contents.
+
+The result is the sum, lowercase hexadecimal. Nothing else contributes.
+
+Three properties of that rule are the whole of it, and each is there for a
+reason worth stating:
+
+- **The length is in the stream** because a corpus holds arbitrary bytes —
+  `input.bin` is bytes by definition — so the contents cannot be their own
+  delimiter. Without it, two different corpora whose concatenations happened to
+  coincide would agree, which is the one thing a digest exists to deny.
+- **The path is in the stream** because a file that moved between two entries is
+  a different corpus, and a digest over contents alone would not say so.
+- **Nothing a filesystem supplies is in the stream.** Not a mode, not an owner,
+  not a modification time, and directories contribute nothing of their own.
+  Those are properties of the unpacking rather than of the corpus, and a digest
+  that included one would fail on an archive that had merely been extracted
+  twice.
+
+Anything under `corpus/` that is not a regular file makes the corpus
+ill-formed. A symbolic link is a file whose content depends on where the archive
+was unpacked, so a digest that followed one would move between machines and one
+that skipped it would certify a member it never read.
+
+A `corpus/` holding no file at all is ill-formed too, and this is stated rather
+than left to follow from the rule. Applied literally the rule computes a
+perfectly good digest of nothing —
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, the SHA-256
+of the empty stream — and a reader who published or accepted that would be
+certifying an empty download as the corpus. An implementation **MUST** refuse
+it instead.
+
+The corpus **MUST** hold at least one entry in any case ([*An
+entry*](#an-entry)), so nothing well-formed is refused by this.
+
+`corpus.sha256` is deliberately **not** a `sha256sum` file. That format names a
+file and this digest covers a directory, and a line that looked like
+`sha256sum`'s would invite `sha256sum -c` — which would check one file that is
+not there and report success for a corpus it never read.
+
 ## Out of Scope
 
 ### What a value means
@@ -716,7 +800,10 @@ disagreement, and the conversation is the half that changes.
 - **A test framework.** Nothing here says how a runner is built, what a harness
   reports, or what exit code a failing comparison produces. `go test
   ./internal/conformance/...` is this repository's answer and it is one answer
-  among many.
+  among many; `cpybkc-conform`, which [the published
+  corpus](#the-published-corpus) ships in `bin/`, is the same answer with a
+  command line on it. What either of them prints and exits with is its own
+  documentation's, and neither is a requirement on anybody else's.
 - **A conformance level or a badge.** There is no partial conformance, no
   profile and no score. An entry either compares equal or it does not.
 - **A descriptive generator's oracle.** A generator that never reads bytes has
@@ -763,6 +850,8 @@ to every row.
 | [The answer document](#the-answer-document) | #68 `conformance`; #198 `conformance` for a read-only generator's absent `written` being declared rather than discovered, and #199 for the engine that honours it |
 | [How a runner is started and spoken to](#how-a-runner-is-started-and-spoken-to) | #198 `conformance` specifies it in [`adapter/SPEC.md`](../adapter/SPEC.md); no section here |
 | [Why the writing direction is checked by reading](#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes) | #68 `conformance`; the rule it rests on, *Writing a file*, #17 `ir` |
+| [The published corpus](#the-published-corpus) | #202 `conformance` for the release asset, the engine that ships in it and the pipeline that builds it |
+| [The corpus digest](#the-corpus-digest) | #202 `conformance` |
 | [The grammar corpus](#appendix-the-grammar-corpus) | #197 `conformance` for [GRAMMAR.md](GRAMMAR.md), the writer it holds to it, and the test that reads one against the other |
 | The corpus's entries, and what each covers | #67 `conformance`, and one story per entry since |
 | This document | #194 `conformance` |

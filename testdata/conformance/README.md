@@ -130,6 +130,15 @@ values document is a different record: *Slack survives a read* puts the bytes no
 item covers on the record a reader produced, and a constructed one has a writer
 fill them instead.
 
+`cmd/cpybkc-conform` is the engine with a command line on it, and it is what
+somebody outside this repository runs. Every release attaches it and this
+directory together as `cpybkc-conformance.tar.gz` — [*The published
+corpus*](../../docs/conformance/SPEC.md#the-published-corpus) is the archive's
+layout and the digest rule that says whether a download is this corpus (#202) —
+so checking a generator needs no clone, no registry and no container runtime.
+Nothing here is committed for it: the digest is a function of the corpus, so
+adding an entry below changes what a release publishes and nothing else.
+
 `go test ./internal/conformance/...` runs the corpus against `cpybkc-gen-go`
 built from the tree under test, in both directions and over every entry (#68).
 
