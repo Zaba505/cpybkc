@@ -3,7 +3,7 @@ A modular code generator for files composed COBOL copybook records
 
 ## Specs
 
-Six interfaces are built against from outside this repository, so each is
+Seven interfaces are built against from outside this repository, so each is
 specified rather than merely implemented:
 
 - [The command-line interface](docs/cli/SPEC.md) — what a person types, where
@@ -21,9 +21,13 @@ specified rather than merely implemented:
   [grammar corpus](docs/conformance/GRAMMAR.md) is that language as a table of
   values against the exact text each is written as, which is where a writer for
   a new language is checked first.
+- [The conformance adapter contract](docs/adapter/SPEC.md) — the process a
+  generator in any language is driven through to be held to that corpus: a
+  handshake, JSON frames over standard input and output, and what an exit code
+  may and may not mean.
 
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md) defines the conformance language all
-six use, and what else they have in common.
+seven use, and what else they have in common.
 
 A generator plugin written in Go imports the resolved IR from
 [`irpb`](irpb/) — `github.com/Zaba505/cpybkc/irpb`, a module of its own, so that
