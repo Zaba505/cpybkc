@@ -108,9 +108,11 @@ writes can be a shell script that pipes lines through a program they already
 have. A contract whose smallest conforming implementation needs a Dockerfile and
 a registry is a contract most people evaluate by reading about it.
 
-An engine **MUST** be able to drive an adapter it is given as a command to run,
-and **MAY** offer other doors onto the same contract — a container image being
-the one this project blesses (#203). What each door adds is the door's: the
+An engine will usually offer a door that simply runs a command, and may offer
+others — a container image being the one this project blesses (#203). Which
+doors an engine offers is the engine's and not this contract's, which is why
+that sentence carries no keyword; what each door adds, though, is reportable and
+does. What each door adds is the door's: the
 image door is where a run with no network, a read-only root and a wall-clock cap
 lives, and those properties are what make a result worth handing to somebody
 else. None of them is a property of this contract, and an engine **MUST NOT**
@@ -166,20 +168,26 @@ terminated by a line feed (`%x0A`).
 - A frame **MUST NOT** contain an unescaped line feed. RFC 8259 already forbids
   a raw control character inside a string, so this amounts to the requirement
   that a frame is not pretty-printed.
-- A carriage return is not a terminator. An adapter **MUST NOT** terminate a
-  frame with `%x0D %x0A`, and an engine **MUST** refuse a frame with a trailing
-  carriage return rather than trimming it, because a stream that tolerates both
-  is one where a text-mode file handle silently changes what was sent.
+- A carriage return is not a terminator. Neither side terminates a frame with
+  `%x0D %x0A`, and a receiver **MUST** refuse one that is rather than trimming
+  it, because a stream that tolerates both is one where a text-mode file handle
+  silently changes what was sent. The direction that matters most is the
+  engine's: a text-mode handle writing to the adapter's standard input is how a
+  carriage return gets into this conversation in the first place.
 - A blank line is not a frame. Neither side sends one, and a receiver **MUST**
   treat one as a malformed frame rather than skipping it — a skipped blank line
   is a corrupted stream reported one frame later, at whichever frame first fails
   to parse.
-- Neither side may assume a maximum frame length. A values document for an entry
-  with a large table is long, and a receiver that reads into a fixed buffer will
-  meet it.
-- Each side **SHOULD** flush after every frame it writes. The conversation is
-  strictly alternating, so a side that buffers its response is a side that
-  deadlocks against a peer waiting for it.
+- A receiver **MUST** accept a frame of any length. A values document for an
+  entry with a large table is long, and a receiver that reads into a fixed
+  buffer will meet it.
+- Each side **MUST** flush after every frame it writes. The conversation is
+  strictly alternating, so a side that buffers a frame is a side that deadlocks
+  against a peer waiting for it, and the peer has no way out — an adapter
+  blocked on a request the engine never flushed is forbidden to time out, to
+  exit, and to answer. It is a **MUST** rather than a **SHOULD** because
+  line-buffered output satisfies it in every language, so the stronger keyword
+  costs nothing and the weaker one buys a hang.
 
 ### Request, response, and the identifier that pairs them
 
@@ -209,6 +217,17 @@ alternating conversation the identifier is redundant, which is exactly why it is
 cheap and worth carrying: it is the only thing that turns a stream that has
 silently desynchronised — one extra frame, one frame swallowed — into an error
 at the frame where it happened rather than a wrong answer several entries later.
+
+**Refusing a frame** means one thing throughout this document, whether the frame
+was refused for a mismatched `id`, a trailing carriage return, a blank line or
+anything else that is not well formed: the receiver stops the conversation and
+treats the peer as [broken](#refusal-is-an-answer-a-fault-is-not-and-an-exit-code-is-neither),
+rather than as having answered or faulted. It **MUST NOT** resynchronise by
+skipping the frame and reading on. The reason is [the deadline
+section](#deadlines-and-lifetime-belong-to-the-engine)'s: a stream whose framing
+is in doubt cannot be resynchronised by anything the receiver can see, so an
+engine that skipped and an engine that killed would report different things
+about the same adapter.
 
 `error` is a diagnostic for whoever reads the report. An engine **MUST NOT**
 compare it or match against it, for the reason
@@ -250,16 +269,26 @@ Six, and no others.
 | `op` | Sent | Requires |
 |---|---|---|
 | [`hello`](#hello) | Exactly once, first. | — |
-| [`generate`](#generate) | Exactly once, after `hello`. | `kind` is `codec` |
-| [`decode`](#decode) | Zero or more times, after `generate`. | a successful `generate` for the entry |
-| [`roundtrip`](#roundtrip) | After a successful `decode` of the same entry. | the `write` capability |
+| [`generate`](#generate) | Exactly once, after `hello`; never when `kind` is `descriptive`. | `kind` is `codec` |
+| [`decode`](#decode) | Zero or more times, after `generate`. | a `generate` or `rebuild` that succeeded for the entry |
+| [`roundtrip`](#roundtrip) | After a `decode` of the same entry. | the `write` capability, and records held from that `decode` |
 | [`rebuild`](#rebuild) | Zero or more times, after `generate`. | the `rebuild` capability |
-| [`bye`](#bye-and-end-of-input) | Exactly once, last. | — |
+| [`bye`](#bye-and-end-of-input) | At most once, last. | — |
 
-An adapter **MUST** refuse with `ok: false` a request whose precondition above
-is not met, rather than serving it. An engine **MUST NOT** send one — the
-adapter's refusal is a backstop against an engine's bug, not a route the engine
-is entitled to take.
+An engine **MUST NOT** send a request whose precondition above is not met.
+
+The adapter's half of that is deliberately smaller. An adapter **MUST** refuse
+with `ok: false` a request that asks for a capability it did not declare, or a
+[`roundtrip`](#roundtrip) for which it is holding no records; both are facts
+about itself that it knows without keeping any other record. It **MAY** refuse
+the ordering preconditions too, and **MAY** simply attempt the work instead.
+
+Requiring more would oblige every adapter to keep a second copy of the engine's
+state machine — which entry generated, which was decoded last — in branches
+unreachable against a correct engine and therefore never exercised by anything.
+That is code a third party writes, cannot test, and gets subtly wrong, and it is
+a poor trade against the promise that the first adapter somebody writes can be a
+shell script.
 
 ### `hello`
 
@@ -269,11 +298,22 @@ The handshake, and the first frame of every conversation.
 {"id": 1, "op": "hello", "protocol": 1}
 ```
 
-`protocol` is the version of this contract the engine speaks. It is `1`. An
-adapter that does not speak it **MUST** answer `ok: false` and **MUST NOT**
-guess at a version it does not know. A fault at the handshake is the one fault
-that costs the whole run rather than one entry: there is no conversation left to
-have, so the engine reports it and stops.
+`protocol` in the request is the version of this contract the engine speaks. It
+is `1`.
+
+`protocol` in the response is the version the **adapter** speaks — stated, not
+echoed. An adapter that speaks the requested version answers `ok: true` with the
+same number; one that does not answers `ok: false` and states its own anyway, so
+that a report can say which two versions failed to meet instead of only that the
+handshake failed. An adapter **MUST NOT** guess at a version it does not know.
+
+There is no range and no fallback: an adapter speaks one version, and either it
+is the engine's or the run does not happen. That is deliberate while one version
+exists, and it is the first thing to revisit if a second is ever wanted.
+
+A fault at the handshake is the one fault that costs the whole run rather than
+one entry: there is no conversation left to have, so the engine reports it and
+stops, closing the adapter's standard input as [below](#bye-and-end-of-input).
 
 ```json
 {"id": 1, "ok": true, "protocol": 1, "name": "cpybkc-gen-go adapter",
@@ -283,11 +323,16 @@ have, so the engine reports it and stops.
 
 | Member | Type | Required | Meaning |
 |---|---|---|---|
-| `protocol` | integer | yes | The version the adapter speaks. **MUST** equal the request's. |
-| `name` | string | yes | What the adapter is, for the report. |
+| `protocol` | integer | yes | The version the adapter speaks. **MUST** equal the request's when `ok` is `true`. |
+| `name` | string | when `ok` is `true` | What the adapter is, for the report. |
 | `version` | string | no | Which version of it, for the report. |
-| `kind` | string | yes | `codec` or `descriptive`. See [below](#the-adapter-declares-its-kind-and-its-capabilities). |
-| `capabilities` | object | yes | Which optional operations it serves. See [below](#the-adapter-declares-its-kind-and-its-capabilities). |
+| `kind` | string | when `ok` is `true` | `codec` or `descriptive`. See [below](#the-adapter-declares-its-kind-and-its-capabilities). |
+| `capabilities` | object | when `ok` is `true` | Which optional operations it serves. See [below](#the-adapter-declares-its-kind-and-its-capabilities). |
+
+A refused handshake carries `id`, `ok`, `error` and `protocol`, and nothing
+else. An adapter that could not agree the version has no basis for declaring a
+`kind` or a capability set, and a frame that declared them anyway would be one a
+report could quote.
 
 `name` and `version` are quoted in reports and **MUST NOT** be compared or
 parsed. An adapter that drives a particular generator at a particular version is
@@ -300,8 +345,8 @@ Every descriptor at once, exactly once, before any entry is read.
 
 ```json
 {"id": 2, "op": "generate", "entries": [
-  {"entry": "packed-comp3", "descriptor": "CgtwYWNrZWQt…"},
-  {"entry": "display-signed", "descriptor": "ChBkaXNwbGF5…"}]}
+  {"entry": "packed-ebcdic", "descriptor": "…"},
+  {"entry": "zoned-ebcdic", "descriptor": "…"}]}
 ```
 
 `entry` is the entry's name, which
@@ -312,14 +357,29 @@ because a frame is JSON.
 
 ```json
 {"id": 2, "ok": true, "entries": [
-  {"entry": "packed-comp3", "ok": true},
-  {"entry": "display-signed", "ok": false,
+  {"entry": "packed-ebcdic", "ok": true},
+  {"entry": "zoned-ebcdic", "ok": false,
    "error": "OCCURS DEPENDING ON is not supported"}]}
 ```
 
-The response **MUST** carry exactly one result per entry the request named, and
-**MUST NOT** carry a result for an entry it did not name. Order does not matter;
-the pairing is by name.
+Each element of `entries` is a per-entry result:
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `entry` | string | yes | Which entry the result is about. |
+| `ok` | boolean | yes | Whether the adapter has code to read that entry with. |
+| `error` | string | when `ok` is `false` | Why not. |
+
+A response whose top-level `ok` is `true` **MUST** carry exactly one result per
+entry the request named, and **MUST NOT** carry a result for an entry it did not
+name. Order does not matter; the pairing is by name.
+
+A response whose top-level `ok` is `false` is a `generate` the adapter did not
+serve at all — a malformed request, an argument it could not read. It carries
+`error` and no `entries`, every entry is lost, and the engine **MUST NOT** send
+`decode`, `roundtrip` or `rebuild` for any of them. The per-entry table binds
+only the `ok: true` case; an adapter that could not serve the operation is not
+asked to invent a result for each entry in it.
 
 **Why all of them at once.** An adapter for a compiled language compiles what
 its generator produced, and compiling is usually the most expensive thing in the
@@ -335,7 +395,9 @@ descriptor the generator would not accept, or whose generated code would not
 compile, comes back `ok: false` with a diagnostic, and the adapter stays alive
 and serves the remaining entries. That entry is reported as an adapter fault
 (#199), never as a mismatch and never as a refusal; the engine **MUST NOT** send
-`decode` or `roundtrip` for it.
+`decode` or `roundtrip` for it unless a later [`rebuild`](#rebuild) has
+succeeded for it. That exception is most of what `rebuild` is for: the entry
+somebody most wants to rebuild is the one that just failed to compile.
 
 An adapter that cannot go on at all — its toolchain is absent, its own working
 directory is unwritable — exits non-zero instead. The distinction is the whole
@@ -347,13 +409,13 @@ costs one entry, and only a broken adapter costs the run.
 One entry, read top to bottom.
 
 ```json
-{"id": 3, "op": "decode", "entry": "packed-comp3", "input": "8QLzA/QE…"}
+{"id": 3, "op": "decode", "entry": "packed-ebcdic", "input": "…"}
 ```
 
 `input` is the entry's `input.bin`, base64 encoded.
 
 ```json
-{"id": 3, "ok": true, "entry": "packed-comp3",
+{"id": 3, "ok": true, "entry": "packed-ebcdic",
  "decoded": {"records": [{"REC": {"AMOUNT": "-123.45"}}]}}
 ```
 
@@ -365,10 +427,15 @@ what the generated reader made of those bytes. The adapter **MUST** echo
 A file the generated reader refused is an answer and not a fault: `ok` stays
 `true` and `decoded` carries a `failure` beside the records read before the read
 stopped, exactly as [*A file the reader
-refused*](../conformance/SPEC.md#a-file-the-reader-refused) requires. Ten of the
-corpus's entries expect precisely this — about a third of it — and an adapter
-that reported one of them as a fault would fail those entries by being right
-about them.
+refused*](../conformance/SPEC.md#a-file-the-reader-refused) requires. A large
+fraction of the corpus's entries expect precisely this, and an adapter that
+reported one of them as a fault would fail those entries by being right about
+them. (How many
+there are is the corpus's to say, in
+[`testdata/conformance/README.md`](../../testdata/conformance/README.md), where
+it can be kept true; a count written here would go stale the first time an entry
+was added, in a document that says [entries may be
+added](#which-entries-exist) without touching it.)
 
 **The bytes travel in the frame, and not as a path.** An adapter is not given
 the corpus directory to open, because the door that produces a believable result
@@ -383,7 +450,7 @@ open `input.bin` could open `values.json` beside it.
 The writing direction, over the records the reader just produced.
 
 ```json
-{"id": 4, "op": "roundtrip", "entry": "packed-comp3"}
+{"id": 4, "op": "roundtrip", "entry": "packed-ebcdic"}
 ```
 
 The request carries no records, and that is the point. The adapter writes the
@@ -392,7 +459,7 @@ of this entry, lays them out with the generated writer, reads that file back
 with the generated reader, and answers with what came back:
 
 ```json
-{"id": 4, "ok": true, "entry": "packed-comp3",
+{"id": 4, "ok": true, "entry": "packed-ebcdic",
  "written": {"records": [{"REC": {"AMOUNT": "-123.45"}}]}}
 ```
 
@@ -406,11 +473,16 @@ direction is checked by
 reading*](../conformance/SPEC.md#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes),
 and this contract adds nothing to it.
 
-An adapter **MUST** retain the records from its most recent successful `decode`
-until the next `decode`, the next `rebuild` of that entry, or `bye`. It
-**MUST NOT** be asked to retain more than that: the engine sends `roundtrip`
-immediately after the `decode` it belongs to, so one entry's records is the
-whole memory this contract requires of an adapter.
+An adapter **MUST** retain the records from the most recent `decode` it answered
+`ok: true` — whether or not that document carried a `failure` — until the next
+`decode`, a `rebuild` of that entry, or the end of the conversation. *Answered
+`ok: true`* is the wire sense of success this document uses everywhere else, and
+it is the one meant: a refused read still produced the records it managed, and
+they are still the last thing the reader made.
+
+An adapter **MUST NOT** be asked to retain more than that. The engine sends
+`roundtrip` immediately after the `decode` it belongs to, so one entry's records
+is the whole memory this contract requires of an adapter.
 
 **Why the engine cannot supply the records.** A values document is not a record.
 It is a rendering of what a record decoded to, and
@@ -421,10 +493,19 @@ direction is being asked about. The records have to be the reader's own, which
 means they have to stay inside the adapter, which is why this operation names an
 entry and carries nothing else.
 
-Preconditions, all three refused with `ok: false` if the engine gets them wrong:
-the adapter declared the `write` capability; the named entry is the one most
-recently decoded; and that decode did not carry a `failure` — a read that
-stopped holds no complete set of records to write back.
+Preconditions: the adapter declared the `write` capability; the adapter is
+holding records from a `decode` of the named entry; and that decode did not
+carry a `failure` — a read that stopped holds no complete set of records to
+write back.
+
+The middle one is stated as what the adapter is *holding* rather than as what
+was most recently *decoded*, and the difference is not pedantry. A
+[`rebuild`](#rebuild) discards the records without changing the decode history,
+so under the other phrasing `decode X`, `rebuild X`, `roundtrip X` would satisfy
+the precondition while leaving the adapter nothing to serve it with — a request
+the contract obliged an engine to be allowed to send and an adapter to have no
+answer for. Phrased this way the adapter can check it against itself, and a
+`rebuild` falsifies it automatically.
 
 A writer that refused a record it was given is an answer too: `ok` stays `true`
 and `written` carries a `failure` with an empty `records`, as [*A file the
@@ -436,12 +517,12 @@ that half of an answer.
 One entry, regenerated inside a process that is already warm.
 
 ```json
-{"id": 5, "op": "rebuild", "entry": "packed-comp3",
- "descriptor": "CgtwYWNrZWQt…"}
+{"id": 5, "op": "rebuild", "entry": "packed-ebcdic",
+ "descriptor": "…"}
 ```
 
 ```json
-{"id": 5, "ok": true, "entry": "packed-comp3"}
+{"id": 5, "ok": true, "entry": "packed-ebcdic"}
 ```
 
 The members mean what they mean in [`generate`](#generate), and the result is
@@ -456,10 +537,16 @@ nothing to keep warm gains nothing by implementing it; an adapter that does not
 declare the `rebuild` capability is asked for a fresh process instead, which is
 slower and never wrong.
 
+A `rebuild` **MAY** name an entry the preceding `generate` did not: an entry
+that failed to generate and an entry the engine has only now decided to ask
+about are the same request, and refusing the second would buy nothing.
+
 A successful `rebuild` **MUST** replace whatever the previous `generate` or
 `rebuild` produced for that entry, and **MUST** discard any records retained for
-it. A `roundtrip` for that entry after a `rebuild` therefore needs a fresh
-`decode` first, which the precondition on `roundtrip` already requires.
+it. It is what makes an entry askable whose `generate` failed — the engine may
+`decode` that entry once a `rebuild` for it has succeeded. A `roundtrip` for it
+needs a fresh `decode` first, because the discarded records are exactly what
+[`roundtrip`](#roundtrip)'s middle precondition asks for.
 
 ### `bye`, and end of input
 
@@ -482,6 +569,12 @@ goodbye that was never coming would hang at the end of every such run.
 An adapter **MUST NOT** exit zero having neither answered `bye` nor seen end of
 input. Exiting quietly in the middle of a conversation is the one failure that
 looks, from the engine's side, exactly like a successful run that stopped early.
+
+That prohibition is what obliges the other side: an engine that stops early —
+a refused handshake, a broken adapter, a run it abandons — **MUST** close the
+adapter's standard input, and **MAY** then kill the process. Without it the
+adapter is left waiting on a conversation that is over and forbidden to leave
+it, which is a hang neither side is at fault for.
 
 ## The adapter declares its kind and its capabilities
 
@@ -557,16 +650,16 @@ generator, or a working thing about a broken one.
 
 | Outcome | On the wire | What it says |
 |---|---|---|
-| **An answer** | `ok: true`, with a values document that **MAY** carry a `failure` | The generated code was asked and produced a result. A refusal is one of the results, and an entry is allowed to expect it. |
+| **An answer** | `ok: true`, and whatever the operation returns — for [`decode`](#decode) and [`roundtrip`](#roundtrip) a values document, which **MAY** carry a `failure` | The adapter served the request. Where the request put a question to the generated code, a refusal is one of the answers, and an entry is allowed to expect it. |
 | **A fault** | `ok: false`, with `error` | The adapter could not serve this request. The entry is lost; the run is not. |
 | **A broken adapter** | a non-zero exit, or a stream that stopped parsing | The adapter cannot go on. The run is over until a fresh process is started. |
 
 A file the generated reader rejected is the first row and never the second or
 the third. This is the row an implementation gets wrong: rejecting a malformed
-file is what a correct reader *does*, ten of the corpus's entries are about
-exactly that, and an adapter that treats a rejection as an error condition
-— exiting, or answering `ok: false` — turns the corpus's most interesting third
-into noise.
+file is what a correct reader *does*, a large fraction of the corpus's entries
+are about exactly that, and an adapter that treats a rejection as an error
+condition — exiting, or answering `ok: false` — turns the corpus's most
+interesting entries into noise.
 
 ### Exit codes
 
@@ -734,22 +827,22 @@ is.
    "kind":"codec","capabilities":{"write":true}}
 
 → {"id":2,"op":"generate","entries":[
-   {"entry":"packed-comp3","descriptor":"…"},
-   {"entry":"bad-sign-nibble","descriptor":"…"}]}
+   {"entry":"packed-ebcdic","descriptor":"…"},
+   {"entry":"packed-invalid-sign","descriptor":"…"}]}
 ← {"id":2,"ok":true,"entries":[
-   {"entry":"packed-comp3","ok":true},
-   {"entry":"bad-sign-nibble","ok":true}]}
+   {"entry":"packed-ebcdic","ok":true},
+   {"entry":"packed-invalid-sign","ok":true}]}
 
-→ {"id":3,"op":"decode","entry":"packed-comp3","input":"…"}
-← {"id":3,"ok":true,"entry":"packed-comp3",
+→ {"id":3,"op":"decode","entry":"packed-ebcdic","input":"…"}
+← {"id":3,"ok":true,"entry":"packed-ebcdic",
    "decoded":{"records":[{"REC":{"AMOUNT":"-123.45"}}]}}
 
-→ {"id":4,"op":"roundtrip","entry":"packed-comp3"}
-← {"id":4,"ok":true,"entry":"packed-comp3",
+→ {"id":4,"op":"roundtrip","entry":"packed-ebcdic"}
+← {"id":4,"ok":true,"entry":"packed-ebcdic",
    "written":{"records":[{"REC":{"AMOUNT":"-123.45"}}]}}
 
-→ {"id":5,"op":"decode","entry":"bad-sign-nibble","input":"…"}
-← {"id":5,"ok":true,"entry":"bad-sign-nibble",
+→ {"id":5,"op":"decode","entry":"packed-invalid-sign","input":"…"}
+← {"id":5,"ok":true,"entry":"packed-invalid-sign",
    "decoded":{"records":[],"failure":"sign nibble 0x7 is not one of the four"}}
 
 → {"id":6,"op":"bye"}
@@ -763,7 +856,7 @@ that was the expected outcome — the adapter does not know and was not asked. N
 records to write back. And the frames are wrapped here for the page: on the wire
 each is one line.
 
-The same conversation with a descriptive adapter is two frames long:
+The same conversation with a descriptive adapter is four frames long:
 
 ```
 → {"id":1,"op":"hello","protocol":1}

@@ -624,8 +624,8 @@ A harness **MUST NOT** report an entry as failing because `written` is absent
 for the second of those reasons. It is told which case it is in before it asks
 anything: the [adapter contract](../adapter/SPEC.md#capabilities-because-a-read-only-generator-is-a-legal-generator)
 has a runner declare whether its generator emits a writer at all, so a
-read-only generator is a smaller claim rather than thirty missing answers
-(#198, #199).
+read-only generator is a smaller claim rather than a missing answer for every
+positive entry (#198, #199).
 
 ### Why the writing direction is checked by reading, and not by comparing bytes
 
