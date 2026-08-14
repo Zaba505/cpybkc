@@ -424,6 +424,24 @@ const (
 	// for byte, and this repository already has that tree.
 	companionExampleDir = "example"
 
+	// graphGenerator is the diagram generator, by the name example/cpybkc.json
+	// asks for it by, and graphGeneratorExecutable and graphGeneratorPackage are
+	// what the CLI's PATH discovery looks for and what builds it.
+	//
+	// They are here rather than beside [generatorExecutable] in image.go because
+	// that name goes into a *published* image and this one does not: a release
+	// publishes the CLI image and one generator image, and cpybkc-gen-graph is
+	// neither. It reaches this check by being built and handed over as a file,
+	// which is the path a generator that ships no image takes.
+	//
+	// The check has to install it because the committed example runs two
+	// generators (#191). That is not an accident of this check: with one
+	// generator, "every generator in a run is handed the same descriptor" is
+	// vacuous, and the example carries the second one so it stops being.
+	graphGenerator           = "graph"
+	graphGeneratorExecutable = generatorPrefix + graphGenerator
+	graphGeneratorPackage    = "./cmd/" + graphGeneratorExecutable
+
 	// neverPulledRepository is the registry repository this check hands the
 	// module, and it is deliberately one that cannot exist: `.invalid` is
 	// reserved by RFC 2606 and resolves nowhere, ever.
@@ -494,6 +512,11 @@ const (
 // Requiring both to produce the committed example is what makes them
 // interchangeable rather than merely both present.
 //
+// The example runs two generators since #191, so each composition installs two.
+// The `graph` one goes in through with-generator-executable in both, because it
+// ships no image for with-generator to take one out of — see [graphGenerator].
+// The pair being compared is still the `go` half, which is what varies.
+//
 // Then the two functions that are not part of that pair, because a check that
 // exercised only what it needed would leave the rest of the module's surface
 // covered by nothing: image, whose plugin directory has to hold the generator
@@ -502,7 +525,7 @@ const (
 //
 // Both compositions start from the base image this pipeline built, which carries
 // the CLI and no generator — so a generation that succeeded did so with the
-// generator these calls installed and not with something that was lying around
+// generators these calls installed and not with something that was lying around
 // in the image.
 //
 // Every call is checked and every failure reported rather than stopping at the
@@ -526,10 +549,18 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 
 	committed := m.Source.Directory(companionExampleDir)
 
-	fromImage := m.companion(platform).WithGenerator(ownGenerator, dagger.CompanionWithGeneratorOpts{
-		Image: m.generatorImage(platform),
-	})
-	fromExecutable := m.companion(platform).WithGeneratorExecutable(ownGenerator, m.generatorBinary(devVersion, platform))
+	// Two generators in each composition, because the committed example runs two.
+	// The `go` half is what differs between them and is the pair being checked;
+	// the `graph` half is added the same way to both, since it ships no image for
+	// with-generator to take one out of.
+	fromImage := m.companion(platform).
+		WithGenerator(ownGenerator, dagger.CompanionWithGeneratorOpts{
+			Image: m.generatorImage(platform),
+		}).
+		WithGeneratorExecutable(graphGenerator, m.graphGeneratorBinary(platform))
+	fromExecutable := m.companion(platform).
+		WithGeneratorExecutable(ownGenerator, m.generatorBinary(devVersion, platform)).
+		WithGeneratorExecutable(graphGenerator, m.graphGeneratorBinary(platform))
 
 	var errs []error
 
@@ -558,15 +589,17 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	// directory holds what it should, so a with-generator-executable that
 	// installed a second copy under another name would pass every assertion
 	// above.
-	if err := m.checkComposedImage(ctx, fromImage.Image()); err != nil {
+	composed := []string{generatorExecutable, graphGeneratorExecutable}
+
+	if err := m.checkComposedImage(ctx, fromImage.Image(), composed); err != nil {
 		errs = append(errs, fmt.Errorf(
-			"with-generator, then image, handed back a container the CLI could not resolve the generator in: %w", err))
+			"with-generator, then image, handed back a container the CLI could not resolve the generators in: %w", err))
 	}
 
-	if err := m.checkComposedImage(ctx, fromExecutable.Image()); err != nil {
+	if err := m.checkComposedImage(ctx, fromExecutable.Image(), composed); err != nil {
 		errs = append(errs, fmt.Errorf(
 			"with-generator-executable, then image, handed back a container the CLI could not resolve the "+
-				"generator in: %w", err))
+				"generators in: %w", err))
 	}
 
 	// --version through the escape hatch, with no project: it is the one
@@ -601,8 +634,36 @@ func (m *Cpybkc) companion(platform dagger.Platform) *dagger.Companion {
 	})
 }
 
-// checkComposedImage requires an image's plugin directory to hold the generator,
-// and nothing else.
+// graphGeneratorBinary builds the diagram generator for one platform, as a file
+// to hand to with-generator-executable.
+//
+// It is [Cpybkc.generatorBinary] pointed at the other command, and it carries the
+// same CGO and -trimpath switches for the same reason: what goes into the
+// composed image has to start in a scratch one. The two are not folded into a
+// single parameterised helper because they are not the same thing — that one
+// builds what a release publishes as an image, and this one builds an executable
+// for a check, so a change to how a published artifact is stamped or documented
+// has no business reaching this.
+//
+// The version stamp is passed by hand for [Cpybkc.generatorBinary]'s reason:
+// nothing upstream stamps a binary built through the generic Go build, and a
+// generator refusing an IR version it does not implement names its own version in
+// the diagnostic.
+func (m *Cpybkc) graphGeneratorBinary(platform dagger.Platform) *dagger.File {
+	return dag.Go().
+		Build(m.appSource(), dagger.GoBuildOpts{
+			Pkg:          graphGeneratorPackage,
+			ArtifactName: graphGeneratorExecutable,
+			Trimpath:     true,
+			DisableCgo:   true,
+			Platform:     string(platform),
+			Stamps:       []string{"main.version=" + devVersion},
+		}).
+		File(graphGeneratorExecutable)
+}
+
+// checkComposedImage requires an image's plugin directory to hold the generators
+// the compositions added, and nothing else.
 //
 // The directory is listed rather than the image run, because the image is a
 // scratch one: there is no shell and no `ls` in it, and the only thing that can
@@ -616,17 +677,24 @@ func (m *Cpybkc) companion(platform dagger.Platform) *dagger.Companion {
 // names, or left something else behind, is a composition this pipeline should
 // report rather than a detail it tolerates — and generate succeeding says
 // nothing about it, because a run only needs *a* generator resolvable on PATH.
-func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Container) error {
+//
+// want is passed rather than written down here because the two callers are
+// asking about different images: the published generator image carries the one
+// generator a release publishes, and a composition for the committed example
+// carries the two that example runs. A single expectation would make one of them
+// assert something that is not true of it, and the one it would be false about is
+// the published image — which is the one an adopter pulls.
+func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Container, want []string) error {
 	entries, err := composed.Directory(pluginDir).Entries(ctx)
 	if err != nil {
 		return fmt.Errorf("listing %s in the composed image: %w", pluginDir, err)
 	}
 
-	// The generator alone. The CLI is not in the plugin directory since #185 —
-	// the archetype puts an application's own binary in /app and names it
-	// absolutely in the entrypoint — so what a composition leaves here is exactly
-	// what the composition added.
-	want := []string{generatorExecutable}
+	// Those generators and nothing else. The CLI is not in the plugin directory
+	// since #185 — the archetype puts an application's own binary in /app and
+	// names it absolutely in the entrypoint — so what a composition leaves here is
+	// exactly what the composition added.
+	want = slices.Clone(want)
 	slices.Sort(want)
 	slices.Sort(entries)
 

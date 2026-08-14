@@ -7,22 +7,29 @@
 // produce.
 //
 // Everything under this directory divides in two. The layout, the copybooks it
-// names and the manifest are what a caller writes; `ledger/` and
-// `cpybkc.gen.json` are what cpybkc writes for them. This test regenerates the
-// second half from the first, through the real CLI and the real generator, and
-// holds every byte of the result against what is checked in.
+// names and the manifest are what a caller writes; the directories the
+// manifest's generators write into and `cpybkc.gen.json` are what cpybkc writes
+// for them. This test regenerates the second half from the first, through the
+// real CLI and the real generators, and holds every byte of the result against
+// what is checked in.
 //
 // It is byte for byte, and it is the whole tree rather than a sample of it,
 // because the point of a committed example is that a change to any layer of the
 // pipeline — the layout reader, the copybook reader, `resolve`, `assemble`, the
-// IR or the emitter — arrives as a diff somebody reviews. A test asserting that
-// generation merely *succeeds* would pass on a run that generated the wrong
+// IR or either emitter — arrives as a diff somebody reviews. A test asserting
+// that generation merely *succeeds* would pass on a run that generated the wrong
 // thing, which is the failure this whole directory exists to catch.
 //
-// Regenerate with the two lines README.md gives, and commit the result.
+// The manifest runs two generators, and the second test below is the one that
+// could not be written while it ran one: that a run assembles a single
+// descriptor and hands every generator in it the same bytes.
+//
+// Regenerate with the lines README.md gives, and commit the result.
 package example
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -41,26 +48,35 @@ const (
 	// CLI is given.
 	manifestName = "cpybkc.json"
 
-	// outDir is the directory the manifest's one generator writes into.
-	outDir = "ledger"
-
 	// recordName is the record of what was generated, which cpybkc writes
 	// beside the manifest and reads on the next run to prune what a layout
 	// no longer describes.
 	recordName = "cpybkc.gen.json"
 )
 
+// generator is one entry of the manifest's `generators` array, reduced to the
+// two fields this test needs: the name cpybkc resolves to an executable, and
+// the directory that executable's output lands in.
+type generator struct {
+	Name string `json:"name"`
+	Out  string `json:"out"`
+}
+
 // TestTheCommittedExampleIsWhatItsInputsGenerate regenerates the example from
 // the inputs beside it and requires the result byte for byte.
 func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 	// No t.Parallel: this test sets PATH for the process, which is how the
-	// generator it just built is the one the CLI finds.
+	// generators it just built are the ones the CLI finds.
 
 	root := repoRoot(t)
 	bin := t.TempDir()
+	gens := generators(t)
 
 	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
-	build(t, root, bin, "./cmd/cpybkc-gen-go", "cpybkc-gen-go")
+
+	for _, gen := range gens {
+		build(t, root, bin, "./cmd/"+pluginName(gen.Name), pluginName(gen.Name))
+	}
 
 	project := t.TempDir()
 	for _, name := range inputs(t) {
@@ -72,7 +88,9 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 	// file a layout no longer describes, so a run made without it is not the
 	// run the README documents — the prune path would be the one path this
 	// test never took, and a change in it would surface as a working-tree diff
-	// nobody's test predicted.
+	// nobody's test predicted. It spans both generators' output, which is what
+	// lets a generator removed from the manifest have its output pruned, so a
+	// two-generator run is also the first one to exercise that.
 	copyFile(t, recordName, filepath.Join(project, recordName))
 
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -92,8 +110,9 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 		t.Fatalf("generating the example: %v\n%s", err, out)
 	}
 
-	generated := generatedTree(t, project)
-	committed := generatedTree(t, ".")
+	outs := outputDirs(gens)
+	generated := generatedTree(t, project, outs)
+	committed := generatedTree(t, ".", outs)
 
 	for name, want := range committed {
 		got, ok := generated[name]
@@ -115,27 +134,296 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 	}
 }
 
-// difference is where two versions of one generated file first disagree, as a
-// diagnostic.
+// TestEveryGeneratorInTheRunIsHandedTheSameDescriptor asserts the equality the
+// plugin contract rests reproducibility on: a run assembles **one** descriptor,
+// every generator in it is handed those same bytes, and they are the bytes
+// `--emit-ir` writes for the same inputs.
 //
-// The first differing line and its neighbours rather than both files whole:
-// `ledger/file.go` is several thousand lines, the emitter changing is the
-// ordinary reason this test fires rather than the rare one, and a failure that
-// dumps two copies of it is one nobody reads. The bytes are not lost by leaving
-// them out — regenerating is two commands, and README.md is where they are
-// written down.
-func difference(got, want string) string {
-	gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")
+// docs/plugin/SPEC.md states it and one generator could never show it — with a
+// single entry in the manifest, "every generator gets the same bytes" is
+// vacuously true and a pipeline that assembled a descriptor per generator would
+// pass. This example is the first project in the repository that runs two, so
+// it is the first place the statement can fail.
+//
+// It is asserted through the contract rather than through the packages behind
+// it. Real generators keep the bytes they were handed to themselves, so this
+// run puts a stub generator on PATH under both of the manifest's names: it
+// copies the file at `--descriptor` into its own `--out` and writes nothing
+// else. `--out` is a private scratch directory cpybkc merges into the project
+// tree on a zero exit, so the bytes each generator saw arrive in the project
+// under that generator's own output directory, with nothing this test has to
+// know about where cpybkc put them in the meantime.
+func TestEveryGeneratorInTheRunIsHandedTheSameDescriptor(t *testing.T) {
+	// No t.Parallel, for the reason above: PATH is process-wide.
 
-	for i := range min(len(gotLines), len(wantLines)) {
-		if gotLines[i] != wantLines[i] {
-			return fmt.Sprintf("\nline %d\n got: %s\nwant: %s\n\nRegenerate it with the two commands in example/README.md and commit the result.",
-				i+1, gotLines[i], wantLines[i])
+	root := repoRoot(t)
+	bin := t.TempDir()
+	gens := generators(t)
+
+	if len(gens) < 2 {
+		t.Fatalf("%s runs %d generator(s); this assertion needs at least two", manifestName, len(gens))
+	}
+
+	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
+
+	for _, gen := range gens {
+		buildStub(t, bin, pluginName(gen.Name))
+	}
+
+	project := t.TempDir()
+	for _, name := range inputs(t) {
+		copyFile(t, name, filepath.Join(project, name))
+	}
+
+	// No record goes in. The stubs write one file each and none of the files the
+	// committed record names, so carrying it over would ask cpybkc to prune the
+	// real output out of a project that never had it.
+
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	manifest := filepath.Join(project, manifestName)
+
+	cmd := exec.Command(filepath.Join(bin, executable("cpybkc")), "--manifest", manifest)
+	cmd.Dir = project
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("running the stub generators: %v\n%s", err, out)
+	}
+
+	// What each generator was handed, in the order the manifest declares them.
+	first := gens[0]
+	want := readFile(t, filepath.Join(project, first.Out, stubOutput))
+
+	for _, gen := range gens[1:] {
+		got := readFile(t, filepath.Join(project, gen.Out, stubOutput))
+
+		if !bytes.Equal(got, want) {
+			t.Errorf("the descriptor %s was handed is not the one %s was handed: %d bytes against %d",
+				gen.Name, first.Name, len(got), len(want))
 		}
 	}
 
-	return fmt.Sprintf("\nthe first %d lines agree and the generated file has %d of them against the %d checked in\n\nRegenerate it with the two commands in example/README.md and commit the result.",
-		min(len(gotLines), len(wantLines)), len(gotLines), len(wantLines))
+	// And that those are the bytes --emit-ir writes for the same inputs, which
+	// is the half of the equality a reader reproducing a failing generation by
+	// hand depends on. --emit-ir is terminal and runs no generator, so this is a
+	// second run over the same manifest.
+	emitted := filepath.Join(t.TempDir(), "descriptor.binpb")
+
+	cmd = exec.Command(filepath.Join(bin, executable("cpybkc")),
+		"--manifest", manifest, "--emit-ir", emitted)
+	cmd.Dir = project
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("emitting the descriptor: %v\n%s", err, out)
+	}
+
+	if got := readFile(t, emitted); !bytes.Equal(got, want) {
+		t.Errorf("the descriptor --emit-ir writes is not the one the generators were handed: %d bytes against %d",
+			len(got), len(want))
+	}
+}
+
+// TestTheRecordPrunesEveryGeneratorsOutput asserts that the stale-file pruning
+// `cpybkc.gen.json` drives is unaffected by there being two generators.
+//
+// There is **one** record per project rather than one per generator, and that is
+// what lets a generator removed from the manifest have its output pruned — the
+// record outlives the entry that produced any of it. With one generator in a
+// manifest, a pipeline that kept the record per generator would behave
+// identically; with two, it would prune one generator's output while writing the
+// other's, or leave a stale file behind in whichever directory it was not
+// looking at.
+//
+// So this run starts from a project whose record names a stale file in *every*
+// output directory and nothing else. Every one of them has to be gone
+// afterwards, and the record has to come out as the committed one — the run's
+// real output, recorded together and sorted across both generators.
+func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
+	// No t.Parallel, for the reason the tests above give: PATH is process-wide.
+
+	root := repoRoot(t)
+	bin := t.TempDir()
+	gens := generators(t)
+
+	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
+
+	for _, gen := range gens {
+		build(t, root, bin, "./cmd/"+pluginName(gen.Name), pluginName(gen.Name))
+	}
+
+	project := t.TempDir()
+	for _, name := range inputs(t) {
+		copyFile(t, name, filepath.Join(project, name))
+	}
+
+	// A stale file in each output directory, and a record that names them and
+	// nothing else. They are what the last run is being said to have generated,
+	// so this run has to prune every one of them.
+	const staleName = "stale.txt"
+
+	var stale []string
+
+	for _, out := range outputDirs(gens) {
+		if err := os.MkdirAll(filepath.Join(project, out), 0o755); err != nil {
+			t.Fatalf("making %s: %v", out, err)
+		}
+
+		path := filepath.Join(project, out, staleName)
+		if err := os.WriteFile(path, []byte("what the last run is said to have written\n"), 0o644); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+
+		stale = append(stale, out+"/"+staleName)
+	}
+
+	writeRecord(t, filepath.Join(project, recordName), stale)
+
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cmd := exec.Command(filepath.Join(bin, executable("cpybkc")),
+		"--manifest", filepath.Join(project, manifestName))
+	cmd.Dir = project
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("regenerating over a stale record: %v\n%s", err, out)
+	}
+
+	for _, name := range stale {
+		if _, err := os.Stat(filepath.Join(project, filepath.FromSlash(name))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s survived a run whose record named it and whose generators did not write it: %v", name, err)
+		}
+	}
+
+	got := readFile(t, filepath.Join(project, recordName))
+	if want := readFile(t, recordName); !bytes.Equal(got, want) {
+		t.Errorf("the record a pruning run wrote is not the one checked in\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// writeRecord writes a `cpybkc.gen.json` naming files, in the form cpybkc reads:
+// version 1, project-root-relative slash-separated paths, sorted.
+//
+// Written out rather than taken from internal/generate, because this directory
+// asserts against cpybkc from the outside — the record is a file a person can
+// read and a next run depends on, and a test that built it with the same code
+// that reads it would agree with a change to both.
+func writeRecord(t *testing.T, path string, files []string) {
+	t.Helper()
+
+	slices.Sort(files)
+
+	body, err := json.MarshalIndent(struct {
+		Version int      `json:"version"`
+		Files   []string `json:"files"`
+	}{Version: 1, Files: files}, "", "  ")
+	if err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+
+	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// readable is how long a generated file may be and still be printed whole when
+// it disagrees with what is checked in.
+//
+// The two files this example generates are not the same size and do not want the
+// same diagnostic. `graph/graph.md` is under two hundred lines, and a reviewer
+// reading a failure wants to see what the diagram became — printing both sides
+// means the new document comes out of the test's own output, and what changed
+// about the picture is legible in the failure rather than only after
+// regenerating. `ledger/file.go` is several thousand lines: an emitter changing
+// is the ordinary reason this test fires rather than the rare one, and a failure
+// that dumps two copies of it is one nobody reads.
+//
+// So the rule is the file's length rather than its name, and the number is where
+// two copies stop being something a person reads in a scrollback.
+const readable = 300
+
+// difference is how two versions of one generated file disagree, as a
+// diagnostic: both of them where the file is short enough to read, and where it
+// is not, the first line they differ on.
+//
+// Nothing is lost by the short form — regenerating is three commands, and
+// README.md is where they are written down.
+func difference(got, want string) string {
+	gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")
+
+	const regenerate = "\n\nRegenerate it with the commands in example/README.md and commit the result."
+
+	if len(gotLines) <= readable && len(wantLines) <= readable {
+		return fmt.Sprintf("\n--- generated ---\n%s\n--- checked in ---\n%s\n---%s", got, want, regenerate)
+	}
+
+	for i := range min(len(gotLines), len(wantLines)) {
+		if gotLines[i] != wantLines[i] {
+			return fmt.Sprintf("\nline %d\n got: %s\nwant: %s%s", i+1, gotLines[i], wantLines[i], regenerate)
+		}
+	}
+
+	return fmt.Sprintf("\nthe first %d lines agree and the generated file has %d of them against the %d checked in%s",
+		min(len(gotLines), len(wantLines)), len(gotLines), len(wantLines), regenerate)
+}
+
+// generators is the manifest's `generators` array, read rather than written
+// down.
+//
+// Which generators this example runs, what they are called and where each one
+// writes are facts `cpybkc.json` already states, and a second copy of them here
+// is one somebody would have to remember to update — a generator added to the
+// manifest and not to this file is output nothing asserts, which is the failure
+// this whole directory exists to catch, arrived at from the inside.
+func generators(t *testing.T) []generator {
+	t.Helper()
+
+	body, err := os.ReadFile(manifestName)
+	if err != nil {
+		t.Fatalf("reading %s: %v", manifestName, err)
+	}
+
+	var manifest struct {
+		Generators []generator `json:"generators"`
+	}
+
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatalf("reading %s: %v", manifestName, err)
+	}
+
+	if len(manifest.Generators) == 0 {
+		t.Fatalf("%s names no generators", manifestName)
+	}
+
+	for _, gen := range manifest.Generators {
+		if gen.Name == "" || gen.Out == "" {
+			t.Fatalf("%s has a generator entry missing a name or an out directory: %+v", manifestName, gen)
+		}
+	}
+
+	return manifest.Generators
+}
+
+// outputDirs is the set of directories the manifest's generators write into,
+// deduplicated: two generators are allowed to share one, and walking it twice
+// would say nothing a walk once does not.
+func outputDirs(gens []generator) []string {
+	var dirs []string
+
+	for _, gen := range gens {
+		if !slices.Contains(dirs, gen.Out) {
+			dirs = append(dirs, gen.Out)
+		}
+	}
+
+	slices.Sort(dirs)
+
+	return dirs
+}
+
+// pluginName is the executable cpybkc resolves a manifest name to, which is the
+// whole of how a generator is identified.
+func pluginName(name string) string {
+	return "cpybkc-gen-" + name
 }
 
 // inputs is what a caller writes: the manifest, the layout and the copybooks
@@ -171,14 +459,14 @@ func inputs(t *testing.T) []string {
 }
 
 // generatedTree is everything cpybkc writes for this project, by slash-separated
-// path relative to dir: the record beside the manifest, and the package the one
-// generator emits.
+// path relative to dir: the record beside the manifest, and every generator's
+// output directory.
 //
 // A `_test.go` file is not one. The generated package holds no hand-written
 // declaration — one added by hand would fail the test above, which is the right
 // answer — but a test binary is not the package, and the round-trip assertions
 // have to run inside it because a credit posting's retained slack is unexported.
-func generatedTree(t *testing.T, dir string) map[string]string {
+func generatedTree(t *testing.T, dir string, outs []string) map[string]string {
 	t.Helper()
 
 	found := map[string]string{}
@@ -189,32 +477,34 @@ func generatedTree(t *testing.T, dir string) map[string]string {
 		t.Fatalf("reading %s: %v", filepath.Join(dir, recordName), err)
 	}
 
-	err := filepath.WalkDir(filepath.Join(dir, outDir), func(path string, entry fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			return err
-		case entry.IsDir():
+	for _, out := range outs {
+		err := filepath.WalkDir(filepath.Join(dir, out), func(path string, entry fs.DirEntry, err error) error {
+			switch {
+			case err != nil:
+				return err
+			case entry.IsDir():
+				return nil
+			case strings.HasSuffix(entry.Name(), "_test.go"):
+				return nil
+			}
+
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+
+			found[filepath.ToSlash(rel)] = string(body)
+
 			return nil
-		case strings.HasSuffix(entry.Name(), "_test.go"):
-			return nil
+		})
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("walking %s: %v", filepath.Join(dir, out), err)
 		}
-
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-
-		found[filepath.ToSlash(rel)] = string(body)
-
-		return nil
-	})
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("walking %s: %v", filepath.Join(dir, outDir), err)
 	}
 
 	return found
@@ -222,9 +512,10 @@ func generatedTree(t *testing.T, dir string) map[string]string {
 
 // build builds one of this repository's commands into bin.
 //
-// The generator is built under the name the CLI looks for on PATH, and the tree
-// under test is what both are built from: a run against the generator somebody
-// installed months ago would assert nothing about the pull request making it.
+// The generators are built under the names the CLI looks for on PATH, and the
+// tree under test is what all of them are built from: a run against the
+// generator somebody installed months ago would assert nothing about the pull
+// request making it.
 func build(t *testing.T, root, bin, pkg, name string) {
 	t.Helper()
 
@@ -233,6 +524,95 @@ func build(t *testing.T, root, bin, pkg, name string) {
 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building %s: %v\n%s", pkg, err, out)
+	}
+}
+
+// stubOutput is the one file the stub generator writes: the descriptor it was
+// handed, copied into its own output directory.
+const stubOutput = "descriptor.bin"
+
+// stubSource is a generator that answers one question — what bytes was I handed?
+//
+// It is a program rather than a fixture because a generator is discovered on
+// PATH and run as a process, and interposing anything else would be asserting
+// against a pipeline this example does not have. It reads only the two flags the
+// contract requires of every plugin, ignores the options cpybkc passes it, and
+// writes one file beneath `--out`, which is where a plugin's output belongs.
+const stubSource = `package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// output is the file this generator writes, substituted in by the test so that
+// the two sides cannot drift.
+const output = "OUTPUT_FILE"
+
+func main() {
+	var descriptor, out string
+
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		if i+1 >= len(args) {
+			break
+		}
+
+		switch args[i] {
+		case "--descriptor":
+			descriptor, i = args[i+1], i+1
+		case "--out":
+			out, i = args[i+1], i+1
+		}
+	}
+
+	if descriptor == "" || out == "" {
+		fmt.Fprintln(os.Stderr, "error: --descriptor and --out are both required")
+		os.Exit(1)
+	}
+
+	body, err := os.ReadFile(descriptor)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: reading the descriptor: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := os.WriteFile(filepath.Join(out, output), body, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "error: writing the descriptor out: %v\n", err)
+		os.Exit(1)
+	}
+}
+`
+
+// buildStub builds the stub generator into bin under one of the names cpybkc
+// will look for.
+//
+// It is built in a module of its own rather than added to this repository's
+// command tree: it is a fake generator, and a fake generator checked in beside
+// the two real ones is something an adopter reading `cmd/` would have to be told
+// to ignore.
+func buildStub(t *testing.T, bin, name string) {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	source := strings.ReplaceAll(stubSource, "OUTPUT_FILE", stubOutput)
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0o644); err != nil {
+		t.Fatalf("writing the stub generator: %v", err)
+	}
+
+	for _, args := range [][]string{
+		{"mod", "init", "cpybkcexamplestub"},
+		{"build", "-o", filepath.Join(bin, executable(name)), "."},
+	} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go %s for the stub generator: %v\n%s", strings.Join(args, " "), err, out)
+		}
 	}
 }
 
@@ -254,14 +634,21 @@ func executable(name string) string {
 func copyFile(t *testing.T, from, to string) {
 	t.Helper()
 
-	body, err := os.ReadFile(from)
-	if err != nil {
-		t.Fatalf("reading %s: %v", from, err)
-	}
-
-	if err := os.WriteFile(to, body, 0o644); err != nil {
+	if err := os.WriteFile(to, readFile(t, from), 0o644); err != nil {
 		t.Fatalf("writing %s: %v", to, err)
 	}
+}
+
+// readFile is os.ReadFile with the failure already reported.
+func readFile(t *testing.T, name string) []byte {
+	t.Helper()
+
+	body, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("reading %s: %v", name, err)
+	}
+
+	return body
 }
 
 // repoRoot is the directory holding go.mod, walked up to from this test's own.

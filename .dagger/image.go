@@ -777,7 +777,10 @@ func (m *Cpybkc) checkGeneratorImage(
 	errs = append(errs, m.checkImageBuild(ctx, image, platform, pluginDir+"/"+generatorExecutable)...)
 	errs = append(errs, m.checkGeneratorVersion(ctx, image, version)...)
 
-	if err := m.checkComposedImage(ctx, image); err != nil {
+	// The one generator a release publishes an image for, and nothing else. The
+	// committed example runs a second one, but it ships no image of its own, so
+	// what belongs in this image's plugin directory is unchanged by that.
+	if err := m.checkComposedImage(ctx, image, []string{generatorExecutable}); err != nil {
 		errs = append(errs, err)
 	}
 
