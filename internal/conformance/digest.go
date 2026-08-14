@@ -34,8 +34,24 @@ const DigestExt = ".sha256"
 const digestLen = sha256.Size * 2
 
 // DigestPath is where the digest of the corpus at dir is published.
+//
+// A corpus named `.` — which is what `--corpus .` from inside an unpacked
+// corpus means, and a plausible thing for somebody to type — has no name for a
+// file to sit beside, and appending to it produces `..sha256`: a path nobody
+// can have created, so the digest reads as absent and the run proceeds
+// unchecked. Resolving against the working directory is what gives it one. It
+// is done only in that case, because a relative path that already has a name
+// reads far better in a diagnostic than the absolute one it would become.
 func DigestPath(dir string) string {
-	return filepath.Clean(dir) + DigestExt
+	cleaned := filepath.Clean(dir)
+
+	if base := filepath.Base(cleaned); base == "." || base == ".." {
+		if absolute, err := filepath.Abs(cleaned); err == nil {
+			cleaned = absolute
+		}
+	}
+
+	return cleaned + DigestExt
 }
 
 // Digest reduces the corpus at dir to one SHA-256, written lowercase
@@ -115,11 +131,14 @@ func DigestFS(corpus fs.FS) (string, error) {
 // digestFiles returns every regular file under corpus, as slash-separated paths
 // relative to it, in sorted order.
 //
-// [io/fs.WalkDir] already walks lexically, so the sort is belt and braces — but
-// the ordering is what makes the digest a function of the corpus rather than of
-// a directory read, and a property that load-bearing is worth stating where a
-// reader can see it. internal/tools/ir-protos says the same of the archive it
-// writes, for the same reason.
+// The sort is load-bearing and is not a belt-and-braces repeat of the walk.
+// [io/fs.WalkDir] orders each *directory's* entries, which is a different order
+// from sorting the full paths: beside a directory `a/` holding `b.txt`, a file
+// `a.txt` is visited second, because the walk compares `a` against `a.txt` —
+// so the walk emits `a/b.txt` first while `.` (0x2E) sorting below `/` (0x2F)
+// puts `a.txt` first. Only the sorted order is the one
+// docs/conformance/SPEC.md's *The corpus digest* states, so removing this line
+// would silently stop the digest being the published rule.
 func digestFiles(corpus fs.FS) ([]string, error) {
 	var names []string
 

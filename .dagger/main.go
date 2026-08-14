@@ -28,12 +28,12 @@
 //   - The contract checks. ImageContract, WorkedExample, CompanionModule,
 //     CliSurface, EngineLock, IrArtifacts, LayoutArtifact, ConformanceArtifact,
 //     IrDescriptorSet, IrProtos, LayoutSchema, ConformanceBundle, ProtoLint,
-//     ProtoGen and Build are assertions about
-//     docs/container/SPEC.md, docs/plugin/SPEC.md and docs/cli/SPEC.md, and every
-//     one of them holds against a container whoever built it. They are also the
-//     evidence that adopting the archetype changed nothing a consumer can see
-//     that this change did not choose to change, which is the only thing that
-//     makes a change of this size reviewable.
+//     ProtoGen and Build are assertions about docs/container/SPEC.md,
+//     docs/plugin/SPEC.md, docs/cli/SPEC.md and docs/conformance/SPEC.md, and
+//     every one of them holds against a container whoever built it. They are
+//     also the evidence that adopting the archetype changed nothing a consumer
+//     can see that this change did not choose to change, which is the only
+//     thing that makes a change of this size reviewable.
 //   - Whether this commit is a release. The archetype takes a version from its
 //     caller and derives the tag family from it; reading the refs at HEAD to
 //     decide whether there is a release here at all, refusing two version tags
@@ -405,7 +405,7 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 // ConformanceArtifact is the one that arrived, for the conformance archive a
 // release attaches (#202).
 //
-// ImageContract is one of the fifteen, and since #185 that stage builds an App —
+// ImageContract is one of the sixteen, and since #185 that stage builds an App —
 // so this call needs real git metadata and does not run from a git worktree. See
 // New.
 //

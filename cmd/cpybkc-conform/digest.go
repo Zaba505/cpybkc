@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -34,6 +35,13 @@ func digest(args []string, stdout, stderr io.Writer) error {
 	corpus := flags.String("corpus", defaultCorpus, "the unpacked corpus")
 
 	if err := flags.Parse(args); err != nil {
+		// An answer rather than a failed run, for the reason check gives.
+		if errors.Is(err, flag.ErrHelp) {
+			_, _ = fmt.Fprint(stdout, usage)
+
+			return nil
+		}
+
 		return fmt.Errorf("%w\n\n%s", err, usage)
 	}
 

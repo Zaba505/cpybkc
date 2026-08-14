@@ -166,6 +166,27 @@ func TestArchiveRefusesToShipWithoutAPart(t *testing.T) {
 	}
 }
 
+// TestArchiveRefusesToCarryOnePathTwice is about a failure that would be silent
+// on both sides. Two of the three trees contributing one path writes two entries
+// under it, and which one a consumer ends up with is decided by whichever their
+// tar extracted last — so the artifact would be well-formed, uploadable, and
+// hold a file whose contents depend on how it was unpacked.
+//
+// Nothing collides today. What this pins is that adding a file to the archive's
+// own documentation cannot quietly shadow the corpus digest.
+func TestArchiveRefusesToCarryOnePathTwice(t *testing.T) {
+	documentation := fstest.MapFS{
+		"README.md": &fstest.MapFile{Data: []byte("how to run it\n")},
+		conformance.PublishedCorpusDir + conformance.DigestExt: &fstest.MapFile{
+			Data: []byte("not the digest\n"),
+		},
+	}
+
+	if _, err := contents(documentation, corpus(), engines()); err == nil {
+		t.Error("contents archived one path twice")
+	}
+}
+
 // TestArchiveRefusesWhatIsNotAFile keeps a link out of a published archive, for
 // the reason the corpus digest refuses one: its content is a property of where
 // the archive was unpacked rather than of what was archived.

@@ -41,7 +41,15 @@ rest of the flags.
 
 `corpus.sha256` holds a SHA-256 over `corpus/`. `check` verifies it before it
 starts a process and refuses to run against a corpus that does not match, so
-there is nothing you have to remember to do. To see the number yourself:
+there is nothing you have to remember to do about the corpus.
+
+It covers the corpus and only the corpus. Nothing here checks `bin/` or this
+file, so a download truncated inside one of the executables shows up as an
+executable that will not start rather than as a digest that disagrees. Treat the
+number below as "this is the corpus that was published", not as "this download
+arrived intact".
+
+To see the number yourself:
 
 ```sh
 ./bin/cpybkc-conform-linux-amd64 digest

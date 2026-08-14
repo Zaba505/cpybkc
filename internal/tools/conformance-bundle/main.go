@@ -80,6 +80,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Zaba505/cpybkc/internal/conformance"
@@ -94,7 +95,12 @@ import (
 // committed rather than generated because it is prose somebody wrote, and the
 // place to review it is a diff.
 //
-//go:embed bundle
+// The all: prefix is what makes that claim true rather than nearly true. A bare
+// //go:embed of a directory silently drops every file whose name begins with a
+// dot or an underscore, so a .well-known or a _template added here would be
+// reviewed, committed, and then not be in the archive.
+//
+//go:embed all:bundle
 var bundle embed.FS
 
 const (
@@ -203,7 +209,12 @@ func run(args []string) error {
 // the package comment claims can be asserted against trees a test builds,
 // rather than only against the ones on disk beside it.
 func writeArchive(w io.Writer, corpus, engines fs.FS) error {
-	entries, err := contents(corpus, engines)
+	documentation, err := fs.Sub(bundle, "bundle")
+	if err != nil {
+		return fmt.Errorf("failed to read the archive's own documentation: %w", err)
+	}
+
+	entries, err := contents(documentation, corpus, engines)
 	if err != nil {
 		return err
 	}
@@ -262,7 +273,11 @@ type entry struct {
 // what goes in rather than of the order three trees were walked in. That is the
 // same property internal/tools/ir-protos states of its own sort, and it is what
 // makes the artifact comparable across releases at all.
-func contents(corpus, engines fs.FS) ([]entry, error) {
+// The documentation tree is a parameter rather than read from [bundle] here so
+// that the collision check below can be exercised. It is the only one of the
+// three whose contents this repository controls, so it is the only one a test
+// can make collide with another.
+func contents(documentation, corpus, engines fs.FS) ([]entry, error) {
 	// The digest is taken over the same filesystem that is about to be
 	// archived, and not over the directory again: two walks are two reads, and
 	// an edit between them would publish a digest for a corpus the archive does
@@ -270,11 +285,6 @@ func contents(corpus, engines fs.FS) ([]entry, error) {
 	digest, err := conformance.DigestFS(corpus)
 	if err != nil {
 		return nil, fmt.Errorf("failed to digest the corpus: %w", err)
-	}
-
-	documentation, err := fs.Sub(bundle, "bundle")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the archive's own documentation: %w", err)
 	}
 
 	entries := []entry{{
@@ -317,16 +327,21 @@ func contents(corpus, engines fs.FS) ([]entry, error) {
 		}
 	}
 
-	slices.SortFunc(entries, func(a, b entry) int {
-		switch {
-		case a.name < b.name:
-			return -1
-		case a.name > b.name:
-			return 1
-		default:
-			return 0
+	slices.SortFunc(entries, func(a, b entry) int { return strings.Compare(a.name, b.name) })
+
+	// A path contributed by two of the three trees would be written twice, and
+	// what a consumer then has is decided by whichever entry their tar extracted
+	// last. Nothing collides today — the documentation is at the root, the corpus
+	// under corpus/ and the engines under bin/ — but that is a property of three
+	// trees somebody can add a file to, and the way it would go wrong is a file
+	// whose contents depend on the order it was unpacked in. Adjacent
+	// comparison is enough because the entries are sorted.
+	for i := 1; i < len(entries); i++ {
+		if entries[i].name == entries[i-1].name {
+			return nil, fmt.Errorf("%s would be archived twice, and a consumer's tar would keep whichever "+
+				"copy it extracted last", entries[i].name)
 		}
-	})
+	}
 
 	return entries, nil
 }

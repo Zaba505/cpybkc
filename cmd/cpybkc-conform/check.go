@@ -7,10 +7,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Zaba505/cpybkc/internal/conformance"
@@ -42,6 +45,17 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	)
 
 	if err := flags.Parse(args); err != nil {
+		// Asking for help is an answer, not a failed run: flag reports -h and
+		// --help as ErrHelp, and left as an ordinary error they would be printed
+		// to standard error and exit 2, which this program's own contract
+		// reserves for a run that could not be attempted. The archive's README
+		// tells a first-time offline reader to type exactly this.
+		if errors.Is(err, flag.ErrHelp) {
+			_, _ = fmt.Fprint(stdout, usage)
+
+			return nil
+		}
+
 		return fmt.Errorf("%w\n\n%s", err, usage)
 	}
 
@@ -118,29 +132,58 @@ func readCorpus(dir string, stderr io.Writer) ([]*conformance.Entry, error) {
 	return entries, nil
 }
 
-// adapterPath is the executable --exec named, checked before a run starts.
+// adapterPath is the executable --exec named, checked before a run starts and
+// resolved to an absolute path.
 //
-// A name is refused rather than looked up on PATH, which is the rule
+// A bare name is refused rather than looked up on PATH, which is the rule
 // [engine.Command.Path] states and the reason it gives: a run is usually
 // against something just built from the tree under test, and resolving a name
-// would find whichever adapter the author happened to have installed. Refusing
-// is the honest half of that — silently reading it as a relative path would
-// make `--exec adapter` mean something different from what a shell means by it.
-func adapterPath(path string) (string, error) {
-	if path == "" {
+// would find whichever adapter the author happened to have installed.
+//
+// Refused rather than read as `./name`, which is the other thing it could have
+// done. Both of those are decisions about what somebody meant, and a shell
+// makes neither: `adapter` at a prompt runs the one on PATH and nothing runs
+// the one in this directory. Saying so costs one line and one sentence, and
+// leaves the caller to write which they meant.
+//
+// # Why it is made absolute
+//
+// os/exec resolves a relative Path against [os/exec.Cmd.Dir] rather than against
+// this process's working directory. With --dir set, `--exec ./adapter` would
+// therefore be checked here against the file the caller meant and started from
+// the adapter's own directory instead — a different program of the same name, or
+// none, and neither outcome says which file it ran. Resolving once, here, is
+// what makes --exec mean the same thing whether or not --dir was given.
+func adapterPath(name string) (string, error) {
+	if name == "" {
 		return "", fmt.Errorf("--exec is required: name the adapter executable to run\n\n%s", usage)
 	}
 
-	info, err := os.Stat(path)
+	// Checked before the file is looked for, so that the diagnostic is about the
+	// shape of what was written rather than about a file that may well exist.
+	// The forward slash is tested as well as the platform's separator because
+	// Windows accepts both, so `--exec ./adapter` is a path there too.
+	if !strings.ContainsRune(name, '/') && !strings.ContainsRune(name, filepath.Separator) {
+		return "", fmt.Errorf("--exec %s names no directory, and this is a path rather than a name to look up on "+
+			"PATH: write %c%c%s for the one here, or give the path to the one you mean",
+			name, '.', filepath.Separator, name)
+	}
+
+	info, err := os.Stat(name)
 	if err != nil {
-		return "", fmt.Errorf("failed to find the adapter %s: %w", path, err)
+		return "", fmt.Errorf("failed to find the adapter %s: %w", name, err)
 	}
 
 	if info.IsDir() {
-		return "", fmt.Errorf("%s is a directory: --exec names the adapter executable itself", path)
+		return "", fmt.Errorf("%s is a directory: --exec names the adapter executable itself", name)
 	}
 
-	return path, nil
+	absolute, err := filepath.Abs(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve the adapter %s: %w", name, err)
+	}
+
+	return absolute, nil
 }
 
 // positive refuses a bound that is not one. A zero duration is the engine's

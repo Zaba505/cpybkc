@@ -184,10 +184,14 @@ func writeArchive(w io.Writer, schema fs.FS) error {
 // protoFiles returns every .proto under schema, as slash-separated paths
 // relative to it, in sorted order.
 //
-// [io/fs.WalkDir] already walks lexically, so the sort is belt and braces — but
-// the ordering is what makes the archive a function of its contents rather than
-// of a directory read, and a property that load-bearing is worth stating where a
-// reader can see it.
+// The sort is load-bearing and is not a belt-and-braces repeat of the walk,
+// which is what this comment used to say (#202). [io/fs.WalkDir] orders each
+// *directory's* entries, and that is a different order from sorting the full
+// paths: beside a directory `a/` holding `b.proto`, a file `a.proto` is visited
+// second, because the walk compares `a` against `a.proto` — so the walk emits
+// `a/b.proto` first while `.` (0x2E) sorting below `/` (0x2F) puts `a.proto`
+// first. The sorted order is what makes the archive a function of its contents
+// rather than of a directory read.
 func protoFiles(schema fs.FS) ([]string, error) {
 	var names []string
 

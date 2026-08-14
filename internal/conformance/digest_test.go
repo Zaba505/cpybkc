@@ -101,19 +101,24 @@ func TestDigestMovesWhenTheCorpusDoes(t *testing.T) {
 	}
 }
 
-// TestDigestSeparatesTheFilesItCovers is the length delimiter's own test. Two
-// corpora that differ only in where one file's contents end and the next file's
-// name begins must not agree, and they would if the hash were fed the paths and
-// the bytes with nothing between them.
+// TestDigestSeparatesTheFilesItCovers is the length delimiter's own test, and
+// the two corpora below are chosen so that it is: without the length, both
+// flatten to exactly `a\0xb\0` and the digest cannot tell them apart. Remove
+// the length from [DigestFS] and this test goes red, which is the only way a
+// test of that property is worth having.
+//
+// It takes a NUL inside a file's contents to build the collision, which is
+// exactly the case docs/conformance/SPEC.md's justification names: `input.bin`
+// is arbitrary bytes by definition, so the contents cannot be their own
+// delimiter.
 func TestDigestSeparatesTheFilesItCovers(t *testing.T) {
 	first := mustDigest(t, fstest.MapFS{
-		"a": &fstest.MapFile{Data: []byte("bc")},
-		"d": &fstest.MapFile{Data: []byte{}},
+		"a": &fstest.MapFile{Data: []byte("xb\x00")},
 	})
 
 	second := mustDigest(t, fstest.MapFS{
-		"a": &fstest.MapFile{Data: []byte("b")},
-		"d": &fstest.MapFile{Data: []byte("c")},
+		"a": &fstest.MapFile{Data: []byte("x")},
+		"b": &fstest.MapFile{Data: []byte{}},
 	})
 
 	if first == second {
@@ -301,6 +306,31 @@ func TestDigestPathSitsBesideTheCorpus(t *testing.T) {
 	for _, dir := range []string{filepath.Join("a", "corpus"), filepath.Join("a", "corpus") + string(filepath.Separator)} {
 		if got := DigestPath(dir); got != want {
 			t.Errorf("DigestPath(%q) is %q, want %q", dir, got, want)
+		}
+	}
+}
+
+// TestDigestPathNamesACorpusThatNamesItselfNothing is the case a downloader
+// reaches by working inside the corpus: `--corpus .`. Cleaning leaves a
+// directory with no name for a file to sit beside, and appending would produce
+// `..sha256` — a path nobody can have created, so the digest reads as absent and
+// the run proceeds unchecked, which is the one outcome the digest exists to
+// prevent.
+func TestDigestPathNamesACorpusThatNamesItselfNothing(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	for _, corpus := range []string{".", "", "a" + string(filepath.Separator) + ".."} {
+		got := DigestPath(corpus)
+
+		if !filepath.IsAbs(got) {
+			t.Errorf("DigestPath(%q) is %q, which names no corpus to sit beside", corpus, got)
+
+			continue
+		}
+
+		if base := filepath.Base(got); base == DigestExt || base == "."+DigestExt {
+			t.Errorf("DigestPath(%q) is %q, which is a file nobody could have written", corpus, got)
 		}
 	}
 }

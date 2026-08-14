@@ -719,6 +719,17 @@ ill-formed. A symbolic link is a file whose content depends on where the archive
 was unpacked, so a digest that followed one would move between machines and one
 that skipped it would certify a member it never read.
 
+A `corpus/` holding no file at all is ill-formed too, and this is stated rather
+than left to follow from the rule. Applied literally the rule computes a
+perfectly good digest of nothing —
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`, the SHA-256
+of the empty stream — and a reader who published or accepted that would be
+certifying an empty download as the corpus. An implementation **MUST** refuse
+it instead.
+
+The corpus **MUST** hold at least one entry in any case ([*An
+entry*](#an-entry)), so nothing well-formed is refused by this.
+
 `corpus.sha256` is deliberately **not** a `sha256sum` file. That format names a
 file and this digest covers a directory, and a line that looked like
 `sha256sum`'s would invite `sha256sum -c` — which would check one file that is

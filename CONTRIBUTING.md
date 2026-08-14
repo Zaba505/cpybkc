@@ -2,7 +2,7 @@
 
 ## The pipeline
 
-fmt, vet, golangci-lint, `go test -race`, `buf lint`, the three artifacts a
+fmt, vet, golangci-lint, `go test -race`, `buf lint`, the four artifacts a
 release attaches, the published base image and the worked example in the
 base-image contract are defined once, in the root Dagger module under
 [`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:

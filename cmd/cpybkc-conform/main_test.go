@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/conformance"
+	"github.com/Zaba505/cpybkc/internal/conformance/engine"
 )
 
 // TestCheckRunsTheCorpusThroughAnAdapter is the whole program, over the corpus
@@ -72,6 +73,55 @@ func TestCheckFailsWhenTheRunDoes(t *testing.T) {
 
 	if !errors.Is(err, errFailed) {
 		t.Fatalf("a failed run came back as %v, and not as errFailed", err)
+	}
+}
+
+// TestCheckRunsTheAdapterItChecked is a silent failure that would otherwise be
+// very hard to see. os/exec resolves a relative Path against Cmd.Dir, so with
+// --dir set, `--exec ./adapter` would be checked against the file the caller
+// meant and started from the adapter's working directory instead — a different
+// program of the same name, or none at all.
+//
+// The case is built to fail loudly if that ever comes back: the adapter is
+// named relative to this test's own directory, --dir points somewhere holding a
+// file of the same name that is not an adapter, and the run must be the one the
+// caller named.
+func TestCheckRunsTheAdapterItChecked(t *testing.T) {
+	root := repoRoot(t)
+	adapter := build(t, root, "./internal/conformance/descriptive/cmd/adapter")
+
+	// A decoy at the same base name, in the directory the adapter is told to run
+	// in. It is not executable, so a run that started it fails.
+	elsewhere := t.TempDir()
+	write(t, filepath.Join(elsewhere, filepath.Base(adapter)), []byte("not an adapter"))
+
+	t.Chdir(filepath.Dir(adapter))
+
+	_, stderr, err := drive(t, "check",
+		"--corpus", conformance.CorpusPath(root),
+		"--exec", "."+string(filepath.Separator)+filepath.Base(adapter),
+		"--dir", elsewhere,
+		"--", "--name", "graph")
+	if err != nil {
+		t.Fatalf("check ran something other than the adapter it was given: %v\n%s", err, stderr)
+	}
+}
+
+// TestAdapterPathIsAbsolute states the rule the case above depends on, so that a
+// failure names the cause rather than only the symptom.
+func TestAdapterPathIsAbsolute(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "adapter"), []byte("x"))
+
+	t.Chdir(dir)
+
+	got, err := adapterPath("." + string(filepath.Separator) + "adapter")
+	if err != nil {
+		t.Fatalf("adapterPath: %v", err)
+	}
+
+	if !filepath.IsAbs(got) {
+		t.Errorf("adapterPath returned %q, which os/exec would resolve against the adapter's own directory", got)
 	}
 }
 
@@ -195,6 +245,56 @@ func TestHelpIsAnAnswer(t *testing.T) {
 	}
 }
 
+// TestHelpIsAnAnswerFromASubcommandToo is the invocation the archive's own
+// README tells a first-time offline reader to type. flag reports -h and --help
+// as ErrHelp, and left as an ordinary error they would land on standard error
+// with exit 2 — the status this program reserves for a run that could not be
+// attempted, which is a poor thing to tell somebody who asked a question.
+func TestHelpIsAnAnswerFromASubcommandToo(t *testing.T) {
+	for _, args := range [][]string{
+		{"check", "-h"},
+		{"check", "--help"},
+		{"digest", "-h"},
+		{"digest", "--help"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stdout, stderr, err := drive(t, args...)
+			if err != nil {
+				t.Fatalf("%v: %v", args, err)
+			}
+
+			if !strings.Contains(stdout, "cpybkc-conform check") {
+				t.Errorf("%v did not write the synopsis to standard output:\n%s", args, stdout)
+			}
+
+			if stderr != "" {
+				t.Errorf("%v wrote to standard error:\n%s", args, stderr)
+			}
+		})
+	}
+}
+
+// TestUsageStatesTheDefaultsTheFlagsCarry pins the synopsis against the values
+// the flags are actually registered with.
+//
+// The text is written out rather than rendered, because a hand-written synopsis
+// reads far better than flag's own — but that makes it a second spelling of four
+// values, in the one artifact whose reader has no clone to check it against. A
+// default that moved in the engine and not here would be a shipped binary whose
+// --help lies.
+func TestUsageStatesTheDefaultsTheFlagsCarry(t *testing.T) {
+	for _, want := range []string{
+		engine.DefaultDeadline.String(),
+		engine.DefaultBuildDeadline.String(),
+		engine.DefaultGrace.String(),
+		`(default "` + defaultCorpus + `")`,
+	} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("the synopsis does not state %s, so it describes flags this program does not have", want)
+		}
+	}
+}
+
 // TestRunRejectsBadUsage keeps every way of asking for nothing a failure. The
 // two that matter most are a missing --exec, which would otherwise start no
 // process and report an empty run, and a name where a path belongs — which the
@@ -210,6 +310,8 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		{name: "a command this program does not have", args: []string{"conform"}},
 		{name: "no adapter", args: []string{"check", "--corpus", dir}},
 		{name: "an adapter that is not there", args: []string{"check", "--exec", filepath.Join(dir, "nowhere")}},
+		{name: "an adapter named rather than pathed", args: []string{"check", "--exec", "adapter"}},
+		{name: "an adapter named as a bare word that exists on PATH", args: []string{"check", "--exec", "sh"}},
 		{name: "an adapter that is a directory", args: []string{"check", "--exec", dir}},
 		{name: "a flag this program does not have", args: []string{"check", "--image", "example.com/x"}},
 		{name: "a deadline of zero", args: []string{"check", "--exec", os.Args[0], "--deadline", "0"}},
