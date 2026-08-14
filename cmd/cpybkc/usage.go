@@ -66,14 +66,10 @@ given once per file. docs/cli/SPEC.md is the contract this summarises.
 // exactly the part left blank, which is the reason the command can be trusted
 // with the half it does write.
 //
-// The last line is the other half of that honesty, and it is the reason this
-// text can exist before the derivation does. #214 lands the vector and #215 the
-// scaffold, so `cpybkc init` currently reads its line and fails; a help text
-// promising a written file would be documenting a command nobody can run, which
-// is what the comment above [usage] refused for the verb itself while it did not
-// parse. Saying so here is what lets --help be answered — docs/cli/SPEC.md
-// requires it under every subcommand — without it being a promise. The line goes
-// when the promise becomes true.
+// It carried one more paragraph while the derivation did not exist — #214 landed
+// the vector and `cpybkc init` read its line and failed — because a help text
+// promising a written file would have documented a command nobody could run.
+// #215 made the promise true, so the paragraph went with it.
 const initUsage = `cpybkc init writes a layout scaffold from the copybooks it is given.
 
 Usage:
@@ -93,9 +89,6 @@ a valid layout until you have. init reads no manifest and starts no generator.
 
 --help and --version are answered under every subcommand and are not init's own
 flags. docs/cli/SPEC.md is the contract this summarises.
-
-Not implemented in this build: init reads its arguments and reports that it
-cannot derive a scaffold from them yet. It exits 1 without writing anything.
 `
 
 // writeUsage writes the usage of the action named to w.
