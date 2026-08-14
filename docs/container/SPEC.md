@@ -382,17 +382,16 @@ the hard way by somebody:
   arguments, or against an image built `FROM` this one with a busybox copied in
   for the purpose.
 
-One directory in the image holds no file and is worth naming anyway: there is a
-writable temporary directory, because cpybkc writes [each invocation's
-descriptor](../plugin/SPEC.md#the-descriptors-location-and-lifetime) into a
-directory it creates under one, and hands each generator [an empty output
-directory](../plugin/SPEC.md#the-output-directory) it created the same way. It
-is **not covered** — its path, its mode and its existence are implementation
-detail like everything else in the filesystem that is not named above, and a
-derived image writing into it by path would be depending on something that may
-change in a patch release. It is mentioned only so that "`scratch` plus the
-files named above" is not read as a promise that the image cannot write
-anywhere at all.
+One thing the image does not have is worth naming anyway: there is no writable
+temporary directory in it, and none is needed. cpybkc creates [each
+invocation's
+descriptor](../plugin/SPEC.md#the-descriptors-location-and-lifetime) and [each
+generator's empty output directory](../plugin/SPEC.md#the-output-directory)
+inside the project it was pointed at, so everything a run writes is in the tree
+the caller already mounted and already made writable. There is no `TMPDIR` to
+set and no `/tmp` to mount: every `docker run` this document prints is the
+whole of the arrangement, and each of them keeps working with a read-only root
+filesystem and under whatever UID the caller chooses.
 
 Keeping the shell out is the same decision as having no plugin registry: the
 image's contents are exactly the executables somebody deliberately put there,
@@ -1058,8 +1057,7 @@ change to any of them is a breaking change:
 depending on something that may change in a patch release, with no notice:
 
 - The base image, and everything in the filesystem other than what is named
-  above — its existence, its contents and its paths, including the writable
-  temporary directory.
+  above — its existence, its contents and its paths.
 - The path of the `cpybkc` executable itself, and the literal value of
   `Entrypoint`.
 - The value of `PATH` beyond its containing `/usr/local/bin`, and the value of

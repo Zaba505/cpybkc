@@ -98,7 +98,7 @@ func runner(t *testing.T, kv ...string) *Runner {
 
 	log, _ := recorder()
 
-	return &Runner{Log: log, TempDir: t.TempDir(), Env: env(kv...)}
+	return &Runner{Log: log, Env: env(kv...)}
 }
 
 // run runs invocations against [descriptor] and hands back the run's verdict.
@@ -597,7 +597,7 @@ func TestAGeneratorThatLeavesAChildHoldingItsOutputStillFinishes(t *testing.T) {
 	invocation := generator(t, "go", `sleep 120 & echo "note: finished" >&2; exit 0`, t.TempDir())
 
 	log, kept := recorder()
-	r := &Runner{Log: log, TempDir: t.TempDir(), Env: env()}
+	r := &Runner{Log: log, Env: env()}
 
 	done := make(chan error, 1)
 

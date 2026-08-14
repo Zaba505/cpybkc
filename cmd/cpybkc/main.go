@@ -217,9 +217,9 @@ func perform(ctx context.Context, inv invocation, stdout io.Writer, log *slog.Lo
 		return emit.Write(inv.emitIR, stdout, run.Descriptor, inv.format())
 	}
 
-	// docs/cli/SPEC.md: PATH is one of the two environment variables a run
-	// reads, and it is read here rather than inside the search so that the
-	// search stays a function of its arguments.
+	// docs/cli/SPEC.md: PATH is the one environment variable a run reads, and
+	// it is read here rather than inside the search so that the search stays a
+	// function of its arguments.
 	generators, err := run.Generators(os.Getenv("PATH"))
 	if err != nil {
 		return err
@@ -233,11 +233,25 @@ func perform(ctx context.Context, inv invocation, stdout io.Writer, log *slog.Lo
 		// the root is prunes nothing, and a wrong guess is a run that deletes
 		// something a person wrote.
 		Root: run.Dir,
-		Log:  log,
+
+		// And it is where the run's scratch space is made, which is the whole
+		// of a run's answer to that question (#184): PATH is now the only
+		// environment variable a run reads, and TMPDIR is not consulted by
+		// cpybkc or by anything it calls. A run needs nothing of its host but
+		// the project it was pointed at — which is what lets the published
+		// image be scratch plus the files it names, with no writable /tmp for a
+		// deployment to have to supply.
+		//
+		// The project's root rather than a directory beside it because the
+		// project is the one tree a run is already writing to and already had
+		// to be able to write to. The cost is a directory a person and their
+		// `git status` can see if a run is killed outright, where the removal
+		// never happens; it is named for what left it, and it is nothing the
+		// record or pruning will ever touch, since neither walks the tree.
+		Scratch: run.Dir,
+
+		Log: log,
 	}
 
-	// TMPDIR is the other variable a run reads, and it is left to the standard
-	// library to read: os.MkdirTemp already honours it, and naming it here
-	// would be a second answer to where a run's scratch space goes.
 	return cancelled(ctx, runner.Run(ctx, run.Descriptor, generators))
 }

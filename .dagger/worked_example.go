@@ -245,17 +245,30 @@ func (m *Cpybkc) workedExampleAt(ctx context.Context, check workedExampleCheck) 
 //     user, which is the invocation docs/container/SPEC.md recommends whenever
 //     output lands in a bind mount, and a shipped file readable only by 65532
 //     would fail here rather than in an adopter's pipeline.
-//   - The output directory works. It is created under the image's temporary
-//     directory, owned by the running user, which is the arrangement cpybkc
-//     itself makes for a generator.
+//   - The output directory works. It is created by this check, at a path the
+//     image does not carry, owned by the running user. That the *check* has to
+//     provide it is the point rather than a detail: the image has no writable
+//     directory of its own, because cpybkc needs none — its scratch space and
+//     each invocation's descriptor directory are made inside the project it was
+//     pointed at (#184), which here is nothing but a place to run a generator by
+//     hand. A generator invoked the ordinary way is handed a directory cpybkc
+//     already made, in a tree the caller already mounted.
 func (m *Cpybkc) checkReadsTheShippedIr(
 	ctx context.Context,
 	e *workedExample,
 	derived *dagger.Container,
 ) error {
+	// A directory this check adds to the container, and the only writable one
+	// in it. Not /tmp: the image has none since #184, and reintroducing one
+	// here — even only for the exec — would be this check quietly restoring the
+	// thing the story deleted, so an image that had lost it would still pass.
+	// Not the plugin directory either, which the document's own COPY owns, and
+	// not a mounted source directory, which would make the check depend on the
+	// host's filesystem instead of on the image.
 	const (
-		descriptor = tmpDir + "/descriptor.binpb"
-		out        = tmpDir + "/out"
+		workspace  = "/example"
+		descriptor = workspace + "/descriptor.binpb"
+		out        = workspace + "/out"
 	)
 
 	generator := e.copies[0].operands[1]

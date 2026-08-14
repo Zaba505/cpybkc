@@ -30,7 +30,8 @@ import (
 // No generator ran, or one of them was about to and had nowhere to put its
 // output. It is separate from a generator that ran and failed because nothing
 // about it is the generator's doing: what failed is this process making a
-// directory, and the fix is a full disk or a TMPDIR that is not writable.
+// directory, and the fix is a full disk or a [Runner.Scratch] that is not
+// writable.
 type ScratchError struct {
 	// Name is the generator whose directory it was, or empty where what could
 	// not be made is the run's own scratch space.

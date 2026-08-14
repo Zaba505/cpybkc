@@ -48,7 +48,7 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   made.
   <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html>
 - **POSIX.1-2024 Base Definitions, chapter 8**, *Environment Variables* — the
-  normative definition of the two variables a run reads, `PATH` and `TMPDIR`.
+  normative definition of `PATH`, the one variable a run reads.
   [The environment](#the-environment) is a statement about that list being
   closed, and it is stated in the terms this chapter already defines.
   <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap08.html>
@@ -613,14 +613,19 @@ of status `1`.
 
 ## The environment
 
-cpybkc reads two environment variables and no others:
+cpybkc reads one environment variable and no others:
 
 - **`PATH`**, to resolve `cpybkc-gen-<name>` for each generator the manifest
   names (#41). Its rules are the plugin contract's, including that an empty
   element is not the working directory.
-- **`TMPDIR`**, as the system's temporary directory, where a run's scratch
-  space is created (#43). Where that space is has no effect on what a run
-  produces.
+
+`TMPDIR` is **not** read, and neither is any other name for a system temporary
+directory (#184). A run's scratch space — and the per-invocation directory the
+descriptor is written into — is created inside the project cpybkc was pointed
+at, so a run needs nothing writable outside the tree it is already writing.
+Both are removed as the work that made them finishes, whatever the exit status;
+a run killed outright leaves them, named so that what left them is plain. Where
+that space is has no effect on what a run produces.
 
 cpybkc **MUST NOT** define an environment variable of its own — there is no
 `CPYBKC_*` — and **MUST NOT** take any part of a run's configuration from the

@@ -179,6 +179,13 @@ func (r *Runner) scratch(entry *conformance.Entry) (string, error) {
 // performs — the vector, the absolute paths, the descriptor written for one
 // invocation and removed with it — instead of a second arrangement that happens
 // to work.
+//
+// That is also why nothing here has to say where the descriptor goes (#184).
+// The zero [github.com/Zaba505/cpybkc/internal/plugin.Runner] puts it beside
+// the directory the invocation writes into, which is [Runner.scratch]'s tree
+// under the required [Runner.Root] — so the corpus gets the same property
+// cpybkc's own runs get, with no special case for it, and this package's
+// os.MkdirTemp is a parent it was given rather than one the machine named.
 func (r *Runner) generate(ctx context.Context, entry *conformance.Entry, out string) error {
 	runner := &plugin.Runner{}
 

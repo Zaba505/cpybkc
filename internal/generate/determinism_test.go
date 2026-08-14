@@ -67,10 +67,21 @@ const emitsItsHostname = `echo "$HOSTNAME" > "$4/host"`
 
 // machine is a runner whose surroundings are stated rather than inherited, so
 // that two runs can genuinely disagree about all of them: the user, the host,
-// the home directory, the temporary directory, the time zone, the locale and
-// the working directory, each as a generator finds it in its environment, plus
-// the scratch space and the plugin's own path, which differ because every
-// directory here is the test's own.
+// the home directory, the time zone, the locale and the working directory, each
+// as a generator finds it in its environment, plus the plugin's own path, which
+// differs because every directory here is the test's own.
+//
+// The axis that used to be the temporary directory is now [Runner.Scratch], and
+// it varies with n through [generate]: since #184 that field is what decides
+// where a run's scratch space goes and where, one level inside it, each
+// invocation's descriptor directory goes. Those are the two absolute paths this
+// package chooses, so they are what the comparison has to see differ.
+//
+// TMPDIR is still varied, and it is varied at a directory that does not exist.
+// Nothing reads it any more — that is the claim — and a claim is worth a check:
+// were either path put back on it, the run would fail outright on a parent that
+// is not there, rather than quietly passing because two runs agreed about a
+// directory neither of them was looking at.
 //
 // Environment-visible throughout, which is the limit of what a run in this
 // process can vary; see the note at the top of this file for what covers the
@@ -87,8 +98,7 @@ func machine(t *testing.T, n int) *Runner {
 
 	return &Runner{
 		Plugins: &plugin.Runner{
-			Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-			TempDir: t.TempDir(),
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			Env: []string{
 				// PATH so that a shell script can reach the commands it calls,
 				// and this process's because a stated one would be a claim
@@ -99,13 +109,16 @@ func machine(t *testing.T, n int) *Runner {
 				"LOGNAME=person-" + id,
 				"HOME=/home/person-" + id,
 				"PWD=" + t.TempDir(),
-				"TMPDIR=" + t.TempDir(),
+				// A directory that is not there, on purpose: see the note
+				// above. Nothing in cpybkc reads TMPDIR since #184, and a run
+				// that started reading it again would fail here rather than
+				// pass.
+				"TMPDIR=" + filepath.Join(t.TempDir(), "no-temporary-directory-"+id),
 				"TZ=" + []string{"UTC", "Australia/Eucla"}[n%2],
 				"LANG=" + []string{"C", "tr_TR.UTF-8"}[n%2],
 				"SOURCE_DATE_EPOCH=1700000000",
 			},
 		},
-		TempDir: t.TempDir(),
 	}
 }
 
@@ -118,6 +131,12 @@ func generate(t *testing.T, n int, bodies ...string) map[string]string {
 
 	r := machine(t, n)
 	r.Root = project
+
+	// The axis that used to be TMPDIR. The run's scratch space is made here,
+	// and each invocation's descriptor directory one level inside it, so this
+	// is the field the absolute paths cpybkc chooses now come from — and it is
+	// a different directory on every run.
+	r.Scratch = project
 
 	generators := make([]Generator, 0, len(bodies))
 
