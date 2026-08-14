@@ -216,6 +216,26 @@ const (
 	generatorExecutable = generatorPrefix + ownGenerator
 	generatorPackage    = "./cmd/" + generatorExecutable
 
+	// graphGenerator is the diagram generator, by the name example/cpybkc.json
+	// asks for it by, and graphGeneratorExecutable and graphGeneratorPackage are
+	// what the CLI's PATH discovery looks for and what builds it.
+	//
+	// They are here rather than beside the companion checks for the reason the
+	// three above are, and they arrived here by that reason inverting (#230).
+	// They sat in companion.go under "that name goes into a *published* image and
+	// this one does not", which was true for exactly as long as a release
+	// published one generator image; it publishes two, so this name goes into one
+	// as well and its build is a release's business rather than a check's.
+	//
+	// The companion check still installs it, and still has to, because the
+	// committed example runs two generators (#191). That is not an accident of
+	// the check: with one generator, "every generator in a run is handed the same
+	// descriptor" is vacuous, and the example carries the second one so it stops
+	// being. What changed is only how it gets in — an image now, like the first.
+	graphGenerator           = "graph"
+	graphGeneratorExecutable = generatorPrefix + graphGenerator
+	graphGeneratorPackage    = "./cmd/" + graphGeneratorExecutable
+
 	// generatorRepositorySuffix is what turns the CLI image's repository into the
 	// repository the generator image for one name is published to.
 	//
@@ -255,7 +275,7 @@ const (
 	contractVersion = "v0.0.0-contract"
 
 	// generatorVersionProbePackage is the Go package name checkGeneratorVersion
-	// hands the generator, and it names nothing that is ever written.
+	// hands cpybkc-gen-go, and it names nothing that is ever written.
 	//
 	// docs/plugin/SPEC.md has this generator require a package name before it
 	// will accept a vector at all, and the vector has to parse before the
@@ -368,8 +388,91 @@ func (m *Cpybkc) baseImage(platform dagger.Platform) *dagger.Container {
 	return m.baseApp(devVersion).Container(platform)
 }
 
-// generatorApp is the published generator image as the archetype's application:
-// the base image, wearing cpybkc's own generator in the plugin directory.
+// publishedGenerator is one of the generators this repository publishes an image
+// for: what the image carries, what builds it, and what it takes to make it
+// answer with its own version.
+//
+// It is a type because there are two of them since #230 and every place that
+// deals with one deals with both — the App, the per-platform binary, the
+// contract check, the release's push list, the release notes. Written out as
+// parallel pairs of functions instead, the way the first generator's were while
+// it was the only one, a check added for one is a check the other silently does
+// without; passing the generator makes "a check added here is a check the
+// release gate acquires" hold across the family rather than for whichever member
+// somebody had in mind.
+//
+// What is deliberately not a field is the repository. Where a generator image is
+// published is derived from the base image's repository by [generatorRepository]
+// and is a property of the release rather than of the generator — a generator
+// that carried its own would be the constant that rule exists not to be.
+type publishedGenerator struct {
+	// name is what a manifest asks for this generator by, what the CLI's PATH
+	// discovery makes an executable name out of, and what generatorRepository
+	// appends to the base image's repository.
+	name string
+
+	// executable is what that discovery looks for, and pkg is the command
+	// directory that builds it.
+	executable string
+	pkg        string
+
+	// versionProbeOptions are the `k=v` pairs checkGeneratorVersion has to pass
+	// this generator — without the `--opt` flags — before it will parse the
+	// vector at all.
+	//
+	// They belong to the generator rather than to the check because an option
+	// vocabulary is a plugin's own (docs/plugin/SPEC.md): cpybkc passes options
+	// through without checking one against a declared list, and each of these
+	// generators refuses an option it does not recognise rather than ignoring it.
+	// The two disagree, so there is no single vector — cpybkc-gen-go requires
+	// package_name, and cpybkc-gen-graph refuses that option outright because
+	// both of the options it does take have defaults. Passing one generator's
+	// vector to the other fails in argument parsing, which is before the refusal
+	// the check reads, and the check would then be reporting the wrong failure.
+	versionProbeOptions []string
+}
+
+// ownGeneratorSpec is cpybkc's own Go generator, and graphGeneratorSpec the
+// diagram generator, as the images a release publishes them as.
+//
+// Functions rather than variables for [imagePlatforms]'s reason: a package-level
+// slice is one an accident could append to, and there is no state here worth
+// keeping.
+func ownGeneratorSpec() publishedGenerator {
+	return publishedGenerator{
+		name:                ownGenerator,
+		executable:          generatorExecutable,
+		pkg:                 generatorPackage,
+		versionProbeOptions: []string{"package_name=" + generatorVersionProbePackage},
+	}
+}
+
+func graphGeneratorSpec() publishedGenerator {
+	return publishedGenerator{
+		name:       graphGenerator,
+		executable: graphGeneratorExecutable,
+		pkg:        graphGeneratorPackage,
+	}
+}
+
+// publishedGenerators is every generator this repository publishes an image for,
+// and the single definition of that set in this module.
+//
+// Two since #230, and the order is the order a release pushes them in — see
+// Release, where it is a mitigation rather than a detail.
+//
+// docs/container/SPEC.md deliberately does not cover *which* generators this
+// project publishes, only where one is published: another arriving beside these
+// is not a breaking change. This is the list that decides, and a generator added
+// to it acquires the contract check, the version stamp check, the release push
+// and the release notes at once.
+func publishedGenerators() []publishedGenerator {
+	return []publishedGenerator{ownGeneratorSpec(), graphGeneratorSpec()}
+}
+
+// generatorApp is one published generator image as the archetype's application:
+// the base image, wearing one of cpybkc's own generators in the plugin
+// directory.
 //
 // This is the one construction of it, for baseApp's reason. CompanionModule
 // drives it, ImageContract checks it and Release publishes it, so the image a
@@ -393,12 +496,12 @@ func (m *Cpybkc) baseImage(platform dagger.Platform) *dagger.Container {
 // base does, under the base's version, which is the whole of how #180's "the
 // same signature and attestations the base image carries" is satisfied: by being
 // published the same way rather than by a second arrangement here.
-func (m *Cpybkc) generatorApp(version string) *dagger.Z5LabsApp {
-	return m.baseApp(version).WithApp(m.ownGeneratorApp(version))
+func (m *Cpybkc) generatorApp(version string, g publishedGenerator) *dagger.Z5LabsApp {
+	return m.baseApp(version).WithApp(m.ownGeneratorApp(version, g))
 }
 
-// ownGeneratorApp is cpybkc's own generator as an application of its own, before
-// it is composed onto anything.
+// ownGeneratorApp is one of cpybkc's own generators as an application of its
+// own, before it is composed onto anything.
 //
 // # Why the generic constructor and not the Go chain
 //
@@ -429,20 +532,20 @@ func (m *Cpybkc) generatorApp(version string) *dagger.Z5LabsApp {
 // than asserted about it — the publish checks that the document names the
 // SHA-256 of the executable it accompanies, and a derived document cannot
 // disagree with what it describes.
-func (m *Cpybkc) ownGeneratorApp(version string) *dagger.Z5LabsApp {
+func (m *Cpybkc) ownGeneratorApp(version string, g publishedGenerator) *dagger.Z5LabsApp {
 	app := dag.Z5Labs().App(version)
 
 	for _, platform := range imagePlatforms() {
-		binary := m.generatorBinary(version, platform)
+		binary := m.generatorBinary(version, platform, g)
 
 		app = app.WithVariant(platform, binary, dag.Go().Spdx(binary, m.appSource()),
-			dagger.Z5LabsAppBuilderWithVariantOpts{Name: generatorExecutable})
+			dagger.Z5LabsAppBuilderWithVariantOpts{Name: g.executable})
 	}
 
 	return app.Build()
 }
 
-// generatorBinary builds cpybkc's own generator for one platform.
+// generatorBinary builds one of cpybkc's own generators for one platform.
 //
 // It is [Cpybkc.binary] with a different package and name, and it carries the
 // same CGO and -trimpath switches for the same reasons: what a generator image
@@ -472,26 +575,26 @@ func (m *Cpybkc) ownGeneratorApp(version string) *dagger.Z5LabsApp {
 // stamp naming a variable that does not exist is silently dropped, so passing
 // one would be a line in this recipe that does nothing and reads as though it
 // did.
-func (m *Cpybkc) generatorBinary(version string, platform dagger.Platform) *dagger.File {
+func (m *Cpybkc) generatorBinary(version string, platform dagger.Platform, g publishedGenerator) *dagger.File {
 	return dag.Go().
 		Build(m.appSource(), dagger.GoBuildOpts{
-			Pkg:          generatorPackage,
-			ArtifactName: generatorExecutable,
+			Pkg:          g.pkg,
+			ArtifactName: g.executable,
 			Trimpath:     true,
 			DisableCgo:   true,
 			Platform:     string(platform),
 			Stamps:       []string{"main.version=" + version},
 		}).
-		File(generatorExecutable)
+		File(g.executable)
 }
 
-// generatorImage is one platform's generator image, for the checks and for the
-// stages that drive it rather than publish it.
+// generatorImage is one platform's image for one generator, for the checks and
+// for the stages that drive it rather than publish it.
 //
 // It is an accessor onto the App, exactly as baseImage is, so a check reads the
 // container a publish would push.
-func (m *Cpybkc) generatorImage(platform dagger.Platform) *dagger.Container {
-	return m.generatorApp(devVersion).Container(platform)
+func (m *Cpybkc) generatorImage(platform dagger.Platform, g publishedGenerator) *dagger.Container {
+	return m.generatorApp(devVersion, g).Container(platform)
 }
 
 // generatorRepository is where the generator image for name is published:
@@ -575,10 +678,11 @@ func (m *Cpybkc) irProtoTree() *dagger.Directory {
 //   - The entrypoint being the CLI, by running it — twice, as the image's own
 //     user and as an arbitrary other one.
 //
-// The generator image a release publishes beside the base is checked here too
-// (#180), on the same platforms and by the same reading of the same document:
-// it is the base's exhaustive listing plus exactly one file, at the name the
-// plugin contract resolves. See checkGeneratorImage.
+// Every generator image a release publishes beside the base is checked here too
+// — `go` since #180 and `graph` since #230 — on the same platforms and by the
+// same reading of the same document: each is the base's exhaustive listing plus
+// exactly one file, at the name the plugin contract resolves for that generator.
+// See checkGeneratorImage.
 //
 // platform restricts the check to one of the published platforms; empty runs
 // every one of them, and every failure is reported rather than the first,
@@ -604,11 +708,13 @@ func (m *Cpybkc) ImageContract(
 
 	var errs []error
 	for _, p := range platforms {
-		// Both branches name which image they are about. The base's used to be
-		// the only one and went unqualified; with two images in the loop, a
-		// reader would have had to know that a bare platform prefix meant the
-		// base — which stops being obvious the moment a third image arrives.
-		// devVersion twice over, because that is what baseImage and
+		// Every branch names which image it is about. The base's used to be the
+		// only one and went unqualified; the third image arrived (#230), which is
+		// the moment the comment here predicted, and a generator's message names
+		// the generator as well as the platform because "it holds for `go` and
+		// not for `graph`" is as much the finding as "it holds on amd64 and not
+		// on arm64".
+		// devVersion throughout, because that is what baseImage and
 		// generatorImage build under and the check is "what the image reports is
 		// what it was built for". A release asks the same two functions the same
 		// question with its own version — see release.go's gate — so the version
@@ -618,8 +724,14 @@ func (m *Cpybkc) ImageContract(
 			errs = append(errs, fmt.Errorf("%s: the base image: %w", p, err))
 		}
 
-		if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p), p, devVersion)...); err != nil {
-			errs = append(errs, fmt.Errorf("%s: the generator image: %w", p, err))
+		// Every generator a release publishes, from the one list of them, so a
+		// generator added to publishedGenerators is checked here without anybody
+		// remembering to add it — which is the failure that would otherwise ship
+		// an unchecked image on the release that first published it.
+		for _, g := range publishedGenerators() {
+			if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p, g), p, devVersion, g)...); err != nil {
+				errs = append(errs, fmt.Errorf("%s: the %s generator image: %w", p, g.name, err))
+			}
 		}
 	}
 
@@ -664,11 +776,18 @@ func (m *Cpybkc) ImageContract(
 // does not vary by architecture. checkImageBuild is where per-platform claims
 // about these binaries are made.
 //
-// Both apps rather than one, because the two are stamped by different parties.
-// The CLI's comes from the shared archetype, with the flag and the symbol fixed
-// upstream; the generator's is passed by hand in generatorBinary, since it is
-// built through the generic constructor and has nobody upstream to stamp it. A
-// check of one says nothing about the other.
+// Every app rather than one, because the CLI and the generators are stamped by
+// different parties. The CLI's comes from the shared archetype, with the flag
+// and the symbol fixed upstream; a generator's is passed by hand in
+// generatorBinary, since it is built through the generic constructor and has
+// nobody upstream to stamp it. A check of one says nothing about the other.
+//
+// Every generator and not only the first, for the same reason one step down. The
+// stamp is passed per generator, each command declares its own `var version` in
+// a package that deliberately imports nothing shared, and each is therefore its
+// own chance for a stamp to be dropped or to name a symbol that is not there.
+// A `graph` generator whose stamp stopped landing would report `0.0.0-dev` out
+// of a released image exactly as #181's did.
 func (m *Cpybkc) checkVersionIsStamped(ctx context.Context) []error {
 	platform, err := dag.DefaultPlatform(ctx)
 	if err != nil {
@@ -679,9 +798,13 @@ func (m *Cpybkc) checkVersionIsStamped(ctx context.Context) []error {
 
 	errs := m.checkImageIsTheCLI(ctx, base, contractVersion)
 
-	generator := m.generatorApp(contractVersion).Container(platform)
+	for _, g := range publishedGenerators() {
+		generator := m.generatorApp(contractVersion, g).Container(platform)
 
-	return append(errs, m.checkGeneratorVersion(ctx, generator, contractVersion)...)
+		errs = append(errs, m.checkGeneratorVersion(ctx, generator, contractVersion, g)...)
+	}
+
+	return errs
 }
 
 // checkBaseImage holds one platform's base image to docs/container/SPEC.md.
@@ -766,6 +889,7 @@ func (m *Cpybkc) checkGeneratorImage(
 	image *dagger.Container,
 	platform dagger.Platform,
 	version string,
+	g publishedGenerator,
 ) []error {
 	protos, err := m.shippedProtos(ctx)
 	if err != nil {
@@ -773,14 +897,15 @@ func (m *Cpybkc) checkGeneratorImage(
 	}
 
 	errs := m.checkImageConfig(ctx, image)
-	errs = append(errs, m.checkImageContents(ctx, image, generatorImageContents(baseImageContents(protos)))...)
-	errs = append(errs, m.checkImageBuild(ctx, image, platform, pluginDir+"/"+generatorExecutable)...)
-	errs = append(errs, m.checkGeneratorVersion(ctx, image, version)...)
+	errs = append(errs, m.checkImageContents(ctx, image, generatorImageContents(baseImageContents(protos), g))...)
+	errs = append(errs, m.checkImageBuild(ctx, image, platform, pluginDir+"/"+g.executable)...)
+	errs = append(errs, m.checkGeneratorVersion(ctx, image, version, g)...)
 
-	// The one generator a release publishes an image for, and nothing else. The
-	// committed example runs a second one, but it ships no image of its own, so
-	// what belongs in this image's plugin directory is unchanged by that.
-	if err := m.checkComposedImage(ctx, image, []string{generatorExecutable}); err != nil {
+	// This generator and nothing else. One image per generator is what
+	// [publishedGenerators] means: two generators in one plugin directory would
+	// be an image an adopter cannot take one of them out of without the other,
+	// and a `COPY --from` naming the wrong one would still find something.
+	if err := m.checkComposedImage(ctx, image, []string{g.executable}); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -810,8 +935,8 @@ func (m *Cpybkc) checkGeneratorImage(
 // repository's own generator carrying a surface no other plugin has, which is
 // the arrangement its package comment exists to refuse.
 //
-// The descriptor is empty, so it states no IR version — the case
-// cmd/cpybkc-gen-go's own tests pin — and an empty file is the one descriptor
+// The descriptor is empty, so it states no IR version — the case each
+// generator's own tests pin — and an empty file is the one descriptor
 // whose bytes need no encoding: it goes in as the empty string rather than as a
 // protobuf message this module would have to hand-assemble to make a version
 // number out of. --out names a directory that does not exist and never will,
@@ -820,11 +945,36 @@ func (m *Cpybkc) checkGeneratorImage(
 // all. Both are properties of that program rather than accidents, and the
 // assertion below fails loudly if either stops holding, because what it requires
 // is *this* refusal and not merely a non-zero exit.
-func (m *Cpybkc) checkGeneratorVersion(ctx context.Context, image *dagger.Container, version string) []error {
+//
+// # The option vector is the generator's own
+//
+// The `--opt` pairs come from the generator rather than being written here,
+// because the two published generators agree on none of them: cpybkc-gen-go
+// requires a package name before it will parse a vector at all, and
+// cpybkc-gen-graph refuses that option outright. A single vector would fail one
+// of them in argument parsing — which is *before* the refusal this check reads,
+// so it would report a version check that had never run as one that had failed.
+// See [publishedGenerator.versionProbeOptions].
+func (m *Cpybkc) checkGeneratorVersion(
+	ctx context.Context,
+	image *dagger.Container,
+	version string,
+	g publishedGenerator,
+) []error {
 	const (
 		descriptor = "/no-version.binpb"
 		out        = "/nowhere"
 	)
+
+	args := []string{
+		pluginDir + "/" + g.executable,
+		"--descriptor", descriptor,
+		"--out", out,
+	}
+
+	for _, option := range g.versionProbeOptions {
+		args = append(args, "--opt", option)
+	}
 
 	// Expect a failure, because a refusal is one: the generator exits non-zero
 	// and writes the diagnostic to standard error. A run that *succeeded* is the
@@ -833,16 +983,11 @@ func (m *Cpybkc) checkGeneratorVersion(ctx context.Context, image *dagger.Contai
 	// it arrives here as an error from Stderr rather than as a passing check.
 	refusal, err := image.
 		WithNewFile(descriptor, "").
-		WithExec([]string{
-			pluginDir + "/" + generatorExecutable,
-			"--descriptor", descriptor,
-			"--out", out,
-			"--opt", "package_name=" + generatorVersionProbePackage,
-		}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeFailure}).
+		WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeFailure}).
 		Stderr(ctx)
 	if err != nil {
 		return []error{fmt.Errorf("running %s in the image on a descriptor stating no IR version: %w",
-			generatorExecutable, err)}
+			g.executable, err)}
 	}
 
 	var errs []error
@@ -854,15 +999,15 @@ func (m *Cpybkc) checkGeneratorVersion(ctx context.Context, image *dagger.Contai
 	if !strings.Contains(refusal, "implements IR version") {
 		errs = append(errs, fmt.Errorf("%s in the image answered a descriptor stating no IR version with %q, "+
 			"and docs/plugin/SPEC.md has it refuse one naming the descriptor's version, the highest it "+
-			"implements and its own", generatorExecutable, strings.TrimSpace(refusal)))
+			"implements and its own", g.executable, strings.TrimSpace(refusal)))
 
 		return errs
 	}
 
-	if want := generatorExecutable + " " + reportedVersion(version) + " "; !strings.Contains(refusal, want) {
+	if want := g.executable + " " + reportedVersion(version) + " "; !strings.Contains(refusal, want) {
 		errs = append(errs, fmt.Errorf("%s in the image refused with %q, and an image built under %s carries a "+
 			"generator naming itself %q: a released generator reporting the development version gives its "+
-			"refusal a number nobody can map to a release", generatorExecutable, strings.TrimSpace(refusal),
+			"refusal a number nobody can map to a release", g.executable, strings.TrimSpace(refusal),
 			version, strings.TrimSpace(want)))
 	}
 
@@ -871,6 +1016,10 @@ func (m *Cpybkc) checkGeneratorVersion(ctx context.Context, image *dagger.Contai
 
 // generatorImageContents is the base image's listing plus the one executable a
 // generator image adds, which is the whole of what a generator image is.
+//
+// One executable however many generators this project publishes: each gets an
+// image of its own, so the entry this adds is the caller's generator and never
+// the set of them.
 //
 // It is separate from derivedImageContents, which describes what a *stranger's*
 // Dockerfile produces, and the difference between the two is the point rather
@@ -905,11 +1054,11 @@ func (m *Cpybkc) checkGeneratorVersion(ctx context.Context, image *dagger.Contai
 // depend on that. docs/container/SPEC.md holds the ownership and mode of this
 // directory out of the contract in as many words; the row is here because the
 // listing is exhaustive or it is nothing.
-func generatorImageContents(base map[string]imageEntry) map[string]imageEntry {
+func generatorImageContents(base map[string]imageEntry, g publishedGenerator) map[string]imageEntry {
 	contents := maps.Clone(base)
 
 	contents[pluginDir] = imageEntry{kindDir, 0, 0, dirMode}
-	contents[pluginDir+"/"+generatorExecutable] = imageEntry{kindFile, 65532, 65532, 0o555}
+	contents[pluginDir+"/"+g.executable] = imageEntry{kindFile, 65532, 65532, 0o555}
 
 	return contents
 }

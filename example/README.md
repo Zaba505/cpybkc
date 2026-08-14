@@ -285,6 +285,30 @@ Each generator is found on `PATH` by name, which is the whole of how a generator
 is identified — the manifest names `go` and `graph`, and cpybkc looks for
 `cpybkc-gen-go` and `cpybkc-gen-graph`.
 
+The two `go build` lines are what a contributor to *this* repository runs, and
+they are the route that works today. Working from a release instead, both
+generators are published as images and neither needs a Go toolchain:
+
+```console
+$ docker pull ghcr.io/zaba505/cpybkc-gen-go:v0
+$ docker pull ghcr.io/zaba505/cpybkc-gen-graph:v0
+```
+
+Either is copied into an image built `FROM ghcr.io/zaba505/cpybkc`, or composed
+by the [companion Dagger module](../daggerverse/cpybkc/)'s `with-generator`,
+which resolves those references for `go` and `graph` on its own. [Where this
+project's own generators are
+published](../docs/container/SPEC.md#where-this-projects-own-generators-are-published)
+is the rule they follow, and [adding a
+generator](../docs/container/SPEC.md#worked-example-adding-a-generator) is the
+`COPY --from` it takes.
+
+**Until the first release under that rule is cut, those references resolve to
+nothing**, exactly as [the container contract
+says](../docs/container/SPEC.md#where-this-projects-own-generators-are-published).
+Before it, the two `go build` lines above are the way to regenerate this
+example; they stay the way a contributor does it afterwards.
+
 Then commit what changed. `go test ./example/...` is what fails if you do not:
 it makes the same run into a temporary directory and holds the result against
 what is checked in, naming the file the two disagree on.
