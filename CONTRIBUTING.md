@@ -1190,6 +1190,19 @@ except the code a generator emitted, so nothing else holds two generators in two
 languages to one reading of one descriptor. Adding an entry is four files and a
 citation, and the README says how.
 
+Beside the format is
+[`docs/conformance/GRAMMAR.md`](docs/conformance/GRAMMAR.md), the value language
+as a table of a value against the exact document text it is written as. It is
+what somebody writing a values-document writer in another language checks that
+writer against before running an entry, and it is where the constructs no entry
+covers are written down. `internal/conformance/grammar_test.go` reads those
+tables out of the file and holds
+[`conformance.WriteValue`](internal/conformance/write.go) — this repository's
+own writer, which the driver calls — to every row, so the published table and
+the code cannot drift apart. A change to what a value is written as is a change
+to `docs/conformance/SPEC.md` first, then to that table, and the test is what
+says the code followed.
+
 ## Specs
 
 Six of this project's interfaces are built against from outside it — the command

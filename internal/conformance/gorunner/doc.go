@@ -61,6 +61,16 @@
 // being a copy, would agree with the generator exactly until the day the rule
 // changed, and then quietly compare the wrong fields.
 //
+// The walk itself is not in the template. It is
+// [github.com/Zaba505/cpybkc/internal/conformance.WriteValue], which the driver
+// calls, because it is about the *format* rather than about the run: code inside
+// a template is checked by compiling a scratch program per entry and by nothing
+// else, and the part of it that decides what a value looks like is the part
+// docs/conformance/GRAMMAR.md holds to a table of exact text (#197). What stays
+// in the template is what a run needs and a format cannot state — opening the
+// entry's bytes with the generated reader, laying the records back out with the
+// generated writer, and naming the generated package.
+//
 // One thing is taken from the generated source and it is the smallest thing
 // that can be: which Go type stands for which record node. cmd/cpybkc-gen-go's
 // README states that it emits one exported struct per record, in the order the

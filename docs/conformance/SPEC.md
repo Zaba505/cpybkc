@@ -698,6 +698,26 @@ disagreement.
 - **A descriptive generator's oracle.** A generator that never reads bytes has
   no values document to write, and what it should be held to instead is #193's.
 
+## Appendix: The grammar corpus
+
+[GRAMMAR.md](GRAMMAR.md) is every rule of [the value
+language](#the-value-language) as a table of *a value, and the exact document
+text that value is written as* — a variant arm, a slack node, an `INDEX`, a
+`POINTER`, a `NATIONAL` item, both edited categories, every canonical float and
+every spelling of a number a writer may not produce (#197).
+
+It is a worked example of this section and never an addition to it: where the
+two disagree, this document is right. What it buys is that a values-document
+writer can be checked before a single entry is run, so that a JSON formatting
+mistake is reportable as one instead of arriving as a generator that appears to
+have decoded a record wrongly.
+
+It is separate from this document because it is example text rather than
+requirement, it grows a row whenever a construct wants one, and it is checked by
+a test rather than by a reader — `internal/conformance/grammar_test.go` reads
+those tables out of the file and holds this repository's own writer and loader
+to every row.
+
 ## Appendix: Mapping to Stories
 
 | Section | Implemented by |
@@ -718,6 +738,7 @@ disagreement.
 | [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it |
 | [The answer document](#the-answer-document) | #68 `conformance` |
 | [Why the writing direction is checked by reading](#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes) | #68 `conformance`; the rule it rests on, *Writing a file*, #17 `ir` |
+| [The grammar corpus](#appendix-the-grammar-corpus) | #197 `conformance` for [GRAMMAR.md](GRAMMAR.md), the writer it holds to it, and the test that reads one against the other |
 | The corpus's entries, and what each covers | #67 `conformance`, and one story per entry since |
 | This document | #194 `conformance` |
 | Conventions this document follows | #15 `setup` |
