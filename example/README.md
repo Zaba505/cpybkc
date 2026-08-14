@@ -183,11 +183,18 @@ the point of it being here is that you should:
   the layout's, not the drawing's.
 - **`HDR-COUNT` in the register table.** The header's edge carries
   `then r76 = HDR-COUNT`; every posting edge carries `if r76 greater than zero,
-  then r76 = r76 - 1`; the trailer's carries `if r76 = 0`. That is the whole of
-  why no state offers both a posting and the trailer — the guards, not the
-  offsets, are what keep them apart — and the **Registers** table names `r76`
-  and every transition that binds it, because a register carries an identifier
-  and no name.
+  then r76 = r76 - 1`; the trailer's carries `if r76 = 0`. The **Registers**
+  table names `r76` and every transition that binds it, because a register
+  carries an identifier and no name — without it the guards on the edges say
+  nothing.
+
+  This is where the diagram is worth more than the prose above it. [Why the
+  header counts the postings](#why-the-header-counts-the-postings) says no state
+  offers both a posting and the trailer, and what is drawn is every posting state
+  offering both. Both are true, and the guards are the difference: the
+  alternatives are written at one state and are mutually exclusive on `r76`, so
+  no *reachable* choice between them exists and the two offsets never have to be
+  told apart. Read the guards, not the edge count.
 - **Two offsets, in the item tables.** `PST-TYPE` is at offset **12** in every
   posting table, behind the ten-byte account key and the two-byte sequence every
   posting shares; `HDR-TYPE` and `TRL-TYPE` are both at offset **0**. Those are

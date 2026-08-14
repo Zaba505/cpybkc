@@ -310,6 +310,7 @@ func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
 func writeRecord(t *testing.T, path string, files []string) {
 	t.Helper()
 
+	files = slices.Clone(files)
 	slices.Sort(files)
 
 	body, err := json.MarshalIndent(struct {
