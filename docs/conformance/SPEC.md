@@ -59,6 +59,12 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   name is a string, that a document is one value, and what an implementation may
   assume about a JSON number, which is why the value language uses so few of
   them. <https://www.rfc-editor.org/rfc/rfc8259>
+- **RFC 5234**, *Augmented BNF for Syntax Specifications: ABNF*, and **RFC
+  7405**, *Case-Sensitive String Support in ABNF* — the notation the two
+  grammars below are written in, and the reason they are written with `%s`
+  literals: 5234's default is case-insensitive, and every spelling rule here is
+  case-sensitive because the comparison is string equality.
+  <https://www.rfc-editor.org/rfc/rfc5234> <https://www.rfc-editor.org/rfc/rfc7405>
 - **RFC 4648**, *The Base16, Base32, and Base64 Data Encodings* — normative for
   the base64 form, and specifically for section 4's alphabet as against section
   5's. A run of bytes needs one spelling and this is where it is defined.
@@ -216,7 +222,11 @@ order, and **MAY** carry `failure`. It **MUST NOT** carry any other member, and
 a reader **MUST** refuse one — a key an author wrote expecting it to mean
 something is a typo, and a document that ignores it passes for the wrong reason.
 
-Each record carries `name` and `value`, both required and neither empty.
+Each record carries `name` and `value`, and both are required. `name`
+**MUST NOT** be empty. `value` **MAY** be `""` or `{}` — an all-space
+alphanumeric item and a group holding nothing but slack decode to exactly those,
+so a rule refusing an empty value would refuse an answer the language elsewhere
+requires.
 
 `name` **MUST** be the record's name as the copybook spells it — the `original`
 of the record node's [names](../ir/SPEC.md#names), never an identifier a
@@ -275,7 +285,7 @@ digits and be wrong for every value with a fraction.
 |---|---|
 | A group | An object, one member per node it holds, keyed by the copybook's name for that node. |
 | An item that repeats | An array, one element per occurrence, in file order. |
-| A variant | One key per arm in the enclosing object, of which the occurrence carries exactly one; an arm the occurrence does not hold has no key at all. |
+| A variant | The one arm the occurrence carries, written as a member of the *enclosing* object; the variant contributes no key of its own, and an arm the occurrence does not hold has no key at all. |
 | A slack node | Nothing at all. |
 
 A repeating node is an array whether it is a group or an elementary item, and
@@ -291,6 +301,16 @@ requires. An arm the occurrence does not hold **MUST** have no key, rather than
 a key whose value is `null`: a comparison then reports an unheld arm as the
 selection difference it is, instead of as a value that differs.
 
+The arms are members of the enclosing group's object and the variant's own name
+appears nowhere in the document. That is a decision rather than an omission —
+the name a copybook gives a variant is not a name the record's data has, and a
+key for it would be a level of nesting no other generator could be expected to
+invent identically. Its cost is stated rather than hidden: two arms of the same
+name in one group — whether in one variant or in two — would be one key, and an
+entry whose copybook does that is one this format cannot write down. No entry
+does, and an entry that needed to would be the case for revisiting this
+decision rather than for working around it.
+
 ### Slack is not a value
 
 A slack node **MUST NOT** appear in a values document. Its bytes travel with the
@@ -301,9 +321,11 @@ generators to agree about padding rather than about data.
 
 ### Characters, and why trailing spaces do not survive
 
-An item in one of the four character categories is written as a JSON string of
-its characters, after the file's charset has been applied, with every trailing
-space removed (#66).
+An item in any of the four character categories — `CATEGORY_ALPHABETIC`,
+`CATEGORY_ALPHANUMERIC`, `CATEGORY_NUMERIC_EDITED` and
+`CATEGORY_ALPHANUMERIC_EDITED` — is written as a JSON string of its characters,
+after the file's charset has been applied, with every trailing space removed
+(#66).
 
 - A writer of a values document **MUST** remove every trailing U+0020 SPACE.
 - It **MUST NOT** remove a leading or an interior space.
@@ -324,6 +346,19 @@ to write that item down. That is accepted. Space padding is universal in the
 files this corpus is about, and a rule that preserved the padding would make
 every entry's expected value depend on a width the value language does not
 carry.
+
+The rule covers the two **edited** categories as well, and that part is a
+decision rather than a consequence of the argument above: a trailing blank in an
+edited item can be produced by the PICTURE rather than by padding — the sign
+position of `PIC 999-` holding a positive value, or an inserted `B` at the end
+of the string. It is included anyway because the alternative is worse. A runner
+would have to consult the category to know whether to trim, two implementations
+would have to agree about which edit characters count as data, and the
+distinction would be invisible in the file: an edited item padded to its width
+and one whose edit ends in a blank are the same bytes. No entry in the corpus
+holds an edited item today, so nothing changes; an entry that needs the trailing
+blank of an edit to be visible is the case for reopening this, and it can state
+the bytes in `input.bin` meanwhile.
 
 The rule is stated in terms of the *characters*, not of the bytes, so it holds
 identically for an EBCDIC file whose pad byte is `0x40` and an ASCII one whose
@@ -373,10 +408,22 @@ writable. The pattern goes in `input.bin`, and what it decodes to is `"0"`.
 A `COMP-1` or `COMP-2` item is written as a JSON string: either one of three
 sentinels, or the exact value in hexadecimal significand notation (#194, #195).
 
+> **The corpus does not carry this form yet.** Five entries of
+> [`testdata/conformance/`](../../testdata/conformance) hold a float —
+> `float-ieee754`, `float-ieee754-little-endian`, `float-hfp`,
+> `float-hfp-read-as-ieee` and `float-ieee-read-as-hfp` — and each of their
+> `values.json` still carries the JSON number this section
+> forbids, which is the form that was specified before this one. #195 migrates
+> them and makes the comparison stop being IEEE equality. Until it lands, a
+> runner writing `"0x1p+0"` will be reported as differing from those five
+> entries and from no others; nothing else in the corpus holds a float. This is
+> the one place where the corpus and this document disagree, and it is named
+> here rather than left to be discovered.
+
 ```abnf
-float       = "NaN" / infinity / hex
-infinity    = [ "-" ] "Infinity"
-hex         = [ "-" ] "0x" significand "p" sign exponent
+float       = %s"NaN" / infinity / hex
+infinity    = [ "-" ] %s"Infinity"
+hex         = [ "-" ] %s"0x" significand %s"p" sign exponent
 significand = "0" / ( "1" [ "." 1*LOWHEX ] )
 sign        = "+" / "-"
 exponent    = "0" / NONZERO *DIGIT
@@ -384,19 +431,32 @@ LOWHEX      = DIGIT / %x61-66   ; 0-9 a-f
 NONZERO     = %x31-39           ; 1-9
 ```
 
+Every literal above is case-sensitive, in the `%s` notation RFC 7405 adds to
+ABNF, because the default in RFC 5234 is case-*in*sensitive and a comparison
+that is string equality cannot afford `0X1P+3` and `0x1p+3` to be two spellings
+of one value.
+
 The value is significand × 2^exponent, where the significand is read as a
 hexadecimal fraction. `0x1p+0` is 1, `0x1.2p+3` is 9, `0x1p-5` is 0.03125, and
 `-0x0p+0` is negative zero.
 
 One value has one spelling, which is what lets a comparison be string equality:
 
-- `x`, `p` and every hexadecimal digit **MUST** be lowercase.
+- `x`, `p` and every hexadecimal digit **MUST** be lowercase, and the two
+  sentinels are spelled exactly `NaN` and `Infinity`.
 - The significand **MUST** be `0` if and only if the value is zero, and `1`
   otherwise. Every non-zero value, including a subnormal one, is normalized.
 - The fraction **MUST NOT** end in `0`, and the `.` **MUST** be absent when
   there is no fraction.
 - The exponent's sign **MUST** be written, even where it is `+`, and the
-  exponent **MUST NOT** carry a leading zero. A zero exponent is `+0`.
+  exponent **MUST NOT** carry a leading zero.
+- A zero exponent **MUST** be written `+0`; `p-0` is not admissible.
+- Where the significand is `0` the exponent **MUST** be `+0`, so that zero is
+  exactly `0x0p+0` and negative zero exactly `-0x0p+0`. A grammar that let the
+  exponent of a zero vary would give one value the infinitely many spellings a
+  stored exponent can take, and two correct generators would be reported as
+  disagreeing about zero — the failure `"-0"` is excluded from [a
+  number](#a-number-is-a-decimal-string) to avoid.
 - `"NaN"` is every NaN. Its sign and its payload are **not** distinguished.
 - A value **MUST NOT** be written as a JSON number, and **MUST NOT** be written
   in decimal at all.
@@ -429,9 +489,8 @@ one run of bytes is read two ways on purpose — as HFP it is 1, as IEEE it is 9
 and a form that echoed the bytes would make both readings identical and the
 entry vacuous.
 
-The corpus's own float entries are written in this form by #195, which is also
-where the comparison stops being IEEE equality. They are the only members of the
-corpus that do not carry it yet.
+The migration of the five entries that predate this form is #195's, and it is
+called out in full at the top of this section.
 
 ### `INDEX`, `POINTER` and `NATIONAL` are base64
 
@@ -467,9 +526,17 @@ document carries a `failure` beside the records it did read:
 }
 ```
 
-`failure` **MUST** be present exactly when reading stopped before the end of the
-file, and absent otherwise. `records` **MUST** hold the records that were read
-before the failure, in file order.
+`failure` **MUST** be present exactly when the direction the document describes
+did not complete, and absent otherwise.
+
+- For a document describing a **read** — an entry's `values.json`, and the
+  `decoded` half of an [answer](#the-answer-document) — that is a read that
+  stopped before the end of the file, and `records` **MUST** hold the records
+  read before it stopped, in file order.
+- For the **`written`** half of an answer it is a writer that refused a record
+  it was given, or a file it could not complete. `records` is then empty: the
+  file was never finished, so nothing was read back out of it, and there is
+  nothing for the entry to be compared against.
 
 The text is a note for whoever reads the report and **MUST NOT** be compared: a
 diagnostic is a generator's own wording in its own language, so an entry

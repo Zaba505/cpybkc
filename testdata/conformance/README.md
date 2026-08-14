@@ -67,11 +67,16 @@ What each member holds, and the language a decoded record is written in — a
 group, a table, a variant, characters, a number, a float, a run of bytes, and a
 file the reader refused — are [*An
 entry*](../../docs/conformance/SPEC.md#an-entry) and [*The value
-language*](../../docs/conformance/SPEC.md#the-value-language). Four rules that
-were prose here and are now decided: that trailing spaces on an alphanumeric
-item do not survive, how a decimal string may be spelled and that there is no
-negative zero, that a float is written exactly and never as a JSON number, and
-which base64 (#194).
+language*](../../docs/conformance/SPEC.md#the-value-language). Four rules moved
+with it and are now decided (#194). Three were never written here at all, which
+is the argument for the move rather than a slip: whether trailing spaces on an
+alphanumeric item survive, how a decimal string may be spelled and whether a
+negative zero is one, and which base64 alphabet and padding. The fourth is a
+reversal — this file said a `COMP-1` or `COMP-2` item was a JSON number, and the
+spec says it is a string in hexadecimal significand notation, exactly so that a
+NaN, an infinity and a negative zero can be written at all. The corpus's five
+float entries still carry the old form and are migrated by #195, which the spec
+says in full.
 
 `values.json` is one half of the comparison and a runner's answer document is
 the other, written in exactly the same language. What a runner is asked to do,
