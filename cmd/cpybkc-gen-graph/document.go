@@ -78,24 +78,17 @@ func write(descriptor *irpb.Descriptor, out string, opts options) error {
 //
 // # What it draws today
 //
-// Nothing. The diagram this generator exists for — the sequencing automaton,
-// with each record's items beneath the state that reads it — is the story after
-// this one, and what is here is an empty document in the notation the
-// invocation asked for: valid for a renderer to load, and carrying no state,
-// no transition and no record.
+// The sequencing automaton: the states the descriptor carries, the transitions
+// between them labelled with the record each admits, where a read begins and
+// where one may end. The descriptor is read once, by [read], into a [graph] —
+// and an emitter is a function over that, so #190's `dot` rendering is a second
+// arm below rather than a second walk.
 //
-// That is deliberate rather than unfinished. This generator is the first
-// consumer of docs/plugin/SPEC.md that did not ship with it, and the argument
-// vector, the version check, the diagnostic format and the option vocabulary
-// are what make it one. Writing the document from the commit that adds the
-// executable is what puts it on the contract — a zero exit means the file the
-// plugin intended to produce is written and closed beneath `--out` — before
-// there is anything to say inside it, so that the commit that fills it in is a
-// change to this function and to nothing else.
-//
-// The descriptor is a parameter for the same reason: it is what the diagram is
-// read out of, and a signature that took only the options would have to change
-// in the same commit that gives this something to draw.
+// What it does not draw yet is what hangs off those states and edges: the
+// predicates, guards, bindings and registers that choose a transition (#188),
+// and each record's items with their offsets (#189). Each is a field on [graph]
+// and a few lines in each emitter when it lands, which is what the model is
+// shaped for.
 //
 // # Why the default arm is a failure rather than a notation
 //
@@ -108,6 +101,14 @@ func write(descriptor *irpb.Descriptor, out string, opts options) error {
 // option vocabulary refuses on the way in, and it would be worse arriving on
 // the way out, where nothing is left to say it happened.
 func document(descriptor *irpb.Descriptor, opts options) (string, string, error) {
+	// Before the switch, and once: the walk is the same walk whichever notation
+	// asked for it, and a descriptor this generator refuses is refused before a
+	// notation has been chosen to refuse it in.
+	g, err := read(descriptor)
+	if err != nil {
+		return "", "", err
+	}
+
 	switch opts.format {
 	case formatDot:
 		// The graph is named for this project rather than for the layout,
@@ -115,12 +116,15 @@ func document(descriptor *irpb.Descriptor, opts options) (string, string, error)
 		// this generator can see are ones it may not read a name out of. `dot`
 		// requires a name-or-nothing here and an anonymous digraph is one a
 		// reader cannot refer to from a document that embeds it.
+		//
+		// Still empty, and #190 is where it fills in. The Graphviz rendering is
+		// a story of its own because Mermaid is what renders in a diff without
+		// a toolchain and `dot` is what stays legible when Mermaid's layout
+		// gives up — two different readers, and one of them is served by the
+		// document above today.
 		return dotFile, dotGeneratedBy + "\n\ndigraph cpybkc {\n}\n", nil
 	case formatMermaid:
-		// Markdown rather than a bare `.mmd`, because the notation's whole
-		// advantage is that a forge renders it in a diff, and what a forge
-		// renders is a fenced block in a document.
-		return mermaidFile, mermaidGeneratedBy + "\n\n```mermaid\nstateDiagram-v2\n```\n", nil
+		return mermaidFile, mermaid(g), nil
 	default:
 		return "", "", fmt.Errorf("this generator has no document for %s=%q, which is a bug in %s",
 			formatOption, opts.format, pluginName)
