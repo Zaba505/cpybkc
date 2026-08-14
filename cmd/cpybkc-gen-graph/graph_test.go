@@ -35,6 +35,7 @@ func TestTheWalkBeginsAtTheStateTheFileNodeNames(t *testing.T) {
 			unframedFile(1, 7),
 			stateNode(3, false, 10),
 			recordNode(4, "TAIL", ""),
+			groupNode(20, "TAIL"),
 			transitionNode(10, 4, 3),
 			stateNode(7, false, 10),
 		},
@@ -67,6 +68,7 @@ func TestIdentifierZeroIsAnOrdinaryIdentifier(t *testing.T) {
 			stateNode(0, true, 1),
 			unframedFile(3, 0),
 			recordNode(2, "ONLY", ""),
+			groupNode(18, "ONLY"),
 			transitionNode(1, 2, 0),
 		},
 	})
@@ -96,7 +98,7 @@ func TestAStartStateOfZeroThatIsNotThereIsStillRefused(t *testing.T) {
 	_, err := read(&irpb.Descriptor{
 		Version: supportedIRVersion,
 		Nodes:   []*irpb.Node{unframedFile(1, 0), stateNode(2, true)},
-	})
+	}, defaults())
 
 	if err == nil {
 		t.Fatal("read accepted a file node beginning in a state the descriptor does not carry")
@@ -155,6 +157,7 @@ func TestEveryStateTheDescriptorCarriesIsDrawn(t *testing.T) {
 			stateNode(8, true),
 			stateNode(9, false, 30),
 			recordNode(4, "STRAY", ""),
+			groupNode(20, "STRAY"),
 			transitionNode(30, 4, 8),
 		},
 	})
@@ -198,8 +201,11 @@ func TestTransitionsAreDrawnInTheOrderTheStateCarriesThem(t *testing.T) {
 			unframedFile(1, 2),
 			stateNode(2, true, 32, 31, 30),
 			recordNode(4, "FIRST", ""),
+			groupNode(20, "FIRST"),
 			recordNode(5, "SECOND", ""),
+			groupNode(21, "SECOND"),
 			recordNode(6, "THIRD", ""),
+			groupNode(22, "THIRD"),
 			transitionNode(30, 6, 2),
 			transitionNode(31, 5, 2),
 			transitionNode(32, 4, 2),
@@ -247,6 +253,7 @@ func TestAnEdgeIsNamedByTheOverrideWhereTheLayoutGaveOne(t *testing.T) {
 					unframedFile(1, 2),
 					stateNode(2, true, 30),
 					recordNode(4, testCase.original, testCase.override),
+					groupNode(20, testCase.original),
 					transitionNode(30, 4, 2),
 				},
 			})
@@ -380,14 +387,14 @@ func TestADescriptorThatDoesNotSayWhatADescriptorSaysIsRefused(t *testing.T) {
 		{
 			name: "a next state that is not a state",
 			nodes: []*irpb.Node{
-				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "R", ""), transitionNode(30, 4, 99),
+				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "R", ""), groupNode(20, "R"), transitionNode(30, 4, 99),
 			},
 			says: "moves to names node 99",
 		},
 		{
 			name: "a record with no name at all",
 			nodes: []*irpb.Node{
-				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "", ""), transitionNode(30, 4, 2),
+				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "", ""), groupNode(20, ""), transitionNode(30, 4, 2),
 			},
 			says: "carries no name",
 		},
@@ -398,7 +405,7 @@ func TestADescriptorThatDoesNotSayWhatADescriptorSaysIsRefused(t *testing.T) {
 			// which is the one thing an edge here exists to say.
 			name: "a record whose name is nothing but whitespace",
 			nodes: []*irpb.Node{
-				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "  ", ""), transitionNode(30, 4, 2),
+				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "  ", ""), groupNode(20, "  "), transitionNode(30, 4, 2),
 			},
 			says: "carries no name",
 		},
@@ -461,7 +468,7 @@ func TestADescriptorThatDoesNotSayWhatADescriptorSaysIsRefused(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := read(&irpb.Descriptor{Version: supportedIRVersion, Nodes: testCase.nodes})
+			_, err := read(&irpb.Descriptor{Version: supportedIRVersion, Nodes: testCase.nodes}, defaults())
 			if err == nil {
 				t.Fatal("read accepted a descriptor that does not say what a descriptor says")
 			}
@@ -594,6 +601,12 @@ func framings() []framed {
 // start state that is not the lowest-numbered node, a cycle, and a state
 // offering two transitions in an order that is not their identifier order. One
 // record carries an override and two do not.
+//
+// Each record holds a couple of items, so that the four goldens show the table
+// beneath the diagram as well as the diagram. They are deliberately plain —
+// constant offsets, no table, no variant — because what varies across these
+// four files is the framing sentence and nothing else, and the item tables that
+// exercise this generator's arithmetic are [variableGolden]'s.
 func ordersAutomaton(file *irpb.File) *irpb.Descriptor {
 	file.StartStateId = 2
 
@@ -614,9 +627,16 @@ func ordersAutomaton(file *irpb.File) *irpb.Descriptor {
 			transitionNode(11, 5, 3),
 			transitionNode(12, 6, 7),
 
-			groupNode(20, "ORDER-HEADER"),
-			groupNode(21, "ORDER-DETAIL"),
-			groupNode(22, "ORDER-TRAILER"),
+			groupNode(20, "ORDER-HEADER", 40, 41),
+			fieldNode(40, "ORDER-NUMBER", 8),
+			numericFieldNode(41, "LINE-COUNT", 3, 3),
+
+			groupNode(21, "ORDER-DETAIL", 42, 43),
+			fieldNode(42, "PART-NUMBER", 10),
+			numericFieldNode(43, "QUANTITY", 4, 4),
+
+			groupNode(22, "ORDER-TRAILER", 44),
+			numericFieldNode(44, "ORDER-TOTAL", 9, 9),
 		},
 	}
 }
@@ -696,11 +716,19 @@ func groupNode(id uint64, original string, members ...uint64) *irpb.Node {
 	}}}
 }
 
+// defaults is the options an invocation that states none resolves to, which is
+// what every test but the ones about an option itself reads a descriptor under.
+//
+// Taken through [options.defaulted] rather than written out, so that a change to
+// a default lands here rather than leaving these tests reading a descriptor
+// under options no invocation produces.
+func defaults() options { return options{}.defaulted() }
+
 // drawn is the graph [read] makes of a descriptor.
 func drawn(t *testing.T, d *irpb.Descriptor) *graph {
 	t.Helper()
 
-	g, err := read(d)
+	g, err := read(d, defaults())
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -711,12 +739,16 @@ func drawn(t *testing.T, d *irpb.Descriptor) *graph {
 // writtenDocument is the whole document a run over this descriptor writes, in the
 // default notation, taken through [run] rather than through the emitter — so
 // that what these tests hold is what a file beneath `--out` holds.
-func writtenDocument(t *testing.T, d *irpb.Descriptor) string {
+//
+// opts are appended to the argument vector as they stand, so a test states an
+// option the way a manifest does rather than by reaching past [parse] into an
+// [options] value no invocation could have produced.
+func writtenDocument(t *testing.T, d *irpb.Descriptor, opts ...string) string {
 	t.Helper()
 
 	out := t.TempDir()
 
-	if err := run(vector(t, marshal(t, d), out), nothing()); err != nil {
+	if err := run(append(vector(t, marshal(t, d), out), opts...), nothing()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 

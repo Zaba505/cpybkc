@@ -77,6 +77,7 @@ func TestARecordNameCarryingAMermaidMetacharacterDoesNotBreakTheDiagram(t *testi
 					unframedFile(1, 2),
 					stateNode(2, true, 30),
 					recordNode(4, testCase.named, ""),
+					groupNode(20, testCase.named),
 					transitionNode(30, 4, 2),
 				},
 			})
@@ -114,6 +115,30 @@ func TestARecordNameCarryingAMermaidMetacharacterDoesNotBreakTheDiagram(t *testi
 			if got := scanned(t, label); got != testCase.named {
 				t.Errorf("the label for %q decodes to %q, and an escape stands for what it escaped", testCase.named, got)
 			}
+
+			// The same name reaches the record's heading beneath the diagram,
+			// where the notation is Markdown rather than Mermaid and the
+			// escaping is a different one. It is asserted here because this is
+			// the fixture that carries the awkward names, and because a heading
+			// is a position neither the label rule nor the cell rule fits: a
+			// `|` is ordinary there and a newline is not.
+			heading := "### " + markdownInline(testCase.named)
+
+			if !strings.Contains(written, "\n"+heading+"\n") {
+				t.Errorf("the record's heading is not %q:\n%s", heading, written)
+			}
+
+			if strings.Contains(heading, "\n") || strings.Contains(heading, "\r") {
+				t.Errorf("the heading %q runs onto a second line", heading)
+			}
+
+			// And nothing was escaped that a heading does not react to. A `\|`
+			// in front of a reader is this generator corrupting a name to
+			// protect itself from a character that does nothing where it
+			// stands.
+			if strings.Contains(heading, `\|`) {
+				t.Errorf("the heading %q escapes a pipe, which is an ordinary character outside a table cell", heading)
+			}
 		})
 	}
 }
@@ -137,7 +162,9 @@ func TestTheStartStateAndEveryAcceptingStateAreMarked(t *testing.T) {
 			stateNode(3, true),
 			stateNode(4, true),
 			recordNode(5, "LEFT", ""),
+			groupNode(21, "LEFT"),
 			recordNode(6, "RIGHT", ""),
+			groupNode(22, "RIGHT"),
 			transitionNode(30, 5, 3),
 			transitionNode(31, 6, 4),
 		},

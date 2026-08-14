@@ -28,10 +28,10 @@ import (
 // the `dot` emitter of #190 as a second consumer of exactly this, with no walk
 // of its own.
 //
-// It is still smaller than the automaton. Each record's items (#189) hang off
-// these states and edges in the story after this one, as a field added here and
-// read by both emitters rather than a second read of the descriptor — which is
-// how the predicates, guards, bindings and registers below arrived.
+// It is still smaller than the automaton. Each record's items hang off these
+// states and edges as [graph.records], read by the same walk and drawn by both
+// emitters rather than found by a second read of the descriptor — which is how
+// the predicates, guards, bindings and registers below arrived.
 type graph struct {
 	// framing is the file node's framing, which the document states because
 	// what stands between two records is part of what a person reading this
@@ -59,6 +59,16 @@ type graph struct {
 	// one malformed — and it is another one nobody sees unless the document
 	// draws it.
 	registers []register
+
+	// records is one table per record the automaton admits, in the order the
+	// states above first admit it, and empty where `records=none` asked for the
+	// sequencing view alone.
+	//
+	// Empty is therefore two things — the option said no, or the automaton
+	// admits no record — and neither wants a section. What it never means is an
+	// empty table: a record whose top level holds no item is a [recordTable]
+	// carrying no rows, and the document says so in words.
+	records []recordTable
 }
 
 // state is one state of the automaton, as the diagram draws it.
@@ -115,6 +125,15 @@ type edge struct {
 	// differently and a model carrying one notation's escaping would be a model
 	// the other could not use.
 	record string
+
+	// recordID is that record node's own identifier.
+	//
+	// Carried beside the name and drawn nowhere, because [graph.readRecords]
+	// tables each record once and a name is not identity — docs/ir/SPEC.md's
+	// "Names" makes duplicate data names legal COBOL, so two records that share
+	// a name are two records and deduplicating on the name would table only the
+	// first of them.
+	recordID uint64
 
 	// predicate is what selects this transition on the bytes in front of the
 	// reader, and says so where the transition carries none.
@@ -260,7 +279,16 @@ func (g *graph) stranded() string {
 // and the failure this generator exists to avoid — stated for the version check
 // in this command's package comment — is a confident picture of an automaton it
 // understood only in part.
-func read(d *irpb.Descriptor) (*graph, error) {
+//
+// # Why the options reach the walk
+//
+// `records=none` is not a section left out at the end; it is a walk that does
+// not happen. Each record's containment order is read only where the document
+// is going to draw it, for the reason [fieldPath] gives about a record's top
+// level: refusing a descriptor over a dangling reference in the part of it this
+// document does not draw would be refusing a diagram over something nobody
+// looking at the diagram could see.
+func read(d *irpb.Descriptor, opts options) (*graph, error) {
 	nodes := index(d)
 
 	file, err := fileOf(d)
@@ -311,6 +339,30 @@ func read(d *irpb.Descriptor) (*graph, error) {
 	// diagram cannot disagree about which transition binds what.
 	if err := g.readRegisters(nodes); err != nil {
 		return nil, err
+	}
+
+	// Last of all, and off the edges above rather than off the descriptor's
+	// record nodes: what the document tables is what the automaton admits, so a
+	// record node nothing admits is not a table nobody asked for.
+	//
+	// A switch with a failing default rather than an equality test, for the
+	// reason [document]'s last arm is a failure: an equality test makes every
+	// value that is not `all` mean `none`, which is a fall back to a member of a
+	// closed set this generator recognises — the one thing docs/ir/SPEC.md says
+	// a consumer must not do. [parse] admits exactly these two, so the last arm
+	// cannot be reached from an argument vector; the way it *would* be reached
+	// is a third value added to the set with no arm added here, and the
+	// alternative to failing is a document silently missing a section somebody
+	// asked for.
+	switch opts.records {
+	case recordsAll:
+		if err := g.readRecords(nodes); err != nil {
+			return nil, err
+		}
+	case recordsNone:
+	default:
+		return nil, fmt.Errorf("this generator has no reading of %s=%q, which is a bug in %s",
+			recordsOption, opts.records, pluginName)
 	}
 
 	return g, nil
@@ -515,7 +567,7 @@ func edgeAt(nodes nodeSet, id uint64) (edge, error) {
 		return edge{}, unresolved(node.GetNextStateId(), fmt.Sprintf("the state transition %d moves to", id))
 	}
 
-	e := edge{to: node.GetNextStateId(), record: name}
+	e := edge{to: node.GetNextStateId(), record: name, recordID: node.GetRecordId()}
 
 	p, err := predicateOf(nodes, node, record)
 	if err != nil {
@@ -550,9 +602,10 @@ func edgeAt(nodes nodeSet, id uint64) (edge, error) {
 //
 // docs/ir/SPEC.md's "Names" carries the original beside an override rather than
 // in place of it, so both are present and this chooses. The override wins
-// because it is the name the person reading this diagram wrote in their layout;
-// the original is still what the copybook says, and #189's item table is where
-// it earns a column.
+// because it is the name the person reading this diagram wrote in their layout,
+// and the same choice is made of a record, a group and a field, so that a
+// predicate's path, an edge's record and an item table's rows all name a node
+// the one way.
 //
 // Presence rather than emptiness decides. An override is explicitly optional in
 // the schema, and an override set to the empty string is a producer saying

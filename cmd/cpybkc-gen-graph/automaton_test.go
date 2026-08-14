@@ -325,7 +325,7 @@ func TestAGuardsLiteralMustBeTheKindItsRegisterHolds(t *testing.T) {
 			t.Parallel()
 
 			_, err := read(oneRecordAutomaton(append(testCase.nodes,
-				edgeNode(30, 100, 2, nil, []uint64{60}, nil))...))
+				edgeNode(30, 100, 2, nil, []uint64{60}, nil))...), defaults())
 
 			if err == nil {
 				t.Fatal("read accepted a guard whose literal is not the kind its register holds")
@@ -403,7 +403,7 @@ func TestAStateThatDoesNotAcceptMayNotCarryAcceptanceGuards(t *testing.T) {
 			integerRegister(20),
 			positiveGuard(60, 20),
 		},
-	})
+	}, defaults())
 
 	if err == nil {
 		t.Fatal("read accepted a state that does not accept and carries acceptance guards")
@@ -722,7 +722,7 @@ func TestAReferenceInThisHalfOfTheAutomatonThatDoesNotResolveIsRefused(t *testin
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := read(oneRecordAutomaton(testCase.nodes...))
+			_, err := read(oneRecordAutomaton(testCase.nodes...), defaults())
 			if err == nil {
 				t.Fatal("read accepted a descriptor that does not say what a descriptor says")
 			}
@@ -761,7 +761,7 @@ func TestAMemberListThatContainsItselfIsAWalkThatStops(t *testing.T) {
 			groupNode(105, "LOOP-RECORD", 106),
 			groupNode(106, "INNER", 105),
 		},
-	})
+	}, defaults())
 
 	if err == nil {
 		t.Fatal("read accepted a predicate naming a field the record does not carry")
@@ -865,14 +865,14 @@ func countedAutomaton() *irpb.Descriptor {
 			recordOf(100, 105, "HEADER-RECORD"),
 			groupNode(105, "HEADER-RECORD", 101, 102, 103, 104),
 			fieldNode(101, "TYPE-CODE", 1),
-			fieldNode(102, "DTL-COUNT", 2),
+			numericFieldNode(102, "DTL-COUNT", 2, 2),
 			fieldNode(103, "SUM-FLAG", 1),
-			fieldNode(104, "TOTAL-COUNT", 2),
+			numericFieldNode(104, "TOTAL-COUNT", 2, 2),
 
 			recordOf(110, 115, "DETAIL-RECORD"),
 			groupNode(115, "DETAIL-RECORD", 111, 112),
 			fieldNode(111, "TYPE-CODE", 1),
-			fieldNode(112, "AMOUNT", 3),
+			numericFieldNode(112, "AMOUNT", 3, 3),
 
 			recordOf(120, 125, "SUMMARY-RECORD"),
 			groupNode(125, "SUMMARY-RECORD", 121, 122, 124),
@@ -1071,10 +1071,34 @@ func decrementBinding(id, reg uint64) *irpb.Node {
 // It carries no encoding, which is a charset this generator cannot name and so
 // a literal it prints as bytes — the case every fixture here but
 // [encodedFieldNode]'s wants.
+//
+// It does carry a USAGE and a picture, because a record's item table draws both
+// and refuses an item that states neither: docs/ir/SPEC.md has a producer set
+// them on every field, and a fixture that left them off would be a descriptor
+// no producer emits. Alphanumeric is the choice that says nothing — a field
+// these fixtures reach for is one a predicate tests or a binding reads, and the
+// automaton is what they are about.
 func fieldNode(id uint64, original string, width uint32) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width: width,
-		Names: &irpb.Names{Original: original},
+		Width:   width,
+		Usage:   irpb.Usage_USAGE_DISPLAY,
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+		Names:   &irpb.Names{Original: original},
+	}}}
+}
+
+// numericFieldNode is the same item as a zoned decimal of that many digits,
+// which is what a count field actually is.
+//
+// It exists so that the counted golden reads truthfully: `DTL-COUNT` is a
+// number a header states and a table drawing it as `X(2)` would be describing
+// somebody else's copybook.
+func numericFieldNode(id uint64, original string, width uint32, digits uint32) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
+		Width:   width,
+		Usage:   irpb.Usage_USAGE_DISPLAY,
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: digits},
+		Names:   &irpb.Names{Original: original},
 	}}}
 }
 
@@ -1083,6 +1107,8 @@ func fieldNode(id uint64, original string, width uint32) *irpb.Node {
 func encodedFieldNode(id uint64, original string, width uint32, charset irpb.Charset) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
 		Width:    width,
+		Usage:    irpb.Usage_USAGE_DISPLAY,
+		Picture:  &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
 		Names:    &irpb.Names{Original: original},
 		Encoding: &irpb.Encoding{Charset: charset},
 	}}}

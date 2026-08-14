@@ -82,13 +82,11 @@ func write(descriptor *irpb.Descriptor, out string, opts options) error {
 // between them, where a read begins and where one may end — and, on each
 // transition, the record it admits, the predicate that selects it, the guards
 // that make it eligible and the bindings it applies, with a table of the
-// registers those bindings write. The descriptor is read once, by [read], into
-// a [graph] — and an emitter is a function over that, so #190's `dot` rendering
-// is a second arm below rather than a second walk.
-//
-// What it does not draw yet is each record's items with their offsets (#189).
-// That is a field on [graph] and a few lines in each emitter when it lands,
-// which is what the model is shaped for and how everything above arrived.
+// registers those bindings write. Beneath the diagram, unless `records=none`
+// asked otherwise, one table per record: its items in containment order, each
+// with the offset this generator summed for it. The descriptor is read once, by
+// [read], into a [graph] — and an emitter is a function over that, so #190's
+// `dot` rendering is a second arm below rather than a second walk.
 //
 // # Why the default arm is a failure rather than a notation
 //
@@ -104,7 +102,7 @@ func document(descriptor *irpb.Descriptor, opts options) (string, string, error)
 	// Before the switch, and once: the walk is the same walk whichever notation
 	// asked for it, and a descriptor this generator refuses is refused before a
 	// notation has been chosen to refuse it in.
-	g, err := read(descriptor)
+	g, err := read(descriptor, opts)
 	if err != nil {
 		return "", "", err
 	}

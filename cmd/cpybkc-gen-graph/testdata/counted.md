@@ -26,3 +26,37 @@ A register is what the automaton remembers between records: a binding on a trans
 | r20 | an integer | `s2 --> s3` (HEADER-RECORD), `s3 --> s3` (DETAIL-RECORD), `s3 --> s3` (HEADER-RECORD), `s4 --> s3` (HEADER-RECORD) |
 | r21 | bytes | `s2 --> s3` (HEADER-RECORD), `s3 --> s3` (HEADER-RECORD), `s4 --> s3` (HEADER-RECORD) |
 | r22 | an integer | `s2 --> s3` (HEADER-RECORD), `s3 --> s3` (HEADER-RECORD), `s4 --> s3` (HEADER-RECORD) |
+
+## Records
+
+Each record's items, in containment order, beginning at the first byte of the record's data.
+
+**The offsets are summed here, not read.** No IR node carries a byte offset: position is stated once, as ordering and width — see docs/ir/SPEC.md, "Ordering and width, and no offset" — so that a producer cannot state it a second time and be wrong in a way no consumer can detect. Every offset below is therefore this generator's own arithmetic over the widths ahead of the item, counting one occurrence — the first — of every group that encloses it and repeats. Where something ahead of an item repeats a number of times that is read at run time, there is no number to print and the offset carries a variable term instead, naming the count.
+
+**The pictures are spelled here, not quoted.** The IR carries no PICTURE character-string anywhere. It carries a category, the number of stored digit positions, the scale, whether the item is signed and where its sign sits, and the picture column is this generator's spelling of those five facts — so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly. An edited item's editing characters are not carried at all, so its category is named and nothing of it is spelled. The length of an alphabetic or alphanumeric picture is the item's width in bytes, which is its character count for every charset the IR admits.
+
+### HEADER-RECORD
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1 | TYPE-CODE | DISPLAY | X(1) | always |
+| 1 | 2 | DTL-COUNT | DISPLAY | 9(2) | always |
+| 3 | 1 | SUM-FLAG | DISPLAY | X(1) | always |
+| 4 | 2 | TOTAL-COUNT | DISPLAY | 9(2) | always |
+
+### DETAIL-RECORD
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1 | TYPE-CODE | DISPLAY | X(1) | always |
+| 1 | 3 | AMOUNT | DISPLAY | 9(3) | always |
+
+### SUMMARY-RECORD
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1 | TYPE-CODE | DISPLAY | X(1) | always |
+| 1 | 3 | LINE | — | — | always |
+| 1 | 3 | LINE.LINE-TEXT | DISPLAY | X(3) | always |
+| 4 | 2 | NOTE | — | — | always |
+| 4 | 2 | NOTE.NOTE-TEXT | DISPLAY | X(2) | always |

@@ -169,8 +169,8 @@ const (
 	defaultFormat = formatMermaid
 )
 
-// recordsOption is the option saying whether each record's items are drawn
-// beneath the state that reads it.
+// recordsOption is the option saying whether each record's items are tabled
+// beneath the diagram.
 //
 // It exists because the two questions this diagram answers are asked at
 // different sizes. *Are these the right records, in the right order, told apart
@@ -218,8 +218,7 @@ type options struct {
 	// format is the notation the document is written in.
 	format string
 
-	// records is whether each record's items are drawn beneath the state that
-	// reads it.
+	// records is whether each record's items are tabled beneath the diagram.
 	records string
 }
 

@@ -20,6 +20,7 @@ import (
 const (
 	mermaidHeading   = "# The sequencing automaton"
 	mermaidRegisters = "## Registers"
+	mermaidRecords   = "## Records"
 
 	mermaidFenceOpen  = "```mermaid"
 	mermaidFenceClose = "```"
@@ -73,8 +74,131 @@ func mermaid(g *graph) string {
 	b.WriteString(mermaidFenceClose + "\n")
 
 	b.WriteString(mermaidRegisterTable(g))
+	b.WriteString(mermaidRecordTables(g))
 
 	return b.String()
+}
+
+// mermaidRecordsSaid is what the record section says before its tables.
+//
+// It is the emitter's rather than the model's, like [mermaidRegistersSaid] and
+// unlike the three sentences above the diagram: it explains a table, and a
+// notation with nowhere to put a table has nothing to explain.
+//
+// What it has to say is which of these columns are the descriptor's and which
+// are this generator's, because two of them are derived and neither says so on
+// its face. A reader comparing this against a copybook has to know which side
+// is authoritative before a disagreement means anything — and if they guess
+// wrong they will go and change the copybook.
+//
+// The rules it names are cited the way every diagnostic of this program cites
+// one — the document's title and the section's, as text. A Markdown link would
+// have to be relative to this repository or absolute to a forge, and this file
+// is written into somebody else's tree under `--out`: the first is broken
+// wherever it lands, and the second is a URL baked into generated output.
+const mermaidRecordsSaid = "Each record's items, in containment order, beginning at the first byte of the record's data." +
+	"\n\n**The offsets are summed here, not read.** No IR node carries a byte offset:" +
+	" position is stated once, as ordering and width — see docs/ir/SPEC.md, \"Ordering and width, and no offset\" —" +
+	" so that a producer cannot state it a second time and be wrong in a way no consumer can detect." +
+	" Every offset below is therefore this generator's own arithmetic over the widths ahead of the item," +
+	" counting one occurrence — the first — of every group that encloses it and repeats." +
+	" Where something ahead of an item repeats a number of times that is read at run time," +
+	" there is no number to print and the offset carries a variable term instead, naming the count." +
+	"\n\n**The pictures are spelled here, not quoted.** The IR carries no PICTURE character-string anywhere." +
+	" It carries a category, the number of stored digit positions, the scale, whether the item is signed and where its sign sits," +
+	" and the picture column is this generator's spelling of those five facts —" +
+	" so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly." +
+	" An edited item's editing characters are not carried at all, so its category is named and nothing of it is spelled." +
+	" The length of an alphabetic or alphanumeric picture is the item's width in bytes," +
+	" which is its character count for every charset the IR admits."
+
+// mermaidNoItems is what stands where a record's table would be when its top
+// level holds nothing.
+//
+// A sentence rather than a table with no rows, for the reason
+// [graph.admitsNothing] is a sentence: a heading over an empty table looks like
+// a generator that gave up halfway, and this is a record described as holding
+// no bytes — which is a thing to look at rather than nothing to draw.
+const mermaidNoItems = "This record's top level holds no item, so it describes no bytes at all."
+
+// The table's columns.
+const (
+	mermaidRecordHeader = "| Offset | Width | Item | Usage | Picture | Present |"
+	mermaidRecordRule   = "| --- | --- | --- | --- | --- | --- |"
+)
+
+// mermaidRecordTables is the record section, and the empty string where there
+// is none: `records=none`, or an automaton that admits no record at all.
+func mermaidRecordTables(g *graph) string {
+	if len(g.records) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+
+	b.WriteString("\n" + mermaidRecords + "\n\n")
+	b.WriteString(mermaidRecordsSaid + "\n")
+
+	for _, r := range g.records {
+		// A heading is an inline position and not a cell, so the name is escaped
+		// as one: a `|` is an ordinary character here and escaping it would put
+		// a backslash in front of the reader.
+		b.WriteString("\n### " + markdownInline(r.name) + "\n\n")
+
+		if len(r.items) == 0 {
+			b.WriteString(mermaidNoItems + "\n")
+
+			continue
+		}
+
+		b.WriteString(mermaidRecordHeader + "\n")
+		b.WriteString(mermaidRecordRule + "\n")
+
+		for _, one := range r.items {
+			// The three composed cells are the model's and are escaped by this
+			// emitter, which is what each is passed [markdownCell] for. The
+			// usage and the picture are this generator's own vocabulary — a
+			// closed set of USAGE names, and a picture built out of `9`, `A`,
+			// `X`, `P`, `V`, `S` and parentheses — so neither carries a
+			// character a cell reacts to and neither is escaped.
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n",
+				one.at.phrase(markdownCell), one.extent.phrase(markdownCell), mermaidItem(one),
+				one.usage, one.picture, one.present.phrase(markdownCell))
+		}
+	}
+
+	return b.String()
+}
+
+// mermaidItem is a row's Item cell: the item's path within the record, dotted.
+//
+// The path rather than the name alone, because containment is what the reader
+// is checking and a column of bare names says nothing about which group an item
+// is in. It is the same convention an edge label's predicate takes, for the same
+// reason and with the same omission — the record's own top level is the heading
+// above the table, and repeating it on every row would say it once per item.
+//
+// An unnamed node's word is written outside the escaping rather than inside it,
+// and emphasised. `*slack*` is this generator saying that the descriptor named
+// nothing here, and a copybook item actually called `slack` renders upright
+// beside it — the distinction is the emphasis, and it is a real one rather than
+// a strong one. What makes it safe is the other direction: a copybook name
+// carrying its own asterisks reaches the cell through [markdownCell], which
+// escapes them, so no name can dress itself up as one of these words.
+func mermaidItem(one item) string {
+	printed := make([]string, 0, len(one.path))
+
+	for _, step := range one.path {
+		if step.supplied {
+			printed = append(printed, "*"+step.name+"*")
+
+			continue
+		}
+
+		printed = append(printed, markdownCell(step.name))
+	}
+
+	return strings.Join(printed, ".")
 }
 
 // mermaidRegisterTable is the register section, and the empty string for a
@@ -145,13 +269,38 @@ func mermaidBinders(bound []binder) string {
 // The same posture as [mermaidLabel] takes towards the diagram, arrived at
 // separately because it is a different notation. Nothing here is shared with
 // it: an escape one accepts is a literal backslash to the other.
-var markdownEscapes = strings.NewReplacer(
-	`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
-	"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`, "|", `\|`,
-	"\n", " ", "\r", " ",
+//
+// # Why there are two of these
+//
+// Everything above is true of any *inline* position — a heading, a paragraph, a
+// cell — and is [markdownInline]. The last pair is true of a table cell alone:
+// `|` ends a cell and a newline ends a row, and neither means anything in a
+// heading. Escaping a `|` there would render a literal `\|` in front of the
+// reader, which is this generator corrupting a name to protect itself from a
+// character that does nothing where it stands.
+var (
+	markdownInlineEscapes = strings.NewReplacer(
+		`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
+		"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`,
+		"\n", " ", "\r", " ",
+	)
+
+	markdownCellEscapes = strings.NewReplacer(
+		`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
+		"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`, "|", `\|`,
+		"\n", " ", "\r", " ",
+	)
 )
 
-func markdownCell(name string) string { return markdownEscapes.Replace(name) }
+// markdownCell is a name in a table cell, and markdownInline one anywhere else
+// inline — a heading, or prose.
+//
+// A newline is flattened to a space in both. It ends a row in a cell, and in a
+// heading it ends the heading and leaves the rest of the name standing as
+// ordinary text, which is the same class of failure by a different route.
+func markdownCell(name string) string { return markdownCellEscapes.Replace(name) }
+
+func markdownInline(name string) string { return markdownInlineEscapes.Replace(name) }
 
 // mermaidBody is the diagram's lines, after `stateDiagram-v2` and before the
 // closing fence.

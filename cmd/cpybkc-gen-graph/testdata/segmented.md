@@ -12,3 +12,31 @@ stateDiagram-v2
     s3 --> s7: ORDER-TRAILER, no predicate
     s7 --> [*]
 ```
+
+## Records
+
+Each record's items, in containment order, beginning at the first byte of the record's data.
+
+**The offsets are summed here, not read.** No IR node carries a byte offset: position is stated once, as ordering and width — see docs/ir/SPEC.md, "Ordering and width, and no offset" — so that a producer cannot state it a second time and be wrong in a way no consumer can detect. Every offset below is therefore this generator's own arithmetic over the widths ahead of the item, counting one occurrence — the first — of every group that encloses it and repeats. Where something ahead of an item repeats a number of times that is read at run time, there is no number to print and the offset carries a variable term instead, naming the count.
+
+**The pictures are spelled here, not quoted.** The IR carries no PICTURE character-string anywhere. It carries a category, the number of stored digit positions, the scale, whether the item is signed and where its sign sits, and the picture column is this generator's spelling of those five facts — so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly. An edited item's editing characters are not carried at all, so its category is named and nothing of it is spelled. The length of an alphabetic or alphanumeric picture is the item's width in bytes, which is its character count for every charset the IR admits.
+
+### ORDER-HEADER
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 8 | ORDER-NUMBER | DISPLAY | X(8) | always |
+| 8 | 3 | LINE-COUNT | DISPLAY | 9(3) | always |
+
+### DETAIL-LINE
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 10 | PART-NUMBER | DISPLAY | X(10) | always |
+| 10 | 4 | QUANTITY | DISPLAY | 9(4) | always |
+
+### ORDER-TRAILER
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 9 | ORDER-TOTAL | DISPLAY | 9(9) | always |
