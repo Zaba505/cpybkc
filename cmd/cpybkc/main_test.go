@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -140,14 +141,12 @@ func TestInitHasItsOwnUsage(t *testing.T) {
 		t.Errorf("`cpybkc %s` wrote %q, want the whole command's usage", helpFlag, whole)
 	}
 
-	// And it says what this build does, which is read the line and fail. A help
-	// text promising a written scaffold while [scaffold] cannot write one would
-	// be documenting a command nobody can run — the fault the usage text avoided
-	// by omitting the verb entirely while it did not parse. #215 deletes the
-	// line and this assertion together, in the commit that makes the promise
-	// true.
-	if !strings.Contains(stdout, "Not implemented in this build") {
-		t.Errorf("init's usage promises a scaffold this build cannot write:\n%s", stdout)
+	// And it promises nothing this build cannot do. It carried a paragraph
+	// saying `init` was not implemented for exactly as long as that was true
+	// (#214); #215 wrote the derivation, so the paragraph went with it rather
+	// than being left as a caveat nobody would notice was stale.
+	if strings.Contains(stdout, "Not implemented") {
+		t.Errorf("init's usage still disclaims a scaffold this build writes:\n%s", stdout)
 	}
 }
 
@@ -221,19 +220,21 @@ func TestAUsageErrorUnderInitIsAnsweredWithInitsUsage(t *testing.T) {
 	}
 }
 
-// TestInitUnderstoodCannotYetBePerformed is the exit status this build owes a
-// line it read and cannot carry out.
+// TestInitUnderstoodAndUnperformableIsAFailureOfTheWork is the exit status
+// docs/cli/SPEC.md owes a line it read and could not carry out.
 //
-// docs/cli/SPEC.md's status 2 promises the vector was not understood and that
-// cpybkc did nothing at all; status 0 promises a scaffold was written. This line
-// is neither, so it is the 1 the document keeps for the faults in the work
-// ([scaffold], #215). Exiting 0 over a scaffold nobody wrote would be the worst
-// of the three: silence is success for a run, and a person would go looking for
-// a file that is not there.
-func TestInitUnderstoodCannotYetBePerformed(t *testing.T) {
+// Status 2 promises the vector was not understood and that cpybkc did nothing at
+// all; status 0 promises a scaffold was written. A `--copybook` naming a file
+// that is not there is neither — the line is well-formed and cpybkc had to open
+// something to find out — so it is the 1 the document keeps for the faults in
+// the work.
+func TestInitUnderstoodAndUnperformableIsAFailureOfTheWork(t *testing.T) {
 	t.Parallel()
 
-	stdout, stderr, code := invoke(initSubcommand, copybookFlag, "posting.cpy", outFlag, "layout.sexpr")
+	stdout, stderr, code := invoke(initSubcommand,
+		copybookFlag, filepath.Join(t.TempDir(), "absent.cpy"),
+		outFlag, filepath.Join(t.TempDir(), "layout.sexpr"),
+	)
 
 	if code != statusFailed {
 		t.Errorf("an understood %s line exited %d, want %d", initSubcommand, code, statusFailed)

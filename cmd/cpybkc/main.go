@@ -162,8 +162,13 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 		// `init` no manifest, no layout resolution and no generator, so it
 		// branches above [perform] rather than inside it: a scaffolding run and
 		// a generating run share the vector and nothing else.
+		//
+		// It takes both of what a run can write to for the same reason [perform]
+		// does: the scaffold is data and reaches standard output when `--out -`
+		// asked for it there, and everything it says about the run reaches
+		// standard error through the log this scope built beside that stream.
 		if inv.scaffolding() {
-			return scaffold(ctx, inv)
+			return scaffold(ctx, inv, stdout, log)
 		}
 
 		return perform(ctx, inv, stdout, log)
