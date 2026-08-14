@@ -225,13 +225,18 @@ var companionCoverage = map[string]string{
 // CliSurface checks that every flag the CLI accepts is one the companion module
 // has an answer for.
 //
-// docs/cli/SPEC.md fixes cpybkc as one command with no subcommands, so the
-// surface that can drift away from the module is the flag table rather than a
-// verb list: a flag added to the CLI is the event that would otherwise leave the
-// module quietly unable to express a run somebody can perform by hand. That is
-// what this fails on, in three directions — a flag no entry covers, an entry
-// naming a function the module does not declare, and an entry naming a flag the
-// CLI no longer accepts.
+// The surface that can drift away from the module is the flag table: a flag
+// added to the CLI is the event that would otherwise leave the module quietly
+// unable to express a run somebody can perform by hand. That is what this fails
+// on, in three directions — a flag no entry covers, an entry naming a function
+// the module does not declare, and an entry naming a flag the CLI no longer
+// accepts.
+//
+// docs/cli/SPEC.md now specifies one subcommand, `init` (#183), so the flag
+// table is no longer the whole surface. It stays the whole of what this checks
+// while the CLI implements no verb; the story that adds the parsing decides
+// whether the companion module expresses a scaffolding run at all, and extends
+// this check if it does (#214).
 //
 // The CLI's side is read from the flag constants the parser matches on, not from
 // what `--help` prints and not from docs/cli/SPEC.md's table. The help text is
