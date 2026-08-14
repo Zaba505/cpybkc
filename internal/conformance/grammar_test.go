@@ -248,6 +248,38 @@ var grammarForms = map[string]*irpb.Field{
 	"text":   {Usage: irpb.Usage_USAGE_DISPLAY, Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC}},
 }
 
+// grammarRefusals is which rows GRAMMAR.md's "Not admissible" table is expected
+// to carry.
+//
+// It holds the identifiers and nothing else: the form and the two spellings stay
+// in the document, which is where they are read and where they are the answer.
+// What this is for is the reverse direction the value tables get from
+// [TestEveryGrammarRowHasAValueBehindIt] and this table would otherwise not
+// have. Three of the four rules #194 decided — decimal canonicality, the base64
+// form, and most of the float form — are stated *only* here, and a merge or a
+// broken pipe that dropped seventeen of these eighteen rows would leave a test
+// that passed on the survivor.
+var grammarRefusals = map[string]bool{
+	"number-not-a-string":      true,
+	"number-leading-zero":      true,
+	"number-leading-plus":      true,
+	"number-minus-zero":        true,
+	"number-decimal-point":     true,
+	"number-exponent":          true,
+	"float-not-a-string":       true,
+	"float-in-decimal":         true,
+	"float-uppercase":          true,
+	"float-no-exponent-sign":   true,
+	"float-trailing-zero":      true,
+	"float-unnormalized":       true,
+	"float-zero-exponent":      true,
+	"float-lowercase-nan":      true,
+	"bytes-url-safe":           true,
+	"bytes-unpadded":           true,
+	"bytes-not-canonical":      true,
+	"text-trailing-space-kept": true,
+}
+
 func grammarNum(n int32) *int32 { return &n }
 
 func grammarString(s string) *string { return &s }
@@ -300,8 +332,19 @@ func TestTheWriterWritesEveryGrammarRow(t *testing.T) {
 			// a scalar's text is significant to the character, which is what
 			// makes the comparison of two answers string equality. So a row
 			// whose answer is a scalar is held to the document byte for byte.
-			if _, ok := got.(string); !ok {
+			//
+			// Which rows those are is decided by the *document* and never by
+			// what the writer happened to return. Reading it off the answer
+			// would make a writer that stopped producing a scalar — a float
+			// leaking out of [WriteScalar] as a JSON number is the case this
+			// file exists to catch — skip the strict check and fall back to the
+			// weaker one, which is precisely backwards.
+			if _, isScalar := want.(string); !isScalar {
 				return
+			}
+
+			if _, isScalar := got.(string); !isScalar {
+				t.Fatalf("GRAMMAR.md states the scalar %s and the writer wrote a %T", text, got)
 			}
 
 			marshalled, err := json.Marshal(got)
@@ -384,6 +427,28 @@ func TestTheLoaderAgreesWithEveryNotAdmissibleRow(t *testing.T) {
 		t.Fatal("no rows found under GRAMMAR.md's \"Not admissible\": the check would pass vacuously")
 	}
 
+	for row := range grammarRefusals {
+		if _, ok := rows[row]; !ok {
+			t.Errorf("GRAMMAR.md no longer carries the row %q, and a rule nobody states is a rule nobody follows", row)
+		}
+	}
+
+	forms := map[string]bool{}
+
+	for row, cells := range rows {
+		forms[cells.form] = true
+
+		if !grammarRefusals[row] {
+			t.Errorf("row %q of GRAMMAR.md's \"Not admissible\" is not one grammarRefusals expects", row)
+		}
+	}
+
+	for form := range grammarForms {
+		if !forms[form] {
+			t.Errorf("no row of GRAMMAR.md's \"Not admissible\" is about the %s form", form)
+		}
+	}
+
 	for row, cells := range rows {
 		t.Run(row, func(t *testing.T) {
 			field, ok := grammarForms[cells.form]
@@ -414,11 +479,12 @@ func TestTheLoaderAgreesWithEveryNotAdmissibleRow(t *testing.T) {
 // is exactly why this is checked here and not there (#197).
 func TestTheGrammarCoversEveryUsageAndCategory(t *testing.T) {
 	nodes := grammarNodes(t)
+	reached := grammarReached(t, nodes)
 
 	usages := map[irpb.Usage]bool{}
 	categories := map[irpb.Category]bool{}
 
-	for _, node := range nodes {
+	for _, node := range reached {
 		field, ok := node.GetKind().(*irpb.Node_Field)
 		if !ok {
 			continue
@@ -455,10 +521,11 @@ func TestTheGrammarCoversEveryUsageAndCategory(t *testing.T) {
 // TestTheGrammarCoversEveryArrangementOfNodes is the same completeness for the
 // shape of a value, which usage and category say nothing about.
 //
-// The five are what docs/conformance/SPEC.md's "A group, a table and a variant"
+// The six are what docs/conformance/SPEC.md's "A group, a table and a variant"
 // and "Slack is not a value" name, and the corpus covers only the first two.
 func TestTheGrammarCoversEveryArrangementOfNodes(t *testing.T) {
 	nodes := grammarNodes(t)
+	reached := grammarReached(t, nodes)
 
 	arrangements := map[string]bool{
 		"a group":                    false,
@@ -469,7 +536,7 @@ func TestTheGrammarCoversEveryArrangementOfNodes(t *testing.T) {
 		"a group holding only slack": false,
 	}
 
-	for _, node := range nodes {
+	for _, node := range reached {
 		if node.GetSlack() != nil {
 			arrangements["a slack node"] = true
 		}
@@ -507,6 +574,61 @@ func TestTheGrammarCoversEveryArrangementOfNodes(t *testing.T) {
 			t.Errorf("no row of GRAMMAR.md covers %s", arrangement)
 		}
 	}
+}
+
+// grammarReached is every node of [grammarDescriptor] some row of GRAMMAR.md
+// actually writes: the root each row names, and everything below it — a group's
+// members, a variant's arms, and the bodies those arms name.
+//
+// The completeness checks walk this rather than the whole descriptor, and the
+// difference is not pedantic. A node nobody writes still carries a usage and a
+// category, so a check over every node would report a usage as covered on the
+// strength of a fixture nothing exercises — and node 156 is exactly such a node
+// today, a count that exists only to be the field an OCCURS DEPENDING ON names.
+// "Covered" has to mean "some row writes it", because that is what the failure
+// messages say and what GRAMMAR.md's own claim of completeness promises.
+func grammarReached(t *testing.T, nodes map[uint64]*irpb.Node) map[uint64]*irpb.Node {
+	t.Helper()
+
+	reached := map[uint64]*irpb.Node{}
+
+	var walk func(id uint64)
+
+	walk = func(id uint64) {
+		node, ok := nodes[id]
+		if !ok {
+			t.Fatalf("node %d is not in grammarDescriptor", id)
+		}
+
+		if _, seen := reached[id]; seen {
+			return
+		}
+
+		reached[id] = node
+
+		if variant := node.GetVariant(); variant != nil {
+			for _, arm := range variant.GetArms() {
+				switch body := arm.GetBody().(type) {
+				case *irpb.Arm_GroupId:
+					walk(body.GroupId)
+				case *irpb.Arm_FieldId:
+					walk(body.FieldId)
+				}
+			}
+		}
+
+		if group, ok := node.GetKind().(*irpb.Node_Group); ok {
+			for _, member := range group.Group.GetMemberIds() {
+				walk(member)
+			}
+		}
+	}
+
+	for _, fixture := range grammarValues {
+		walk(fixture.node)
+	}
+
+	return reached
 }
 
 // grammarNodes is [grammarDescriptor] by node identifier.

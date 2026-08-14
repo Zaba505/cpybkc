@@ -51,7 +51,9 @@ func WriteValue(nodes map[uint64]*irpb.Node, node *irpb.Node, value reflect.Valu
 		return writeGroup(nodes, kind.Group, value)
 	case *irpb.Node_Field:
 		if kind.Field.GetRepetition() != nil {
-			return writeOccurrences(value, WriteScalar)
+			return writeOccurrences(value, func(one reflect.Value) (any, error) {
+				return WriteScalar(one)
+			})
 		}
 
 		return WriteScalar(value)
@@ -219,11 +221,28 @@ func writeOccurrences(value reflect.Value, one func(reflect.Value) (any, error))
 // values document*, and this is one; a decoder that trims is a decoder that
 // happens to agree with it, and a value language whose rule is enforced only by
 // a dependency is a rule this repository cannot be held to. Trimming an already
-// trimmed value costs nothing and changes no answer.
-func WriteScalar(value reflect.Value) (any, error) {
+// trimmed value costs nothing and changes no answer the corpus holds today.
+//
+// It does change what a corpus run *measures*, and in the direction of
+// measuring less: a generator whose accessor left the padding on an alphanumeric
+// item used to fail every entry that carries one, and now has it trimmed away
+// here instead. That is deliberate. What the corpus compares is two readings of
+// one descriptor written in one language, and the padding is not part of either
+// — docs/conformance/SPEC.md says at length that it is a width the value
+// language does not carry, so an entry that failed on it was reporting a
+// disagreement about the *document* rather than about the record. What an
+// accessor returns is cmd/cpybkc-gen-go's business and its own tests', and a
+// corpus entry is the wrong instrument for it: no entry could say which of the
+// two ends of the pipeline had kept the spaces.
+//
+// The return is a string rather than an any because every one of the four forms
+// is one — every scalar of the value language is a JSON string, which is what
+// makes a comparison of two answers string equality. [WriteValue] is the looser
+// type, because a node can be an object or an array as well.
+func WriteScalar(value reflect.Value) (string, error) {
 	if held, ok := value.Interface().(*big.Int); ok {
 		if held == nil {
-			return nil, fmt.Errorf("an item decoded into no integer at all")
+			return "", fmt.Errorf("an item decoded into no integer at all")
 		}
 
 		return held.String(), nil
@@ -250,7 +269,7 @@ func WriteScalar(value reflect.Value) (any, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("an item decoded into a %s, which is not a value this harness can write", value.Type())
+	return "", fmt.Errorf("an item decoded into a %s, which is not a value this harness can write", value.Type())
 }
 
 // exportedFields is the fields of a struct a caller of the generated package
