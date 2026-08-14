@@ -807,7 +807,14 @@ func (m *Cpybkc) Build(ctx context.Context) error {
 		return err
 	}
 
-	return checkVersionLine(line)
+	// devVersion, because this is the loose executable rather than the one the
+	// archetype stamps: dag.Go().Build passes no -X at all, so what comes back is
+	// the value cmd/cpybkc/version.go carries in the tree. Holding it to the
+	// version the pipeline builds everything that is not a release under is what
+	// keeps those two statements of "0.0.0-dev" from drifting apart — the source
+	// default and this module's constant are the same string, and a build nobody
+	// stamped has to be indistinguishable from an unreleased one that was.
+	return checkVersionLine(line, devVersion)
 }
 
 // versionLine runs `cpybkc --version` in an image holding nothing but the
@@ -832,22 +839,69 @@ func (m *Cpybkc) versionLine(ctx context.Context) (string, error) {
 	return line, nil
 }
 
-// checkVersionLine reports whether line is what `cpybkc --version` writes.
-//
-// Only the line's shape. What it says is cmd/cpybkc's own test's business, and
-// asserting the version here would pin a release number in the pipeline.
+// checkVersionLine reports whether line is what `cpybkc --version` writes for a
+// build made under version.
 //
 // It is shared with the image contract, which runs the same invocation through
 // the published image's entrypoint (#55): what "this is cpybkc answering" means
 // is a property of the line rather than of which container it came out of, and a
 // second spelling would be a second, weaker answer.
-func checkVersionLine(line string) error {
+//
+// # The version on the line, and why asserting it is not pinning a number
+//
+// This used to check the shape alone, on the argument that "asserting the
+// version here would pin a release number in the pipeline". It would have, as a
+// literal. What it takes instead is the version the build was *made for* — the
+// caller's, devVersion for everything that is not a release and the release's
+// own tag for the two containers Release is about to push — so nothing here
+// names a release and the assertion still holds every build to the one number
+// it was supposed to carry.
+//
+// That is the check #181 found missing. Since #185 the shared archetype
+// cross-compiles the published CLI with `-X main.version=<version>`, and the
+// linker silently ignores a stamp naming a constant: the pipeline appeared to be
+// stamping a version while --version kept printing whatever the tree said, and
+// v0.0.0 shipped identifying itself as an unreleased development build. Nothing
+// compared the two, because the only two readings of the line in this module
+// wanted its shape and its IR version. It runs on an ordinary pull request as
+// well as at a release — there devVersion is what the image was built for and
+// what it has to say — so the stamp is checked by every run rather than by the
+// one run that cannot be repeated.
+func checkVersionLine(line, version string) error {
 	if !strings.HasPrefix(line, cliBinary+" ") || !strings.Contains(line, "IR version") {
 		return fmt.Errorf("cpybkc --version wrote %q, and the line names the program, its version and the IR "+
 			"version this build produces", line)
 	}
 
+	want := reportedVersion(version)
+
+	if fields := strings.Fields(line); len(fields) < 2 || fields[1] != want {
+		return fmt.Errorf("cpybkc --version wrote %q, and a build made under %s reports %q: the version a "+
+			"release publishes is the version it was cut from, and a stamp the linker dropped looks exactly "+
+			"like this", line, version, want)
+	}
+
 	return nil
+}
+
+// reportedVersion is the version a binary built under version reports.
+//
+// This module states a version as an OCI image tag — `v0.2.0`, because that is
+// what docs/container/SPEC.md's tag table publishes, what planRelease reads off
+// HEAD and what the archetype is handed — and both of this repository's
+// commands report it as the SemVer 2.0.0 string their own contracts require,
+// `0.2.0`. One leading `v` is the whole of the difference.
+//
+// This is the third spelling of that rule and the other two are in
+// cmd/cpybkc/version.go and cmd/cpybkc-gen-go/version.go. They cannot be one:
+// this module is a Go module of its own and cannot import either command, and
+// the two commands cannot share it with each other because cmd/cpybkc-gen-go
+// imports nothing of this repository beyond irpb by design. What pins the three
+// together is the check above rather than an import — a spelling that drifted
+// would fail the image contract on the next pull request, which is the same
+// arrangement generatorRepository already lives under.
+func reportedVersion(version string) string {
+	return strings.TrimPrefix(version, "v")
 }
 
 // LayoutSchema builds the published layout schema — the released

@@ -103,7 +103,7 @@ func TestVersionWritesOneLineAndSucceeds(t *testing.T) {
 		t.Errorf("%s wrote %q, want %q", versionFlag, stdout, want)
 	}
 
-	for _, fact := range []string{programName, version, "IR version"} {
+	for _, fact := range []string{programName, reportedVersion(), "IR version"} {
 		if !strings.Contains(stdout, fact) {
 			t.Errorf("the version line does not name %q: %q", fact, stdout)
 		}

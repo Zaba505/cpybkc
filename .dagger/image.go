@@ -234,6 +234,17 @@ const (
 	// covers an annotation, so this value is invisible to a consumer; it exists
 	// so that "which release is this" has an answer that is never wrong.
 	devVersion = "v0.0.0-dev"
+
+	// generatorVersionProbePackage is the Go package name checkGeneratorVersion
+	// hands the generator, and it names nothing that is ever written.
+	//
+	// docs/plugin/SPEC.md has this generator require a package name before it
+	// will accept a vector at all, and the vector has to parse before the
+	// version check it is being run for is reached. Nothing is generated — the
+	// descriptor is refused first — so this identifier appears in no file and in
+	// no diagnostic; it is here rather than inline so that a reader meeting it in
+	// the argument vector is not left looking for where its output went.
+	generatorVersionProbePackage = "unused"
 )
 
 // imagePlatforms is the set of platforms the image is published for, and the
@@ -403,7 +414,7 @@ func (m *Cpybkc) ownGeneratorApp(version string) *dagger.Z5LabsApp {
 	app := dag.Z5Labs().App(version)
 
 	for _, platform := range imagePlatforms() {
-		binary := m.generatorBinary(platform)
+		binary := m.generatorBinary(version, platform)
 
 		app = app.WithVariant(platform, binary, dag.Go().Spdx(binary, m.appSource()),
 			dagger.Z5LabsAppBuilderWithVariantOpts{Name: generatorExecutable})
@@ -423,7 +434,26 @@ func (m *Cpybkc) ownGeneratorApp(version string) *dagger.Z5LabsApp {
 // The source is appSource rather than m.Source, so the executable the published
 // generator image carries is compiled from the same tree — git metadata included
 // — as the CLI it is composed onto.
-func (m *Cpybkc) generatorBinary(platform dagger.Platform) *dagger.File {
+//
+// # The version stamp is written out here, because nothing else would write it
+//
+// The CLI beside it is stamped by the archetype, which fixes both the flag and
+// the variable's name: every z5labs Go application answers "which build am I
+// running" the same way. This build is the generic constructor's, so nothing
+// upstream is stamping anything, and a generator reporting 0.0.0-dev out of a
+// released image gives its refusal a version number nobody can map to a release
+// (#181). So the same stamp is passed by hand, under the same name, and
+// checkGeneratorVersion holds the result to the version the image was built for
+// exactly as the CLI's is held.
+//
+// One `-X` and not two. The archetype's pair carries a commit as well, and
+// nothing in either of this repository's commands reads one: docs/cli/SPEC.md
+// keeps the rest of a build's provenance off the version line, and
+// docs/plugin/SPEC.md gives a refusal three facts, none of them a commit. A
+// stamp naming a variable that does not exist is silently dropped, so passing
+// one would be a line in this recipe that does nothing and reads as though it
+// did.
+func (m *Cpybkc) generatorBinary(version string, platform dagger.Platform) *dagger.File {
 	return dag.Go().
 		Build(m.appSource(), dagger.GoBuildOpts{
 			Pkg:          generatorPackage,
@@ -431,6 +461,7 @@ func (m *Cpybkc) generatorBinary(platform dagger.Platform) *dagger.File {
 			Trimpath:     true,
 			DisableCgo:   true,
 			Platform:     string(platform),
+			Stamps:       []string{"main.version=" + version},
 		}).
 		File(generatorExecutable)
 }
@@ -558,11 +589,17 @@ func (m *Cpybkc) ImageContract(
 		// the only one and went unqualified; with two images in the loop, a
 		// reader would have had to know that a bare platform prefix meant the
 		// base — which stops being obvious the moment a third image arrives.
-		if err := errors.Join(m.checkBaseImage(ctx, m.baseImage(p), p)...); err != nil {
+		// devVersion twice over, because that is what baseImage and
+		// generatorImage build under and the check is "what the image reports is
+		// what it was built for". A release asks the same two functions the same
+		// question with its own version — see release.go's gate — so the version
+		// a published image carries is checked by the same code that has already
+		// passed on every pull request.
+		if err := errors.Join(m.checkBaseImage(ctx, m.baseImage(p), p, devVersion)...); err != nil {
 			errs = append(errs, fmt.Errorf("%s: the base image: %w", p, err))
 		}
 
-		if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p), p)...); err != nil {
+		if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p), p, devVersion)...); err != nil {
 			errs = append(errs, fmt.Errorf("%s: the generator image: %w", p, err))
 		}
 	}
@@ -582,10 +619,16 @@ func (m *Cpybkc) ImageContract(
 // Every group is run and every failure collected rather than stopping at the
 // first: a change that broke the entrypoint most likely broke the user and the
 // plugin directory too, and one run should say so.
+// version is what the image was built for, and what the CLI in it has to report:
+// the release's own where a release is being gated, devVersion everywhere else.
+// It is a parameter for the reason baseApp's is — the container a check reads is
+// built exactly as the container a release pushes is, so the fact being checked
+// has to travel the same way the fact being built from does.
 func (m *Cpybkc) checkBaseImage(
 	ctx context.Context,
 	image *dagger.Container,
 	platform dagger.Platform,
+	version string,
 ) []error {
 	protos, err := m.shippedProtos(ctx)
 	if err != nil {
@@ -596,7 +639,7 @@ func (m *Cpybkc) checkBaseImage(
 	errs = append(errs, m.checkImageContents(ctx, image, baseImageContents(protos))...)
 	errs = append(errs, m.checkImageBuild(ctx, image, platform, cliPath())...)
 	errs = append(errs, m.checkShippedIr(ctx, image)...)
-	errs = append(errs, m.checkImageIsTheCLI(ctx, image)...)
+	errs = append(errs, m.checkImageIsTheCLI(ctx, image, version)...)
 
 	return errs
 }
@@ -637,10 +680,15 @@ func (m *Cpybkc) checkBaseImage(
 // only one of the two whose route into the image #180 changed. The failure it
 // rules out is an exec format error in a stranger's image and nothing at all
 // here.
+// The fifth group is the generator's own version, and it is the only one of the
+// five that reads the executable by running it. See checkGeneratorVersion.
+//
+// version is what the image was built for, for checkBaseImage's reason.
 func (m *Cpybkc) checkGeneratorImage(
 	ctx context.Context,
 	image *dagger.Container,
 	platform dagger.Platform,
+	version string,
 ) []error {
 	protos, err := m.shippedProtos(ctx)
 	if err != nil {
@@ -650,9 +698,92 @@ func (m *Cpybkc) checkGeneratorImage(
 	errs := m.checkImageConfig(ctx, image)
 	errs = append(errs, m.checkImageContents(ctx, image, generatorImageContents(baseImageContents(protos)))...)
 	errs = append(errs, m.checkImageBuild(ctx, image, platform, pluginDir+"/"+generatorExecutable)...)
+	errs = append(errs, m.checkGeneratorVersion(ctx, image, version)...)
 
 	if err := m.checkComposedImage(ctx, image); err != nil {
 		errs = append(errs, err)
+	}
+
+	return errs
+}
+
+// checkGeneratorVersion runs the generator in the image on a descriptor it must
+// refuse, and requires the version in that refusal to be the version the image
+// was built for.
+//
+// It is the generator's half of what checkImageIsTheCLI does for the CLI, and it
+// exists for the same reason (#181): the version is stamped at link time, the
+// linker silently ignores a stamp naming a constant, and a stamp that stopped
+// landing is invisible in everything else this file checks — the executable is
+// the right architecture, built the right way, in the right place, under the
+// right name, and reports a version belonging to no release.
+//
+// # Why a refusal is how the version is read
+//
+// The generator has no --version. docs/plugin/SPEC.md fixes a plugin's argument
+// vector at `--descriptor <path> --out <dir> [--opt k=v ...]` and gives it no
+// flag of its own, so the one surface this generator's version reaches anybody
+// through is the refusal — which is also the only place it is *used*, by a
+// reader deciding whether to upgrade the generator or pin the CLI. Reading it
+// where it is used is what makes this a check on the fact rather than on a
+// proxy for it. Adding a flag to ask more conveniently would be this
+// repository's own generator carrying a surface no other plugin has, which is
+// the arrangement its package comment exists to refuse.
+//
+// The descriptor is empty, so it states no IR version — the case
+// cmd/cpybkc-gen-go's own tests pin — and an empty file is the one descriptor
+// whose bytes need no encoding: it goes in as the empty string rather than as a
+// protobuf message this module would have to hand-assemble to make a version
+// number out of. --out names a directory that does not exist and never will,
+// which is safe because the refusal precedes generation: the version is read off
+// the wire before the message is decoded and nothing is written beneath --out at
+// all. Both are properties of that program rather than accidents, and the
+// assertion below fails loudly if either stops holding, because what it requires
+// is *this* refusal and not merely a non-zero exit.
+func (m *Cpybkc) checkGeneratorVersion(ctx context.Context, image *dagger.Container, version string) []error {
+	const (
+		descriptor = "/no-version.binpb"
+		out        = "/nowhere"
+	)
+
+	// Expect a failure, because a refusal is one: the generator exits non-zero
+	// and writes the diagnostic to standard error. A run that *succeeded* is the
+	// finding — a generator that accepted a descriptor stating no IR version has
+	// stopped implementing the version check docs/plugin/SPEC.md requires — and
+	// it arrives here as an error from Stderr rather than as a passing check.
+	refusal, err := image.
+		WithNewFile(descriptor, "").
+		WithExec([]string{
+			pluginDir + "/" + generatorExecutable,
+			"--descriptor", descriptor,
+			"--out", out,
+			"--opt", "package_name=" + generatorVersionProbePackage,
+		}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeFailure}).
+		Stderr(ctx)
+	if err != nil {
+		return []error{fmt.Errorf("running %s in the image on a descriptor stating no IR version: %w",
+			generatorExecutable, err)}
+	}
+
+	var errs []error
+
+	// The refusal, and not merely a failure. Every other way this invocation can
+	// fail — a vector the generator rejects, a descriptor it cannot read — also
+	// exits non-zero and writes to standard error, and each of them would leave
+	// the version assertion below looking at a message that never names one.
+	if !strings.Contains(refusal, "implements IR version") {
+		errs = append(errs, fmt.Errorf("%s in the image answered a descriptor stating no IR version with %q, "+
+			"and docs/plugin/SPEC.md has it refuse one naming the descriptor's version, the highest it "+
+			"implements and its own", generatorExecutable, strings.TrimSpace(refusal)))
+
+		return errs
+	}
+
+	if want := generatorExecutable + " " + reportedVersion(version) + " "; !strings.Contains(refusal, want) {
+		errs = append(errs, fmt.Errorf("%s in the image refused with %q, and an image built under %s carries a "+
+			"generator naming itself %q: a released generator reporting the development version gives its "+
+			"refusal a number nobody can map to a release", generatorExecutable, strings.TrimSpace(refusal),
+			version, strings.TrimSpace(want)))
 	}
 
 	return errs
@@ -852,7 +983,12 @@ func (m *Cpybkc) checkImageEnv(ctx context.Context, image *dagger.Container) []e
 // invocation whenever output lands in a bind mount, and an executable readable
 // only by 65532 would break it — which is a failure a caller sees and this
 // repository never would.
-func (m *Cpybkc) checkImageIsTheCLI(ctx context.Context, image *dagger.Container) []error {
+// The line's *version* is checked as well as its shape, against the version the
+// image was built for (#181). This is the only reading of that fact anywhere:
+// the version is stamped at link time, and a stamp the linker dropped leaves an
+// image that passes every other group in this file while telling a consumer it
+// is a build of something that was never released.
+func (m *Cpybkc) checkImageIsTheCLI(ctx context.Context, image *dagger.Container, version string) []error {
 	var errs []error
 
 	for _, user := range []string{imageUser, overrideUser} {
@@ -867,7 +1003,7 @@ func (m *Cpybkc) checkImageIsTheCLI(ctx context.Context, image *dagger.Container
 			continue
 		}
 
-		if err := checkVersionLine(line); err != nil {
+		if err := checkVersionLine(line, version); err != nil {
 			errs = append(errs, fmt.Errorf("as user %s, %w", user, err))
 		}
 	}

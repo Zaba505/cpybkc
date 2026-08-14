@@ -80,7 +80,7 @@ func TestTheRefusalNamesBothVersionsAndThisGeneratorsOwn(t *testing.T) {
 		fmt.Sprintf("descriptor IR version %d", int32(ahead)),
 		fmt.Sprintf("implements IR version %d", int32(supportedIRVersion)),
 		pluginName,
-		pluginVersion,
+		reportedVersion(),
 	} {
 		if !strings.Contains(written, want) {
 			t.Errorf("the refusal does not name %q:\n%s", want, written)

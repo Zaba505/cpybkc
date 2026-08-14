@@ -256,7 +256,7 @@ func (m *Cpybkc) Release(
 	images := []struct {
 		app        *dagger.Z5LabsApp
 		repository string
-		check      func(context.Context, *dagger.Container, dagger.Platform) []error
+		check      func(context.Context, *dagger.Container, dagger.Platform, string) []error
 	}{
 		{
 			app:        m.generatorApp(version),
@@ -290,10 +290,27 @@ func (m *Cpybkc) Release(
 	// that fails at push time — a credential, a rate limit, a repository that
 	// cannot be created — still leaves the earlier image published under tags
 	// this project's contract says are never repointed.
+	//
+	// # This is also where a version that disagrees with the tag is refused
+	//
+	// Each check is handed the version, and each holds the binaries in its image
+	// to it: the CLI's --version line and the version the generator's refusal
+	// names, both against the tag this release was cut from (#181). Here rather
+	// than in a check of its own, because there is exactly one moment at which
+	// the version a binary reports and the version a release is being cut under
+	// are both in hand, and it is this one — before anything is pushed, over the
+	// very containers that would be. A check of its own would have to rebuild
+	// both images to ask, and would be a second place a release can be refused
+	// from.
+	//
+	// It costs nothing at a release to say so, and it is worth saying: the same
+	// two functions run on every pull request under devVersion, so what this gate
+	// adds is the *comparison against the tag* rather than a check that has never
+	// been exercised until now.
 	var errs []error
 	for _, image := range images {
 		for _, platform := range imagePlatforms() {
-			for _, err := range image.check(ctx, image.app.Container(platform), platform) {
+			for _, err := range image.check(ctx, image.app.Container(platform), platform, version) {
 				errs = append(errs, fmt.Errorf("%s %s: %w", image.repository, platform, err))
 			}
 		}
@@ -508,9 +525,10 @@ func (m *Cpybkc) ReleaseNotes(
 // executed rather than read.
 //
 // What it covers is what planRelease answers — whether a release is a release of
-// the image at all, and which version it is — and, since #180, where the
-// generator image that release publishes beside the base goes. Both are
-// decisions this repository makes and the archetype does not.
+// the image at all, and which version it is — since #180 where the generator
+// image that release publishes beside the base goes, and since #181 what the
+// binaries in those images report their version as. All three are decisions this
+// repository makes and the archetype does not.
 //
 // The tag *family* that version implies is the archetype's since #185, and is
 // checked by its own table over its own literals — restating it here would be a
@@ -651,6 +669,34 @@ func (m *Cpybkc) TagScheme() error {
 		if got := generatorRepository(c.repository, c.name); got != c.want {
 			errs = append(errs, fmt.Errorf("the generator image for %q beside %q publishes to %q, want %q",
 				c.name, c.repository, got, c.want))
+		}
+	}
+
+	// What the binaries a release publishes say their version is, which is the
+	// third thing a version decides (#181). A release states one version and it
+	// reaches three places: the tags the image family is published under, the
+	// repositories those tags live in, and the line each executable answers with.
+	//
+	// The literals matter here for the reason they matter above. This rule is
+	// written down three times — cmd/cpybkc/version.go and
+	// cmd/cpybkc-gen-go/version.go carry the other two spellings, in packages
+	// this module cannot import and which deliberately do not import each other —
+	// and each of those has its own test pinning the same answers. The image
+	// contract is what compares them on a real binary; this is what says, in the
+	// place the version is derived, what the answer was supposed to be.
+	for _, c := range []struct{ version, want string }{
+		{"v0.2.0", "0.2.0"},
+		// A prerelease, because that is the shape a release candidate's tag takes
+		// and the one where a naive "everything after the first dot" would differ.
+		{"v0.3.0-rc.1", "0.3.0-rc.1"},
+		// The version everything that is not a release is built under. It has to
+		// come out as the `0.0.0-dev` docs/cli/SPEC.md requires of a build made
+		// outside a release, which is what lets this check run on a pull request.
+		{devVersion, "0.0.0-dev"},
+	} {
+		if got := reportedVersion(c.version); got != c.want {
+			errs = append(errs, fmt.Errorf("a build made under %q reports version %q, want %q",
+				c.version, got, c.want))
 		}
 	}
 

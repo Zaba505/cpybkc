@@ -736,7 +736,7 @@ func (m *Cpybkc) checkExtendsTheImage(
 	want := derivedImageContents(baseImageContents(protos), destination, imageEntry{kindFile, uid, gid, mode})
 
 	errs := m.checkImageContents(ctx, derived, want)
-	errs = append(errs, m.checkImageIsTheCLI(ctx, derived)...)
+	errs = append(errs, m.checkImageIsTheCLI(ctx, derived, devVersion)...)
 
 	if err := errors.Join(errs...); err != nil {
 		return derived, fmt.Errorf("%s: the worked example's final stage, built onto the image this pipeline "+
