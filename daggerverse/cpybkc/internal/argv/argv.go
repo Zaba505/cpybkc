@@ -32,9 +32,9 @@ const standardOutput = "-"
 // the CLI leaving its default action unnamed: generating is what cpybkc does
 // when nothing else is asked of it — a promise that survives the one subcommand
 // docs/cli/SPEC.md specifies (#183) — and the mounted project's own cpybkc.json
-// is what it reads. A manifest names one somewhere else, relative to the mounted project
-// root because that is the working directory the CLI resolves a path typed on
-// the command line against.
+// is what it reads. A manifest names one somewhere else, relative to the mounted
+// project root because that is the working directory the CLI resolves a path
+// typed on the command line against.
 //
 // The dash is refused here rather than passed through for the CLI to refuse,
 // because the two refusals do not cost the same. A vector that reaches the

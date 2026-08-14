@@ -110,8 +110,8 @@ to this section rather than an addition somebody makes on the way past.
 **The default action keeps the bare form**, and that is the whole of what the
 subcommand costs a caller: nothing. Requiring `cpybkc generate` would break
 every command line already written and every derived image already published,
-because
-the image's `Entrypoint` **is** this CLI and its `Cmd` is empty ([the entrypoint
+because the image's `Entrypoint` **is** this CLI and its `Cmd` is empty ([the
+entrypoint
 promise](../container/SPEC.md#the-entrypoint), #55) — `docker run image` would
 become a usage message for everyone who had followed the instruction to leave
 `Cmd` alone. It would also charge the whole existing user base for a subcommand
@@ -125,24 +125,36 @@ implements the subcommand to discover.
 
 ### The first operand is a subcommand name
 
-The first argument that is not a flag **MUST** be a subcommand name, and the set
-of names is closed at `init`. Any other value **MUST** be a usage error naming
-it ([Exit codes](#exit-codes), status 2), and cpybkc **MUST NOT** open anything
-before reporting one.
+A subcommand name is read at exactly one position, and it is the **first
+argument**. One rule covers the whole vector:
 
-A subcommand name **MUST** be the first argument on the line. cpybkc **MUST
-NOT** accept a second operand, wherever it appears — after the flags, after
-`--`, or
-after the subcommand — and **MUST NOT** read a subcommand name anywhere but at
-the head of the vector. Every input is otherwise named by a flag, exactly as
-before.
+- Where the first argument is `init`, the line is that subcommand's, and every
+  argument after it is read against [the vector `init`
+  takes](#the-vector-init-takes).
+- Where it is anything else — a flag, `--`, or nothing at all — the line is the
+  default action's, and a non-flag argument anywhere in it **MUST** be a usage
+  error naming it ([Exit codes](#exit-codes), status 2).
 
-Requiring it first is what keeps the vector readable without a rule about which
-flags belong to what: everything after the head belongs to the subcommand the
-head names, or to the default action where there is no head. A line that could
-put the verb anywhere would need this document to answer whether `--copybook`
-before `init` is `init`'s flag or a flag the default action does not have, and
-either answer is one somebody has to look up.
+The set of subcommand names is closed at `init`, so a first argument that is a
+non-flag and is not `init` **MUST** be a usage error naming it, and cpybkc
+**MUST NOT** open anything before reporting one. Under either branch cpybkc
+**MUST NOT** accept a second operand, wherever it appears.
+
+It is one rule at one position rather than "the first argument that is not a
+flag" because the two are not the same rule and they disagree on lines somebody
+will type. `cpybkc -- init` and `cpybkc --manifest x.json init` both have `init`
+as their first *non-flag* argument, and under this rule both are the default
+action with an operand in them — a usage error naming `init`. That is the
+answer this document wants: `--` is the end of options and has never introduced
+anything, and a subcommand that could hide behind another action's flags would
+make "which flags belong to what" a question with no answer on the line itself.
+
+Reading it at one fixed position is also what keeps the vector readable without
+such a rule: everything after the head belongs to the subcommand the head names,
+or to the default action where the head is not a subcommand name. A line that
+could put the verb anywhere would need this document to answer whether
+`--copybook` before `init` is `init`'s flag or a flag the default action does
+not have, and either answer is one somebody has to look up.
 
 That the door was open at all is the reserved operand position's doing, and it
 is the reason this is an addition rather than a redesign. A CLI that had spent
@@ -152,9 +164,10 @@ flag ([`--manifest`](#finding-the-manifest)), typed in the uncommon case and not
 at all in the common one, and the door it kept open is now spent on `init`.
 
 `--` is still honoured as the end of options, so that cpybkc behaves the way its
-neighbours on the system do. Since a subcommand name is only read at the head of
-the vector, `cpybkc -- init` is a second-operand usage error and not a way to
-reach the subcommand; and after `--` every argument is a usage error, as before.
+neighbours on the system do. It is not a way to reach a subcommand — after it
+every argument is an operand, and the default action has none — so `cpybkc --
+init` is the usage error the rule above makes it, exactly as `cpybkc -- foo`
+always was.
 
 ## The argument vector
 
@@ -182,10 +195,13 @@ its reason in [Out of Scope](#out-of-scope). `--copybook` and `--out` are
 [`init`'s](#the-vector-init-takes) and are usage errors here, named the same
 way.
 
-`init`'s own flags are in [The vector `init` takes](#the-vector-init-takes), and
-the two sets do not overlap: a flag belongs to the default action or to `init`,
-never to both, so a flag on a line is either the one the head admits or a usage
-error naming it and the subcommand it was written under.
+`init`'s own flags are in [The vector `init` takes](#the-vector-init-takes). No
+flag that names an **input** belongs to both sets, so a flag on a line is either
+one the head admits or a usage error naming it and the subcommand it was written
+under. The two sets share exactly one spelling — `--help` and its `-h` — which
+belongs to neither action in particular for the reason the next subsection
+gives: it, and `--version`, are answered before the vector is interpreted at
+all.
 
 ### Flag form
 
@@ -225,9 +241,9 @@ it is not an exception to the reasoning above but an application of it. Its
 occurrences are a list rather than one value stated several times, so a second
 occurrence adds a copybook instead of replacing one, and nothing the person
 wrote is discarded. What the rule was for survives there too: two occurrences
-carrying **equal** values are a duplicate and **MUST** be a usage error, because
-naming
-one copybook twice states nothing the line did not already state.
+carrying **equal** values are a duplicate and **MUST** be a usage error,
+because naming one copybook twice states nothing the line did not already
+state.
 
 ### `--help` and `--version` are answered before anything else
 
@@ -237,12 +253,20 @@ version line to standard output and exit 0. In both cases every other flag on
 the line **MUST** be ignored, including one that would otherwise be a usage
 error, and no manifest is read.
 
-`--help` **MUST** answer for the subcommand the line names, and the top-level
-usage where it names none: `cpybkc init --help` writes `init`'s usage and
-`cpybkc --help` writes the whole command's, which is the one place a subcommand
-changes what these two flags do. `--version` **MUST NOT** vary that way — a
-build has one version whichever action was going to run — so a subcommand on a
-`--version` line is ignored along with everything else.
+**`--help` and `--version` are answered under every subcommand**, and neither is
+a flag the tables below list. They are read before the first argument is
+classified at all, so no rule about which flags an action carries reaches them:
+`cpybkc init --help` and `cpybkc init --version` are answered, not refused, and
+so is `cpybkc bogus --help`, which writes the top-level usage and exits 0 rather
+than complaining about `bogus`. That last case is the same courtesy this
+subsection already extends to a flag the user was in the middle of getting
+wrong, and an unrecognised verb is the commonest way to arrive here.
+
+What the subcommand does change is *which* usage `--help` writes: cpybkc
+**MUST** write the named subcommand's where the first argument is one, and the
+top-level usage otherwise. `--version` **MUST NOT** vary that way — a build has
+one version whichever action was going to run — so a subcommand on a `--version`
+line is ignored along with everything else.
 
 This is a deliberate exception to [A flag appears at most
 once](#a-flag-appears-at-most-once) and to the refusal of an unrecognised flag.
@@ -464,8 +488,10 @@ cpybkc init --copybook <path> … --out <dest>
 ```
 
 `init` reads the copybooks it is given, writes a layout scaffold holding
-everything those copybooks decide, and exits. It resolves nothing, starts no
-generator and reads no manifest (#183).
+everything those copybooks decide, and exits. It resolves no layout, starts no
+generator and reads no manifest (#183). Paths it is handed are still resolved in
+the ordinary way; what it does not do is the resolution the rest of this
+document means by the word — copybooks against a layout, into a descriptor.
 
 What it is for is the split in the next subsection. A layout is two kinds of
 statement in one file, and only one of them is knowledge the adopter has;
@@ -497,11 +523,14 @@ have no default for any; [`framing`](../layout/SPEC.md#physical-framing), with
 [`discriminate`](../layout/SPEC.md#discrimination); and
 [`sequence`](../layout/SPEC.md#sequencing).
 
-`example/ledger.sexpr` is the measure. Six `record` forms, twelve `alternative`
-children and six `rename`s — thirty-odd lines, every one a restatement of
-`posting.cpy` — against eight `discriminate` forms and one `sequence` that are
-the file's actual description. `init` writes the first group and leaves the
-second, and that is the whole of what it claims to do.
+`example/ledger.sexpr` is the measure. Its postings alone are six `record` forms
+and twelve `alternative` children — thirty-odd lines, every one of them
+recoverable from `posting.cpy` — against the eight `discriminate` forms its
+eight record types need and the one `sequence`, which are the file's actual
+description. Its six `rename`s sit between the two: which records need one is
+recoverable, and the six substitutes are a reading of what the file *means*, so
+`init` writes the question and not the answer. What it claims is that first
+column and nothing beyond it.
 
 ### The vector `init` takes
 
@@ -509,7 +538,6 @@ second, and that is the whole of what it claims to do.
 | --- | --- | --- | --- |
 | `--copybook` | a path to a copybook | none; at least one **MUST** be given | yes |
 | `--out` | a path, or `-` for standard output | none; **MUST** be given | no |
-| `--help`, `-h` | none | — | no |
 
 `init` **MUST NOT** accept a flag this table does not list. `--manifest`,
 `--emit-ir` and `--emit-ir-format` are the default action's and **MUST** be
@@ -517,6 +545,11 @@ usage errors under `init`, naming the flag and the subcommand it was written
 under rather than reporting it as unrecognised — it is a real flag of this
 program, in the wrong place, and a message saying otherwise sends the reader to
 check their spelling.
+
+`--help`, `-h` and `--version` are not flags this table lists and are not
+refused by that rule: they are [answered before the vector is
+interpreted](#--help-and---version-are-answered-before-anything-else) under
+every subcommand, and `cpybkc init --version` prints the version line.
 
 [Flag form](#flag-form) and the rest of [The argument
 vector](#the-argument-vector) apply unchanged: both value spellings are
@@ -546,8 +579,13 @@ A value **MUST NOT** be `-`. The scaffold has to state a path for each record's
 copybook, and a copybook arriving on a stream has none to state; the refusal is
 decidable from the vector alone, so it is a usage error and nothing is opened.
 
-**A directory is refused**, with a diagnostic naming the path. Reading one would
-make the scaffold a function of a directory's contents, so a copybook dropped in
+A value naming a **directory MUST** fail the run ([Exit codes](#exit-codes),
+status 1), with a diagnostic naming the path as it was typed. It is a status 1
+rather than a 2 because it is not decidable from the vector — cpybkc has to look
+at the path to learn what is there — and it is stated separately from a copybook
+that cannot be opened because a directory opens perfectly well. Reading one
+would make the scaffold a function of a directory's contents, so a copybook
+dropped in
 beside the others later changes what `init` produces with no file recording the
 difference — which is the failure [Finding the inputs](#finding-the-inputs)
 refuses a search path for, arriving by a different door. There is no extension
@@ -585,9 +623,19 @@ and cpybkc does not.
 exists at it — a regular file, a directory, a symbolic link, including one that
 dangles — cpybkc **MUST** fail the run, write nothing, and report a diagnostic
 naming the path as it was typed and the absolute path it looked at. It **MUST
-NOT** truncate, append to, or write through what it found, and the scaffold
+NOT** truncate, append to, or write through what it found, and the file
 **MUST** be written in full or not at all, as [`--emit-ir`](#emitting-the-ir)'s
 destination is.
+
+Where `<dest>` is `-` there is nothing to replace and nothing to write
+atomically, so the requirement takes the only form a stream admits: cpybkc
+**MUST NOT** write the first byte of the scaffold to standard output until the
+whole of it has been derived. A stream cannot be un-written, and a run that
+emitted four `record` forms and then failed on the fifth copybook would leave a
+fragment on a pipe that reads as a short layout rather than as a failure. Buying
+that with a buffer is cheap — the scaffold is the size of the copybooks' `01`
+levels — and it is what makes [a cancelled run leave no partial
+file](#cancellation) true for both spellings of the destination rather than one.
 
 Overwriting a layout an adopter has edited is the one unrecoverable thing this
 command could do. The derived half is recomputable — the copybooks are still
@@ -656,10 +704,20 @@ covered](#compatibility-guarantees).
 
 ### What the scaffold states, form by form
 
-In the order [the top-level forms](../layout/SPEC.md#the-top-level-forms) are
-tabled, so that a form the adopter uncomments is already where the format's own
-examples put it, and so that two runs over one set of copybooks produce
-byte-identical files:
+A scaffold **MUST** carry every item of the list below that its copybooks reach,
+**MUST NOT** carry anything else, and **MUST** write them in the order given —
+which is the order [the top-level
+forms](../layout/SPEC.md#the-top-level-forms) are tabled, so that a form the
+adopter uncomments is already where the format's own examples put it. Two runs
+of one build over one set of copybooks **MUST** produce byte-identical files;
+determinism is a requirement here rather than a hoped-for property, because a
+scaffold that reordered itself between runs would be undiffable in exactly the
+review where an adopter is deciding what to keep.
+
+The list is normative in its membership and its order, and descriptive in its
+wording: what each comment *says* is [not
+covered](#compatibility-guarantees), and the examples below are illustrations of
+the shape rather than text an implementation has to reproduce.
 
 1. A header comment saying what the file is, what was derived, and what is left.
 2. `encoding`, commented: the four axis names, each with a placeholder, and no
@@ -848,15 +906,17 @@ The three statuses are unchanged, and `init`'s faults distribute across them:
 - `0` — the scaffold was written. It is `0` even though the scaffold is not a
   valid layout, because [what was asked for was done](#exit-codes): the
   incompleteness is the answer this command gives, not a failure to give one.
-- `1` — a copybook that cannot be opened, does not parse, or declares no
-  `01`-level (#31); a destination that already exists; a destination that cannot
-  be written; two combinations whose derived record names collide; and a run
-  that is [cancelled](#cancellation), which leaves no partial file.
-- `2` — an unrecognised subcommand; a second operand; `init` with no
-  `--copybook` or no `--out`; `--copybook -`; `--copybook` twice with equal
-  values; and any flag `init` does not carry, including `--manifest`,
-  `--emit-ir` and `--emit-ir-format`. As everywhere else, a `2` means cpybkc did
-  nothing at all — no copybook was opened and no file was created.
+- `1` — a `--copybook` value naming a **directory**; one that cannot be opened,
+  does not parse, or declares no `01`-level (#31); a destination that already
+  exists; a destination that cannot be written; two combinations whose derived
+  record names collide; and a run that is [cancelled](#cancellation), which
+  leaves no partial file and, under `--out -`, no partial output.
+- `2` — a first argument that is a non-flag and is not `init`; an operand under
+  either action; `init` with no `--copybook` or no `--out`; `--copybook -`;
+  `--copybook` twice with equal values; and any flag `init` does not carry,
+  including `--manifest`, `--emit-ir` and `--emit-ir-format`. As everywhere
+  else, a `2` means cpybkc did nothing at all — no copybook was opened and no
+  file was created.
 
 ### Why this is a subcommand and not a script over the published schema
 
@@ -1192,7 +1252,7 @@ to any of them is a breaking change:
 | --- | --- |
 | [The command set](#one-command-and-one-subcommand) | One command whose default action is generating, plus `init`; the first operand is a subcommand name from that closed set, and there is no second operand |
 | [The flags](#the-argument-vector) | The five above: each keeps its name, its value, its default and its meaning |
-| [`init`'s flags](#the-vector-init-takes) | `--copybook` and `--out`: each keeps its name, its value, its repeatability and its meaning, and neither set of flags admits the other's |
+| [`init`'s flags](#the-vector-init-takes) | `--copybook` and `--out`: each keeps its name, its value, its repeatability and its meaning, and neither action admits the other's input-naming flags |
 | [The scaffold](#the-scaffold-is-deliberately-incomplete) | It parses; it states nothing an adopter has to decide; it is not a layout a reader accepts as complete; and an occupied destination is never replaced |
 | [Manifest discovery](#finding-the-manifest) | `--manifest`, else `cpybkc.json` in the working directory, and no search |
 | [Path resolution](#a-path-is-relative-to-the-file-that-states-it) | A path in a file is relative to that file; a path on the command line is relative to the working directory |
@@ -1224,8 +1284,8 @@ is depending on something that may change in a patch release, with no notice:
   [the layout format's own table](../layout/SPEC.md#the-top-level-forms) and
   moves if that moves.
 - The record names `init` derives for the combinations of one `01`-level. Two
-  runs of one build **MUST** agree, which is what [How a combination's record
-  name is chosen](#how-a-combinations-record-name-is-chosen) requires; two
+  runs of *one build* agree, which [What the scaffold states, form by
+  form](#what-the-scaffold-states-form-by-form) requires of the whole file; two
   builds need not, because a record name is the layout's own identifier, nothing
   outside the file sees it, and the file is scaffolded once and then edited.
 - Anything about the published image, which the [base-image
@@ -1253,12 +1313,12 @@ deprecation somebody reads instead of a broken build somebody bisects.
 
 #### The subcommand is the first change under this rule, and it breaks it
 
-[`init`](#init-scaffolds-a-layout-from-copybooks) **MUST** appear in a new major
-version. That is worth arguing rather than asserting, because it is not obvious:
-no command line this document admitted before behaves differently now. Every
-existing vector is flags only, an operand was always a usage error, and adding
-`init` leaves all of them doing exactly what they did — which is the test the
-paragraph above uses for an additive change.
+[`init`](#init-scaffolds-a-layout-from-copybooks) is a **breaking** change to
+the command set, and it is worth arguing rather than asserting, because it is
+not obvious: no command line this document admitted before behaves differently
+now. Every existing vector is flags only, an operand was always a usage error,
+and adding `init` leaves all of them doing exactly what they did — which is the
+test the paragraph above uses for an additive change.
 
 It is breaking anyway, on the guarantee itself. The covered value said *no
 subcommands, no operands*, and a caller was entitled to depend on it: a wrapper
@@ -1271,15 +1331,20 @@ found afterwards rather than at the failure.
 The transition rule above has nothing to hold in parallel here. What is being
 withdrawn is a rejection, and a rejection has no second spelling to keep alive
 for a minor release — there is no old form to accept at `warning:`, because the
-old form *was* the warning. What the rule asks for instead is that the release
-say the command set gained a member, which is the only shape a deprecation can
-take when the behaviour being replaced was an error message.
+old form *was* the warning. So the one requirement this section can state and
+have checked is the announcement: the release that first carries `init`
+**MUST** say the command set gained a member. That is the only shape a
+deprecation takes when the behaviour being replaced was an error message.
 
-Which release *number* carries it is not settled here and is not this document's
-to settle. cpybkc is below 1.0.0, where SemVer leaves a `0.y.z` release outside
-the stability rules altogether, and the published image carries a floating major
-tag whose promise is the [base-image contract](../container/SPEC.md)'s rather
-than this one's. Both questions are filed together (#213).
+Which release *number* carries it is deliberately **not** stated as a
+requirement here, and that is why the paragraph above asks for an announcement
+rather than for a version. cpybkc is below 1.0.0, where SemVer leaves a `0.y.z`
+release outside the stability rules altogether, so "a new major version" has no
+number this document could hold a release to; and the published image carries a
+floating major tag whose promise is the [base-image
+contract](../container/SPEC.md)'s rather than this one's. Both questions are
+filed together (#213), and a **MUST** written before they are answered would be
+one nothing could check and nothing could violate.
 
 ## Out of Scope
 
@@ -1395,6 +1460,7 @@ the only unrecoverable act this command can perform.
 | [The first operand is a subcommand name](#the-first-operand-is-a-subcommand-name) | #147 `cli` reserved the position, #183 `cli` spends it, #214 `cli` parses it |
 | [The argument vector](#the-argument-vector) | #147 `cli`; the second synopsis line, #183 and #214 `cli` |
 | [`init` scaffolds a layout from copybooks](#init-scaffolds-a-layout-from-copybooks) | #183 `cli` specifies it; #214 `cli` the vector, #215 `cli` the derivation and the file |
+| [What a copybook decides, and what only the adopter can](#what-a-copybook-decides-and-what-only-the-adopter-can) | #183 `cli` draws the split, over the forms #25–#29 `layout` fix; the derivation itself, #215 `cli` |
 | [The vector `init` takes](#the-vector-init-takes) | #183 `cli`, implemented by #214 `cli` |
 | [Where the copybooks come from](#where-the-copybooks-come-from) | #183 `cli`, over the refusal to search #148 `cli` already states |
 | [Where the scaffold is written, and why nothing is ever overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten) | #183 `cli`, implemented by #215 `cli`; whether a layout that exists can be extended, #212 `cli` |

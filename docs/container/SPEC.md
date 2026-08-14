@@ -260,10 +260,9 @@ The CLI's command set gained a subcommand — `init`, which scaffolds a layout
 from copybooks — and nothing above changed for it (#183). The arrangement is
 what made that affordable. `Cmd` is empty, so `docker run … <image>` with no
 arguments is still cpybkc's default action, which is generating; every derived
-image already
-published keeps working unaltered, and no `docker run` line in a repository this
-project cannot see had to be edited. A caller who wants the subcommand types it
-where they type every other argument:
+image already published keeps working unaltered, and no `docker run` line in a
+repository this project cannot see had to be edited. A caller who wants the
+subcommand types it where they type every other argument:
 
 ```console
 $ docker run --rm -v "$PWD:/src" -w /src ghcr.io/zaba505/cpybkc:v0 \
@@ -273,8 +272,9 @@ $ docker run --rm -v "$PWD:/src" -w /src ghcr.io/zaba505/cpybkc:v0 \
 A derived image **MAY** set `Cmd` to a subcommand and its flags, which is the
 permission this section already gives for default arguments and needs no new
 one. What a derived image **MUST NOT** do is assume the first argument reaching
-the entrypoint is a flag: it is a subcommand name or nothing, and which names
-are admitted is [the
+the entrypoint is *always* a flag. It may be a flag, as it is for every
+invocation published before this — the CLI's default action is all flags — or it
+may now be a subcommand name; which names are admitted is [the
 CLI's](../cli/SPEC.md#the-first-operand-is-a-subcommand-name) rather than this
 document's. Whether a breaking change to that command set moves
 this image's own major tag is a separate question, filed as #213.
