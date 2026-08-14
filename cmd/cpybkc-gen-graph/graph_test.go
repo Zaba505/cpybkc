@@ -49,6 +49,92 @@ func TestTheWalkBeginsAtTheStateTheFileNodeNames(t *testing.T) {
 	}
 }
 
+// TestIdentifierZeroIsAnOrdinaryIdentifier is docs/ir/SPEC.md's rule that zero
+// is not a sentinel, from the side this generator could most easily have broken
+// it: the start state is a plain reference, so a walk that read "0" as "unset"
+// would refuse a conforming descriptor whose first node happens to be numbered
+// from zero.
+//
+// The behaviour is load bearing and was, until this test, held by nothing: it
+// comes out of a map lookup being nil-safe rather than out of anything written
+// down, and it is exactly what a later `if id == 0` would silently undo.
+func TestIdentifierZeroIsAnOrdinaryIdentifier(t *testing.T) {
+	t.Parallel()
+
+	g := drawn(t, &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			stateNode(0, true, 1),
+			unframedFile(3, 0),
+			recordNode(2, "ONLY", ""),
+			transitionNode(1, 2, 0),
+		},
+	})
+
+	if g.start != 0 {
+		t.Errorf("the walk begins at state %d, and the file node begins in state 0", g.start)
+	}
+
+	if got, want := ids(g.states), []uint64{0}; !same(got, want) {
+		t.Fatalf("the states drawn are %v, want %v", got, want)
+	}
+
+	if len(g.states[0].edges) != 1 || g.states[0].edges[0].record != "ONLY" {
+		t.Errorf("state 0 is drawn with %d edges, and it admits ONLY", len(g.states[0].edges))
+	}
+}
+
+// TestAStartStateOfZeroThatIsNotThereIsStillRefused is the other half of the
+// rule above, and the reason the first half is not simply "treat 0 as fine".
+//
+// A file node naming state 0 where no node carries that identifier is a
+// dangling reference like any other. Zero being ordinary means it is resolved
+// like any other, not that it is waved through.
+func TestAStartStateOfZeroThatIsNotThereIsStillRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := read(&irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes:   []*irpb.Node{unframedFile(1, 0), stateNode(2, true)},
+	})
+
+	if err == nil {
+		t.Fatal("read accepted a file node beginning in a state the descriptor does not carry")
+	}
+
+	if !strings.Contains(err.Error(), "begins in node 0") {
+		t.Errorf("the refusal reads %q, and does not name the node it could not resolve", err)
+	}
+}
+
+// TestTwoNodesSharingAnIdentifierAreOneNode holds the first-wins rule this
+// generator states for duplicate identifiers.
+//
+// It is worth a test because the rule used to be applied to the index and not
+// to the ordering built beside it, and both ways that showed were silent rather
+// than loud: a duplicated unreachable state drawn twice, and — where the
+// duplicate was of another kind — a refusal describing a dangling reference
+// that had not happened.
+func TestTwoNodesSharingAnIdentifierAreOneNode(t *testing.T) {
+	t.Parallel()
+
+	g := drawn(t, &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			unframedFile(1, 2),
+			stateNode(2, true),
+
+			// Reached by nothing, and carried twice.
+			stateNode(9, true),
+			stateNode(9, true),
+		},
+	})
+
+	if got, want := ids(g.states), []uint64{2, 9}; !same(got, want) {
+		t.Errorf("the states drawn are %v, want %v — one node per identifier", got, want)
+	}
+}
+
 // TestEveryStateTheDescriptorCarriesIsDrawn is the criterion that keeps this a
 // diagram of the descriptor rather than of the part of it a walk could get to.
 //
@@ -304,6 +390,41 @@ func TestADescriptorThatDoesNotSayWhatADescriptorSaysIsRefused(t *testing.T) {
 				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "", ""), transitionNode(30, 4, 2),
 			},
 			says: "carries no name",
+		},
+		{
+			// Not the same as the empty string, and refused for the same
+			// reason: space is a rune a label may carry, so a name of nothing
+			// but spaces would reach the diagram as an edge with no label —
+			// which is the one thing an edge here exists to say.
+			name: "a record whose name is nothing but whitespace",
+			nodes: []*irpb.Node{
+				unframedFile(1, 2), stateNode(2, true, 30), recordNode(4, "  ", ""), transitionNode(30, 4, 2),
+			},
+			says: "carries no name",
+		},
+		{
+			name: "a segmented file whose largest segment carries no data",
+			nodes: []*irpb.Node{
+				fileNode(1, &irpb.File{
+					StartStateId: 2,
+					Framing:      &irpb.File_Segmented{Segmented: &irpb.Segmented{MaxSegmentSize: 0}},
+				}),
+				stateNode(2, true),
+			},
+			says: "largest segment is 0 bytes",
+		},
+		{
+			// Four is the segment descriptor word itself, so a segment of four
+			// carries the word and nothing behind it.
+			name: "a segmented file whose largest segment is the descriptor word",
+			nodes: []*irpb.Node{
+				fileNode(1, &irpb.File{
+					StartStateId: 2,
+					Framing:      &irpb.File_Segmented{Segmented: &irpb.Segmented{MaxSegmentSize: 4}},
+				}),
+				stateNode(2, true),
+			},
+			says: "largest segment is 4 bytes",
 		},
 		{
 			name:  "a file node with no framing",

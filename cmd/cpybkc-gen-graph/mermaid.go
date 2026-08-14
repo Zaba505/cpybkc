@@ -46,17 +46,13 @@ func mermaid(g *graph) string {
 	// person is verifying and appears nowhere in a state machine.
 	b.WriteString("**Framing:** " + g.framing.String() + ".\n")
 
-	if !g.admits() {
-		// Said in the document rather than left to be noticed. An automaton
-		// with no transition in it draws as a start state and nothing else,
-		// which looks like a generator that failed halfway; the sentence is the
-		// difference between "there is nothing here" and "there is nothing
-		// there".
-		b.WriteString("\nThis automaton admits no record: no state offers a transition, so nothing a reader of it does consumes bytes.\n")
-	}
-
-	if stranded := g.unreachable(); len(stranded) != 0 {
-		b.WriteString("\n" + strandedSentence(stranded) + "\n")
+	// Both sentences are the model's, not this emitter's: they are prose about
+	// the descriptor, they read the same in either notation, and each is the
+	// empty string when there is nothing to say.
+	for _, said := range []string{g.admitsNothing(), g.stranded()} {
+		if said != "" {
+			b.WriteString("\n" + said + "\n")
+		}
 	}
 
 	b.WriteString("\n" + mermaidFenceOpen + "\n")
@@ -65,23 +61,6 @@ func mermaid(g *graph) string {
 	b.WriteString(mermaidFenceClose + "\n")
 
 	return b.String()
-}
-
-// strandedSentence says that some state nothing reaches is drawn anyway, and
-// why that is worth a reader's attention.
-func strandedSentence(stranded []state) string {
-	named := make([]string, 0, len(stranded))
-	for _, s := range stranded {
-		named = append(named, mermaidState(s.id))
-	}
-
-	subject := fmt.Sprintf("States %s are", strings.Join(named, ", "))
-	if len(named) == 1 {
-		subject = fmt.Sprintf("State %s is", named[0])
-	}
-
-	return subject + " not reachable from the start state. Each is drawn anyway, marked *unreachable*:" +
-		" a state no path arrives at is a bug in whatever compiled this automaton, and one nobody sees if the diagram leaves it out."
 }
 
 // mermaidBody is the diagram's lines, after `stateDiagram-v2` and before the
@@ -94,17 +73,17 @@ func mermaidBody(g *graph) string {
 	// person reading the source of the diagram does, and it keeps the
 	// unreachable states from being buried among the edges.
 	for _, s := range g.unreachable() {
-		line(&b, `state "%s (unreachable)" as %s`, mermaidState(s.id), mermaidState(s.id))
+		line(&b, `state "%s (unreachable)" as %s`, stateName(s.id), stateName(s.id))
 	}
 
 	// The start state, as an edge from Mermaid's start pseudostate. That is the
 	// notation's own way of saying where a read begins, so a reader who knows
 	// state diagrams and not this project already knows what it means.
-	line(&b, "[*] --> %s", mermaidState(g.start))
+	line(&b, "[*] --> %s", stateName(g.start))
 
 	for _, s := range g.states {
 		for _, e := range s.edges {
-			line(&b, "%s --> %s: %s", mermaidState(s.id), mermaidState(e.to), mermaidLabel(e.record))
+			line(&b, "%s --> %s: %s", stateName(s.id), stateName(e.to), mermaidLabel(e.record))
 		}
 
 		// Acceptance as an edge to the end pseudostate, for the same reason:
@@ -112,7 +91,7 @@ func mermaidBody(g *graph) string {
 		// and docs/ir/SPEC.md's accepting state is exactly that. The guards
 		// that may qualify it are #188's, and they hang off this edge.
 		if s.accepts {
-			line(&b, "%s --> [*]", mermaidState(s.id))
+			line(&b, "%s --> [*]", stateName(s.id))
 		}
 	}
 
@@ -124,22 +103,19 @@ func line(b *strings.Builder, format string, args ...any) {
 	fmt.Fprintf(b, mermaidIndent+format+"\n", args...)
 }
 
-// mermaidState is what the diagram calls a state: `s` and the state node's own
-// identifier.
-//
-// The identifier rather than a name, because states carry identifiers and no
-// names — and because it is what takes a reader who wants more than the diagram
-// says to the right node of `cpybkc --emit-ir`. It is also, incidentally, the
-// one part of this document that can never need escaping: a decimal number
-// carries no metacharacter of any notation.
-func mermaidState(id uint64) string { return fmt.Sprintf("s%d", id) }
-
 // mermaidLabel is a record name as a transition label may carry it.
 //
 // # The rule
 //
-// A letter, a digit, a space, `-`, `_` or `.` is written as it stands, and
-// every other rune becomes `#<code point>;` — Mermaid's own numeric escape.
+// A letter, a digit, `-`, `_`, `.` or a space between two of those is written
+// as it stands, and every other rune becomes `#<code point>;` — Mermaid's own
+// numeric escape.
+//
+// A space at either end of the name is escaped rather than written, because
+// there it is invisible in the rendered diagram and the only thing it can
+// produce is a source line ending in whitespace — a spurious diff in a golden
+// the first time a producer emits one. Escaping it keeps the name faithful: a
+// renderer decoding `#32;` shows the space that was there.
 //
 // # Why that set
 //
@@ -167,11 +143,19 @@ func mermaidState(id uint64) string { return fmt.Sprintf("s%d", id) }
 func mermaidLabel(name string) string {
 	var b strings.Builder
 
-	for _, r := range name {
+	// Where the name stops being a run of spaces at each end. A space is a
+	// space wherever it stands, so byte offsets are enough to tell an interior
+	// one from an edge one.
+	lead := len(name) - len(strings.TrimLeft(name, " "))
+	trail := len(strings.TrimRight(name, " "))
+
+	for at, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
 			b.WriteRune(r)
-		case r == '-', r == '_', r == '.', r == ' ':
+		case r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		case r == ' ' && at >= lead && at < trail:
 			b.WriteRune(r)
 		default:
 			fmt.Fprintf(&b, "#%d;", r)

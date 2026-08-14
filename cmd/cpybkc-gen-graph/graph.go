@@ -114,6 +114,61 @@ func (g *graph) unreachable() []state {
 	return stranded
 }
 
+// stateName is what a document calls a state: `s` and the state node's own
+// identifier.
+//
+// The identifier rather than a name, because states carry identifiers and no
+// names — and because it is what takes a reader who wants more than the diagram
+// says to the right node of `cpybkc --emit-ir`. It is also, incidentally, the
+// one part of any of these documents that can never need escaping: a decimal
+// number carries no metacharacter of any notation.
+//
+// Which is why it is here rather than in an emitter. Two notations calling one
+// state two things would make a reader who has both documents open unable to
+// put them side by side.
+func stateName(id uint64) string { return fmt.Sprintf("s%d", id) }
+
+// admitsNothing is the sentence a document states when the automaton consumes
+// no record at all, and the empty string when it consumes one.
+//
+// Said rather than left to be noticed. An automaton with no transition in it
+// draws as a start state and nothing else, which looks like a generator that
+// failed halfway; the sentence is the difference between "there is nothing
+// here" and "there is nothing there".
+func (g *graph) admitsNothing() string {
+	if g.admits() {
+		return ""
+	}
+
+	return "This automaton admits no record: no state offers a transition, so nothing a reader of it does consumes bytes."
+}
+
+// stranded is the sentence a document states about the states no path from the
+// start state arrives at, and the empty string when every state is reachable.
+//
+// Here rather than in an emitter for the reason [framing.String] is: it is
+// prose about the descriptor and not about a notation, both notations have the
+// same thing to say, and a second emitter free to word it its own way is a
+// second emitter free to word it less carefully.
+func (g *graph) stranded() string {
+	named := []string{}
+	for _, s := range g.unreachable() {
+		named = append(named, stateName(s.id))
+	}
+
+	if len(named) == 0 {
+		return ""
+	}
+
+	subject, drawn := fmt.Sprintf("States %s are", strings.Join(named, ", ")), "Each is"
+	if len(named) == 1 {
+		subject, drawn = fmt.Sprintf("State %s is", named[0]), "It is"
+	}
+
+	return subject + " not reachable from the start state. " + drawn + " drawn anyway, marked *unreachable*:" +
+		" a state no path arrives at is a bug in whatever compiled this automaton, and one nobody sees if the diagram leaves it out."
+}
+
 // read is the whole walk: it indexes the descriptor's nodes, reads the file
 // node, and follows the automaton out of the state that file node names.
 //
@@ -261,10 +316,14 @@ func edgeAt(nodes nodeSet, id uint64) (edge, error) {
 		return edge{}, unresolved(node.GetRecordId(), fmt.Sprintf("the record transition %d admits", id))
 	}
 
+	// Whitespace counts as nothing, and not as a name. A record called " "
+	// would pass an emptiness test, reach the emitter, and draw as an edge
+	// whose label is a space — an unlabelled transition, which is the one thing
+	// an edge in this diagram exists to say.
 	name := nameOf(record.GetNames())
-	if name == "" {
+	if strings.TrimSpace(name) == "" {
 		return edge{}, malformed(
-			fmt.Sprintf("node %d is a record and carries no name at all", node.GetRecordId()),
+			fmt.Sprintf("node %d is a record and carries no name a diagram could show", node.GetRecordId()),
 			"every named node carries the original COBOL name, spelled as the copybook spells it; see docs/ir/SPEC.md, \"Names\"")
 	}
 
@@ -317,6 +376,12 @@ type framing struct {
 	delimiter []byte
 	placement irpb.DelimiterPlacement
 }
+
+// segmentDescriptorWidth is the width of the segment descriptor word DFSMS
+// defines. The IR carries it nowhere, for the reason docs/ir/SPEC.md's "Lengths
+// the file node does not carry" gives: the width comes with the definition, and
+// one carried beside it could hold a number describing no format anyone has.
+const segmentDescriptorWidth = 4
 
 // The four members of the closed set, as a document names them.
 const (
@@ -430,7 +495,22 @@ func framingOf(file *irpb.File) (framing, error) {
 	case *irpb.File_DescriptorWord:
 		return framing{how: descriptorWord}, nil
 	case *irpb.File_Segmented:
-		return framing{how: segmented, maxSegment: kind.Segmented.GetMaxSegmentSize()}, nil
+		f := framing{how: segmented, maxSegment: kind.Segmented.GetMaxSegmentSize()}
+
+		// The same refusal cmd/cpybkc-gen-go makes, and for the same reason:
+		// four of a segment's bytes are the segment descriptor word itself, so
+		// a largest segment of four or fewer carries no data and a record would
+		// never end. Stated here as well as there because a document reading
+		// "no segment exceeds 0 bytes" would be describing a file nothing can
+		// consume a byte of, in the same confident voice as the other three
+		// framings — which is the "no honest picture to draw" case above.
+		if f.maxSegment <= segmentDescriptorWidth {
+			return framing{}, malformed(
+				fmt.Sprintf("the file is segmented and its largest segment is %d bytes", f.maxSegment),
+				"a segment carries a four-byte segment descriptor word and the data behind it, so a largest segment of four or fewer carries no data at all")
+		}
+
+		return f, nil
 	case *irpb.File_Delimited:
 		f := framing{
 			how:       delimited,
@@ -482,12 +562,20 @@ func index(d *irpb.Descriptor) nodeSet {
 		// traversal and two nodes sharing one is a bug no diagram is the place
 		// to report. What matters here is that the choice is stated rather than
 		// left to map iteration.
-		if _, ok := nodes.by[node.GetId()]; !ok {
-			nodes.by[node.GetId()] = node
+		if _, ok := nodes.by[node.GetId()]; ok {
+			continue
 		}
+
+		// Both fields take the same first-wins decision, in the same pass. They
+		// used to disagree, and the two ways that showed were both silent: a
+		// duplicated unreachable state drawn twice, and — where the duplicate
+		// was of another kind — a refusal reading "no such node of that kind",
+		// which describes a dangling reference rather than the duplicated
+		// identifier that actually happened.
+		nodes.by[node.GetId()] = node
+		nodes.order = append(nodes.order, node)
 	}
 
-	nodes.order = append(nodes.order, d.GetNodes()...)
 	sort.SliceStable(nodes.order, func(i, j int) bool { return nodes.order[i].GetId() < nodes.order[j].GetId() })
 
 	return nodes

@@ -88,8 +88,17 @@ func TestThereIsAGoldenForEveryFramingAndNoOthers(t *testing.T) {
 		t.Fatalf("reading %s: %v", goldenDir, err)
 	}
 
+	// The invariant is "one `.md` per framing", not "nothing but framings may
+	// live here". A directory or a checked-in fixture beside the goldens is not
+	// a framing that went missing, and reporting it as one would send a reader
+	// looking for a rename that never happened.
 	checked := map[string]bool{}
+
 	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+
 		checked[entry.Name()] = true
 	}
 
@@ -104,6 +113,6 @@ func TestThereIsAGoldenForEveryFramingAndNoOthers(t *testing.T) {
 	}
 
 	for name := range checked {
-		t.Errorf("%s holds %s, and no framing produces it", goldenDir, name)
+		t.Errorf("%s holds the golden %s, and no framing produces it", goldenDir, name)
 	}
 }

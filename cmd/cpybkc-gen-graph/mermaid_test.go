@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Zaba505/cpybkc/irpb"
 )
@@ -61,6 +62,9 @@ func TestARecordNameCarryingAMermaidMetacharacterDoesNotBreakTheDiagram(t *testi
 		{name: "a note", named: "note right of s2: hello"},
 		{name: "a composite state", named: "s2 { s3 }"},
 		{name: "a name that is not ASCII at all", named: "ÜBERWEISUNG"},
+		{name: "a trailing space", named: "TRAILER "},
+		{name: "a leading space", named: " HEADER"},
+		{name: "spaces at both ends and in the middle", named: "  two words  "},
 	}
 
 	for _, testCase := range testCases {
@@ -99,20 +103,12 @@ func TestARecordNameCarryingAMermaidMetacharacterDoesNotBreakTheDiagram(t *testi
 				}
 			}
 
-			// And the rule itself, over the label the name became. The two
-			// assertions together are the whole of it: nothing outside the
-			// admitted set reaches the output, so no name is the reason a
-			// renderer fails to parse this block — and the label still decodes
-			// to the name, so nothing was dropped or mangled to get there.
+			// And the rule itself, over the label the name became: every rune
+			// of it is either inside a well-formed escape or one the rule
+			// admits verbatim, and what it all decodes to is the name.
 			label := mermaidLabel(testCase.named)
 
-			for _, r := range label {
-				if !admitted(r) {
-					t.Errorf("the label for %q carries %q, which is not a rune the escaping rule admits", testCase.named, r)
-				}
-			}
-
-			if got := unescaped(label); got != testCase.named {
+			if got := scanned(t, label); got != testCase.named {
 				t.Errorf("the label for %q decodes to %q, and an escape stands for what it escaped", testCase.named, got)
 			}
 		})
@@ -192,6 +188,50 @@ func TestAnUnreachableStateIsDrawnAndSaidToBeUnreachable(t *testing.T) {
 	}
 }
 
+// TestTheUnreachableSentenceAgreesWithHowManyThereAre is a small thing that is
+// worth a test because it is the only prose in this document that counts
+// something.
+//
+// The sentence is what a reader meets before the diagram, and one reading
+// "States s9 are not reachable" is one they stop trusting.
+func TestTheUnreachableSentenceAgreesWithHowManyThereAre(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		nodes   []*irpb.Node
+		opens   string
+		follows string
+	}{
+		{
+			name:    "one",
+			nodes:   []*irpb.Node{unframedFile(1, 2), stateNode(2, true), stateNode(9, true)},
+			opens:   "State s9 is not reachable",
+			follows: "It is drawn anyway",
+		},
+		{
+			name:    "two",
+			nodes:   []*irpb.Node{unframedFile(1, 2), stateNode(2, true), stateNode(8, true), stateNode(9, true)},
+			opens:   "States s8, s9 are not reachable",
+			follows: "Each is drawn anyway",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			written := writtenDocument(t, &irpb.Descriptor{Version: supportedIRVersion, Nodes: testCase.nodes})
+
+			for _, want := range []string{testCase.opens, testCase.follows} {
+				if !strings.Contains(written, want) {
+					t.Errorf("the document does not read %q:\n%s", want, written)
+				}
+			}
+		})
+	}
+}
+
 // TestADocumentWithNothingWrongCarriesNoUnreachableProse keeps the sentence
 // above from being boilerplate every document carries.
 func TestADocumentWithNothingWrongCarriesNoUnreachableProse(t *testing.T) {
@@ -204,54 +244,60 @@ func TestADocumentWithNothingWrongCarriesNoUnreachableProse(t *testing.T) {
 	}
 }
 
-// admitted reports whether a rune is one [mermaidLabel] leaves in the output.
+// admitted reports whether a rune may stand in a label **verbatim**.
 //
 // Written out here rather than shared with [mermaidLabel], deliberately: a test
 // that called the implementation's own predicate would pass for any rule at
 // all, including one that admitted everything.
+//
+// `#` and `;` are not in it, and that is the point of the split below. They are
+// the two runes an escape is built out of, and admitting them outright — which
+// this predicate used to — made a literal `;` in a label invisible to every
+// assertion in this file, including the case named "a statement separator". A
+// rune is now either part of a well-formed escape, which [scanned] consumes as
+// a unit, or one of these; there is no third way to reach the output.
 func admitted(r rune) bool {
 	return r >= 'a' && r <= 'z' ||
 		r >= 'A' && r <= 'Z' ||
 		r >= '0' && r <= '9' ||
-		r == '-' || r == '_' || r == '.' || r == ' ' || r == '#' || r == ';'
+		r == '-' || r == '_' || r == '.' || r == ' '
 }
 
-// unescaped is a label with every `#N;` turned back into the rune it stands
-// for — the reading a renderer that implements Mermaid's numeric escape gives
-// it.
+// scanned walks a label, consuming a well-formed `#<decimal>;` escape wherever
+// one stands and requiring every other rune to be one [admitted] allows, and
+// answers with what the label decodes to.
 //
-// It exists so that "nothing dangerous is in the output" can be asserted beside
-// "and the name is still there". A rule that dropped every rune it did not like
-// would satisfy the first on its own.
-func unescaped(label string) string {
+// The two halves have to be asserted together. "Nothing dangerous reaches the
+// output" is satisfied on its own by a rule that dropped every rune it did not
+// like, and "the label decodes to the name" is satisfied on its own by a rule
+// that escaped nothing at all.
+func scanned(t *testing.T, label string) string {
+	t.Helper()
+
 	var b strings.Builder
 
 	for at := 0; at < len(label); {
-		if label[at] != '#' {
-			b.WriteByte(label[at])
-			at++
+		if label[at] == '#' {
+			// The shortest escape is `#0;`, so a `;` at offset 1 is a `#`
+			// followed by nothing rather than an escape of anything.
+			if end := strings.IndexByte(label[at:], ';'); end > 1 {
+				if code, err := strconv.Atoi(label[at+1 : at+end]); err == nil {
+					b.WriteRune(rune(code))
+					at += end + 1
 
-			continue
+					continue
+				}
+			}
 		}
 
-		end := strings.IndexByte(label[at:], ';')
-		if end < 0 {
-			b.WriteByte(label[at])
-			at++
+		r, width := utf8.DecodeRuneInString(label[at:])
 
-			continue
+		if !admitted(r) {
+			t.Errorf("the label %q carries %q outside an escape, and the rule admits no such rune verbatim", label, r)
 		}
 
-		code, err := strconv.Atoi(label[at+1 : at+end])
-		if err != nil {
-			b.WriteByte(label[at])
-			at++
-
-			continue
-		}
-
-		b.WriteRune(rune(code))
-		at += end + 1
+		b.WriteRune(r)
+		at += width
 	}
 
 	return b.String()
