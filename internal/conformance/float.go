@@ -112,6 +112,159 @@ func FormatFloat(f float64) string {
 		hexExponentMarker + canonicalExponent(exponent)
 }
 
+// The rules a float that is not written canonically is reported against, in the
+// same sentence form the other scalar rules take (see spelling.go).
+const (
+	floatIsWritten     = "a float is NaN, Infinity, -Infinity, or a lowercase hexadecimal float such as 0x1.2p+3"
+	floatIsNormalized  = "every non-zero float is normalized to a significand of 1"
+	floatHasNoTrailing = "a float's fraction does not end in 0, and the point is absent where there is no fraction"
+	floatExponentSign  = "a float's exponent carries its sign, even where it is +, and no leading zero"
+	floatZeroExponent  = "a zero is exactly 0x0p+0, so that one value keeps one spelling"
+)
+
+// floatFault is why text is not the form docs/conformance/SPEC.md's "A float is
+// written exactly, and never as a JSON number" states, and "" where it is:
+//
+//	float       = %s"NaN" / infinity / hex
+//	infinity    = [ "-" ] %s"Infinity"
+//	hex         = [ "-" ] %s"0x" significand %s"p" sign exponent
+//	significand = "0" / ( "1" [ "." 1*LOWHEX ] )
+//	exponent    = "0" / NONZERO *DIGIT
+//
+// It reads the grammar rather than parsing the value and asking whether
+// [FormatFloat] would write it back, which was the other way to write this. A
+// round trip would be shorter and would tie the reader to the writer, and it
+// would also bind the corpus format to what a float64 can hold: the section
+// says at length that HFP long carries three fraction bits an IEEE double does
+// not, so a spelling this format admits and Go cannot represent is a spelling a
+// round trip would refuse for a reason the format never stated.
+// TestEveryFloatFormatFloatWritesIsAdmitted is what ties the two together
+// instead, in the direction that matters — nothing this repository writes may
+// be a thing this repository refuses to read.
+func floatFault(text string) string {
+	switch text {
+	case notANumber, positiveInfinity, negativeInfinity:
+		return ""
+	}
+
+	rest, ok := strings.CutPrefix(strings.TrimPrefix(text, "-"), hexPrefix)
+	if !ok {
+		return floatIsWritten
+	}
+
+	significand, exponent, ok := strings.Cut(rest, hexExponentMarker)
+	if !ok {
+		return floatIsWritten
+	}
+
+	if significand == "0" {
+		// The exponent of a zero is not merely well-formed but fixed: an
+		// exponent a zero could vary would give one value every spelling a
+		// stored exponent can take, and two correct generators would be
+		// reported as disagreeing about zero.
+		if exponent != "+0" {
+			return floatZeroExponent
+		}
+
+		return ""
+	}
+
+	if fault := significandFault(significand); fault != "" {
+		return fault
+	}
+
+	return exponentFault(exponent)
+}
+
+// significandFault holds the significand of a non-zero float to its one
+// spelling: normalized to 1, with a fraction of lowercase hexadecimal digits
+// that is present exactly when there is one and never ends in a zero.
+func significandFault(significand string) string {
+	whole, fraction, pointed := strings.Cut(significand, ".")
+
+	// A significand that is not a hexadecimal number at all — 0xp+0, whose
+	// significand is nothing — is refused as a spelling rather than as a value
+	// that wants normalizing, which would be advice about a digit the author
+	// did not write.
+	if !lowerHex(whole) {
+		return floatIsWritten
+	}
+
+	if whole != "1" {
+		return floatIsNormalized
+	}
+
+	if !pointed {
+		return ""
+	}
+
+	if fraction == "" {
+		return floatHasNoTrailing
+	}
+
+	if !lowerHex(fraction) {
+		return floatIsWritten
+	}
+
+	if strings.HasSuffix(fraction, "0") {
+		return floatHasNoTrailing
+	}
+
+	return ""
+}
+
+// lowerHex is whether text is one or more lowercase hexadecimal digits and
+// nothing else, which is the LOWHEX of the grammar. An empty string is not one,
+// so a significand or a fraction that is missing is a spelling fault rather
+// than a value with a property.
+func lowerHex(text string) bool {
+	if text == "" {
+		return false
+	}
+
+	for _, r := range text {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+
+	return true
+}
+
+// exponentFault holds an exponent to its one spelling: a sign always, a leading
+// zero never, and +0 rather than -0 for a zero.
+func exponentFault(exponent string) string {
+	digits, ok := strings.CutPrefix(exponent, "+")
+	if !ok {
+		if digits, ok = strings.CutPrefix(exponent, "-"); !ok {
+			return floatExponentSign
+		}
+
+		// A negative zero exponent is a second spelling of an exponent of
+		// zero, and the grammar admits one.
+		if digits == "0" {
+			return floatExponentSign
+		}
+	}
+
+	// Ahead of the leading-zero rule, so that an exponent which is not a decimal
+	// number at all — the +0p+0 a second p leaves behind — is refused as a
+	// spelling rather than as a well-formed exponent with a zero in front.
+	if !onlyDigits(digits) {
+		return floatIsWritten
+	}
+
+	if digits == "0" {
+		return ""
+	}
+
+	if strings.HasPrefix(digits, "0") {
+		return floatExponentSign
+	}
+
+	return ""
+}
+
 // canonicalSignificand drops a trailing zero from the fraction, and the point
 // with it where nothing is left behind it.
 //

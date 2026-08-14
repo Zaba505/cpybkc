@@ -13,7 +13,11 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/Zaba505/cpybkc/internal/emit"
 	"github.com/Zaba505/cpybkc/internal/layoutschema"
+	"github.com/Zaba505/cpybkc/irpb"
 )
 
 // TestTheShippedCorpusLoads holds the corpus this repository ships to its own
@@ -110,6 +114,11 @@ func TestEveryEntryLayoutIsWellFormed(t *testing.T) {
 // rather than pass quietly.
 func TestAnEntryTheFormatRefuses(t *testing.T) {
 	tests := map[string]struct {
+		// entry is the shipped entry the case breaks, and "" is the one entry
+		// most of them break. A case names another where the rule it is about
+		// needs an item no other entry carries — a float, whose form no entry
+		// of ordinary items can be wrong about.
+		entry  string
 		breaks func(t *testing.T, dir string)
 		says   string
 	}{
@@ -188,11 +197,59 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 			},
 			says: "unknown field",
 		},
+
+		// One case per rule of the value language, each of them a spelling of
+		// the right value (#196). They are here rather than only beside the
+		// grammars because what this asserts is that the loader reaches them:
+		// a rule the walk never applies to an entry's values is a rule that
+		// passes its own tests and refuses nothing.
+		"a number carrying a leading zero": {
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"42"`, `"042"`)
+			},
+			says: numberHasNoZero,
+		},
+		"a number written as a JSON number": {
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"42"`, `42`)
+			},
+			says: scalarIsAString,
+		},
+		"a character item padded to its width": {
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"A001"`, `"A001 "`)
+			},
+			says: textIsTrimmed,
+		},
+		"a float in a form the corpus does not write": {
+			entry: "float-ieee754",
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"0x1p+0"`, `"0x1P+0"`)
+			},
+			says: floatIsWritten,
+		},
+		"a run of bytes that is not base64": {
+			breaks: func(t *testing.T, dir string) {
+				// The corpus carries no INDEX, POINTER or NATIONAL item, so
+				// the mutation is on the side that decides the form rather
+				// than on the value: LINE-SKU becomes an INDEX item, and the
+				// three characters the entry states for it stop being a
+				// padded base64 quantum. An entry that carries one of the
+				// three usages is the day this case states the value instead.
+				asIndexItem(t, dir, "LINE-SKU")
+			},
+			says: bytesAreBase64,
+		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			dir := entryCopy(t)
+			entry := test.entry
+			if entry == "" {
+				entry = "orders-fixed"
+			}
+
+			dir := entryCopy(t, entry)
 
 			test.breaks(t, dir)
 
@@ -220,7 +277,7 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 // specification first, which is the direction this reservation has to be
 // defended in.
 func TestTheReservedMemberIsAdmittedAndReadByNothing(t *testing.T) {
-	dir := entryCopy(t)
+	dir := entryCopy(t, "orders-fixed")
 
 	without, err := LoadEntry(dir)
 	if err != nil {
@@ -270,14 +327,85 @@ func TestNoShippedEntryCarriesTheReservedMember(t *testing.T) {
 	}
 }
 
-// entryCopy is a copy of the shipped entry, in a directory of the test's own, so
-// that a case may break it without breaking the corpus.
-func entryCopy(t *testing.T) string {
+// rewriteValues is one thing done to an entry's values document: the first
+// occurrence of was, written as is.
+//
+// It fails where the replacement did not apply, which is what keeps a case
+// about the rule rather than about the fixture — an entry edited until the
+// mutation no longer matches would otherwise load, and the case would pass by
+// asserting nothing.
+func rewriteValues(t *testing.T, dir, was, is string) {
 	t.Helper()
 
-	source := filepath.Join(CorpusPath(repoRoot(t)), "orders-fixed")
+	path := filepath.Join(dir, ValuesName)
 
-	dir := filepath.Join(t.TempDir(), "orders-fixed")
+	values := read(t, path)
+
+	rewritten := strings.Replace(values, was, is, 1)
+	if rewritten == values {
+		t.Fatalf("%s does not carry %s, and the case is about rewriting it", ValuesName, was)
+	}
+
+	write(t, path, rewritten)
+}
+
+// asIndexItem rewrites the named item into an INDEX item, which is one of the
+// three usages the value language writes as base64.
+//
+// It decodes the descriptor, changes the two attributes that make an item one,
+// and writes back what this repository's own canonical renderer produces —
+// rather than rewriting the JSON as text. Text surgery would have to know where
+// the usage sits relative to the names and how the picture is indented, and a
+// case that broke on the rendering would fail with a descriptor's diagnostic
+// rather than the rule it is about.
+//
+// The PICTURE goes with the usage, because an INDEX item does not carry one and
+// an entry that paired them would be a descriptor nothing produces — which is
+// the shape of fixture that starts failing the day a validator learns the rule
+// and takes the case that depended on it down with it.
+func asIndexItem(t *testing.T, dir, name string) {
+	t.Helper()
+
+	path := filepath.Join(dir, DescriptorName)
+
+	var descriptor irpb.Descriptor
+	if err := protojson.Unmarshal([]byte(read(t, path)), &descriptor); err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	found := false
+
+	for _, node := range descriptor.GetNodes() {
+		field := node.GetField()
+		if field == nil || field.GetNames().GetOriginal() != name {
+			continue
+		}
+
+		field.Usage = irpb.Usage_USAGE_INDEX
+		field.Picture = nil
+		found = true
+	}
+
+	if !found {
+		t.Fatalf("%s carries no item named %s", DescriptorName, name)
+	}
+
+	canonical, err := emit.MarshalJSON(&descriptor)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	write(t, path, string(canonical))
+}
+
+// entryCopy is a copy of a shipped entry, in a directory of the test's own, so
+// that a case may break it without breaking the corpus.
+func entryCopy(t *testing.T, entry string) string {
+	t.Helper()
+
+	source := filepath.Join(CorpusPath(repoRoot(t)), entry)
+
+	dir := filepath.Join(t.TempDir(), entry)
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatalf("%v", err)
 	}
