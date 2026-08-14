@@ -156,6 +156,16 @@ func (t term) phrase(esc func(string) string) string {
 
 // recordTable is one record's items, as the document tables them.
 type recordTable struct {
+	// id is the record node's own identifier.
+	//
+	// Carried because a notation may have to name the table as a thing in the
+	// document — Graphviz gives each table a node of its own — and a name is not
+	// identity: docs/ir/SPEC.md's "Names" makes duplicate data names legal COBOL,
+	// so two records that share a name would share a node and the second would
+	// overwrite the first. It is the same identifier [edge.recordID] carries, so
+	// it also takes a reader to the record node of `cpybkc --emit-ir`.
+	id uint64
+
 	// name is the record, named as the diagram's edges name it.
 	name string
 
@@ -365,7 +375,7 @@ func recordItems(nodes nodeSet, id uint64, name string) (recordTable, error) {
 		return recordTable{}, err
 	}
 
-	return recordTable{name: name, items: w.rows}, nil
+	return recordTable{id: id, name: name, items: w.rows}, nil
 }
 
 // itemWalk is one record's containment order being read into rows.

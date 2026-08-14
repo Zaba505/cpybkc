@@ -85,8 +85,18 @@ func write(descriptor *irpb.Descriptor, out string, opts options) error {
 // registers those bindings write. Beneath the diagram, unless `records=none`
 // asked otherwise, one table per record: its items in containment order, each
 // with the offset this generator summed for it. The descriptor is read once, by
-// [read], into a [graph] — and an emitter is a function over that, so #190's
-// `dot` rendering is a second arm below rather than a second walk.
+// [read], into a [graph] — and an emitter is a function over that, so the two
+// arms below are two renderings of one walk rather than two walks.
+//
+// # Which notation says what
+//
+// Neither. [mermaid] and [dot] draw the same [graph], every sentence about the
+// descriptor is composed by the model rather than by either of them, and what
+// differs between the two documents is only how a thing is drawn: a state's
+// acceptance is an edge to a pseudostate in one notation and a `doublecircle` in
+// the other, and an edge label is one line in one and three left-justified lines
+// in the other. Which to reach for is README.md's — Mermaid renders where a
+// person already is, and Graphviz stays legible where Mermaid's layout gives up.
 //
 // # Why the default arm is a failure rather than a notation
 //
@@ -109,18 +119,7 @@ func document(descriptor *irpb.Descriptor, opts options) (string, string, error)
 
 	switch opts.format {
 	case formatDot:
-		// The graph is named for this project rather than for the layout,
-		// because the descriptor states no name for the layout and the two paths
-		// this generator can see are ones it may not read a name out of. `dot`
-		// requires a name-or-nothing here and an anonymous digraph is one a
-		// reader cannot refer to from a document that embeds it.
-		//
-		// Still empty, and #190 is where it fills in. The Graphviz rendering is
-		// a story of its own because Mermaid is what renders in a diff without
-		// a toolchain and `dot` is what stays legible when Mermaid's layout
-		// gives up — two different readers, and one of them is served by the
-		// document above today.
-		return dotFile, dotGeneratedBy + "\n\ndigraph cpybkc {\n}\n", nil
+		return dotFile, dot(g), nil
 	case formatMermaid:
 		return mermaidFile, mermaid(g), nil
 	default:

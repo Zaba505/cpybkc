@@ -755,6 +755,37 @@ func writtenDocument(t *testing.T, d *irpb.Descriptor, opts ...string) string {
 	return contents(t, filepath.Join(out, mermaidFile))
 }
 
+// writtenIn is the same thing in a stated notation: the whole document a run
+// asking for that format writes, read from the file that format is named by.
+//
+// The format is stated as an option on the vector rather than reached past
+// [parse], for the reason [writtenDocument] states its options that way — what
+// these tests hold is what a manifest asking for this notation produces.
+func writtenIn(t *testing.T, written notation, d *irpb.Descriptor, opts ...string) string {
+	t.Helper()
+
+	out := t.TempDir()
+
+	args := append(vector(t, marshal(t, d), out), opts...)
+	args = append(args, optFlag, formatOption+"="+written.format)
+
+	if err := run(args, nothing()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	return contents(t, filepath.Join(out, written.file))
+}
+
+// writtenGraphviz is the Graphviz document a run over this descriptor writes.
+//
+// The extension is not stated, because it is a property of the golden checked in
+// beside this command rather than of the run: what a run writes is [dotFile].
+func writtenGraphviz(t *testing.T, d *irpb.Descriptor, opts ...string) string {
+	t.Helper()
+
+	return writtenIn(t, notation{format: formatDot, file: dotFile}, d, opts...)
+}
+
 // ids is the identifiers of a list of states, for a failure that has to say
 // which states were drawn.
 func ids(states []state) []uint64 {

@@ -167,13 +167,19 @@ func TestEveryDiagnosticThisProgramWritesOpensWithASeverity(t *testing.T) {
 	}
 }
 
-// TestRunWritesTheDocumentEachFormatIsNamedBy is this story's whole output: a
-// document beneath --out, named for the notation the invocation asked for, and
-// carrying nothing but the generated-by line and an empty diagram.
+// TestRunWritesTheDocumentEachFormatIsNamedBy is one document beneath --out,
+// named for the notation the invocation asked for, and one only.
 //
-// The contents are asserted as far as the story goes and no further. What is
-// inside the diagram is the next story's, and a test written against an empty
-// one would have to be deleted rather than extended.
+// The count is the assertion, not a detail of it: `format=dot` writes `graph.dot`
+// and no `graph.md`, and `format=mermaid` the other way round, because one
+// invocation draws one document. A project wanting both names this generator
+// twice with two `out` directories, which is what the manifest is for — and a run
+// that wrote both would hand the second of them to a project that never asked
+// for it.
+//
+// What is inside each document is the goldens' assertion. Here it is only that
+// the file opens the way generated output does, in that notation's own comment
+// syntax.
 func TestRunWritesTheDocumentEachFormatIsNamedBy(t *testing.T) {
 	t.Parallel()
 
