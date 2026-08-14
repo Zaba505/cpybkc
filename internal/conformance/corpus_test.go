@@ -206,6 +206,46 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 	}
 }
 
+// TestTheReservedMemberIsAdmittedAndReadByNothing holds [OffsetsName] to what
+// reserving a name means.
+//
+// Two halves, and the second is the one that decays quietly. An entry carrying
+// the member loads, which is what makes the name reserved rather than merely
+// documented — the loader refuses every other file it has no place for, so
+// without this the reservation would be a sentence nobody could act on. And no
+// entry in the shipped corpus carries one, because the member has no content
+// specified and no consumer (#194): an entry that started carrying one would be
+// carrying a file whose meaning nothing had agreed, which is the thing the
+// reservation exists to postpone.
+func TestTheReservedMemberIsAdmittedAndReadByNothing(t *testing.T) {
+	dir := entryCopy(t)
+
+	write(t, filepath.Join(dir, OffsetsName), `{"reserved": true}`)
+
+	entry, err := LoadEntry(dir)
+	if err != nil {
+		t.Fatalf("an entry carrying the reserved %s: %v", OffsetsName, err)
+	}
+
+	for _, copybook := range entry.Copybooks {
+		if filepath.Base(copybook) == OffsetsName {
+			t.Errorf("%s was read as a copybook, and nothing reads it", OffsetsName)
+		}
+	}
+
+	entries, err := Load(CorpusPath(repoRoot(t)))
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	for _, shipped := range entries {
+		if _, err := os.Stat(filepath.Join(shipped.Dir, OffsetsName)); err == nil {
+			t.Errorf("%s carries %s, and the member is reserved with nothing specified to be in it",
+				shipped.Name, OffsetsName)
+		}
+	}
+}
+
 // entryCopy is a copy of the shipped entry, in a directory of the test's own, so
 // that a case may break it without breaking the corpus.
 func entryCopy(t *testing.T) string {

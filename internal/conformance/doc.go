@@ -6,12 +6,12 @@
 // Package conformance reads the conformance corpus and compares a runner's
 // answer against what an entry expects.
 //
-// The corpus is testdata/conformance/, it is documented where it lives — in
-// that directory's README.md, per docs/CONVENTIONS.md's "What belongs here" —
-// and this package is the reading of that document which this repository runs.
-// An entry is the tuple the README describes: the layout and the copybooks it
-// names, the IR they resolve to, the bytes of a file laid out that way, and the
-// values those bytes decode to (#66).
+// The corpus is testdata/conformance/, its format is docs/conformance/SPEC.md,
+// and this package is the reading of that specification which this repository
+// runs. An entry is the tuple the spec describes: the layout and the copybooks
+// it names, the IR they resolve to, the bytes of a file laid out that way, and
+// the values those bytes decode to (#66). Which entries there are and what each
+// was derived from stay with the corpus, in that directory's README.md.
 //
 // # Why a corpus exists at all
 //

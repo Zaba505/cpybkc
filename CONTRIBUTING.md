@@ -1122,10 +1122,12 @@ patched at the call site.
 
 [`testdata/conformance/`](testdata/conformance/) is a set of small files with the
 right answer written down: a layout and its copybooks, the IR they resolve to,
-the bytes of a file laid out that way, and the values those bytes decode to. Its
-README is the format, and it is the whole of the documentation — the corpus is
-test infrastructure, so it documents itself where it lives rather than under
-`docs/` ([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*).
+the bytes of a file laid out that way, and the values those bytes decode to. The
+format is [`docs/conformance/SPEC.md`](docs/conformance/SPEC.md) — a generator
+author in another language implements it, which is the test
+[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*, applies — and
+the corpus's README is what stays with the corpus: which entries there are, what
+each was derived from, and how to add one.
 
 ```sh
 go test ./internal/conformance/...
@@ -1142,8 +1144,9 @@ matrix: the matrix is a matrix of `dagger call ci`, and a conformance job of its
 own would be a second gate that a platform added to the matrix would silently not
 carry. What it is not is a check of the bytes the writer produced —
 [`docs/ir/SPEC.md`](docs/ir/SPEC.md)'s *Writing a file* makes byte identity a
-claim about a record and not about a file, and the corpus README's *Why the
-writing direction is checked by reading* is the rest of the argument.
+claim about a record and not about a file, and
+[`docs/conformance/SPEC.md`](docs/conformance/SPEC.md)'s *Why the writing
+direction is checked by reading* is the rest of the argument.
 
 It exists because cpybkc is strictly a generator: nothing here reads a data file
 except the code a generator emitted, so nothing else holds two generators in two
@@ -1152,13 +1155,14 @@ citation, and the README says how.
 
 ## Specs
 
-Four of this project's interfaces are built against from outside it — the file
-layout format, the resolved IR, the plugin CLI contract and the container
-base-image contract — and each is far harder to change than the code behind it.
-Each has a `SPEC.md` under [`docs/`](docs/), linked from
-[README.md](README.md), which is the only list of them.
+Six of this project's interfaces are built against from outside it — the command
+line, the file layout format, the resolved IR, the plugin CLI contract, the
+container base-image contract and the conformance corpus format — and each is
+far harder to change than the code behind it. Each has a `SPEC.md` under
+[`docs/`](docs/), linked from [README.md](README.md), which is the only list of
+them.
 
-[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is what those four agree on: the
+[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is what those six agree on: the
 conformance language, the section set every spec carries, how sources are cited
 and how requirements are traced back to stories. It is defined there once and
 referenced, never restated — the same argument this file already makes about the
@@ -1168,11 +1172,12 @@ pipeline and the lint configuration, applied to the word **MUST**.
 
 [`cobol-go`](https://github.com/Zaba505/cobol-go) puts `codec/SPEC.md` next to
 package `codec`, and it is the model these specs follow in every other respect.
-It is not followed here because three of the four specify things that are not Go
-packages: a text file format, a CLI contract for executables that may be shell
-scripts, and an OCI image. Package-adjacency would have conjured an empty
-`container/` package into existence to hold one markdown file, and would have
-scattered four documents that are peers — a reader comparing what the plugin
+It is not followed here because five of the six specify things that are not Go
+packages: a command line, a text file format, a CLI contract for executables
+that may be shell scripts, an OCI image, and a directory of test fixtures.
+Package-adjacency would have conjured an empty `container/` package into
+existence to hold one markdown file, and would have
+scattered six documents that are peers — a reader comparing what the plugin
 contract promises against what the image provides should not have to know the
 package tree to find both.
 

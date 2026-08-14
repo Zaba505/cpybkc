@@ -51,6 +51,19 @@ const (
 	// ValuesName is what those bytes decode to.
 	ValuesName = "values.json"
 
+	// OffsetsName is a member of an entry that is reserved and not specified:
+	// an entry may carry one, nothing reads it, and no entry does (#194).
+	//
+	// The name is admitted here rather than left to be added later because
+	// adding a member to a published format is a coordinated change across
+	// every runner that holds an entry's listing to the set of names it knows,
+	// and reserving one before the format is public costs nothing. What would
+	// go in it is a per-field offset table — the oracle a generator that never
+	// reads bytes could be held to, since it runs the same position sum a
+	// decoder runs (#193) — and whether a corpus entry is where that belongs is
+	// open, which is why the name is reserved and the content is not specified.
+	OffsetsName = "offsets.json"
+
 	// CopybookExt is the extension every copybook of an entry carries. The
 	// layout names them; what this decides is only which files in the directory
 	// are allowed to be there.
@@ -213,7 +226,8 @@ func LoadEntry(dir string) (*Entry, error) {
 }
 
 // readListing holds the directory to the set of files an entry is made of: the
-// five members, and one or more copybooks.
+// five members, one or more copybooks, and the reserved [OffsetsName] nothing
+// reads.
 //
 // A file the format has no place for is a fault rather than something ignored,
 // which is the rule README.md's "The project manifest" already states about an
@@ -234,6 +248,10 @@ func (e *Entry) readListing(listing []os.DirEntry) error {
 		switch {
 		case name == MetadataName, name == LayoutName, name == DescriptorName,
 			name == InputName, name == ValuesName:
+		case name == OffsetsName:
+			// Reserved and optional: admitted so that an entry carrying one is
+			// not a fault, read by nothing (docs/conformance/SPEC.md,
+			// "offsets.json is reserved").
 		case strings.HasSuffix(name, CopybookExt):
 			e.Copybooks = append(e.Copybooks, filepath.Join(e.Dir, name))
 		default:

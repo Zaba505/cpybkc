@@ -22,7 +22,7 @@ import (
 // It is both halves of the comparison — what an entry's values.json states and
 // what a runner writes on standard output — because a runner and an entry that
 // spoke different dialects would need a translation nobody could test. See
-// testdata/conformance/README.md, "What a runner does", for the whole of the
+// docs/conformance/SPEC.md, "What a runner does", for the whole of the
 // contract this type is the Go reading of.
 type Values struct {
 	// Records are the records read, in file order.
@@ -45,9 +45,10 @@ type Record struct {
 	// the record node's names, never an identifier munged from it.
 	Name string `json:"name"`
 
-	// Value is what the record's top-level node holds, in the shape the
-	// corpus's README describes: an object for a group, an array for an item
-	// that repeats, and a scalar for an elementary item.
+	// Value is what the record's top-level node holds, in the shape
+	// docs/conformance/SPEC.md's "The value language" describes: an object for
+	// a group, an array for an item that repeats, and a scalar for an
+	// elementary item.
 	Value any `json:"value"`
 }
 
