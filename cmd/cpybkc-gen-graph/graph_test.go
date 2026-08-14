@@ -777,10 +777,13 @@ func writtenIn(t *testing.T, written notation, d *irpb.Descriptor, opts ...strin
 }
 
 // writtenGraphviz is the Graphviz document a run over this descriptor writes.
+//
+// The extension is not stated, because it is a property of the golden checked in
+// beside this command rather than of the run: what a run writes is [dotFile].
 func writtenGraphviz(t *testing.T, d *irpb.Descriptor, opts ...string) string {
 	t.Helper()
 
-	return writtenIn(t, notation{format: formatDot, file: dotFile, extension: ".dot"}, d, opts...)
+	return writtenIn(t, notation{format: formatDot, file: dotFile}, d, opts...)
 }
 
 // ids is the identifiers of a list of states, for a failure that has to say

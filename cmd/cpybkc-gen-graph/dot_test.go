@@ -194,16 +194,77 @@ func TestTheRecordTablesAreClusteredAndNothingRunsIntoThem(t *testing.T) {
 		}
 	}
 
-	// Every edge in the document, and none of them may name a table node. The
-	// arrow is what an edge is, so this finds one wherever it was written.
+	// Every edge in the document, and none of them may name a table node —
+	// either cluster's. The arrow is what an edge is, so this finds one wherever
+	// it was written; a cell naming one is the register table's third column,
+	// which says the edges in words and is the whole reason there is no need to
+	// draw them.
 	for _, line := range strings.Split(written, "\n") {
 		if !strings.Contains(line, " -> ") || strings.Contains(line, "<TD>") {
 			continue
 		}
 
-		if strings.Contains(line, "record") {
-			t.Errorf("an edge runs into the record cluster: %q", line)
+		for _, table := range []string{"record", "registers"} {
+			if strings.Contains(line, table) {
+				t.Errorf("an edge runs into a table node: %q", line)
+			}
 		}
+	}
+
+	graphvizAccepts(t, written)
+}
+
+// TestTwoRecordsSharingANameAreTwoTables is why a table node is named for the
+// record's identifier and not for its name.
+//
+// docs/ir/SPEC.md's "Names" makes duplicate data names legal COBOL, so two
+// records may be called the same thing and be different records. Two nodes
+// sharing a name in a Graphviz document are one node, so a table named for the
+// record's name would draw the second record's items over the first's — a table
+// that is confidently wrong about somebody's bytes, under a heading that says it
+// is about the other record.
+func TestTwoRecordsSharingANameAreTwoTables(t *testing.T) {
+	t.Parallel()
+
+	// One name, two records, two transitions — and different items beneath each,
+	// so that a document drawing one table twice is a document with a row
+	// missing rather than one a reader cannot tell from the right answer.
+	written := writtenGraphviz(t, &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			unframedFile(1, 2),
+			stateNode(2, true, 30, 31),
+
+			recordOf(40, 41, "TRAILER"),
+			groupNode(41, "TRAILER", 42),
+			fieldNode(42, "FIRST-TAG", 2),
+
+			recordOf(50, 51, "TRAILER"),
+			groupNode(51, "TRAILER", 52),
+			fieldNode(52, "SECOND-TAG", 3),
+
+			transitionNode(30, 40, 2),
+			transitionNode(31, 50, 2),
+		},
+	})
+
+	// A node apiece, named for the record node each table is of, so a reader who
+	// wants more than the table says goes to that node of `cpybkc --emit-ir`.
+	for _, want := range []string{`record40 [shape="plaintext"`, `record50 [shape="plaintext"`} {
+		if !strings.Contains(written, want) {
+			t.Errorf("the document does not carry %q:\n%s", want, written)
+		}
+	}
+
+	// And both records' items, which is the fact a shared node would lose.
+	for _, want := range []string{"FIRST-TAG", "SECOND-TAG"} {
+		if !strings.Contains(written, want) {
+			t.Errorf("the document does not table %q:\n%s", want, written)
+		}
+	}
+
+	if got := strings.Count(written, `<B>TRAILER</B>`); got != 2 {
+		t.Errorf("two records named TRAILER produced %d tables, want 2:\n%s", got, written)
 	}
 
 	graphvizAccepts(t, written)

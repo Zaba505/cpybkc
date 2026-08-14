@@ -8,6 +8,7 @@ package main
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The Graphviz document's own vocabulary.
@@ -131,11 +132,6 @@ func dot(g *graph) string {
 
 	return b.String()
 }
-
-// asIs is the escaping a phrase takes on its way out of the model and into a
-// Graphviz document: none, because the phrase is escaped whole once it is
-// composed. See [dot].
-func asIs(name string) string { return name }
 
 // The layout attributes, which are the whole of what this generator tells
 // Graphviz about how to draw the diagram.
@@ -457,6 +453,11 @@ const dotTableAttributes = `BORDER="0" CELLBORDER="1" CELLSPACING="0"`
 // italics — so this composes and escapes nothing. That is the one place in this
 // emitter where the "escape the composed phrase" rule of [dot] does not hold,
 // and it is why every caller of this function escapes each cell as it builds it.
+//
+// Every row is the width of the table. A row short of the header would draw a
+// table with a hole in it, and the one table here that has fewer columns than
+// six — the sentence standing in for a record with no items — is a table with no
+// header row rather than a short row beneath one.
 func dotTableNode(name, title string, header []string, rows [][]string) string {
 	var b strings.Builder
 
@@ -493,16 +494,7 @@ func dotTableNode(name, title string, header []string, rows [][]string) string {
 	for _, row := range rows {
 		b.WriteString(dotIndent + dotIndent + dotIndent + dotIndent + "<TR>")
 
-		for at, cell := range row {
-			// A cell spanning the rest of the table where the row is short, which
-			// is the sentence standing in for a record with no items. A row that
-			// simply stopped early would draw a table with a hole in it.
-			if len(row) < len(header) && at == len(row)-1 {
-				b.WriteString(`<TD COLSPAN="` + across + `">` + cell + "</TD>")
-
-				continue
-			}
-
+		for _, cell := range row {
 			b.WriteString("<TD>" + cell + "</TD>")
 		}
 
@@ -514,6 +506,19 @@ func dotTableNode(name, title string, header []string, rows [][]string) string {
 
 	return b.String()
 }
+
+// asIs is what the model composes with on its way into a Graphviz document:
+// nothing, because [dotLabel] and [dotHTML] escape what comes back.
+//
+// It sits here, beside the escaping it is only ever safe in front of, because it
+// is a loaded thing to have in a package: its signature is the escaper's, so
+// handing it to [mermaid]'s composers instead would compile, run, and write
+// somebody's copybook name into a Mermaid document unescaped. A named type would
+// not fix that — it would be one type either emitter could satisfy — so what
+// makes it safe is that it is passed in exactly four places, one in
+// [dotAutomaton] and three in [dotRecordNode], and every one of them wraps the
+// phrase that comes back in [dotLabel] or [dotHTML].
+func asIs(name string) string { return name }
 
 // dotLabel is a multi-line, left-justified label: each line escaped, and each
 // ending in `\l`.
@@ -544,21 +549,31 @@ func dotLabel(lines []string) string {
 // than being broken: the long words in this document are a record's name and a
 // literal's bytes, and a name broken across two lines is one a reader cannot
 // search their copybook for.
+//
+// The width is counted in runes and not in bytes, because [dotWrap] is a reading
+// width — what the eye tracks — and the prose above every diagram this generator
+// draws is full of em dashes, which are three bytes each. Counting bytes would
+// make the column mean something narrower for a paragraph with punctuation in it
+// than for one without, and narrower again for a copybook whose names are not
+// ASCII.
 func wrapped(text string, at int) []string {
 	var (
 		lines []string
 		line  string
+		wide  int
 	)
 
 	for _, word := range strings.Fields(text) {
+		runes := utf8.RuneCountInString(word)
+
 		switch {
 		case line == "":
-			line = word
-		case len(line)+1+len(word) <= at:
-			line += " " + word
+			line, wide = word, runes
+		case wide+1+runes <= at:
+			line, wide = line+" "+word, wide+1+runes
 		default:
 			lines = append(lines, line)
-			line = word
+			line, wide = word, runes
 		}
 	}
 
@@ -596,8 +611,9 @@ func wrapped(text string, at int) []string {
 // [markdownCell] flattens them. This label's line breaks are the emitter's, and
 // a name carrying one of its own would put half of itself on a line the label
 // did not ask for — an escaped `\n` would do the same thing more deliberately.
-// Every other control character goes the same way: it draws as nothing at all,
-// which in a cell reads as a name shorter than the one the copybook spells.
+// Every other control character goes the same way, and [control] is which ones
+// those are: each draws as nothing at all, which in a cell reads as a name
+// shorter than the one the copybook spells.
 func dotString(s string) string {
 	var b strings.Builder
 
@@ -606,7 +622,7 @@ func dotString(s string) string {
 		case r == '"', r == '\\':
 			b.WriteByte('\\')
 			b.WriteRune(r)
-		case r < 0x20, r == 0x7F:
+		case control(r):
 			b.WriteByte(' ')
 		default:
 			b.WriteRune(r)
@@ -615,6 +631,15 @@ func dotString(s string) string {
 
 	return b.String()
 }
+
+// control is whether a rune is one that draws as nothing: C0, DEL, or C1.
+//
+// All three, and not C0 alone. Text decoded out of an EBCDIC field can carry a
+// C1 — the code pages this project supports map several bytes into that range —
+// and the failure is the one the flattening exists for: a character that renders
+// as nothing at all, in a cell a reader is comparing against a copybook, where
+// what they see is a name shorter than the one that is there.
+func control(r rune) bool { return r < 0x20 || (r >= 0x7F && r <= 0x9F) }
 
 // dotHTML is a string as an HTML-like label may carry it.
 //
@@ -642,7 +667,7 @@ func dotHTML(s string) string {
 			b.WriteString("&gt;")
 		case r == '"':
 			b.WriteString("&quot;")
-		case r < 0x20, r == 0x7F:
+		case control(r):
 			b.WriteByte(' ')
 		default:
 			b.WriteRune(r)

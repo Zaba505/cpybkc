@@ -77,8 +77,8 @@ stacks rather than fans, with the labels overrunning each other until the pictur
 says less than the descriptor did. Graphviz lays that out properly, and it has
 two things Mermaid has no notation for at all: a label broken into its own lines
 and left-justified, so a transition's record, predicate, guards and bindings read
-down an edge you can follow; and the item tables as tables in the picture rather
-than as prose beneath it.
+down an edge you can follow; and the item tables drawn into the picture, beside
+the automaton they are about, rather than in a document beneath it.
 
 The cost is that a `.dot` is a file somebody has to run something over. It is
 meant for a build that turns diagrams into images, and it renders nowhere on its
@@ -449,10 +449,17 @@ character that does nothing where it stands.
 
 **The output is valid Graphviz, and that is asserted rather than assumed.** A
 test runs `dot` over every checked-in golden and fails on a non-zero exit — a
-`.dot` Graphviz refuses is a failing test and not a rendering preference. It
-skips where `dot` is not on `PATH`, because Graphviz is a dependency of nothing
-in this repository: the whole point of the notation is that the file is yours to
-render.
+`.dot` Graphviz refuses is a failing test and not a rendering preference.
+
+**It skips where `dot` is not on `PATH`, and CI is such a place.** Graphviz is a
+dependency of nothing in this repository — the whole point of the notation is
+that the file is yours to render — and the pipeline's test stage is the shared Go
+one, which carries a Go toolchain and nothing else. So this assertion runs where
+Graphviz is installed, which is a developer's machine, and it is the check to run
+before changing what the emitter writes. What CI holds in its place is the
+goldens, byte for byte: an emitter that started writing an unbalanced quote would
+change every `.dot` under `testdata/` and fail there — it just would not be
+Graphviz saying so.
 
 ## The IR version check
 
