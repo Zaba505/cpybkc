@@ -137,8 +137,10 @@ on and `image-contract` is that document's compatibility guarantees table
 executed rather than read: the entrypoint, `Cmd`, the user, `PATH`, an exhaustive
 listing of every path in the filesystem with its kind, owner and mode, the build
 settings the executable itself reports, a byte comparison of the IR schema the
-image ships against the artifacts a release attaches, and the entrypoint
-answering `--version` as the image's own user and as an overridden one.
+image ships against the artifacts a release attaches, the entrypoint answering
+`--version` as the image's own user and as an overridden one, and the version
+each of the two executables reports being the version the image was built for
+(#181).
 
 It runs on every platform the image is published for, and reports each platform's
 failures separately — "it holds on amd64 and not on arm64" is the finding. The
@@ -451,10 +453,77 @@ Publish a GitHub release whose tag is a canonical `vX.Y.Z`.
 above, pushes the image, signs the digest, and writes into the release's notes
 which IR version that image speaks.
 
-Nothing else is a step, after the first one. There is no version constant to
-bump — `cmd/cpybkc`'s `version` is a constant in the tree and
-`internal/assemble.Version` is the IR version, and neither is stamped at release
-time — and no tag to push by hand beyond the one the release object carries.
+Nothing else is a step, after the first one. There is no version to bump by hand
+and no tag to push beyond the one the release object carries.
+
+### The version a release publishes is the version it was cut from
+
+Both binaries learn their own version at link time, from the release. The shared
+archetype cross-compiles the CLI with `-X main.version=<version>`, with the flag
+and the variable's name fixed by that module so every z5labs Go application
+answers "which build am I running" the same way;
+[`.dagger/image.go`](.dagger/image.go)'s `generatorBinary` passes the same stamp
+by hand to `cpybkc-gen-go`, which is built through the generic constructor and
+so has nobody upstream to stamp it. A build nobody stamped keeps the value in
+the tree, `v0.0.0-dev`, which is the same string
+[`.dagger/image.go`](.dagger/image.go)'s `devVersion` builds everything that is
+not a release under — so a `go build` from a checkout and an unreleased pipeline
+build are indistinguishable, as they should be.
+
+The version reaches the two programs as the image tag, `v0.2.0`, and each drops
+the leading `v` before printing it: `cpybkc --version` writes a SemVer string
+because [the CLI contract](docs/cli/SPEC.md#--version) requires one, and
+`cpybkc-gen-go` names its version in a refusal in the same scheme. That rule is
+written three times — once in each command and once in the pipeline — because
+the two commands deliberately share nothing (`cmd/cpybkc-gen-go` imports `irpb`
+and the standard library and nothing else of this repository, so that it
+exercises the surface an outside plugin author has) and the pipeline is a Go
+module that cannot import either. What holds the three together is the check
+below rather than an import, exactly as `generatorRepository` and the companion
+module's spelling of it are held together.
+
+**This is the opposite of what this file said before #181, and the reasoning is
+worth keeping.** The version used to be a constant in the source, moved by hand
+in the release that published it, on the argument that *"a stamped version is a
+build whose output depends on how it was invoked, and this repository builds its
+binaries from the tree alone"*. Two things retired it:
+
+- The premise stopped holding. `planRelease` takes the version from the
+  canonical version tag pointing at HEAD and refuses one pointing anywhere else,
+  so the version is a ref of the tree being built rather than something a caller
+  chooses — the same standing the commit that link step also stamps has. Two
+  builds of one commit under one release are still byte-identical, which is what
+  makes [re-running a release](#re-running-a-release-is-safe) safe and is the
+  whole of what that argument was protecting.
+- There stopped being a choice. Since #185 the archetype passes the stamp with
+  no seam to turn it off, and a linker silently ignores a stamp naming a
+  constant — so the constant did not decline the stamp, it hid it. The pipeline
+  appeared to be stamping a version while `--version` kept printing what the tree
+  said, which is how `v0.0.0` shipped an image identifying itself as an
+  unreleased development build.
+
+`dagger call image-contract` is what refuses a version that disagrees with the
+release it was cut from. It runs the published image's `--version` through its
+entrypoint, and runs the generator out of the image on a descriptor stating no
+IR version so that the refusal names the generator's own, and holds both to the
+version the image was built for. `release` runs that same check as its gate,
+over the very containers it is about to push and under the release's tag, so
+nothing is published under a version its binaries disagree with.
+
+On a pull request the version being checked against is `devVersion`, and that is
+the same string both commands carry in their tree — so a stamp that landed and a
+stamp the linker silently dropped write the same line, and neither of those
+assertions can tell them apart. What they do catch there is a version that
+stopped dropping the tag's leading `v`. Proving the stamp lands at all takes a
+version nothing publishes, which is why the contract builds one image under
+`v0.0.0-contract` and requires the two executables to report it: under a value
+that cannot collide with the tree's default, a `const` that `-X` cannot reach
+fails on an ordinary pull request instead of at a release, where the tag it
+disagrees with has already been pushed.
+
+`internal/assemble.Version` is a different number and is not stamped by
+anything: it is the IR version, and `--version` reports it beside the build's
+own.
 
 **The first release needs one manual step, once.** A package that
 `secrets.GITHUB_TOKEN` creates on ghcr.io is private, and nothing the workflow

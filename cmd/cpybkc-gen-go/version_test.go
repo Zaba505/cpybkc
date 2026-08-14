@@ -6,6 +6,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -145,4 +146,80 @@ func nodesFirst(t *testing.T) []byte {
 	stated := descriptorAt(irpb.IrVersion_IR_VERSION_UNSPECIFIED)
 
 	return marshal(t, stated)
+}
+
+// TestAnUnstampedBuildReportsTheDevelopmentVersion is the convention both of
+// this repository's commands keep: a build made outside a release says so.
+//
+// The literal is written out because it is the fact. Derived from the variable
+// it is checking, this test would pass on whatever that variable became — which
+// is how a release ships a generator reporting a number nobody can map to it
+// (#181).
+func TestAnUnstampedBuildReportsTheDevelopmentVersion(t *testing.T) {
+	if got := reportedVersion(); got != "0.0.0-dev" {
+		t.Errorf("an unstamped build reports %q, want %q: a build made outside a release reports the "+
+			"development version, and this build was not stamped", got, "0.0.0-dev")
+	}
+}
+
+// TestTheReportedVersionDropsTheTagsLeadingV is the one difference between the
+// version .dagger/image.go stamps into this generator and the version a refusal
+// names.
+//
+// The pipeline states a version as an OCI image tag, `v0.2.0`, because that is
+// what the image family is published under. This generator's scheme, like the
+// CLI's, is a SemVer 2.0.0 string, and SemVer has no `v` — so a released
+// generator quoting the tag verbatim would give the refusal a version in a
+// vocabulary the CLI's own --version line does not use, which is the one line a
+// reader would be comparing it against.
+//
+// Not parallel: the stamp is a package variable, and Go resumes a paused
+// parallel test only once every serial test has returned, which is what makes a
+// serial test that restores what it moved safe beside them.
+func TestTheReportedVersionDropsTheTagsLeadingV(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		stamped string
+		want    string
+	}{
+		{"a release", "v0.2.0", "0.2.0"},
+		{"a release candidate", "v0.3.0-rc.1", "0.3.0-rc.1"},
+		{"the development version the pipeline builds under", "v0.0.0-dev", "0.0.0-dev"},
+		{"a version already in the reported form", "0.2.0", "0.2.0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			restore := version
+			t.Cleanup(func() { version = restore })
+
+			version = test.stamped
+
+			if got := reportedVersion(); got != test.want {
+				t.Errorf("a build stamped %q reports %q, want %q", test.stamped, got, test.want)
+			}
+		})
+	}
+}
+
+// TestTheRefusalCarriesTheReportedVersionAndNotTheStamp is the same rule seen
+// from the refusal, which is the only surface this version reaches a user
+// through: docs/plugin/SPEC.md has a plugin name its own version there and
+// nowhere else, so a refusal composed from the variable beside [reportedVersion]
+// rather than from it is a version nobody would see was wrong until a release.
+func TestTheRefusalCarriesTheReportedVersionAndNotTheStamp(t *testing.T) {
+	restore := version
+	t.Cleanup(func() { version = restore })
+
+	version = "v9.8.7"
+
+	refused := (&unsupportedVersionError{Descriptor: irpb.IrVersion_IR_VERSION_UNSPECIFIED}).Error()
+
+	if !strings.Contains(refused, " 9.8.7 ") {
+		t.Errorf("a build stamped %q refused with %q, and the refusal names the version without the tag's `v`",
+			version, refused)
+	}
+
+	if strings.Contains(refused, "v9.8.7") {
+		t.Errorf("a build stamped %q refused with %q, which quotes the image tag rather than this generator's "+
+			"version", version, refused)
+	}
 }

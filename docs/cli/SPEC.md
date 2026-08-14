@@ -669,6 +669,18 @@ build's provenance: there is no commit, no build date and no Go version on it,
 because a version number is what identifies a release and the rest is
 recoverable from it.
 
+`<tool-version>` is a SemVer string and carries no leading `v`, which is worth
+saying because the image publishing that same release wears one: [the image tag
+table](../container/SPEC.md#tags-and-what-pinning-one-buys) names `v0.2.0` and
+this line names `0.2.0`, and they are the same release (#181). A reader
+comparing the two is comparing the tag they pulled against the version the
+program in it reports, so the difference between them is one character and it is
+this one.
+
+How a build comes to know which of the two versions above it is remains an
+implementation matter; this one is written down in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md).
+
 ## Compatibility guarantees
 
 **Covered.** Within a major version of cpybkc each of these holds, and a change
@@ -815,7 +827,7 @@ which is a property of the project.
 | [Exit codes](#exit-codes) | #147 `cli` for the vector's own status and the single place they are emitted from, #148 and #149 `cli` for the failures that reach them |
 | [Cancellation](#cancellation) | #148 `cli` |
 | [The environment](#the-environment) | #41 and #43 `plugin` for the two variables read, #147 `cli` for reading no others |
-| [`--version`](#--version) | #147 `cli`; the IR version it reports, #17 `ir` |
+| [`--version`](#--version) | #147 `cli`; the IR version it reports, #17 `ir`; the version it reports being the release's, #181 `cli` |
 | [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image |
 | The project manifest — out of scope, see above | #40 `plugin` |
 | This document | #146 `cli` |

@@ -486,7 +486,7 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	fromImage := m.companion(platform).WithGenerator(ownGenerator, dagger.CompanionWithGeneratorOpts{
 		Image: m.generatorImage(platform),
 	})
-	fromExecutable := m.companion(platform).WithGeneratorExecutable(ownGenerator, m.generatorBinary(platform))
+	fromExecutable := m.companion(platform).WithGeneratorExecutable(ownGenerator, m.generatorBinary(devVersion, platform))
 
 	var errs []error
 
@@ -535,7 +535,7 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	line, err := fromImage.Run([]string{"--version"}).Stdout(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("run did not reach the CLI in the composed image: %w", err))
-	} else if err := checkVersionLine(line); err != nil {
+	} else if err := checkVersionLine(line, devVersion); err != nil {
 		errs = append(errs, fmt.Errorf("run reached the CLI in the composed image and %w", err))
 	}
 

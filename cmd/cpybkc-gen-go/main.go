@@ -99,13 +99,20 @@ func run(args []string, stdin io.Reader) error {
 	// all: the version is read off the wire so that a descriptor this generator
 	// does not implement is refused without any part of it having been
 	// interpreted. See versionOf.
-	version, err := versionOf(descriptor)
+	//
+	// `stated` rather than `version`, which is what this was called and what
+	// versionOf calls it internally. There are two versions in this program now
+	// — the IR version the descriptor states and this build's own, the package
+	// variable the linker stamps — and a local named for one of them shadowing
+	// the other is a reader's trap even though the two have different types and
+	// nothing here wants the second.
+	stated, err := versionOf(descriptor)
 	if err != nil {
 		return err
 	}
 
-	if version != supportedIRVersion {
-		return &unsupportedVersionError{Descriptor: version}
+	if stated != supportedIRVersion {
+		return &unsupportedVersionError{Descriptor: stated}
 	}
 
 	// Decoded once the version has been read off the wire, and not before: a
