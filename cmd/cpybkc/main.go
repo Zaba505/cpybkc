@@ -6,6 +6,7 @@
 // Command cpybkc is the executable a person runs.
 //
 //	cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
+//	cpybkc init --copybook <path> … --out <dest>
 //	cpybkc --version
 //	cpybkc --help
 //
@@ -14,6 +15,11 @@
 // descriptor the layout and its copybooks resolve to — or, where --emit-ir asks
 // for it, writes that descriptor and stops. Then it turns whatever happened into
 // an exit status and reports it.
+//
+// The one named subcommand is `init`, which scaffolds a layout from copybooks
+// and reads no manifest ([scaffold]). Generating keeps the bare form and is
+// given no name of its own, so every command line already written and every
+// published image whose entrypoint is this CLI still means what it meant.
 //
 // # What is here, and what is not
 //
@@ -114,13 +120,18 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) status {
 	// caller can fix without knowing anything about the project, and the
 	// command set is what they need in front of them to fix it.
 	//
+	// Which usage is the action the line was written under, which the error
+	// carries: a reader who typed `cpybkc init` and got a flag wrong needs
+	// init's flags in front of them, not the default action's.
+	//
 	// A blank line first, because usage is the one thing on this stream that is
 	// not a diagnostic and nothing about it should read as one — a reader, and
 	// a script scanning for `^error: `, both see where the diagnostics ended.
-	if errors.As(err, new(*usageError)) {
+	var usage *usageError
+	if errors.As(err, &usage) {
 		_, _ = io.WriteString(stderr, "\n")
 
-		writeUsage(stderr)
+		writeUsage(stderr, usage.subcommand)
 	}
 
 	return statusOf(err)
@@ -136,7 +147,7 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 
 	switch inv.answer {
 	case answerHelp:
-		writeUsage(stdout)
+		writeUsage(stdout, inv.subcommand)
 
 		return nil
 	case answerVersion:
@@ -144,6 +155,15 @@ func execute(ctx context.Context, args []string, stdout io.Writer, log *slog.Log
 
 		return nil
 	case answerRun:
+		// The subcommand is the one thing that decides which action runs, and
+		// this is the only place it is read for that. docs/cli/SPEC.md gives
+		// `init` no manifest, no layout resolution and no generator, so it
+		// branches above [perform] rather than inside it: a scaffolding run and
+		// a generating run share the vector and nothing else.
+		if inv.scaffolding() {
+			return scaffold(ctx, inv)
+		}
+
 		return perform(ctx, inv, stdout, log)
 	}
 

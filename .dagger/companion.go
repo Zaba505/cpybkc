@@ -220,6 +220,29 @@ var companionCoverage = map[string]string{
 	// let a future short flag that is nobody's synonym land with this check green,
 	// and an entry costs one line.
 	"-h": "Run",
+
+	// `init`'s two flags (#183, #214). The module expresses a scaffolding run
+	// through the escape hatch and does not curate one, and that is the answer
+	// rather than a gap left for later.
+	//
+	// A curated function would have to be `Scaffold(copybooks []*dagger.File,
+	// out string) *dagger.File`, and every part of that is wrong here. `init`
+	// writes what a copybook decides and deliberately leaves the adopter's half
+	// blank, so its output is a file somebody edits once and commits — not an
+	// artifact a pipeline rebuilds, which is what every other function on this
+	// module returns. Its destination may be standard output, which a
+	// File-returning function cannot express any more than it can express
+	// --emit-ir's. And a scaffold is generated once per project against
+	// copybooks that are already in the caller's tree; a Dagger function is
+	// worth having for what a pipeline runs on every commit, and this is not
+	// that.
+	//
+	// So `dagger call run --args=init,--copybook,posting.cpy,--out,-` is how it
+	// is reached, and the entrypoint takes the vector exactly as a person would
+	// type it. If a scaffolding function is ever curated, these two entries move
+	// to it in the same commit that adds it, which is what this table is for.
+	"--copybook": "Run",
+	"--out":      "Run",
 }
 
 // CliSurface checks that every flag the CLI accepts is one the companion module
@@ -232,11 +255,26 @@ var companionCoverage = map[string]string{
 // the module does not declare, and an entry naming a flag the CLI no longer
 // accepts.
 //
-// docs/cli/SPEC.md now specifies one subcommand, `init` (#183), so the flag
-// table is no longer the whole surface. It stays the whole of what this checks
-// while the CLI implements no verb; the story that adds the parsing decides
-// whether the companion module expresses a scaffolding run at all, and extends
-// this check if it does (#214).
+// The CLI has a verb now — `init` (#183, #214) — and the flag table is still the
+// whole of what this checks. That is a decision rather than an omission, and it
+// is worth stating because the obvious reading of "the surface grew" is that
+// this check should have grown with it.
+//
+// The subcommand *name* is not read, for two reasons. It cannot drift the way a
+// flag can: the set is closed at one member by docs/cli/SPEC.md, and a second is
+// a change to that document, reviewed, rather than a constant somebody adds on
+// the way past. And the reading itself would be unsound — internal/surface keeps
+// the string constants shaped like a flag, and a verb is not one, so the only
+// way to pick `init` out of this package's constants is to know its spelling in
+// advance, which is a check that cannot discover anything it was not told.
+//
+// What the verb does add is two flags, and those *are* read, exactly as every
+// other flag is: --copybook and --out reach this table through the same
+// constants the parser matches on, and the companion module's answer for them is
+// recorded above beside everything else. So the event this guard exists for —
+// the CLI growing a flag the module cannot express — is covered for `init`'s
+// flags on the day they landed, without this check learning anything about
+// subcommands.
 //
 // The CLI's side is read from the flag constants the parser matches on, not from
 // what `--help` prints and not from docs/cli/SPEC.md's table. The help text is
