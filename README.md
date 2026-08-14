@@ -17,7 +17,10 @@ specified rather than merely implemented:
 - [The container base-image contract](docs/container/SPEC.md) — what a
   Dockerfile building `FROM` the published image may rely on.
 - [The conformance corpus format](docs/conformance/SPEC.md) — what a generator
-  in any language is held to, and the language the answer is written in.
+  in any language is held to, and the language the answer is written in. Its
+  [grammar corpus](docs/conformance/GRAMMAR.md) is that language as a table of
+  values against the exact text each is written as, which is where a writer for
+  a new language is checked first.
 
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md) defines the conformance language all
 six use, and what else they have in common.

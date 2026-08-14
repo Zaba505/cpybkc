@@ -27,6 +27,13 @@ belongs here*, applies — while this repository held the only reader of the
 format, prose here was enough, and the day a second implementation exists every
 unstated rule becomes a coordinated migration (#194).
 
+Beside it is [`docs/conformance/GRAMMAR.md`](../../docs/conformance/GRAMMAR.md),
+the value language as a table of a value against the exact text it is written
+as. That is where a writer for a new language is checked before any entry here
+is run, and it is where the constructs no entry covers — a variant arm, a slack
+node, `INDEX`, `POINTER`, `NATIONAL` and both edited categories — are written
+down (#197).
+
 What stays here is the corpus rather than the format: why it exists, why every
 entry is hand-authored, which entries there are and what each was derived from,
 and how to add one. Those change every time an entry is added and are nobody
