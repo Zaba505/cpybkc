@@ -218,7 +218,19 @@ items in containment order:
 | 5 | 3 | ENTRIES.CASH.CASH-AMOUNT | PACKED-DECIMAL | S9(3)V9(2) | always |
 | 5 | 3 | ENTRIES.CHEQUE-NUMBER | DISPLAY | 9(5) | when ENTRIES.ENTRY-KIND = 0xC3 |
 | 4 + 4 × ENTRY-COUNT | 12 | TRAILERS | — | — | occurs 3 times |
+| 4 + 4 × ENTRY-COUNT | 2 | TRAILERS.TRAILER-TAG | DISPLAY | X(2) | always |
+| 6 + 4 × ENTRY-COUNT | 2 | TRAILERS.TRAILER-SEQ | DISPLAY | 9(2) | always |
 | 16 + 4 × ENTRY-COUNT | 4 | INDEX-SLOT | INDEX | — | always |
+| 20 + 4 × ENTRY-COUNT | 2 | *filler* | DISPLAY | X(2) | always |
+| 22 + 4 × ENTRY-COUNT | 1 | *filler* | — | — | always |
+| 22 + 4 × ENTRY-COUNT | 1 | *filler*.NOTE-CODE | DISPLAY | X(1) | always |
+| 23 + 4 × ENTRY-COUNT | ENTRY-COUNT | FLAGS | DISPLAY | X(1) | occurs ENTRY-COUNT times (1 to 20) |
+
+That is one record of
+[`testdata/variable.md`](testdata/variable.md) verbatim, rows and all — an
+example with some of the rows taken out would teach a rule this generator does
+not have, and the rule a reader would infer from a table missing `TRAILERS`'
+members is exactly the wrong one.
 
 **One table per record, not per transition.** A record admitted from three
 states is the same bytes each time, so three tables would be three copies of one
@@ -244,14 +256,32 @@ offset above is its own arithmetic over the widths ahead of the item, counting
 one occurrence, the first, of every group that encloses it and repeats.
 
 The second is the **picture**. The IR carries no PICTURE character-string
-anywhere; it carries a category, the number of stored digit positions, the
-scale, whether the item is signed and where its sign sits, and the column is
-this generator's spelling of those five facts. `S9(5)V99`, `S9(5)V9(2)` and
-`S99999V99` are one item and this prints one of them, so a picture that does not
-match your copybook character for character is not necessarily a disagreement.
-A numeric-edited item's editing characters are carried nowhere at all: the
-category is named and the digits it stores are shown beside it, rather than a
-mask being invented out of the digit count.
+anywhere; it carries a category, a count of `9` symbols, the scale, whether the
+item is signed and where its sign sits, and the column is this generator's
+spelling of those five facts. `S9(5)V99`, `S9(5)V9(2)` and `S99999V99` are one
+item and this prints one of them, so a picture that does not match your copybook
+character for character is not necessarily a disagreement.
+
+An **edited** item is named and nothing of it is spelled — `numeric-edited`,
+`alphanumeric-edited`. Its editing characters are carried nowhere at all, and
+neither is anything this generator could put in their place: the digit count is
+a count of `9` symbols, and an edited picture's `Z` and `*` are digit positions
+too, so `ZZ,ZZ9.99` carries three of them and holds seven digits. Printing three
+would state something about storage that is wrong, in the one category where
+nothing else in the row lets you check it.
+
+The **length of an alphabetic or alphanumeric picture is the item's width in
+bytes**, which is the one cell not derived from the picture at all — the digit
+count counts `9` symbols and those pictures have none. It is the character count
+because every charset the IR admits is one byte per character; the one
+multi-byte thing in the schema is `NATIONAL`, which carries no picture.
+
+The **sign position is spelled whenever it is asked**, the default included:
+`SIGN TRAILING` is a position and not an absence, and it is the one axis where
+the answer changes which byte the sign is in. A signed numeric `DISPLAY` item
+that states no position is refused rather than drawn as a bare `S9(3)`, and so
+is the mirror of it — an unsigned item, or one of a `USAGE` the `SIGN` clause
+cannot reach, that states a position anyway.
 
 **A data-dependent offset is symbolic, never a number.** Where something ahead
 of an item is a table whose number of occurrences is [read at run
@@ -267,6 +297,15 @@ offsets that you would take for an error in this generator. They have no names,
 so the cell reads `*slack*` in this generator's own words rather than the
 copybook's.
 
+**A `FILLER` reads `*filler*`**, for the same reason and by the same rule: COBOL
+gives it no data-name, so the IR carries no name for it, and this generator
+supplies a word rather than leaving a blank. A `FILLER` *group* is walked into
+like any other and its members read beneath it — `*filler*.NOTE-CODE` is an item
+inside an unnamed group, and not an item of the record. Anything in italics in
+the `Item` column is this generator's word; a name from your copybook is upright,
+and one that contains an asterisk of its own is escaped so that it cannot
+impersonate one.
+
 **A variant's arms share one offset**, which is what the repeated number down
 the Offset column is saying: they are [alternatives over one run of
 bytes](../../docs/ir/SPEC.md#a-variant-is-chosen-once-per-occurrence) and not
@@ -280,9 +319,10 @@ ON` one with the bounds the copybook declared, and `when …` for an arm.
 
 Where an item's USAGE or category is something the descriptor does not say —
 a `USAGE` outside the closed set, a `DISPLAY` item carrying no picture, an
-`INDEX` item carrying one, an unsigned item stating where its sign sits — the
+`INDEX` item carrying one, either half of the sign contradiction above — the
 document is refused rather than drawn with a blank or a guess, on the same terms
-as any other malformed descriptor below.
+as any other malformed descriptor below. An item COBOL simply did not name is
+not one of those; that is a `FILLER`, and it is drawn.
 
 `records=none` leaves this whole section out. Nothing above the diagram changes,
 and a record's items are not read at all under it — so a descriptor whose

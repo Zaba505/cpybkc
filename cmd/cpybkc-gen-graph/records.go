@@ -170,16 +170,13 @@ type item struct {
 	// without the record's own top level — the same convention a predicate's
 	// field takes in an edge label, and for the same reason: a reader already
 	// knows which record the table is about.
-	path []string
-
-	// anonymous is the word standing where an unnamed node's name would be, and
-	// the empty string for an item the copybook names.
 	//
-	// docs/ir/SPEC.md gives slack and variant nodes no names at all, so there is
-	// nothing to print and something to say. An emitter marks it as its own
-	// word rather than the copybook's, which is what keeps it from being read as
-	// an item called `slack`.
-	anonymous string
+	// The last element is the item itself and the ones ahead of it are what
+	// contains it, so an unnamed *group* nests its members beneath its own word
+	// rather than beside them. Getting that wrong is invisible in a leaf and
+	// wrong in a way a reader would act on in a group: a member of a FILLER
+	// group would read as a member of the record.
+	path []element
 
 	// at is where the item begins, measured from the first byte of the record's
 	// data.
@@ -196,10 +193,36 @@ type item struct {
 	present presence
 }
 
+// element is one step of an item's path: a name the copybook spells, or a word
+// this generator supplies for a node the copybook did not name.
+//
+// Which of the two it is has to travel with it, because the escaping does. A
+// name is somebody's and is escaped by whichever notation is about to print it;
+// a word is this generator's and is written past the escaping, emphasised, so a
+// reader can tell the descriptor's vocabulary from this program's.
+//
+// Three nodes take a word. A slack node and a variant node carry no names at all
+// in the schema; a group or a field carries none where COBOL gave the item no
+// data-name, which is a FILLER.
+type element struct {
+	// name is the copybook's spelling, or this generator's word.
+	name string
+
+	// supplied is whether the name is this generator's rather than the
+	// copybook's.
+	supplied bool
+}
+
+// named and supplied are the two kinds of path element.
+func named(name string) element { return element{name: name} }
+
+func supplied(word string) element { return element{name: word, supplied: true} }
+
 // The words standing where an unnamed node's name would be.
 const (
 	anonymousSlack   = "slack"
 	anonymousVariant = "variant"
+	anonymousFiller  = "filler"
 )
 
 // notAnItem is what the usage and picture cells hold on a row that is not an
@@ -246,6 +269,15 @@ type presence struct {
 // unconditionally, which is most of them.
 const always = "always"
 
+// times is the noun after a constant count, in the number that count is.
+func times(n uint32) string {
+	if n == 1 {
+		return "time"
+	}
+
+	return "times"
+}
+
 // phrase is the presence as a cell states it.
 func (p presence) phrase(esc func(string) string) string {
 	var said []string
@@ -257,7 +289,11 @@ func (p presence) phrase(esc func(string) string) string {
 	switch {
 	case !p.repeats:
 	case p.by == "":
-		said = append(said, fmt.Sprintf("occurs %d times", p.constant))
+		// The singular where the count is one. `OCCURS 1` is legal and rare, and
+		// "occurs 1 times" in a column a reader is scanning reads as a generator
+		// that did not consider the case — which invites them to distrust the
+		// numbers beside it, which are the whole point of the table.
+		said = append(said, fmt.Sprintf("occurs %d %s", p.constant, times(p.constant)))
 	default:
 		// The bounds beside the count, because they are the copybook's own
 		// `OCCURS integer-1 TO integer-2` and a reader holding that copybook is
@@ -353,7 +389,7 @@ type itemWalk struct {
 
 // members appends the rows for every member of the group id and answers the sum
 // of their widths, which is the group's own width for one occurrence.
-func (w *itemWalk) members(id uint64, path []string, at span) (span, error) {
+func (w *itemWalk) members(id uint64, path []element, at span) (span, error) {
 	group, ok := w.nodes.group(id)
 	if !ok {
 		return span{}, unresolved(id, "a group in the containment order of a record a transition admits")
@@ -381,7 +417,7 @@ func (w *itemWalk) members(id uint64, path []string, at span) (span, error) {
 //
 // chosen is the presence the row starts from: empty for an ordinary member, and
 // carrying the selecting predicate where the member is the body of an arm.
-func (w *itemWalk) member(id uint64, path []string, at span, chosen presence) (span, error) {
+func (w *itemWalk) member(id uint64, path []element, at span, chosen presence) (span, error) {
 	node, ok := w.nodes.by[id]
 	if !ok {
 		return span{}, unresolved(id, "a member of the containment order of a record a transition admits")
@@ -409,25 +445,24 @@ func (w *itemWalk) member(id uint64, path []string, at span, chosen presence) (s
 // and a table that omitted them would show a gap between two offsets that a
 // reader would take for an error in this generator — which is the opposite of
 // what the run is: bytes the producer has already accounted for.
-func (w *itemWalk) slack(s *irpb.Slack, path []string, at span, chosen presence) span {
+func (w *itemWalk) slack(s *irpb.Slack, path []element, at span, chosen presence) span {
 	width := fixedSpan(uint64(s.GetWidth()))
 
 	w.rows = append(w.rows, item{
-		path:      path,
-		anonymous: anonymousSlack,
-		at:        at,
-		extent:    width,
-		usage:     notAnItem,
-		picture:   notAnItem,
-		present:   chosen,
+		path:    descend(path, supplied(anonymousSlack)),
+		at:      at,
+		extent:  width,
+		usage:   notAnItem,
+		picture: notAnItem,
+		present: chosen,
 	})
 
 	return width
 }
 
 // field is one elementary item.
-func (w *itemWalk) field(id uint64, f *irpb.Field, path []string, at span, chosen presence) (span, error) {
-	name, err := itemName(f.GetNames(), id)
+func (w *itemWalk) field(id uint64, f *irpb.Field, path []element, at span, chosen presence) (span, error) {
+	name, anonymous, err := itemName(f.GetNames(), id)
 	if err != nil {
 		return span{}, err
 	}
@@ -443,7 +478,7 @@ func (w *itemWalk) field(id uint64, f *irpb.Field, path []string, at span, chose
 	}
 
 	w.rows = append(w.rows, item{
-		path:    extend(path, name),
+		path:    descend(path, itemElement(name, anonymous)),
 		at:      at,
 		extent:  whole,
 		usage:   usage,
@@ -455,12 +490,11 @@ func (w *itemWalk) field(id uint64, f *irpb.Field, path []string, at span, chose
 }
 
 // group is one item holding other items.
-func (w *itemWalk) group(id uint64, g *irpb.Group, path []string, at span, chosen presence) (span, error) {
-	name, err := itemName(g.GetNames(), id)
-	if err != nil {
-		return span{}, err
-	}
-
+func (w *itemWalk) group(id uint64, g *irpb.Group, path []element, at span, chosen presence) (span, error) {
+	// The cycle check comes first, ahead of anything that can fail for a reason
+	// of its own. A group that contains itself and is also unnamed would
+	// otherwise be reported as carrying no name — which is true, and is the less
+	// useful of the two facts, and sends a reader to look at the wrong thing.
 	if w.open[id] {
 		return span{}, cyclic(id)
 	}
@@ -468,7 +502,17 @@ func (w *itemWalk) group(id uint64, g *irpb.Group, path []string, at span, chose
 	w.open[id] = true
 	defer delete(w.open, id)
 
-	here := extend(path, name)
+	name, anonymous, err := itemName(g.GetNames(), id)
+	if err != nil {
+		return span{}, err
+	}
+
+	// A FILLER group is walked into like any other, and its own element is this
+	// generator's word rather than a name. The members' prefix is `here` either
+	// way: they are inside it, and a member of a FILLER group that read as a
+	// member of the record would put an item at a level of the copybook it is
+	// not at.
+	here := descend(path, itemElement(name, anonymous))
 
 	// The group's own row goes in ahead of its members', so the table reads in
 	// containment order. Its width is not known until they have been walked, so
@@ -503,7 +547,7 @@ func (w *itemWalk) group(id uint64, g *irpb.Group, path []string, at span, chose
 // point: docs/ir/SPEC.md's "A variant is chosen once per occurrence" has every
 // arm begin at the variant's first byte, and a table drawing them at increasing
 // offsets would describe a record where they follow one another.
-func (w *itemWalk) variant(id uint64, v *irpb.Variant, path []string, at span, chosen presence) (span, error) {
+func (w *itemWalk) variant(id uint64, v *irpb.Variant, path []element, at span, chosen presence) (span, error) {
 	arms := v.GetArms()
 	if len(arms) < 2 {
 		return span{}, malformed(fmt.Sprintf("variant %d carries %d arms", id, len(arms)),
@@ -517,16 +561,19 @@ func (w *itemWalk) variant(id uint64, v *irpb.Variant, path []string, at span, c
 	w.open[id] = true
 	defer delete(w.open, id)
 
-	w.rows = append(w.rows, item{
-		path:      path,
-		anonymous: anonymousVariant,
-		at:        at,
-		usage:     notAnItem,
-		picture:   notAnItem,
-		present:   chosen,
-	})
+	// Taken before the append, the way [itemWalk.group] takes it: the row is
+	// filled in once the arms have been walked, and two places in one file
+	// reaching for the same index two different ways is a difference a reader
+	// stops to check.
+	row := len(w.rows)
 
-	row := len(w.rows) - 1
+	w.rows = append(w.rows, item{
+		path:    descend(path, supplied(anonymousVariant)),
+		at:      at,
+		usage:   notAnItem,
+		picture: notAnItem,
+		present: chosen,
+	})
 
 	var extent span
 
@@ -569,7 +616,7 @@ func (w *itemWalk) variant(id uint64, v *irpb.Variant, path []string, at span, c
 
 // arm is one alternative: the predicate that selects it, and the rows of its
 // body.
-func (w *itemWalk) arm(id uint64, a *irpb.Arm, path []string, at span) (span, error) {
+func (w *itemWalk) arm(id uint64, a *irpb.Arm, path []element, at span) (span, error) {
 	chosen, err := predicateResolved(w.nodes, a.GetPredicateId(), w.record,
 		fmt.Sprintf("the predicate selecting an arm of variant %d", id))
 	if err != nil {
@@ -650,22 +697,70 @@ func (w *itemWalk) countName(v *irpb.VariableCount) (string, error) {
 	}
 }
 
-// itemName is the name a table gives a group or a field, refused where the node
-// carries none a table could show.
+// itemName is what a table calls a group or a field: the name where the item
+// has one, and [anonymousFiller] where COBOL gave it none.
 //
-// The same refusal [edgeAt] makes of a record name, for the same reason:
-// whitespace passes an emptiness test and draws as a cell holding a space,
-// which reads as an item this generator could not name rather than as a
-// producer that named nothing.
-func itemName(n *irpb.Names, id uint64) (string, error) {
-	name := nameOf(n)
-	if strings.TrimSpace(name) == "" {
-		return "", malformed(
-			fmt.Sprintf("node %d is an item of a record and carries no name a table could show", id),
-			"every named node carries the original COBOL name, spelled as the copybook spells it; see docs/ir/SPEC.md, \"Names\"")
+// # A node with no names at all is a FILLER, not a fault
+//
+// docs/ir/SPEC.md's "Names" says what a *named* node carries, and not that
+// every node is named. An item COBOL gives no data-name has no original for a
+// substitute to stand beside, so a producer emits no names message for it —
+// which is what a FILLER is, and a FILLER may be a group as much as an
+// elementary item. It is drawn as a row like any other, with this generator's
+// own word where the name would be, exactly as slack and a variant are.
+//
+// Refusing it was this generator's first reading and it was wrong in the
+// expensive direction: FILLER is in most real copybooks, `records=all` is the
+// default, and a refusal here refuses the whole document — so a layout with one
+// unnamed item would have got no diagram either, over an item nobody was
+// looking at.
+//
+// # A names message that states a blank name still is
+//
+// The refusal survives for the case it was actually about: a producer that
+// emitted a names message and put nothing in it. That is not an unnamed item,
+// it is a named one whose name is missing, and whitespace passes an emptiness
+// test and draws as a cell holding a space. Same refusal [edgeAt] makes of a
+// record name, and for the same reason.
+func itemName(n *irpb.Names, id uint64) (string, string, error) {
+	if n == nil {
+		return "", anonymousFiller, nil
 	}
 
-	return name, nil
+	name := nameOf(n)
+	if strings.TrimSpace(name) == "" {
+		return "", "", malformed(
+			fmt.Sprintf("node %d is an item of a record, carries a names message, and states no name in it", id),
+			"a named node carries the original COBOL name, spelled as the copybook spells it, and an item COBOL names nothing carries no names message at all; see docs/ir/SPEC.md, \"Names\"")
+	}
+
+	return name, "", nil
+}
+
+// descend is a path with one more element, in storage of its own.
+//
+// The same shape as [extend] beside [walkTo], and separate from it for the
+// same reason two escapers are: a plain append would let two siblings of one
+// member list write into the same backing array, so the second one's element
+// would land in the first one's path — a wrong path in a document, produced by a
+// walk that visited the right nodes.
+func descend(prefix []element, one element) []element {
+	out := make([]element, len(prefix)+1)
+
+	copy(out, prefix)
+	out[len(prefix)] = one
+
+	return out
+}
+
+// itemElement is the path element an item contributes: its name where it has
+// one, and this generator's word where it has not.
+func itemElement(name, anonymous string) element {
+	if anonymous != "" {
+		return supplied(anonymous)
+	}
+
+	return named(name)
 }
 
 // cyclic is a member list that contains one of its own ancestors.
@@ -708,7 +803,7 @@ func described(f *irpb.Field) (string, string, error) {
 				"only COMP-1, COMP-2, INDEX, POINTER and NATIONAL items have no PICTURE to resolve; see docs/ir/SPEC.md and the Field message")
 		}
 
-		printed, err := pictureOf(picture, f.GetWidth())
+		printed, err := pictureOf(picture, f.GetWidth(), f.GetUsage())
 		if err != nil {
 			return "", "", err
 		}
@@ -783,17 +878,22 @@ const (
 // column of them lines up and a reader counting digits is reading a number
 // rather than counting characters.
 //
-// # The two edited categories
+// # The two edited categories are named, and nothing of them is spelled
 //
-// A numeric-edited item's picture is its editing characters — `ZZ,ZZ9.99` — and
-// the IR carries none of them, deliberately: an edited item has no logical
-// value a generator can use, and it carries a width so that the sum stays
-// correct across it. So the category is named rather than spelled, with the
-// digits that are stored beside it where there are any. Inventing a mask out of
-// the digit count would produce a picture that is wrong in a way a reader could
-// not see.
-func pictureOf(p *irpb.Picture, width uint32) (string, error) {
-	sign, err := signClause(p)
+// An edited item's picture is its editing characters — `ZZ,ZZ9.99` — and the IR
+// carries none of them, deliberately: an edited item has no logical value a
+// generator can use, and it carries a width so that the sum stays correct
+// across it. So the category is named and that is all.
+//
+// Not even the digit count, which the descriptor does carry. `digits` is the
+// count of `9` symbols, and on a numeric picture those are the whole of the
+// value — but an edited picture's `Z`, `*` and `9` are all digit positions, so
+// `ZZ,ZZ9.99` carries three `9` symbols and holds seven digits. Printing three
+// beside the word "stored" would state a fact about storage that is wrong, in
+// the one category where a reader has nothing in the row to check it against.
+// Naming the category is the same judgment as not inventing the mask.
+func pictureOf(p *irpb.Picture, width uint32, usage irpb.Usage) (string, error) {
+	sign, err := signClause(p, usage)
 	if err != nil {
 		return "", err
 	}
@@ -807,16 +907,7 @@ func pictureOf(p *irpb.Picture, width uint32) (string, error) {
 
 		return sign.leading + digits + sign.clause, nil
 	case irpb.Category_CATEGORY_NUMERIC_EDITED:
-		if sign.leading == "" && p.GetDigits() == 0 {
-			return numericEdited, nil
-		}
-
-		digits, err := digitPositions(p)
-		if err != nil {
-			return "", err
-		}
-
-		return numericEdited + " (" + sign.leading + digits + sign.clause + " stored)", nil
+		return numericEdited, nil
 	case irpb.Category_CATEGORY_ALPHABETIC, irpb.Category_CATEGORY_ALPHANUMERIC,
 		irpb.Category_CATEGORY_ALPHANUMERIC_EDITED:
 		if p.GetSigned() {
@@ -834,11 +925,19 @@ func pictureOf(p *irpb.Picture, width uint32) (string, error) {
 		// none, while a DISPLAY item is one character per character position.
 		// docs/ir/SPEC.md gives only numeric items a USAGE other than DISPLAY in
 		// any meaningful sense, so the two are the same number here.
+		//
+		// It is the one cell in the row derived from something other than the
+		// picture, and it rests on every charset in the closed set being one
+		// byte per character — which the five members are, cp037 through ASCII.
+		// The one multi-byte thing the schema has is NATIONAL, and that carries
+		// no picture at all, so it never reaches here. A double-byte charset
+		// added to that set later would make this overstate by its own factor,
+		// and this is the comment that says so.
 		if p.GetCategory() == irpb.Category_CATEGORY_ALPHABETIC {
-			return repeated("A", uint64(width)), nil
+			return symbolRun("A", uint64(width)), nil
 		}
 
-		return repeated("X", uint64(width)), nil
+		return symbolRun("X", uint64(width)), nil
 	default:
 		return "", malformed("an item's picture states no category",
 			"a consumer may not supply one; see docs/ir/SPEC.md and the Category enum")
@@ -865,30 +964,63 @@ type signed struct {
 // position" and "the default one" a blank meant — on the one axis where the
 // answer changes which byte the sign is in.
 //
-// An unsigned item carrying a position is refused. The schema carries
-// SIGN_POSITION_UNSPECIFIED "where the question does not arise: an unsigned
-// item, or a USAGE the SIGN clause has no effect on", so the two facts
-// contradict one another, and both readings draw confidently: printing the
-// clause describes a sign the item does not hold, and dropping it discards
-// something the descriptor states.
-func signClause(p *irpb.Picture) (signed, error) {
-	if !p.GetSigned() {
+// # The whole axis is described, in both directions
+//
+// The schema carries SIGN_POSITION_UNSPECIFIED "where the question does not
+// arise: an unsigned item, or a USAGE the SIGN clause has no effect on, which is
+// every usage other than DISPLAY". That is an exact statement of when the field
+// is set, so it is checked in both directions rather than one — and it takes the
+// usage in order to do it, which is why this is not a function of the picture
+// alone.
+//
+// Each refusal is a descriptor stating two facts that contradict, and each has
+// two drawings that are equally defensible and equally wrong: print the clause
+// and describe a sign the item does not hold, or drop it and discard something
+// the descriptor states.
+//
+// Checking only the unsigned direction was this generator's first reading. It
+// left the mirror case — a signed DISPLAY item stating no position — drawing as
+// a bare `S9(3)`, which is exactly the blank this function's whole argument says
+// must not happen, on exactly the axis it says decides which byte the sign is
+// in.
+func signClause(p *irpb.Picture, usage irpb.Usage) (signed, error) {
+	// Whether the question arises at all: the SIGN clause has an effect on a
+	// signed DISPLAY item whose picture is numeric, and on nothing else.
+	//
+	// The category is in the test as well as the usage because an edited item's
+	// sign is one of its editing characters — a CR, a DB, a `+` — and not a
+	// clause about a zone. It is also exactly where this requirement earns its
+	// keep: the position is *drawn* only on a numeric picture, so a numeric
+	// picture is the only place a missing one leaves a blank a reader has to
+	// interpret.
+	asked := usage == irpb.Usage_USAGE_DISPLAY &&
+		p.GetSigned() &&
+		p.GetCategory() == irpb.Category_CATEGORY_NUMERIC
+
+	if !asked {
 		if p.GetSignPosition() != irpb.SignPosition_SIGN_POSITION_UNSPECIFIED {
 			return signed{}, malformed(
-				"an unsigned item states where its operational sign sits",
-				"the sign position is unspecified where the question does not arise, which on an unsigned item it does not; see docs/ir/SPEC.md and the SignPosition enum")
+				fmt.Sprintf("an item of USAGE %s that is %s states where its operational sign sits",
+					usageName(usage), signedness(p.GetSigned())),
+				"the sign position is unspecified where the question does not arise: an unsigned item, or a USAGE the SIGN clause has no effect on, which is every usage other than DISPLAY; see docs/ir/SPEC.md and the SignPosition enum")
 		}
 
-		return signed{}, nil
+		if !p.GetSigned() {
+			return signed{}, nil
+		}
+
+		// Signed, and of a usage the SIGN clause says nothing about. The `S` is
+		// the whole of what there is to say.
+		return signed{leading: "S"}, nil
 	}
 
 	s := signed{leading: "S"}
 
 	switch p.GetSignPosition() {
 	case irpb.SignPosition_SIGN_POSITION_UNSPECIFIED:
-		// A signed item whose USAGE the SIGN clause has no effect on, which is
-		// every usage other than DISPLAY. There is nothing to say and the `S`
-		// above says the rest.
+		return signed{}, malformed(
+			"a signed numeric DISPLAY item states nothing about where its operational sign sits",
+			"the sign position is unspecified only where the question does not arise, and on a signed numeric DISPLAY item it arises — SIGN TRAILING is the default and is a position, not an absence; see docs/ir/SPEC.md and the SignPosition enum")
 	case irpb.SignPosition_SIGN_POSITION_LEADING:
 		s.clause = " SIGN LEADING"
 	case irpb.SignPosition_SIGN_POSITION_TRAILING:
@@ -904,6 +1036,16 @@ func signClause(p *irpb.Picture) (signed, error) {
 	}
 
 	return s, nil
+}
+
+// signedness is how a diagnostic names the half of the contradiction the
+// picture states.
+func signedness(is bool) string {
+	if is {
+		return "signed"
+	}
+
+	return "unsigned"
 }
 
 // digitPositions is the `9` and `P` positions of a numeric picture, with the
@@ -925,23 +1067,27 @@ func digitPositions(p *irpb.Picture) (string, error) {
 	case scale < 0:
 		// A picture ending in a run of P: the stored digits, then the positions
 		// that scale them up.
-		return repeated("9", uint64(digits)) + repeated("P", uint64(-int64(scale))), nil
+		return symbolRun("9", uint64(digits)) + symbolRun("P", uint64(-int64(scale))), nil
 	case scale == 0:
-		return repeated("9", uint64(digits)), nil
+		return symbolRun("9", uint64(digits)), nil
 	case uint32(scale) < digits:
-		return repeated("9", uint64(digits)-uint64(scale)) + "V" + repeated("9", uint64(scale)), nil
+		return symbolRun("9", uint64(digits)-uint64(scale)) + "V" + symbolRun("9", uint64(scale)), nil
 	case uint32(scale) == digits:
-		return "V" + repeated("9", uint64(digits)), nil
+		return "V" + symbolRun("9", uint64(digits)), nil
 	default:
 		// A picture opening with a run of P, which implies the decimal point at
 		// their left: the positions that scale the value down, then the stored
 		// digits.
-		return repeated("P", uint64(scale)-uint64(digits)) + repeated("9", uint64(digits)), nil
+		return symbolRun("P", uint64(scale)-uint64(digits)) + symbolRun("9", uint64(digits)), nil
 	}
 }
 
-// repeated is one picture symbol in the repeat-count form.
-func repeated(symbol string, n uint64) string {
+// symbolRun is one picture symbol in the repeat-count form.
+//
+// Named for what it is rather than `repeated`, which is already [span.repeated]
+// in this file and means something else entirely — one of them takes a picture
+// symbol to a string and the other takes a number of bytes to a number of bytes.
+func symbolRun(symbol string, n uint64) string {
 	return symbol + "(" + strconv.FormatUint(n, 10) + ")"
 }
 

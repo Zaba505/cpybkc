@@ -26,7 +26,7 @@ Each record's items, in containment order, beginning at the first byte of the re
 
 **The offsets are summed here, not read.** No IR node carries a byte offset: position is stated once, as ordering and width — see docs/ir/SPEC.md, "Ordering and width, and no offset" — so that a producer cannot state it a second time and be wrong in a way no consumer can detect. Every offset below is therefore this generator's own arithmetic over the widths ahead of the item, counting one occurrence — the first — of every group that encloses it and repeats. Where something ahead of an item repeats a number of times that is read at run time, there is no number to print and the offset carries a variable term instead, naming the count.
 
-**The pictures are spelled here, not quoted.** The IR carries no PICTURE character-string anywhere. It carries a category, the number of stored digit positions, the scale, whether the item is signed and where its sign sits, and the picture column is this generator's spelling of those five facts — so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly. A numeric-edited item's editing characters are not carried at all, and are named rather than invented.
+**The pictures are spelled here, not quoted.** The IR carries no PICTURE character-string anywhere. It carries a category, the number of stored digit positions, the scale, whether the item is signed and where its sign sits, and the picture column is this generator's spelling of those five facts — so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly. An edited item's editing characters are not carried at all, so its category is named and nothing of it is spelled. The length of an alphabetic or alphanumeric picture is the item's width in bytes, which is its character count for every charset the IR admits.
 
 ### VARIABLE-RECORD
 
@@ -45,6 +45,10 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 4 + 4 × ENTRY-COUNT | 2 | TRAILERS.TRAILER-TAG | DISPLAY | X(2) | always |
 | 6 + 4 × ENTRY-COUNT | 2 | TRAILERS.TRAILER-SEQ | DISPLAY | 9(2) | always |
 | 16 + 4 × ENTRY-COUNT | 4 | INDEX-SLOT | INDEX | — | always |
+| 20 + 4 × ENTRY-COUNT | 2 | *filler* | DISPLAY | X(2) | always |
+| 22 + 4 × ENTRY-COUNT | 1 | *filler* | — | — | always |
+| 22 + 4 × ENTRY-COUNT | 1 | *filler*.NOTE-CODE | DISPLAY | X(1) | always |
+| 23 + 4 × ENTRY-COUNT | ENTRY-COUNT | FLAGS | DISPLAY | X(1) | occurs ENTRY-COUNT times (1 to 20) |
 
 ### PICTURE-RECORD
 
@@ -54,7 +58,7 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 1 | 6 | PLAIN-TEXT | DISPLAY | X(6) | always |
 | 7 | 4 | NAME-TEXT | DISPLAY | A(4) | always |
 | 11 | 5 | EDIT-NAME | DISPLAY | alphanumeric-edited | always |
-| 16 | 9 | EDIT-TOTAL | DISPLAY | numeric-edited (9(3)V9(2) stored) | always |
+| 16 | 9 | EDIT-TOTAL | DISPLAY | numeric-edited | always |
 | 25 | 4 | UNSIGNED-AMT | DISPLAY | 9(4) | always |
 | 29 | 3 | LEAD-SIGN | DISPLAY | S9(3) SIGN LEADING | always |
 | 32 | 3 | TRAIL-SIGN | DISPLAY | S9(3) SIGN TRAILING | always |

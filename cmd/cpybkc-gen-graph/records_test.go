@@ -28,6 +28,11 @@ import (
 func TestAnOffsetIsTheSumOfTheWidthsAheadOfIt(t *testing.T) {
 	t.Parallel()
 
+	// Every row, and not only the ones named below: the lookups say the rows
+	// this test names are right, and this says they are all the rows there are.
+	// See [tabled] for why the key alone cannot do it.
+	rowCount(t, variableAutomaton(), "VARIABLE-RECORD", 17)
+
 	rows := tabled(t, variableAutomaton(), "VARIABLE-RECORD")
 
 	for _, want := range []struct {
@@ -142,54 +147,105 @@ func TestARepetitionSaysHowManyTimes(t *testing.T) {
 // picture column can say.
 //
 // Every category, signed and unsigned, every sign position, and a scale in each
-// of the five places it can be: none, inside the digits, at their left, and past
+// of the places it can be: none, inside the digits, at their left, and past
 // either end where a picture carries `P` positions that occupy no storage. Held
 // as a table rather than only in the golden because the golden shows a
 // representative row of each and this shows that no combination is drawn as
 // something else.
+//
+// The usage is stated on every case because the SIGN clause is a fact about the
+// pair: it has an effect on DISPLAY and on nothing else, so which sign positions
+// are admissible depends on which usage is asking. See [signClause].
 func TestThePictureIsSpelledFromTheFiveFactsTheIRCarries(t *testing.T) {
 	t.Parallel()
 
 	for name, testCase := range map[string]struct {
 		picture *irpb.Picture
 		width   uint32
+		usage   irpb.Usage
 		want    string
 	}{
-		"an unsigned integer":       {numeric(4, 0), 4, "9(4)"},
-		"a signed integer":          {signedNumeric(4, 0, irpb.SignPosition_SIGN_POSITION_UNSPECIFIED), 4, "S9(4)"},
-		"a scale inside the digits": {numeric(5, 2), 5, "9(3)V9(2)"},
-		"a scale at the left":       {numeric(3, 3), 3, "V9(3)"},
+		"an unsigned integer":       {numeric(4, 0), 4, irpb.Usage_USAGE_DISPLAY, "9(4)"},
+		"a scale inside the digits": {numeric(5, 2), 5, irpb.Usage_USAGE_DISPLAY, "9(3)V9(2)"},
+		"a scale at the left":       {numeric(3, 3), 3, irpb.Usage_USAGE_DISPLAY, "V9(3)"},
 
 		// A picture opening with a run of P: the value is scaled down past the
 		// digits that are stored, and the implied point is at the P's left.
-		"a scale past the digits": {numeric(2, 5), 2, "P(3)9(2)"},
+		"a scale past the digits": {numeric(2, 5), 2, irpb.Usage_USAGE_DISPLAY, "P(3)9(2)"},
 
 		// And one ending in a run of P, which is what a negative scale is.
-		"a negative scale": {numeric(3, -2), 3, "9(3)P(2)"},
+		"a negative scale": {numeric(3, -2), 3, irpb.Usage_USAGE_DISPLAY, "9(3)P(2)"},
 
-		"a leading sign":           {signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_LEADING), 3, "S9(3) SIGN LEADING"},
-		"a trailing sign":          {signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_TRAILING), 3, "S9(3) SIGN TRAILING"},
-		"a separate leading sign":  {signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_LEADING_SEPARATE), 4, "S9(3) SIGN LEADING SEPARATE"},
-		"a separate trailing sign": {signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_TRAILING_SEPARATE), 4, "S9(3) SIGN TRAILING SEPARATE"},
-		"a signed scaled item":     {signedNumeric(7, 2, irpb.SignPosition_SIGN_POSITION_TRAILING), 7, "S9(5)V9(2) SIGN TRAILING"},
+		// A signed item of a usage the SIGN clause has no effect on: the `S` is
+		// the whole of what there is to say, and stating a position would be a
+		// contradiction rather than detail. See the refusals below.
+		"a signed packed item": {
+			signedNumeric(4, 0, irpb.SignPosition_SIGN_POSITION_UNSPECIFIED), 4,
+			irpb.Usage_USAGE_PACKED_DECIMAL, "S9(4)",
+		},
+		"a signed binary item": {
+			signedNumeric(4, 0, irpb.SignPosition_SIGN_POSITION_UNSPECIFIED), 2,
+			irpb.Usage_USAGE_BINARY, "S9(4)",
+		},
+
+		// And every position a signed DISPLAY item can state, the default
+		// included: SIGN TRAILING is a position rather than an absence, and a
+		// column that left it out would make a blank mean two things.
+		"a leading sign": {
+			signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_LEADING), 3,
+			irpb.Usage_USAGE_DISPLAY, "S9(3) SIGN LEADING",
+		},
+		"a trailing sign": {
+			signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_TRAILING), 3,
+			irpb.Usage_USAGE_DISPLAY, "S9(3) SIGN TRAILING",
+		},
+		"a separate leading sign": {
+			signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_LEADING_SEPARATE), 4,
+			irpb.Usage_USAGE_DISPLAY, "S9(3) SIGN LEADING SEPARATE",
+		},
+		"a separate trailing sign": {
+			signedNumeric(3, 0, irpb.SignPosition_SIGN_POSITION_TRAILING_SEPARATE), 4,
+			irpb.Usage_USAGE_DISPLAY, "S9(3) SIGN TRAILING SEPARATE",
+		},
+		"a signed scaled item": {
+			signedNumeric(7, 2, irpb.SignPosition_SIGN_POSITION_TRAILING), 7,
+			irpb.Usage_USAGE_DISPLAY, "S9(5)V9(2) SIGN TRAILING",
+		},
 
 		// The character count of these two is the item's width and not its
 		// digit count: `digits` counts 9 symbols and neither picture has one.
-		"alphabetic":   {&irpb.Picture{Category: irpb.Category_CATEGORY_ALPHABETIC}, 6, "A(6)"},
-		"alphanumeric": {&irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC}, 6, "X(6)"},
+		"alphabetic": {
+			&irpb.Picture{Category: irpb.Category_CATEGORY_ALPHABETIC}, 6,
+			irpb.Usage_USAGE_DISPLAY, "A(6)",
+		},
+		"alphanumeric": {
+			&irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC}, 6,
+			irpb.Usage_USAGE_DISPLAY, "X(6)",
+		},
 
-		// The editing characters are carried nowhere, so they are named rather
-		// than invented — with the digits that are stored, where any are.
-		"alphanumeric-edited": {&irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC_EDITED}, 6, alphanumericEdited},
-		"numeric-edited":      {numericEditedPicture(5, 2, false), 9, "numeric-edited (9(3)V9(2) stored)"},
+		// An edited item is named and nothing of it is spelled — not even the
+		// digit count, which counts 9 symbols and so under-reports every
+		// position a Z or a * suppresses. Whether the item is signed makes no
+		// difference for the same reason: an edited sign is a CR or a DB in the
+		// mask, and the mask is not carried.
+		"alphanumeric-edited": {
+			&irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC_EDITED}, 6,
+			irpb.Usage_USAGE_DISPLAY, alphanumericEdited,
+		},
+		"numeric-edited": {
+			numericEditedPicture(5, 2, false), 9, irpb.Usage_USAGE_DISPLAY, numericEdited,
+		},
 		"a signed numeric-edited item": {
-			numericEditedPicture(5, 2, true), 9, "numeric-edited (S9(3)V9(2) stored)",
+			numericEditedPicture(5, 2, true), 9, irpb.Usage_USAGE_DISPLAY, numericEdited,
+		},
+		"a numeric-edited item carrying no digits at all": {
+			numericEditedPicture(0, 0, false), 9, irpb.Usage_USAGE_DISPLAY, numericEdited,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := pictureOf(testCase.picture, testCase.width)
+			got, err := pictureOf(testCase.picture, testCase.width, testCase.usage)
 			if err != nil {
 				t.Fatalf("pictureOf: %v", err)
 			}
@@ -215,15 +271,41 @@ func TestAPictureThatContradictsItselfIsRefused(t *testing.T) {
 
 	for name, testCase := range map[string]struct {
 		picture *irpb.Picture
+		usage   irpb.Usage
 		names   string
 	}{
+		// The sign axis in all three of the ways it can contradict itself. The
+		// first two are mirror images and both are refused, which is the point:
+		// refusing one and drawing the other would leave a signed DISPLAY item
+		// with no position rendering as a bare `S9(3)`, which is the blank
+		// [signClause]'s own argument says must not happen.
 		"an unsigned item stating where its sign sits": {
 			picture: &irpb.Picture{
 				Category:     irpb.Category_CATEGORY_NUMERIC,
 				Digits:       3,
 				SignPosition: irpb.SignPosition_SIGN_POSITION_TRAILING,
 			},
-			names: "unsigned item states where its operational sign sits",
+			usage: irpb.Usage_USAGE_DISPLAY,
+			names: "unsigned states where its operational sign sits",
+		},
+		"a signed numeric DISPLAY item stating no position": {
+			picture: &irpb.Picture{
+				Category: irpb.Category_CATEGORY_NUMERIC,
+				Digits:   3,
+				Signed:   true,
+			},
+			usage: irpb.Usage_USAGE_DISPLAY,
+			names: "signed numeric DISPLAY item states nothing about where its operational sign sits",
+		},
+		"a packed item stating a position the SIGN clause cannot reach": {
+			picture: &irpb.Picture{
+				Category:     irpb.Category_CATEGORY_NUMERIC,
+				Digits:       3,
+				Signed:       true,
+				SignPosition: irpb.SignPosition_SIGN_POSITION_LEADING,
+			},
+			usage: irpb.Usage_USAGE_PACKED_DECIMAL,
+			names: "USAGE PACKED-DECIMAL that is signed states where its operational sign sits",
 		},
 		"a sign position outside the closed set": {
 			picture: &irpb.Picture{
@@ -232,25 +314,29 @@ func TestAPictureThatContradictsItselfIsRefused(t *testing.T) {
 				Signed:       true,
 				SignPosition: irpb.SignPosition(99),
 			},
+			usage: irpb.Usage_USAGE_DISPLAY,
 			names: "sign position 99",
 		},
 		"an alphanumeric item carrying an operational sign": {
 			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC, Signed: true},
+			usage:   irpb.Usage_USAGE_DISPLAY,
 			names:   "carries an operational sign",
 		},
 		"a numeric item with no digit positions": {
 			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC},
+			usage:   irpb.Usage_USAGE_DISPLAY,
 			names:   "no stored digit positions",
 		},
 		"a picture stating no category": {
 			picture: &irpb.Picture{Digits: 3},
+			usage:   irpb.Usage_USAGE_DISPLAY,
 			names:   "states no category",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := pictureOf(testCase.picture, 4)
+			_, err := pictureOf(testCase.picture, 4, testCase.usage)
 			if err == nil {
 				t.Fatalf("pictureOf accepted %s", name)
 			}
@@ -525,12 +611,58 @@ func TestARecordHoldingNoItemSaysSo(t *testing.T) {
 	}
 }
 
-// TestAnItemCarryingNoNameIsRefused is the same refusal [edgeAt] makes of a
-// record name, in the position a table would print a blank cell.
+// TestAFillerIsDrawnRatherThanRefused is the case that makes the difference
+// between this generator working on real copybooks and not.
 //
-// Whitespace passes an emptiness test and draws as a cell holding a space, which
-// reads as an item this generator could not name rather than as a producer that
-// named nothing.
+// COBOL's FILLER has no data-name, so a producer emits no names message for it,
+// and FILLER is in most copybooks anybody actually has. Refusing it would refuse
+// the whole document — `records=all` is the default — so a layout with one
+// unnamed item would have got no diagram either, over an item nobody was looking
+// at. It is drawn as a row with this generator's own word, exactly as slack and
+// a variant are.
+//
+// A FILLER group as well as a FILLER field, because a group is the case a slack
+// node could not stand in for: it holds members, and they are named beneath it.
+func TestAFillerIsDrawnRatherThanRefused(t *testing.T) {
+	t.Parallel()
+
+	// The last four rows of the record, in order. By position rather than by
+	// Item cell, because the FILLER field and the FILLER group print the same
+	// cell — which is what [rowsOf] is for.
+	rows := rowsOf(t, variableAutomaton(), "VARIABLE-RECORD")
+
+	want := []row{
+		{item: "*filler*", at: "20 + 4 × ENTRY-COUNT", extent: "2"},
+
+		// The group, then the named item inside it. The group contributes its
+		// word to the path rather than a name, so its member reads beneath it —
+		// a member of a FILLER group that read as a member of the record would
+		// put the item at a level of the copybook it is not at.
+		{item: "*filler*", at: "22 + 4 × ENTRY-COUNT", extent: "1"},
+		{item: "*filler*.NOTE-CODE", at: "22 + 4 × ENTRY-COUNT", extent: "1"},
+
+		// And a table of one-byte occurrences, whose whole width is the count.
+		{item: "FLAGS", at: "23 + 4 × ENTRY-COUNT", extent: "ENTRY-COUNT"},
+	}
+
+	last := rows[len(rows)-len(want):]
+
+	for at, one := range want {
+		if last[at].item != one.item || last[at].at != one.at || last[at].extent != one.extent {
+			t.Errorf("row %d from the end is %s, %q wide at %q; want %s, %q at %q",
+				len(want)-at, last[at].item, last[at].extent, last[at].at, one.item, one.extent, one.at)
+		}
+	}
+}
+
+// TestAnItemCarryingNoNameIsRefused is the other side of the FILLER rule: a
+// names message that states nothing.
+//
+// An item COBOL names nothing carries no names message at all. One that carries
+// a message and states no name in it is a named item whose name went missing,
+// which is a producer bug — and whitespace passes an emptiness test and draws as
+// a cell holding a space, which reads as an item this generator could not name.
+// Same refusal [edgeAt] makes of a record name.
 func TestAnItemCarryingNoNameIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -543,39 +675,157 @@ func TestAnItemCarryingNoNameIsRefused(t *testing.T) {
 		t.Fatal("read accepted an item carrying no name a table could show")
 	}
 
-	if !strings.Contains(err.Error(), "carries no name a table could show") {
+	if !strings.Contains(err.Error(), "carries a names message, and states no name in it") {
 		t.Errorf("the refusal reads %q, and does not say what is missing", err)
+	}
+}
+
+// TestAContainmentOrderThatDoesNotSayWhatItSaysIsRefused walks the refusals the
+// walk makes that no other test reaches.
+//
+// Each is a `malformed` naming a node and a rule, and each is written once and
+// never run — which is how a diagnostic ends up naming the wrong identifier, or
+// the wrong rule, and nobody finds out until it fires on somebody's descriptor.
+// They are cheap to exercise and the message is the whole value of them.
+func TestAContainmentOrderThatDoesNotSayWhatItSaysIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		nodes []*irpb.Node
+		names string
+	}{
+		"a variant carrying one arm": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 400),
+				variantNode(400, armAt(60, 401)),
+				fieldNode(401, "ONLY-ARM", 2),
+				equalPredicate(60, 401, "\xc1"),
+			},
+			names: "variant 400 carries 1 arms",
+		},
+
+		// The check that keeps a variant's contribution to every offset behind
+		// it a constant. Without it the table draws them all at the position
+		// the first arm implies and looks perfectly well formed doing it.
+		"an arm holding a table whose count is data": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 102, 400),
+				variantNode(400, armGroupAt(60, 402), armAt(61, 405)),
+				groupNode(402, "COUNTED-ARM", 403),
+				repeatingFieldNode(403, "ENTRY", 2, fieldCount(102, 1, 9)),
+				fieldNode(405, "FLAT-ARM", 4),
+				equalPredicate(60, 102, "\xc1"),
+				equalPredicate(61, 102, "\xc3"),
+			},
+			names: "data-dependent number of times",
+		},
+		"an arm with no body at all": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 400),
+				variantNode(400, &irpb.Arm{PredicateId: 60}, armAt(61, 401)),
+				fieldNode(401, "OTHER-ARM", 2),
+				equalPredicate(60, 401, "\xc1"),
+				equalPredicate(61, 401, "\xc3"),
+			},
+			names: "an arm of variant 400 has no body",
+		},
+		"an arm naming a field where its body says group": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 400),
+				variantNode(400, armGroupAt(60, 401), armAt(61, 402)),
+				fieldNode(401, "NOT-A-GROUP", 2),
+				fieldNode(402, "OTHER-ARM", 2),
+				equalPredicate(60, 402, "\xc1"),
+				equalPredicate(61, 402, "\xc3"),
+			},
+			// Caught by the walk that resolves the arm's predicate, which
+			// descends the variant looking for the predicate's target and
+			// refuses the body before the arm itself is read. An earlier
+			// refusal for the same fault, and the one a reader is sent to.
+			names: "the body of an arm of a variant in a record a transition admits names node 401",
+		},
+
+		// A member list may name a group, a variant, a field or a slack node,
+		// and nothing else. A state node in one is a producer that lost track of
+		// which namespace it was in.
+		"a member list naming a node of a kind it may not hold": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 2),
+			},
+			names: "node 2 is not something a group may contain",
+		},
+		"an item that repeats and says nothing about how many times": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 401),
+				repeatingFieldNode(401, "ENTRY", 2, &irpb.Repetition{}),
+			},
+			names: "says nothing about how many times",
+		},
+		"a variable count naming neither a field nor a register": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 401),
+				repeatingFieldNode(401, "ENTRY", 2, &irpb.Repetition{
+					Count: &irpb.Repetition_Variable{Variable: &irpb.VariableCount{}},
+				}),
+			},
+			names: "says nothing about where its count is read from",
+		},
+		"a variable count naming a register the descriptor does not carry": {
+			nodes: []*irpb.Node{
+				groupNode(105, "HEADER-RECORD", 401),
+				repeatingFieldNode(401, "ENTRY", 2, registerCount(900, 0, 9)),
+			},
+			names: "the register an OCCURS DEPENDING ON count is read from names node 900",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := read(oneRecordAutomaton(
+				append([]*irpb.Node{edgeNode(30, 100, 2, nil, nil, nil)}, testCase.nodes...)...,
+			), defaults())
+
+			if err == nil {
+				t.Fatalf("read accepted %s", name)
+			}
+
+			if !strings.Contains(err.Error(), testCase.names) {
+				t.Errorf("the refusal reads %q, and does not name %q", err, testCase.names)
+			}
+		})
 	}
 }
 
 // row is one row of a record's table, reduced to the strings a document prints.
 type row struct {
-	at, extent, usage, picture, present string
+	item, at, extent, usage, picture, present string
 }
 
-// tabled is one record's rows by the Item cell the document prints for each,
-// which is how a test names a row without depending on where in the order it
-// landed.
-func tabled(t *testing.T, d *irpb.Descriptor, record string) map[string]row {
+// rowsOf is a record's rows in the order the document prints them.
+//
+// The order is what a test needs when it names a row whose Item cell is not
+// unique: two FILLER items at one level both read `*filler*`, as do two slack
+// runs and two variants, because each is this generator's word for a node the
+// copybook did not name rather than a name.
+func rowsOf(t *testing.T, d *irpb.Descriptor, record string) []row {
 	t.Helper()
 
-	g := drawn(t, d)
-
-	for _, r := range g.records {
+	for _, r := range drawn(t, d).records {
 		if r.name != record {
 			continue
 		}
 
-		rows := make(map[string]row, len(r.items))
+		rows := make([]row, 0, len(r.items))
 
 		for _, one := range r.items {
-			rows[mermaidItem(one)] = row{
+			rows = append(rows, row{
+				item:    mermaidItem(one),
 				at:      one.at.phrase(markdownCell),
 				extent:  one.extent.phrase(markdownCell),
 				usage:   one.usage,
 				picture: one.picture,
 				present: one.present.phrase(markdownCell),
-			}
+			})
 		}
 
 		return rows
@@ -584,6 +834,49 @@ func tabled(t *testing.T, d *irpb.Descriptor, record string) map[string]row {
 	t.Fatalf("the document tables no record called %s", record)
 
 	return nil
+}
+
+// tabled is one record's rows by the Item cell the document prints for each,
+// which is how a test names a row without depending on where in the order it
+// landed.
+//
+// The key is lossy on purpose and the loss is bounded by [rowCount]. Two slack
+// runs at one containment path render the same cell, as do two variants and a
+// group reached along two paths, so a map keyed this way keeps the last of any
+// such pair — and a test that only looks up the keys it names would not notice.
+// Every caller asserts the number of rows as well, so a row appearing, vanishing
+// or colliding fails somewhere even when no lookup changes.
+func tabled(t *testing.T, d *irpb.Descriptor, record string) map[string]row {
+	t.Helper()
+
+	ordered := rowsOf(t, d, record)
+
+	rows := make(map[string]row, len(ordered))
+	for _, one := range ordered {
+		rows[one.item] = one
+	}
+
+	return rows
+}
+
+// rowCount holds a record's table to a number of rows.
+//
+// It is what makes the lossy key in [tabled] safe: the lookups say that the rows
+// a test names are right, and this says that they are all the rows there are.
+func rowCount(t *testing.T, d *irpb.Descriptor, record string, want int) {
+	t.Helper()
+
+	rows := rowsOf(t, d, record)
+	if len(rows) == want {
+		return
+	}
+
+	named := make([]string, 0, len(rows))
+	for _, one := range rows {
+		named = append(named, one.item)
+	}
+
+	t.Errorf("the table for %s holds %d rows, want %d: %v", record, len(rows), want, named)
 }
 
 // numeric and signedNumeric are a numeric picture of that many digits at that
@@ -661,6 +954,24 @@ func registerCount(register uint64, min, max uint32) *irpb.Repetition {
 	}}}
 }
 
+// fillerFieldNode and fillerGroupNode are an item and a group COBOL gave no
+// data-name.
+//
+// They carry no names message at all, which is what a producer emits for a
+// FILLER: an item with no data-name has no original for a substitute to stand
+// beside, and the schema makes the original the member that must be present.
+func fillerFieldNode(id uint64, width uint32) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
+		Width:   width,
+		Usage:   irpb.Usage_USAGE_DISPLAY,
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+	}}}
+}
+
+func fillerGroupNode(id uint64, members ...uint64) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Group{Group: &irpb.Group{MemberIds: members}}}
+}
+
 // slackNode is a run of bytes that belongs to no item.
 func slackNode(id uint64, width uint32) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Slack{Slack: &irpb.Slack{Width: width}}}
@@ -719,7 +1030,7 @@ func variableAutomaton() *irpb.Descriptor {
 			equalPredicate(61, 205, "\xc3"),
 
 			recordOf(100, 200, "VARIABLE-RECORD"),
-			groupNode(200, "VARIABLE-RECORD", 201, 202, 203, 204, 210, 213),
+			groupNode(200, "VARIABLE-RECORD", 201, 202, 203, 204, 210, 213, 214, 215, 217),
 			fieldNode(201, "REC-TYPE", 1),
 			numericFieldNode(202, "ENTRY-COUNT", 2, 2),
 			slackNode(203, 1),
@@ -737,6 +1048,18 @@ func variableAutomaton() *irpb.Descriptor {
 			numericFieldNode(212, "TRAILER-SEQ", 2, 2),
 
 			pictureFieldNode(213, "INDEX-SLOT", 4, irpb.Usage_USAGE_INDEX, nil),
+
+			// A FILLER item and a FILLER group: COBOL gave neither a data-name,
+			// so the producer emits no names message and the table says so in
+			// its own word. A FILLER group still holds members, which is what a
+			// slack node could not.
+			fillerFieldNode(214, 2),
+			fillerGroupNode(215, 216),
+			fieldNode(216, "NOTE-CODE", 1),
+
+			// A table of one-byte occurrences, which is the case where the
+			// product in the Width cell is the count and nothing else.
+			repeatingFieldNode(217, "FLAGS", 1, fieldCount(202, 1, 20)),
 
 			recordOf(300, 350, "PICTURE-RECORD"),
 			groupNode(350, "PICTURE-RECORD",

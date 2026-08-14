@@ -344,10 +344,25 @@ func read(d *irpb.Descriptor, opts options) (*graph, error) {
 	// Last of all, and off the edges above rather than off the descriptor's
 	// record nodes: what the document tables is what the automaton admits, so a
 	// record node nothing admits is not a table nobody asked for.
-	if opts.records == recordsAll {
+	//
+	// A switch with a failing default rather than an equality test, for the
+	// reason [document]'s last arm is a failure: an equality test makes every
+	// value that is not `all` mean `none`, which is a fall back to a member of a
+	// closed set this generator recognises — the one thing docs/ir/SPEC.md says
+	// a consumer must not do. [parse] admits exactly these two, so the last arm
+	// cannot be reached from an argument vector; the way it *would* be reached
+	// is a third value added to the set with no arm added here, and the
+	// alternative to failing is a document silently missing a section somebody
+	// asked for.
+	switch opts.records {
+	case recordsAll:
 		if err := g.readRecords(nodes); err != nil {
 			return nil, err
 		}
+	case recordsNone:
+	default:
+		return nil, fmt.Errorf("this generator has no reading of %s=%q, which is a bug in %s",
+			recordsOption, opts.records, pluginName)
 	}
 
 	return g, nil

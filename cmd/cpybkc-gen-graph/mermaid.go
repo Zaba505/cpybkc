@@ -108,7 +108,9 @@ const mermaidRecordsSaid = "Each record's items, in containment order, beginning
 	" It carries a category, the number of stored digit positions, the scale, whether the item is signed and where its sign sits," +
 	" and the picture column is this generator's spelling of those five facts —" +
 	" so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly." +
-	" A numeric-edited item's editing characters are not carried at all, and are named rather than invented."
+	" An edited item's editing characters are not carried at all, so its category is named and nothing of it is spelled." +
+	" The length of an alphabetic or alphanumeric picture is the item's width in bytes," +
+	" which is its character count for every charset the IR admits."
 
 // mermaidNoItems is what stands where a record's table would be when its top
 // level holds nothing.
@@ -138,7 +140,10 @@ func mermaidRecordTables(g *graph) string {
 	b.WriteString(mermaidRecordsSaid + "\n")
 
 	for _, r := range g.records {
-		b.WriteString("\n### " + markdownCell(r.name) + "\n\n")
+		// A heading is an inline position and not a cell, so the name is escaped
+		// as one: a `|` is an ordinary character here and escaping it would put
+		// a backslash in front of the reader.
+		b.WriteString("\n### " + markdownInline(r.name) + "\n\n")
 
 		if len(r.items) == 0 {
 			b.WriteString(mermaidNoItems + "\n")
@@ -175,18 +180,22 @@ func mermaidRecordTables(g *graph) string {
 //
 // An unnamed node's word is written outside the escaping rather than inside it,
 // and emphasised. `*slack*` is this generator saying that the descriptor named
-// nothing here; a copybook item actually called `slack` reaches the cell through
-// [markdownCell], which escapes the asterisks, so the two can never be read
-// alike.
+// nothing here, and a copybook item actually called `slack` renders upright
+// beside it — the distinction is the emphasis, and it is a real one rather than
+// a strong one. What makes it safe is the other direction: a copybook name
+// carrying its own asterisks reaches the cell through [markdownCell], which
+// escapes them, so no name can dress itself up as one of these words.
 func mermaidItem(one item) string {
-	printed := make([]string, 0, len(one.path)+1)
+	printed := make([]string, 0, len(one.path))
 
-	for _, element := range one.path {
-		printed = append(printed, markdownCell(element))
-	}
+	for _, step := range one.path {
+		if step.supplied {
+			printed = append(printed, "*"+step.name+"*")
 
-	if one.anonymous != "" {
-		printed = append(printed, "*"+one.anonymous+"*")
+			continue
+		}
+
+		printed = append(printed, markdownCell(step.name))
 	}
 
 	return strings.Join(printed, ".")
@@ -260,13 +269,38 @@ func mermaidBinders(bound []binder) string {
 // The same posture as [mermaidLabel] takes towards the diagram, arrived at
 // separately because it is a different notation. Nothing here is shared with
 // it: an escape one accepts is a literal backslash to the other.
-var markdownEscapes = strings.NewReplacer(
-	`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
-	"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`, "|", `\|`,
-	"\n", " ", "\r", " ",
+//
+// # Why there are two of these
+//
+// Everything above is true of any *inline* position — a heading, a paragraph, a
+// cell — and is [markdownInline]. The last pair is true of a table cell alone:
+// `|` ends a cell and a newline ends a row, and neither means anything in a
+// heading. Escaping a `|` there would render a literal `\|` in front of the
+// reader, which is this generator corrupting a name to protect itself from a
+// character that does nothing where it stands.
+var (
+	markdownInlineEscapes = strings.NewReplacer(
+		`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
+		"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`,
+		"\n", " ", "\r", " ",
+	)
+
+	markdownCellEscapes = strings.NewReplacer(
+		`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
+		"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`, "|", `\|`,
+		"\n", " ", "\r", " ",
+	)
 )
 
-func markdownCell(name string) string { return markdownEscapes.Replace(name) }
+// markdownCell is a name in a table cell, and markdownInline one anywhere else
+// inline — a heading, or prose.
+//
+// A newline is flattened to a space in both. It ends a row in a cell, and in a
+// heading it ends the heading and leaves the rest of the name standing as
+// ordinary text, which is the same class of failure by a different route.
+func markdownCell(name string) string { return markdownCellEscapes.Replace(name) }
+
+func markdownInline(name string) string { return markdownInlineEscapes.Replace(name) }
 
 // mermaidBody is the diagram's lines, after `stateDiagram-v2` and before the
 // closing fence.
