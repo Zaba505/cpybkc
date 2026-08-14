@@ -261,11 +261,20 @@ type Cpybkc struct {
 // decoration. Everything read out of here is a function of the commit — HEAD, the
 // refs pointing at it, the commit object's committer time, and the origin in
 // config — while a .git directory also holds a great deal that is not: the reflog
-// under logs/, FETCH_HEAD and ORIG_HEAD, the staging index, the hooks, and
-// whatever gc last repacked. Folded in whole, two builds of one commit could hash
-// differently after any local `git fetch`, a re-run or a second job, and the image
-// stages would miss their cache for reasons nothing in the tree explains. What is
-// excluded is chosen to be exactly what none of those reads.
+// under logs/, FETCH_HEAD and ORIG_HEAD, the staging index, and the hooks. Folded
+// in whole, an ordinary `git fetch` moves every one of those and the image stages
+// miss their cache for reasons nothing in the tree explains. What is excluded is
+// chosen to be things none of the four readers above touches, so dropping them
+// costs nothing.
+//
+// It does **not** make two builds of one commit hash identically in general, and
+// claiming that would be claiming more than a list of exclusions can deliver.
+// objects/ has to stay — HEAD's own commit object is in it — so a `git gc` that
+// repacks, or a fetch that adds a pack, still moves this input; so do packed-refs
+// and refs/remotes/**, which a fetch of any branch rewrites. What the list buys is
+// the cheapest and most frequent churn, which is the churn a contributor generates
+// by working: the reflog moves on every checkout and commit, and the index on
+// every `git add`.
 //
 // lintConfig defaults to the repository's own .golangci.yml. It is passed
 // explicitly rather than left to the standard pipeline's bundled default so that

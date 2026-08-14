@@ -361,9 +361,12 @@ func (m *Cpybkc) irProtoTree() *dagger.Directory {
 //     explicitly does not cover it: a caller passes their own, and the
 //     invocation the document gives them says so.
 //   - The filesystem, as an exact list of every path in it with its kind, its
-//     owner and its mode. Exact rather than a spot check, because "the base is
-//     scratch plus the files this document names" is the promise, and it is the
-//     same assertion as no shell, no libc and no package manager.
+//     owner and its mode. Exact rather than a spot check, because "no shell, no
+//     libc, no package manager" is the promise and an exhaustive listing is the
+//     only form of it that survives somebody adding a file. The listing covers
+//     more than the document promises — the archetype's own layout is in it too —
+//     which is the point: a path nothing accounts for is a failure whether or not
+//     a consumer was ever told about it.
 //   - How the executable in it was built, read out of the binary itself: CGO
 //     off, -trimpath on, and the GOOS and GOARCH of the platform whose image it
 //     landed in.
@@ -758,13 +761,20 @@ func buildSettings(out string) map[string]string {
 // kind, the owner and the mode each one must have.
 //
 // It is exhaustive on purpose. docs/container/SPEC.md's "Shell or no shell" says
-// the base is scratch plus the files that document names, and an exhaustive
-// listing is the only form of that claim which stays true when somebody adds a
-// file: a spot check for /bin/sh passes on an image carrying a busybox under
-// another name. It is also the whole of what makes "adopting the archetype
-// changed nothing a consumer can see" checkable rather than asserted, so every
-// row below was re-derived against the image the archetype builds rather than
-// edited where the old listing failed.
+// there is no shell, no libc and no package manager in the base, and an
+// exhaustive listing is the only form of that claim which stays true when
+// somebody adds a file: a spot check for /bin/sh passes on an image carrying a
+// busybox under another name. It is also the whole of what makes "adopting the
+// archetype changed nothing a consumer can see" checkable rather than asserted,
+// so every row below was re-derived against the image the archetype builds
+// rather than edited where the old listing failed.
+//
+// It lists more than that document promises, and deliberately. Since #185 the
+// base carries the archetype's own layout — /app, /home, /home/nonroot — which
+// docs/container/SPEC.md names on its not-covered list rather than promising.
+// A row here is not a promise to a consumer; it is this pipeline knowing exactly
+// what it ships, which is what makes a path nobody accounted for a failure
+// instead of a surprise.
 //
 // There is no /usr/local/bin row, and its absence is the change #185 made to a
 // covered guarantee. Nothing is in the plugin directory — cpybkc's own generator
@@ -822,6 +832,15 @@ func baseImageContents(protos []string) map[string]imageEntry {
 	// include root is listed the way it is shipped: cpybkc/ir/v1/ir.proto brings
 	// three directories with it, and a flattened copy would be a file whose
 	// FileDescriptorProto names a path this project does not publish.
+	//
+	// The .proto **files** carry contributedDirMode and not contributedFileMode,
+	// and that is not a copy-paste of the row below. The two modes are what the
+	// two contribution methods produce, not what a file and a directory get: a
+	// file contributed on its own lands 0444, and a whole tree is normalized to
+	// 0555 *throughout* — directories and the files inside them alike — because
+	// what the archetype sets a mode on is the tree, once. So the descriptor set
+	// above is 0444 for having arrived through WithFile, and everything here is
+	// 0555 for having arrived through WithDirectory.
 	for _, name := range protos {
 		full := irProtoDir + "/" + name
 		contents[full] = imageEntry{kindFile, imageUID, imageGID, contributedDirMode}
@@ -1008,27 +1027,39 @@ func parseFindLine(line, prefix string) (imageEntry, string, error) {
 	return imageEntry{fields[3], uid, gid, int(mode)}, strings.TrimPrefix(fields[4], prefix), nil
 }
 
-// derivedImageContents is the base image's listing plus one file copied into the
-// plugin directory, which is what an image built FROM this one is allowed to
-// hold.
+// derivedImageContents is the base image's listing plus one file copied into it,
+// which is what an image built FROM this one is allowed to hold.
 //
-// The plugin directory comes with it, because since #185 the base image does not
-// have one: a COPY into /usr/local/bin creates it, and its owner and mode are
-// the builder's rather than anything this repository chose. That is exactly the
-// promise docs/container/SPEC.md gave up in this change, and the reason giving
-// it up costs nothing is here in executable form — the directory a COPY creates
-// is traversable by every UID, so the executable inside it is reachable by the
+// The plugin directory comes with it **only when the copy is what created it**,
+// because since #185 the base image does not have one: a COPY into
+// /usr/local/bin creates it, and its owner and mode are the builder's rather
+// than anything this repository chose. That is exactly the promise
+// docs/container/SPEC.md gave up in this change, and the reason giving it up
+// costs nothing is here in executable form — the directory a COPY creates is
+// traversable by every UID, so the executable inside it is reachable by the
 // image's user and by an overridden one.
+//
+// Derived from at rather than added unconditionally, and the difference is the
+// one that matters: this is a general helper taking the copied path as an
+// argument, so a caller copying somewhere else would otherwise have a listing
+// that tolerated a stray /usr/local/bin. That is the one directory in this image
+// an unexpected executable is most dangerous in, because the plugin contract
+// resolves a generator by the earliest PATH match — which is precisely how a
+// generator gets substituted silently.
 //
 // The difference between this and baseImageContents is otherwise exactly the set
 // of files somebody copied in, and checking a derived image against it is how
 // "the final stage only copies" becomes an assertion rather than a claim: a RUN
 // that had somehow worked, or a second file nobody mentioned, is a path in the
 // listing that nothing accounts for.
-func derivedImageContents(base map[string]imageEntry, path string, entry imageEntry) map[string]imageEntry {
+func derivedImageContents(base map[string]imageEntry, at string, entry imageEntry) map[string]imageEntry {
 	contents := maps.Clone(base)
-	contents[pluginDir] = imageEntry{kindDir, 0, 0, dirMode}
-	contents[path] = entry
+
+	if dir := path.Dir(at); dir == pluginDir {
+		contents[pluginDir] = imageEntry{kindDir, 0, 0, dirMode}
+	}
+
+	contents[at] = entry
 
 	return contents
 }

@@ -261,7 +261,92 @@ func (m *Cpybkc) Release(
 		fmt.Fprintf(&report, "  %s\n", ref)
 	}
 
+	if err := checkPublished(version, published); err != nil {
+		return report.String(), err
+	}
+
 	return report.String(), nil
+}
+
+// checkPublished holds what the publish actually did to what this repository
+// tells a consumer it does.
+//
+// It is an assertion over the **result**, and that is what makes it legitimate
+// rather than a second copy of the archetype's tag table. Restating the
+// derivation here — v0.2.0 also names v0.2, v0 and latest — would be somebody
+// else's rule written down twice, and the copy is the one that stays green after
+// the original moves. Reading back what was published is the opposite: it cannot
+// agree with a family that changed, because it never says what the family is.
+//
+// Three properties, and each is something docs/container/SPEC.md publishes to
+// strangers:
+//
+//   - Every published reference is digest-qualified and they all name **one**
+//     digest. That is the machine-checkable form of the tag table's promise that
+//     v0.2 and v0.2.0 are the same image, and it is the one assertion the
+//     retired publishTags made that nothing upstream restates in this
+//     repository's terms.
+//   - The version tag is among them. A release that published only moving tags
+//     would leave the one reference this project promises never moves absent.
+//   - A prerelease publishes exactly that one reference and a stable release
+//     publishes more than one. That is the *shape* of the table — "a release
+//     moves the other tags, a prerelease moves none" — without naming which they
+//     are, so it stays true across a change to the family and false the moment
+//     the distinction stops being made.
+//
+// It runs after the push, because there is nothing to read before it. It cannot
+// unpublish, and it is not pretending to: what it turns is a contract that has
+// quietly become false into a release that goes red, which is the difference
+// between finding out here and finding out from a consumer whose FROM line
+// resolved to something they did not ask for.
+func checkPublished(version string, published []string) error {
+	if len(published) == 0 {
+		return fmt.Errorf("publishing %s reported no references at all", version)
+	}
+
+	var errs []error
+
+	var digest string
+	for _, ref := range published {
+		_, pushed, ok := strings.Cut(ref, "@")
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s is not digest-qualified: what a release signs has to be what was "+
+				"pushed, and a tag is not a build", ref))
+
+			continue
+		}
+
+		switch {
+		case digest == "":
+			digest = pushed
+		case pushed != digest:
+			errs = append(errs, fmt.Errorf("%s names %s where %s names %s: every tag of one release names one image",
+				ref, pushed, published[0], digest))
+		}
+	}
+
+	if !slices.ContainsFunc(published, func(ref string) bool {
+		name, _, _ := strings.Cut(ref, "@")
+
+		return strings.HasSuffix(name, ":"+version)
+	}) {
+		errs = append(errs, fmt.Errorf("nothing was published under %s itself (%s): it is the one tag this project "+
+			"promises never moves", version, strings.Join(published, ", ")))
+	}
+
+	v, _ := parseVersion(version)
+
+	switch {
+	case v.prerelease != "" && len(published) != 1:
+		errs = append(errs, fmt.Errorf("the prerelease %s published %d references (%s): a release candidate moves "+
+			"none of the tags a derived Dockerfile pins to pick up fixes",
+			version, len(published), strings.Join(published, ", ")))
+	case v.prerelease == "" && len(published) == 1:
+		errs = append(errs, fmt.Errorf("the release %s published only %s: a release moves the tags a derived "+
+			"Dockerfile pins to pick up fixes, and this one moved none of them", version, published[0]))
+	}
+
+	return errors.Join(errs...)
 }
 
 // ReleaseNotes returns a release's notes with the block naming the published
@@ -285,10 +370,19 @@ func (m *Cpybkc) Release(
 // disagreeing: the block is spliced into the notes of the release it describes,
 // and into no other.
 //
-// repository is optional, for the same reason it is Release's argument rather
-// than a constant: where the image is published is a property of the deployment.
-// Given one, the block names the reference to pull; given none, it names the
-// version alone.
+// reference is optional, for the same reason Release's registry and repository
+// are arguments rather than constants: where the image is published is a
+// property of the deployment. Given one, the block names the reference to pull;
+// given none, it names the version alone.
+//
+// It is one argument here and two there, and the names differ so a call site
+// cannot confuse them. Release takes a registry and a repository because the
+// archetype separates them, so its `repository` is the path *within* a registry
+// — `zaba505/cpybkc`. What goes in a `docker pull` line is the whole thing, so
+// this one takes the whole thing and is called `reference`. Spelling both
+// `repository` was the arrangement in which a workflow passing the wrong one of
+// two adjacent variables produces release notes sending readers to Docker Hub,
+// and nothing anywhere goes red.
 func (m *Cpybkc) ReleaseNotes(
 	ctx context.Context,
 	// The tag of the release whose notes these are — the same one Release was
@@ -300,10 +394,10 @@ func (m *Cpybkc) ReleaseNotes(
 	// still to be written.
 	// +optional
 	notes *dagger.File,
-	// The image's full repository, including the registry —
+	// The image's full reference, registry included and tag excluded —
 	// `ghcr.io/zaba505/cpybkc`. Empty leaves the pull reference out of the block.
 	// +optional
-	repository string,
+	reference string,
 ) (string, error) {
 	version, _, err := m.releasePlan(ctx, tag)
 	if err != nil {
@@ -329,7 +423,7 @@ func (m *Cpybkc) ReleaseNotes(
 		return "", err
 	}
 
-	return spliceNotes(body, releaseNotesBlock(version, irVersion, repository))
+	return spliceNotes(body, releaseNotesBlock(version, irVersion, reference))
 }
 
 // TagScheme is the half of the release decision this repository still makes,
@@ -504,17 +598,27 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 	// sees a release published and assumes `v0` followed it is exactly who this
 	// sentence is for.
 	//
-	// Two independent assertions and not a chain: a block that both mentions
-	// `latest` and fails to say it is a prerelease is wrong twice, and a chain
-	// would report one of them and hide the other — including the case where the
-	// first fires spuriously and silently retires the second.
+	// It used to be checked by looking for `latest` in the prerelease's block,
+	// which was one half of a two-sided assertion while the stable block listed
+	// the tag family. The block names no tag but the version now, so that half
+	// became unfalsifiable for every input — a check that cannot fail, sitting
+	// under a comment describing it as one that could. What replaced it is the
+	// property that is still checkable and still the one a reader depends on: the
+	// two blocks say *different* things about the moving tags, so a block that
+	// stopped distinguishing a prerelease from a release fails here whichever way
+	// round it collapsed.
+	//
+	// Two independent assertions and not a chain, for the reason the pair below
+	// are: a block that is wrong twice should say so twice, and a chain would
+	// report one and hide the other.
 	pre := releaseNotesBlock("v0.3.0-rc.1", irVersion, "")
-	if strings.Contains(pre, "`latest`") {
-		errs = append(errs, fmt.Errorf("a prerelease's notes mention `latest`, which it does not move:\n%s", pre))
-	}
-
 	if !strings.Contains(pre, "prerelease") {
 		errs = append(errs, fmt.Errorf("a prerelease's notes do not say so:\n%s", pre))
+	}
+
+	if movingTagsSentence(pre) == movingTagsSentence(block) {
+		errs = append(errs, fmt.Errorf("a prerelease and a release say the same thing about the tags a derived "+
+			"Dockerfile pins:\n%s", pre))
 	}
 
 	// And the stable release must not call itself one, which is the half a block
@@ -588,6 +692,18 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 // publishes, returning the refs alongside it so that a run publishing nothing
 // can say what it saw. An empty version is "this is not a release of the image".
 func (m *Cpybkc) releasePlan(ctx context.Context, tag string) (string, []string, error) {
+	// Refused rather than dereferenced, for the reason appSource returns the
+	// source unchanged on the same input: Container.WithMountedDirectory asserts
+	// its argument is non-nil and *panics*, a long way from whoever left it out.
+	// It is unreachable from the command line, because New's argument carries a
+	// default path, and reachable from a module-to-module call or a struct
+	// literal — and unlike the image path there is nothing to fall back to, since
+	// the whole question this answers is what the refs at HEAD say.
+	if m.GitDir == nil {
+		return "", nil, errors.New("this module was constructed with no git directory, and whether a commit is a " +
+			"release is read out of the refs at HEAD: pass gitDir to the constructor")
+	}
+
 	refs, err := headRefs(ctx, m.Source, m.GitDir)
 	if err != nil {
 		return "", nil, err
@@ -796,18 +912,18 @@ func (m *Cpybkc) irVersion(ctx context.Context) (int, error) {
 // a release published and assumes the moving tags followed it is exactly who
 // that sentence is for.
 //
-// repository empty leaves the pull reference out rather than guessing one: where
+// reference empty leaves the pull reference out rather than guessing one: where
 // the image lives is a property of the deployment, and a block naming `ghcr.io`
 // on a mirror's release would be telling a reader to pull from somewhere this
 // release did not go.
-func releaseNotesBlock(version string, irVersion int, repository string) string {
+func releaseNotesBlock(version string, irVersion int, reference string) string {
 	var b strings.Builder
 
 	b.WriteString(notesOpen)
 	b.WriteString("\n## The image this release publishes\n\n")
 
-	if repository != "" {
-		fmt.Fprintf(&b, "```console\n$ docker pull %s:%s\n```\n\n", repository, version)
+	if reference != "" {
+		fmt.Fprintf(&b, "```console\n$ docker pull %s:%s\n```\n\n", reference, version)
 	}
 
 	fmt.Fprintf(&b, "**This image speaks IR version %d.** Every descriptor the `cpybkc` in it writes carries that\n"+
@@ -831,6 +947,22 @@ func releaseNotesBlock(version string, irVersion int, repository string) string 
 	b.WriteString(notesClose)
 
 	return b.String()
+}
+
+// movingTagsSentence is the part of a block that talks about the tags a derived
+// Dockerfile pins, reduced to something two blocks can be compared on.
+//
+// The whole line rather than a keyword, because what is being checked is that a
+// prerelease and a release say *different* things about the moving tags, and a
+// keyword search is how two different sentences come to look identical.
+func movingTagsSentence(block string) string {
+	for _, line := range strings.Split(block, "\n") {
+		if strings.Contains(line, "moving tags") || strings.Contains(line, "moves none") {
+			return strings.TrimSpace(line)
+		}
+	}
+
+	return ""
 }
 
 // platformNames is the published platform set as a consumer reads it.

@@ -269,5 +269,5 @@ jobs:
           dagger call release-notes \
             --tag "$TAG" \
             --notes "$RUNNER_TEMP/notes.md" \
-            --repository "$IMAGE_REFERENCE" > "$RUNNER_TEMP/notes.new.md"
+            --reference "$IMAGE_REFERENCE" > "$RUNNER_TEMP/notes.new.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.new.md"

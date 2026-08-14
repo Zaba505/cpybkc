@@ -1027,11 +1027,19 @@ is not a weaker check — it is a claim that something is being verified. So the
 story is closed as unnecessary rather than carried against a premise this
 decision removed.
 
-What survives of it is the one thing the default depends on. Every release
-[publishes the moving major tag](#whether-a-commit-is-a-release-is-a-function-not-a-step)
-(#59), and `dagger call tag-scheme` is what says so on every pull request; if
-that ever stopped being published, this decision is what would have to be
-reopened, rather than the default quietly patched at the call site.
+What survives of it is the one thing the default depends on: that every release
+publishes the moving major tag. Since #185 the tag family is [derived and
+published by the shared
+pipeline](docs/container/SPEC.md#tags-and-what-pinning-one-buys), so
+`dagger call tag-scheme` no longer says it — that check covers only [whether a
+commit is a release at
+all](#whether-a-commit-is-a-release-is-a-function-not-a-step). What says it now is
+`release` itself: after the push it reads back the references the publish
+returned and requires a stable release to have moved more than the version tag
+and a prerelease to have moved nothing, so a family that stopped moving the major
+tag is a release that goes red. If that ever stopped being published, this
+decision is what would have to be reopened, rather than the default quietly
+patched at the call site.
 
 ## The conformance corpus
 

@@ -422,15 +422,27 @@ the hard way by somebody:
   arguments, or against an image built `FROM` this one with a busybox copied in
   for the purpose.
 
+**The base is not literally scratch, and the difference is not covered.** It
+carries a small standardized layout the shared pipeline gives every image it
+builds: the CLI's own directory, an empty read-only `/home/nonroot`, and the
+`HOME` and `TMPDIR` variables set beside `PATH`. None of that is promised, none
+of it is what this document's paths are about, and a derived image inherits the
+two variables whether it wants them or not. `TMPDIR` in particular names a
+directory the image **does not contain** — see below — which is harmless because
+nothing in the base reads it, and worth writing down rather than leaving to be
+discovered.
+
 One thing the image does not have is worth naming anyway: there is no writable
 temporary directory in it, and none is needed. cpybkc creates [each
 invocation's
 descriptor](../plugin/SPEC.md#the-descriptors-location-and-lifetime) and [each
 generator's empty output directory](../plugin/SPEC.md#the-output-directory)
 inside the project it was pointed at, so everything a run writes is in the tree
-the caller already mounted and already made writable. There is no `TMPDIR` to
-set and no `/tmp` to mount, so the `docker run` invocations this document
-prints are the whole of the arrangement, whatever UID they run as.
+the caller already mounted and already made writable. Nothing in the base reads an ambient temporary
+directory at all, so there is no `/tmp` to mount and the `docker run` invocations
+this document prints are the whole of the arrangement, whatever UID they run as.
+The image nonetheless sets `TMPDIR=/tmp`, as part of the standardized environment
+above, and a deployment that wants one mounts a tmpfs or an `emptyDir` there.
 
 Its **absence** is not covered either, and neither is anything about it. A
 generator that wants a temporary directory of its own is a derived image's
@@ -1149,8 +1161,16 @@ depending on something that may change in a patch release, with no notice:
   above — its existence, its contents and its paths.
 - The path of the `cpybkc` executable itself, and the literal value of
   `Entrypoint`.
-- The value of `PATH` beyond its containing `/usr/local/bin`, and the value of
-  any other environment variable.
+- The value of `PATH` beyond its containing `/usr/local/bin`, and the value,
+  presence or absence of any other environment variable — including `HOME` and
+  `TMPDIR`, which the base sets today. A derived image inherits them and **MAY**
+  override them; nothing here promises they will still be set, still hold those
+  values, or still name a directory the image contains.
+- The existence, ownership and mode of any directory this document does not
+  name. The base carries a few — the CLI's own directory and an empty
+  `/home/nonroot` — because the shared pipeline gives every image it builds the
+  same small layout. They are not part of the contract in either direction: not
+  to be depended on, and not promised to stay absent.
 - `WorkingDir`, and the existence of any directory a caller mounts over. A
   caller passes `--workdir`, or paths, or both; cpybkc resolves a manifest's
   relative paths against the manifest rather than against a working directory,
