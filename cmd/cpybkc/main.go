@@ -127,11 +127,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) status {
 	// A blank line first, because usage is the one thing on this stream that is
 	// not a diagnostic and nothing about it should read as one — a reader, and
 	// a script scanning for `^error: `, both see where the diagnostics ended.
-	var usage *usageError
-	if errors.As(err, &usage) {
+	// usageErr rather than usage, which is the help text three lines from here
+	// and a package-level constant this scope would otherwise shadow.
+	var usageErr *usageError
+	if errors.As(err, &usageErr) {
 		_, _ = io.WriteString(stderr, "\n")
 
-		writeUsage(stderr, usage.subcommand)
+		writeUsage(stderr, usageErr.subcommand)
 	}
 
 	return statusOf(err)

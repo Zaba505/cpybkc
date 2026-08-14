@@ -48,8 +48,8 @@ Flags:
   -h, --help                 print this help and exit
 
 Every input is named by a flag: cpybkc takes no operand beyond the subcommand
-name, and each flag appears at most once. docs/cli/SPEC.md is the contract this
-summarises.
+name, and each flag appears at most once — except init's --copybook, which is
+given once per file. docs/cli/SPEC.md is the contract this summarises.
 `
 
 // initUsage is what `cpybkc init --help` prints, and what accompanies a usage
@@ -65,6 +65,15 @@ summarises.
 // the split and not a caveat: the part an adopter is qualified to write is
 // exactly the part left blank, which is the reason the command can be trusted
 // with the half it does write.
+//
+// The last line is the other half of that honesty, and it is the reason this
+// text can exist before the derivation does. #214 lands the vector and #215 the
+// scaffold, so `cpybkc init` currently reads its line and fails; a help text
+// promising a written file would be documenting a command nobody can run, which
+// is what the comment above [usage] refused for the verb itself while it did not
+// parse. Saying so here is what lets --help be answered — docs/cli/SPEC.md
+// requires it under every subcommand — without it being a promise. The line goes
+// when the promise becomes true.
 const initUsage = `cpybkc init writes a layout scaffold from the copybooks it is given.
 
 Usage:
@@ -75,7 +84,7 @@ Flags:
                              once, and each path is written into the scaffold
                              as it was typed
   --out <dest>               where the scaffold is written, or - for standard
-                             output; it is never overwritten if it exists
+                             output
 
 The scaffold holds what a copybook decides — a record per 01-level, an
 alternative per REDEFINES — and leaves the rest for you: the encoding, the
@@ -84,6 +93,9 @@ a valid layout until you have. init reads no manifest and starts no generator.
 
 --help and --version are answered under every subcommand and are not init's own
 flags. docs/cli/SPEC.md is the contract this summarises.
+
+Not implemented in this build: init reads its arguments and reports that it
+cannot derive a scaffold from them yet. It exits 1 without writing anything.
 `
 
 // writeUsage writes the usage of the action named to w.

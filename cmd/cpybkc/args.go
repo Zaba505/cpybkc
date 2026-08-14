@@ -376,6 +376,14 @@ func vector(subcommand string, args []string) (invocation, error) {
 // Every name reaching here is one the action carries: [takesAValue] has already
 // said so, and a flag the action does not carry was refused above with a
 // sentence of its own. So this switch is about values and not about membership.
+//
+// The default is what keeps that sentence true rather than merely intended. A
+// flag added to [flagOwner] and not to this switch would be accepted, carry a
+// value and do nothing — a flag on a command line that reads as configuration
+// and has no effect, which is the fault the --emit-ir-format rule below exists
+// to refuse, arriving from inside the program instead. It is a failure rather
+// than a panic for [execute]'s reason: a case missing here is a bug in cpybkc,
+// and a bug is a run that failed.
 func set(inv *invocation, name, value string) error {
 	switch name {
 	case manifestFlag:
@@ -401,6 +409,9 @@ func set(inv *invocation, name, value string) error {
 		}
 
 		inv.emitIRFormat = value
+	default:
+		return fmt.Errorf("cpybkc accepted %s and then did nothing with the value it carries, "+
+			"which is a bug in cpybkc", name)
 	}
 
 	return nil
@@ -506,6 +517,30 @@ func setCopybook(inv *invocation, value string) error {
 	return nil
 }
 
+// flagOwner is which action each flag belongs to, and it is the whole of that
+// question: whether a flag is accepted, and what it is refused as when it is
+// not, are both read from here.
+//
+// One table rather than a case in each of [takesAValue] and [refuse]. The two
+// answers have to agree — a flag missing from the second is reported as
+// unrecognised, which docs/cli/SPEC.md refuses for a real flag of this program
+// in the wrong place — and nothing but the table would make them agree. That
+// failure is silent in the direction that matters: a flag added to one action's
+// case and forgotten in the other refusal produces a sentence that reads like a
+// spelling mistake, and the reader goes looking for one that is not there.
+//
+// The three flags docs/cli/SPEC.md answers before the vector is interpreted —
+// --version, --help and -h — are deliberately absent. They belong to no action,
+// they never reach a lookup here, and an entry claiming otherwise would be an
+// action's answer for a flag that is answered above the action.
+var flagOwner = map[string]string{
+	manifestFlag:     defaultAction,
+	emitIRFlag:       defaultAction,
+	emitIRFormatFlag: defaultAction,
+	copybookFlag:     initSubcommand,
+	outFlag:          initSubcommand,
+}
+
 // takesAValue reports whether a flag is one the given action carries and one
 // that carries a value.
 //
@@ -514,14 +549,9 @@ func setCopybook(inv *invocation, value string) error {
 // interpreted at all, so they never reach this. A flag that is false here is
 // refused, and [refuse] is what decides which of the two refusals it gets.
 func takesAValue(subcommand, name string) bool {
-	switch name {
-	case copybookFlag, outFlag:
-		return subcommand == initSubcommand
-	case manifestFlag, emitIRFlag, emitIRFormatFlag:
-		return subcommand == defaultAction
-	default:
-		return false
-	}
+	owner, known := flagOwner[name]
+
+	return known && owner == subcommand
 }
 
 // refuse is a flag the action does not carry.
@@ -532,17 +562,23 @@ func takesAValue(subcommand, name string) bool {
 // unrecognised sends the reader to check their spelling — a search that ends
 // nowhere, because the spelling is right. So each direction names the flag and
 // the action it belongs to, and neither reads like [unrecognisedError].
+//
+// Which direction is read off [flagOwner] rather than restated, so that a flag
+// added to that table gets the right sentence without this function being
+// touched at all.
 func refuse(subcommand, name string) error {
-	switch {
-	case subcommand == initSubcommand && (name == manifestFlag || name == emitIRFlag || name == emitIRFormatFlag):
-		return usagef("%s is not one of %s's flags: it is the default action's, and this line is %s's",
-			name, initSubcommand, initSubcommand)
-	case subcommand == defaultAction && (name == copybookFlag || name == outFlag):
-		return usagef("%s is one of %s's flags, and this line names no subcommand; "+
-			"`cpybkc %s %s …` is where it belongs", name, initSubcommand, initSubcommand, name)
-	default:
+	owner, known := flagOwner[name]
+	if !known {
 		return unrecognisedError(name)
 	}
+
+	if owner == defaultAction {
+		return usagef("%s is not one of %s's flags: it is the default action's, and this line is %s's",
+			name, subcommand, subcommand)
+	}
+
+	return usagef("%s is one of %s's flags, and this line names no subcommand; "+
+		"`cpybkc %s %s …` is where it belongs", name, owner, owner, name)
 }
 
 // under stamps a usage error with the action the line was written under, so that
@@ -554,9 +590,9 @@ func refuse(subcommand, name string) error {
 // eventually does not, and every fault below the head belongs to the same action
 // by construction.
 func under(subcommand string, err error) error {
-	var usage *usageError
-	if errors.As(err, &usage) {
-		usage.subcommand = subcommand
+	var usageErr *usageError
+	if errors.As(err, &usageErr) {
+		usageErr.subcommand = subcommand
 	}
 
 	return err

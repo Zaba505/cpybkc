@@ -344,6 +344,63 @@ func TestInitWritesToStandardOutput(t *testing.T) {
 	}
 }
 
+// TestInitAcceptsBothValueFormsForBothFlags is docs/cli/SPEC.md's "Flag form",
+// which applies to `init` unchanged: both of its flags accept the separated and
+// the joined spelling, and the value arrives the same either way.
+//
+// --copybook is exercised in both forms elsewhere; this is what keeps --out from
+// being asserted only in the separated one, where a joined value that never
+// reached [invocation.out] would pass every other test in this file.
+func TestInitAcceptsBothValueFormsForBothFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{initSubcommand, copybookFlag, "posting.cpy", outFlag, "layout.sexpr"},
+		{initSubcommand, copybookFlag + "=posting.cpy", outFlag + "=layout.sexpr"},
+		{initSubcommand, copybookFlag, "posting.cpy", outFlag + "=layout.sexpr"},
+		{initSubcommand, copybookFlag + "=posting.cpy", outFlag, "layout.sexpr"},
+	} {
+		inv, err := parse(args)
+		if err != nil {
+			t.Errorf("parse(%q): %v", args, err)
+
+			continue
+		}
+
+		if !slices.Equal(inv.copybooks, []string{"posting.cpy"}) {
+			t.Errorf("parse(%q) read the copybooks %q", args, inv.copybooks)
+		}
+
+		if inv.out != "layout.sexpr" {
+			t.Errorf("parse(%q) read %s as %q", args, outFlag, inv.out)
+		}
+	}
+}
+
+// TestASeparatedValueIsWhateverFollows pins what a flag written with no value of
+// its own takes: the next argument, whatever it looks like.
+//
+// docs/cli/SPEC.md fixes the two value spellings and says nothing about a value
+// that resembles a flag, and there is no rule that could be applied here without
+// inventing one — a path may legitimately begin with a hyphen, and refusing it
+// would make a file nobody can name. So `--copybook --out layout.sexpr` reads
+// --out as the copybook's value, and layout.sexpr as the operand neither action
+// takes: a line that is refused, with a message naming the argument that has no
+// place. That is the rule --manifest has always had, applied to a flag that
+// repeats.
+func TestASeparatedValueIsWhateverFollows(t *testing.T) {
+	t.Parallel()
+
+	inv, err := parse([]string{initSubcommand, copybookFlag, outFlag, "layout.sexpr"})
+	if err == nil {
+		t.Fatalf("parse returned %+v, want the usage error the trailing operand is", inv)
+	}
+
+	if !strings.Contains(err.Error(), "no operand") {
+		t.Errorf("parse reads %q, and does not name the argument that has no place", err)
+	}
+}
+
 // TestTwoSpellingsAreTwoCopybooks is what docs/cli/SPEC.md deliberately does not
 // decide: whether two --copybook values name one file on disk.
 //

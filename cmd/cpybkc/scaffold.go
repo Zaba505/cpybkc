@@ -36,6 +36,13 @@ import (
 // a scaffold to write, and the one line this stage has to say is a failure,
 // which [run] reports on standard error where every other fault is reported.
 // #215 is what gives it the writer, beside the file it writes.
+//
+// It does take the invocation, which it does not yet read. That is this stage's
+// whole input — which copybooks, in which order, and where the scaffold goes —
+// and the parse that produces it is what this story lands; a signature that
+// omitted it would have to be changed by #215 in the same commit that reads it,
+// and the branch in [execute] would read as though the vector were beside the
+// point.
 func scaffold(ctx context.Context, inv invocation) error {
 	// A run cancelled before it starts is a cancelled run. The check is here for
 	// the reason it is on the emitting path: there is no output tree to leave
@@ -46,9 +53,12 @@ func scaffold(ctx context.Context, inv invocation) error {
 		return cancelled(ctx, err)
 	}
 
-	return fmt.Errorf(
-		"cpybkc %s read its vector — %d copybook(s), writing to %q — and this build cannot derive a scaffold "+
-			"from them; the derivation is the story that follows this one (#215), and until it lands %s is a "+
-			"line cpybkc understands and cannot perform",
-		initSubcommand, len(inv.copybooks), inv.out, initSubcommand)
+	// The message says what the reader can act on and nothing else: the line was
+	// understood, the build cannot carry it out, and no file was written. It
+	// names no issue number — a tracker is not something the person who ran the
+	// command can reach, and the reference belongs in the comment above, where
+	// the reader who can act on it is already looking.
+	return fmt.Errorf("cpybkc %s is not implemented in this build: the arguments were read and understood, "+
+		"and the derivation that writes a scaffold from copybooks is not in it yet; nothing was written",
+		initSubcommand)
 }

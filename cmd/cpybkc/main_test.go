@@ -80,6 +80,13 @@ func TestUsageNamesTheSettledCommandSet(t *testing.T) {
 		t.Errorf("the synopsis does not lead with the bare form:\n%s", stdout)
 	}
 
+	// The at-most-once rule is stated with its one exception. --copybook is the
+	// flag that repeats, and a summary asserting the rule without it would be
+	// telling the reader the second synopsis line is a usage error.
+	if strings.Contains(stdout, "at most once.") {
+		t.Errorf("usage states the at-most-once rule without naming %s's exception:\n%s", copybookFlag, stdout)
+	}
+
 	// The flags docs/cli/SPEC.md's "Out of Scope" refuses by name, each with its
 	// reason. A usage text offering one would document a flag the parser has no
 	// case for.
@@ -131,6 +138,16 @@ func TestInitHasItsOwnUsage(t *testing.T) {
 	// The whole command's usage is unchanged by the subcommand existing.
 	if whole, _, _ := invoke(helpFlag); whole != usage {
 		t.Errorf("`cpybkc %s` wrote %q, want the whole command's usage", helpFlag, whole)
+	}
+
+	// And it says what this build does, which is read the line and fail. A help
+	// text promising a written scaffold while [scaffold] cannot write one would
+	// be documenting a command nobody can run — the fault the usage text avoided
+	// by omitting the verb entirely while it did not parse. #215 deletes the
+	// line and this assertion together, in the commit that makes the promise
+	// true.
+	if !strings.Contains(stdout, "Not implemented in this build") {
+		t.Errorf("init's usage promises a scaffold this build cannot write:\n%s", stdout)
 	}
 }
 
