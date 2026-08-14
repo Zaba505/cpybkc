@@ -219,14 +219,14 @@ with four items in it.
 | [`mixed-record-converted`](mixed-record-converted) | The same record after a correct, copybook-aware conversion from EBCDIC. |
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
-| [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading: a counted run of records, two tables of different lengths, and an item behind each that moves with its count. |
+| [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
 it came from (#67). Four are not derived from it — `float-ieee754-special`,
-`batch-fixed`, `batch-rdw` and `odo-sliding` — and three of the subsections
-below say what each cites instead. The first of the three is about something else: which entries
-Appendix A's vectors are paired into, which is a question about the entries that
-*are* derived from it.
+`batch-fixed`, `batch-rdw` and `odo-sliding` — and the subsections below say
+what each of them cites instead. The first subsection is about something else:
+which entries Appendix A's vectors are paired into, which is a question about
+the entries that *are* derived from it.
 
 ### Where "in both character sets" applies, and where it does not
 
@@ -296,9 +296,10 @@ is what the entry cites beside them.
 It is the corpus's only entry whose records are not all the same length, and
 that is the point rather than a side effect. Every other entry's record extent is
 a constant a consumer could have hardcoded; here the item behind the table is
-four bytes further along in the second detail record than in the first, so a
-consumer that resolved the table at its declared maximum, or at the first
-record's count, reads `DTL-TAIL` out of the wrong bytes. That is what
+six bytes further along in the second detail record than in the first — two
+occurrences of three bytes, at record offset 5 against 11 — so a consumer that
+resolved the table at its declared maximum, or at the first record's count,
+reads `DTL-TAIL` out of the wrong bytes. That is what
 [`packed-comp6`](packed-comp6) does for a one-byte overread, done for one whose
 size is data.
 
