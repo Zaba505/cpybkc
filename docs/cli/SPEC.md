@@ -651,16 +651,16 @@ unrecoverable act is a flag that gets written into a script once and is never
 reconsidered, and what it saves is one `rm` — a gesture the adopter performs
 deliberately and their shell records.
 
-`init` does not *extend* a layout that already exists either, and this section
-is the whole of what it says about one: a destination that is occupied fails the
-run, whatever is in it and however mature it is. A project that has a layout and
-a new copybook is served by the same derivation as a project with neither —
-[`init` does not extend a layout that already
-exists](#init-does-not-extend-a-layout-that-already-exists) settles what such a
-project is offered, and says what its adopter does instead (#212). Nothing there
-loosens anything here: there is still
-no `--force`, still no destination cpybkc writes through, and the derived forms
-reach an existing layout by way of the adopter's editor.
+All this section has to say about a layout that already exists is the rule
+above: a destination that is occupied fails the run, whatever is in it and
+however mature it is. Whether `init` has anything else to offer such a project —
+the derived forms for a copybook it has taken on — is [`init` does not extend a
+layout that already
+exists](#init-does-not-extend-a-layout-that-already-exists)'s question, and it
+is answered there, with what the adopter does instead (#212). Nothing in that
+answer loosens anything here: there is still no `--force`, still no destination
+cpybkc writes through, and the derived forms reach an existing layout by way of
+the adopter's editor.
 
 ### The scaffold is deliberately incomplete
 
@@ -865,7 +865,7 @@ Reading a manifest now and withdrawing it later would not be.
 cpybkc **MUST NOT** accept a flag naming a layout under `init`, **MUST NOT**
 read a layout there, and **MUST NOT** vary what a scaffold carries or the order
 it carries it in ([What the scaffold states, form by
-form](#what-the-scaffold-states-form-by-form)) because a layout exists. A
+form](#what-the-scaffold-states-form-by-form)) because a layout exists (#212). A
 project with six copybooks and a seventh to take on runs the same command over
 the seventh that it ran over the first six.
 
@@ -873,9 +873,11 @@ That project is not left with nothing, which is the part worth saying plainly.
 The derivation is the whole of what this command performs and it is available to
 them unchanged: `cpybkc init --copybook new.cpy --out -` writes that copybook's
 `record` forms — and the commented questions they raise — to standard output,
-where the adopter's editor picks them up and puts them where they belong in the
-layout they already have. `--out` with a scratch path does the same into a file.
-What `init` declines is not the derivation; it is the *merge*.
+which is [the spelling `--out` already carries](#the-vector-init-takes) and the
+one destination the rule above has nothing to refuse, from where the adopter's
+editor picks them up and puts them where they belong in the layout they already
+have. `--out` with a scratch path does the same into a file. What `init`
+declines is not the derivation; it is the *merge*.
 
 **What is emitted is the whole scaffold, and the adopter prunes it.** Not a
 fragment: the header comment, the commented `encoding` and the commented
@@ -887,16 +889,32 @@ membership is conditional on a file cpybkc was told about. `sequence` is where
 that stops being a small change: it names *every* record once, so a `sequence`
 over the new records alone is not a shorter sequence but a list the adopter has
 to splice into theirs, and a scaffold that omitted it would drop the one form
-that has to be edited rather than pasted. A header and two commented forms to
-delete is the smaller imposition, and it needs no second description of what a
-scaffold is.
+that has to be edited rather than pasted.
+
+So the prune is not uniform, and what the adopter does with each part is worth
+writing down. The header comment, the commented `encoding` and the commented
+`framing` are deleted, because their layout has already answered them — as is a
+commented `copybook-reading`, where it has. The `record` forms and the commented
+`rename`, `discriminate` and `discriminate-variant` questions raised over them
+move across as they stand. The commented `sequence` is the one part that is read
+rather than moved: the new record names come out of it and into the sequencing
+expression the layout already carries, at whatever position in that expression
+the adopter's file puts them. That last act is the only one this command could
+not have performed for them under any of the shapes weighed here — where a
+record belongs in a file's order is not in a copybook — which is what makes a
+whole scaffold the smaller imposition, and it needs no second description of
+what a scaffold is.
 
 **Record names are checked by the layout reader, not by `init`.** [How a
 combination's record name is chosen](#how-a-combinations-record-name-is-chosen)
 holds within a run, and a run that read no layout cannot see the names one
 carries — so a derived name colliding with a name the adopter's layout already
-holds is reported when that layout is next resolved, against both occurrences
-and with a span apiece. That is the division [The scaffold is deliberately
+holds is caught after the paste rather than before it, by the reader: a
+duplicate record name is one of the faults [the layout reader
+reports](../layout/SPEC.md#validation-and-diagnostics) (#24), over a file it has
+in front of it and [with a span for each
+occurrence](../layout/SPEC.md#every-diagnostic-carries-a-span-and-some-carry-two).
+That is the division [The scaffold is deliberately
 incomplete](#the-scaffold-is-deliberately-incomplete) already draws: what the
 finished layout is missing is reported by the reader that will have to accept
 it, rather than by a second implementation inside `init` that would have to be
@@ -1486,20 +1504,26 @@ the only unrecoverable act this command can perform.
 ### Extending a layout that already exists
 
 `init` neither merges forms into a layout nor shapes what it emits around one.
-There is no `--layout` flag, no flag naming a destination that is not empty, no
-partial scaffold, and no in-place rewrite of a layout the adopter has edited.
+There is no `--layout` flag and no other way to name a layout to it, no partial
+scaffold shaped by one, and no in-place rewrite of a layout the adopter has
+edited. The occupied-destination rule is unchanged and is stated where it
+belongs, under [Where the scaffold is written, and why nothing is ever
+overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten).
 
 Reason: argued in full under [`init` does not extend a layout that already
 exists](#init-does-not-extend-a-layout-that-already-exists) — the derivation is
 already theirs and only the paste is being declined, so the exclusion costs a
 project with a mature layout nothing it cannot do today. What the adopter does
 instead is run `cpybkc init --copybook <new.cpy> --out -`, or `--out` a scratch
-path: what comes back is the ordinary whole scaffold for that copybook, and they
-move the `record` forms and the commented questions they want into the layout
-they have, deleting the header, `encoding` and `framing` their layout has
-already answered. Whether a derived record name collides with one that layout
-carries is answered by the reader the next time the layout is resolved, not by
-`init`, which read no layout to compare against (#212).
+path: what comes back is the ordinary whole scaffold for that copybook. They
+move the `record` forms and the commented questions raised over them into the
+layout they have, delete the header, `encoding` and `framing` their layout has
+already answered, and take the new record names out of the commented `sequence`
+and into the sequencing expression their layout already carries — the one part
+of the scaffold that is read rather than moved. Whether a derived record name
+collides with one that layout carries is answered by the reader the next time
+the layout is resolved, not by `init`, which read no layout to compare against
+(#212).
 
 ### Also out of scope
 
