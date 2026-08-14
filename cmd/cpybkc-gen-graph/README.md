@@ -2,7 +2,7 @@
 
 The diagram generator: it reads a resolved cpybkc IR descriptor and writes a
 state-machine diagram of the sequencing automaton, with each record's items
-beneath the state that reads it.
+tabled beneath it.
 
 It answers the question an adopter asks before they trust a layout — *the right
 records, in the right order, told apart on the right bytes, at the right
@@ -19,12 +19,9 @@ Like `cpybkc-gen-go` it imports `github.com/Zaba505/cpybkc/irpb` and the
 standard library and nothing else from this repository, so the surface it
 exercises is the one a third-party generator author has.
 
-> **It draws the automaton, and not yet each record's items.** The states, the
-> transitions between them, the record each admits and everything that *chooses*
-> a transition — its predicate, its guards and its bindings, with a table of the
-> registers those bindings write — are in the Mermaid document today. Each
-> record's items with their offsets are not; that is a story of its own.
-> `format=dot` is still an empty digraph.
+> **`format=dot` is still an empty digraph.** Everything below describes the
+> Mermaid document, which is what `format=mermaid` — the default — writes. The
+> Graphviz rendering is a story of its own.
 
 ## Invocation
 
@@ -60,7 +57,7 @@ them:
 | Key | Required | Values | Default | What it is |
 |---|---|---|---|---|
 | `format` | no | `mermaid`, `dot` | `mermaid` | The notation the document is written in. |
-| `records` | no | `all`, `none` | `all` | Whether each record's items are drawn beneath the state that reads it. |
+| `records` | no | `all`, `none` | `all` | Whether each record's items are tabled beneath the diagram. |
 
 An option this generator does not recognise is an **error**, not something
 ignored — as is either key given twice, or a value outside its set. An ignored
@@ -114,8 +111,10 @@ or the paths in the argument vector.
 ### What the Markdown document holds
 
 A heading, the file's framing as a sentence, a `mermaid` block holding the
-sequencing automaton as a `stateDiagram-v2`, and — where the layout has any — a
-table of the registers the automaton carries between records:
+sequencing automaton as a `stateDiagram-v2`, — where the layout has any — a
+table of the registers the automaton carries between records, and — unless
+`records=none` said otherwise — one table per record of its items and their
+offsets:
 
 ```mermaid
 stateDiagram-v2
@@ -202,6 +201,93 @@ descriptor](../../docs/ir/SPEC.md#the-automaton-remembers-in-registers) rather
 than an empty cell. The section is left out entirely for a layout whose
 sequencing needs no memory, which carries no register node at all.
 
+#### The item tables
+
+Beneath the diagram, one table per record the automaton admits, listing its
+items in containment order:
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1 | REC-TYPE | DISPLAY | X(1) | always |
+| 1 | 2 | ENTRY-COUNT | DISPLAY | 9(2) | always |
+| 3 | 1 | *slack* | — | — | always |
+| 4 | 4 × ENTRY-COUNT | ENTRIES | — | — | occurs ENTRY-COUNT times (1 to 20) |
+| 4 | 1 | ENTRIES.ENTRY-KIND | DISPLAY | X(1) | always |
+| 5 | 3 | ENTRIES.*variant* | — | — | always |
+| 5 | 3 | ENTRIES.CASH | — | — | when ENTRIES.ENTRY-KIND = 0xC1 |
+| 5 | 3 | ENTRIES.CASH.CASH-AMOUNT | PACKED-DECIMAL | S9(3)V9(2) | always |
+| 5 | 3 | ENTRIES.CHEQUE-NUMBER | DISPLAY | 9(5) | when ENTRIES.ENTRY-KIND = 0xC3 |
+| 4 + 4 × ENTRY-COUNT | 12 | TRAILERS | — | — | occurs 3 times |
+| 16 + 4 × ENTRY-COUNT | 4 | INDEX-SLOT | INDEX | — | always |
+
+**One table per record, not per transition.** A record admitted from three
+states is the same bytes each time, so three tables would be three copies of one
+fact and you would be comparing them for a difference that cannot exist. They
+appear in the order the diagram first admits each, which is the order a file
+holds them in.
+
+**An item is named by its path within the record**, without the record's own
+top level — the same convention a predicate takes in an edge label, and for the
+same reason: the heading above the table already says which record it is.
+
+**Two things in these tables are derived rather than read**, and both are said in
+the document itself as well as here, because a reader comparing a column against
+a copybook has to know which side is authoritative before a disagreement means
+anything.
+
+The first is the **offset**. No IR node carries one: [position is stated once,
+as ordering and width](../../docs/ir/SPEC.md#ordering-and-width-and-no-offset),
+so that a producer cannot state it a second time and be wrong in a way no
+consumer can detect. The cost that section names is that "every consumer is free
+to get it wrong on its own", and this generator is now one of them — every
+offset above is its own arithmetic over the widths ahead of the item, counting
+one occurrence, the first, of every group that encloses it and repeats.
+
+The second is the **picture**. The IR carries no PICTURE character-string
+anywhere; it carries a category, the number of stored digit positions, the
+scale, whether the item is signed and where its sign sits, and the column is
+this generator's spelling of those five facts. `S9(5)V99`, `S9(5)V9(2)` and
+`S99999V99` are one item and this prints one of them, so a picture that does not
+match your copybook character for character is not necessarily a disagreement.
+A numeric-edited item's editing characters are carried nowhere at all: the
+category is named and the digits it stores are shown beside it, rather than a
+mask being invented out of the digit count.
+
+**A data-dependent offset is symbolic, never a number.** Where something ahead
+of an item is a table whose number of occurrences is [read at run
+time](../../docs/ir/SPEC.md#a-variable-record-is-a-sum-with-a-variable-term),
+there is no number to print: the offset carries its fixed part and one term per
+such table, naming the count — a field by its path within the record, or a
+register by the name the register table gives it.
+
+**Slack appears as a row.** [Any byte of a record no item
+occupies](../../docs/ir/SPEC.md#slack-is-a-node-not-a-rule) is a node of its own
+carrying its width, and a table that left them out would show a gap between two
+offsets that you would take for an error in this generator. They have no names,
+so the cell reads `*slack*` in this generator's own words rather than the
+copybook's.
+
+**A variant's arms share one offset**, which is what the repeated number down
+the Offset column is saying: they are [alternatives over one run of
+bytes](../../docs/ir/SPEC.md#a-variant-is-chosen-once-per-occurrence) and not
+items that follow one another. An arm has no name of its own, so what tells them
+apart is the predicate that selects it, in the last column.
+
+**The last column says what makes an item present and how many times**: `always`
+for an item that is there once and unconditionally, `occurs 12 times` for a
+constant table, `occurs COUNT-FIELD times (1 to 20)` for an `OCCURS DEPENDING
+ON` one with the bounds the copybook declared, and `when …` for an arm.
+
+Where an item's USAGE or category is something the descriptor does not say —
+a `USAGE` outside the closed set, a `DISPLAY` item carrying no picture, an
+`INDEX` item carrying one, an unsigned item stating where its sign sits — the
+document is refused rather than drawn with a blank or a guess, on the same terms
+as any other malformed descriptor below.
+
+`records=none` leaves this whole section out. Nothing above the diagram changes,
+and a record's items are not read at all under it — so a descriptor whose
+sequencing is sound and whose item bodies are not still produces the diagram.
+
 #### When a reference does not resolve
 
 Every reference this document draws is resolved by identifier and by the kind
@@ -228,10 +314,10 @@ which is the property being bought.
 
 An automaton admitting no record produces a document saying so, with the start
 state still drawn. It is a layout describing a file of no records, which is a
-thing to look at rather than nothing to draw.
-
-`--opt records=` has no effect yet: it governs the item tables, which are a
-story of their own.
+thing to look at rather than nothing to draw — and there are no item tables
+beneath it either, since nothing is admitted to table. A record whose top level
+holds no item does get a heading, with a sentence in place of the table saying
+that it describes no bytes at all.
 
 ## The IR version check
 

@@ -77,6 +77,7 @@ func TestARecordNameCarryingAMermaidMetacharacterDoesNotBreakTheDiagram(t *testi
 					unframedFile(1, 2),
 					stateNode(2, true, 30),
 					recordNode(4, testCase.named, ""),
+					groupNode(20, testCase.named),
 					transitionNode(30, 4, 2),
 				},
 			})
@@ -137,7 +138,9 @@ func TestTheStartStateAndEveryAcceptingStateAreMarked(t *testing.T) {
 			stateNode(3, true),
 			stateNode(4, true),
 			recordNode(5, "LEFT", ""),
+			groupNode(21, "LEFT"),
 			recordNode(6, "RIGHT", ""),
+			groupNode(22, "RIGHT"),
 			transitionNode(30, 5, 3),
 			transitionNode(31, 6, 4),
 		},

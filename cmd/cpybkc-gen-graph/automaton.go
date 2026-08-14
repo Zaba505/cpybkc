@@ -343,11 +343,23 @@ func predicateOf(nodes nodeSet, t *irpb.Transition, record *irpb.Record) (predic
 		return predicate{}, nil
 	}
 
-	id := t.GetPredicateId()
+	return predicateResolved(nodes, t.GetPredicateId(), record, "the predicate selecting a transition")
+}
 
+// predicateResolved is one predicate node, read against the record whose bytes
+// it tests. position is what a diagnostic calls the place the reference came
+// from.
+//
+// The two positions that carry one are a transition, where it chooses which
+// record is in front of the reader, and an arm of a variant, where it chooses
+// which alternative one occurrence holds. docs/ir/SPEC.md points both at the
+// same message deliberately — "one closed set of tests, not a second set for
+// arms" — so this generator reads them with one function rather than wording the
+// same sentence twice.
+func predicateResolved(nodes nodeSet, id uint64, record *irpb.Record, position string) (predicate, error) {
 	node, ok := nodes.predicate(id)
 	if !ok {
-		return predicate{}, unresolved(id, "the predicate selecting a transition")
+		return predicate{}, unresolved(id, position)
 	}
 
 	p := predicate{carried: true}

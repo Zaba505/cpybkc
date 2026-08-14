@@ -56,7 +56,7 @@ const goldenDir = "testdata"
 func TestTheDocumentEachFramingProducesIsTheGolden(t *testing.T) {
 	t.Parallel()
 
-	for name, d := range goldens() {
+	for name, g := range goldens() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -67,7 +67,7 @@ func TestTheDocumentEachFramingProducesIsTheGolden(t *testing.T) {
 				t.Fatalf("reading the golden: %v", err)
 			}
 
-			got := writtenDocument(t, d())
+			got := writtenDocument(t, g.descriptor(), g.opts...)
 
 			if got != string(want) {
 				t.Errorf("the document for %s is not %s\n got:\n%s\nwant:\n%s", name, path, got, want)
@@ -93,6 +93,37 @@ func TestTheDocumentEachFramingProducesIsTheGolden(t *testing.T) {
 // command they would have to run.
 const countedGolden = "counted"
 
+// The two goldens that are neither a framing nor the counted run.
+//
+// [variableGolden] is the item tables' own: one record whose offsets are a sum
+// with a variable term, a slack run, a variant and a constant table, and one
+// record that is every USAGE and every category of picture this generator can
+// spell. It exists because the arithmetic in records.go is the part of this
+// generator a reader trusts without being able to check — an offset one byte out
+// draws exactly as confidently as a right one — and the whole file held against
+// a checked-in copy is what puts it in front of a reviewer.
+//
+// [noRecordsGolden] is the same automaton as [countedGolden] under
+// `records=none`, and the pair is the option: two files that differ by the
+// section, over one descriptor, so that "the tables are omitted entirely" is a
+// diff rather than a claim.
+const (
+	variableGolden  = "variable"
+	noRecordsGolden = "counted-records-none"
+)
+
+// golden is one checked-in document: the descriptor it is drawn from, and the
+// options the run that draws it states.
+//
+// The options are part of the golden and not a property of the harness, because
+// what this generator writes is a function of both — `records=none` over the
+// counted automaton is a different document from `records=all` over it, and a
+// list carrying only descriptors could not say so.
+type golden struct {
+	descriptor func() *irpb.Descriptor
+	opts       []string
+}
+
 // goldens is every document checked in beneath testdata/, by the name of the
 // file holding it.
 //
@@ -101,12 +132,19 @@ const countedGolden = "counted"
 // schema lands here as a golden nobody wrote, and a file left behind by a
 // rename is one a reviewer would otherwise keep reading as though it described
 // something.
-func goldens() map[string]func() *irpb.Descriptor {
-	all := map[string]func() *irpb.Descriptor{countedGolden: countedAutomaton}
+func goldens() map[string]golden {
+	all := map[string]golden{
+		countedGolden:  {descriptor: countedAutomaton},
+		variableGolden: {descriptor: variableAutomaton},
+		noRecordsGolden: {
+			descriptor: countedAutomaton,
+			opts:       []string{optFlag, recordsOption + "=" + recordsNone},
+		},
+	}
 
 	for _, framing := range framings() {
 		file := framing.file
-		all[framing.name] = func() *irpb.Descriptor { return ordersAutomaton(file) }
+		all[framing.name] = golden{descriptor: func() *irpb.Descriptor { return ordersAutomaton(file) }}
 	}
 
 	return all
