@@ -70,6 +70,13 @@ type script struct {
 	// Break is how the adapter stops being an adapter, keyed by the entry it
 	// does so on. Its values are the constants below.
 	Break map[string]string
+
+	// DeafAfterHello is an adapter that answers the handshake and then stops
+	// attending to its standard input altogether — a generator that deadlocked
+	// in its own startup, seen from the engine's side. It never reads and never
+	// answers, so what it costs the engine is a write that cannot complete
+	// rather than an answer that does not come.
+	DeafAfterHello bool
 }
 
 // entryScript is one entry's answers.
@@ -160,6 +167,10 @@ func (f *fakeAdapter) run() int {
 		switch got.Op {
 		case "hello":
 			f.hello(got.ID)
+
+			if f.script.DeafAfterHello {
+				time.Sleep(time.Hour)
+			}
 		case "generate":
 			names := make([]string, 0, len(got.Entries))
 			for _, one := range got.Entries {
@@ -368,7 +379,8 @@ func transcript(t *testing.T, path string) string {
 	return string(b)
 }
 
-// corpus is the entries the tests are written against, by name.
+// corpus is the entries the tests are written against, by name, or the whole
+// corpus where a test names none.
 //
 // Real entries and not invented ones: what makes a mismatch explainable is the
 // descriptor, and a hand-written descriptor in a test is a second author's
@@ -379,6 +391,10 @@ func corpus(t *testing.T, names ...string) []*conformance.Entry {
 	entries, err := conformance.Load(conformance.CorpusPath(repoRoot(t)))
 	if err != nil {
 		t.Fatalf("the conformance corpus: %v", err)
+	}
+
+	if len(names) == 0 {
+		return entries
 	}
 
 	held := make([]*conformance.Entry, 0, len(names))

@@ -97,11 +97,13 @@ func TestTheIdentifierIsStrictlyIncreasingFromOne(t *testing.T) {
 // whether the adapter's author could reproduce a document they were handed, and
 // nothing in a passing result would distinguish that from a decoder.
 //
-// What is asserted is every frame the engine sent, against every scalar the
-// entry states. The descriptor and the input bytes are asserted to be there
-// too, because a run that sent nothing at all would pass the first assertion.
+// What is asserted is every frame the engine sent, against every scalar every
+// entry states — at every depth, in every record, and including the text of a
+// failure, since a leak one group down is the same leak. The descriptor and the
+// input bytes are asserted to be there too, because a run that sent nothing at
+// all would pass the first assertion.
 func TestTheAdapterIsNeverGivenTheExpectedValues(t *testing.T) {
-	entries := corpus(t, "packed-ebcdic")
+	entries := corpus(t, "packed-ebcdic", "zoned-ebcdic", "packed-invalid-sign", "batch-rdw")
 
 	open, sent := door(t, script{Entries: answers(t, entries)})
 
@@ -111,25 +113,67 @@ func TestTheAdapterIsNeverGivenTheExpectedValues(t *testing.T) {
 
 	said := transcript(t, sent)
 
-	held, ok := entries[0].Values.Records[0].Value.(map[string]any)
-	if !ok {
-		t.Fatalf("%s: the first record is not a group", entries[0].Name)
+	looked := 0
+
+	for _, entry := range entries {
+		for _, spelled := range scalars(entry.Values) {
+			// A short value is passed over rather than searched for. The frames
+			// carry the descriptor and the input as base64, so a one or two
+			// character value occurs in them by coincidence — and a test that
+			// failed on a coincidence is a test somebody deletes.
+			if len(spelled) < 3 {
+				continue
+			}
+
+			looked++
+
+			if strings.Contains(said, spelled) {
+				t.Errorf("the engine sent %q, which is part of what %s states", spelled, entry.Name)
+			}
+		}
 	}
 
-	for name, value := range held {
-		spelled, ok := value.(string)
-		if !ok {
-			continue
-		}
-
-		if strings.Contains(said, spelled) {
-			t.Errorf("the engine sent %s, which is what the entry says %s holds", spelled, name)
-		}
+	if looked == 0 {
+		t.Fatal("no expected value was long enough to look for, so this test asserted nothing")
 	}
 
 	if !strings.Contains(said, `"descriptor"`) || !strings.Contains(said, `"input"`) {
 		t.Error("the engine sent neither a descriptor nor any input, so it asked the adapter nothing")
 	}
+}
+
+// scalars is every value a values document states, at every depth, and the text
+// of its failure.
+func scalars(values *conformance.Values) []string {
+	var (
+		found []string
+		walk  func(value any)
+	)
+
+	walk = func(value any) {
+		switch held := value.(type) {
+		case map[string]any:
+			for _, one := range held {
+				walk(one)
+			}
+		case []any:
+			for _, one := range held {
+				walk(one)
+			}
+		case string:
+			found = append(found, held)
+		}
+	}
+
+	for _, record := range values.Records {
+		walk(record.Value)
+	}
+
+	if values.Failure != "" {
+		found = append(found, values.Failure)
+	}
+
+	return found
 }
 
 // TestAnAdapterThatCrashesOnOneEntryDoesNotCostTheRest is the fault isolation
@@ -150,6 +194,13 @@ func TestAnAdapterThatCrashesOnOneEntryDoesNotCostTheRest(t *testing.T) {
 	report, err := (&engine.Engine{Door: open}).Run(t.Context(), entries)
 	if err != nil {
 		t.Fatalf("the run could not be made: %v", err)
+	}
+
+	// Every entry is reported, which is the assertion the outcomes below rest
+	// on: an entry the run dropped altogether is the failure this test is about,
+	// and a lookup of a name that is not there says nothing on its own.
+	if len(report.Results) != len(entries) {
+		t.Fatalf("the run reported %d of %d entries:\n%v", len(report.Results), len(entries), report)
 	}
 
 	outcomes := outcomes(report)
@@ -190,7 +241,14 @@ func TestThePerCaseDeadlineIsTheEngines(t *testing.T) {
 		Break:   map[string]string{"zoned-ebcdic": breakHang},
 	})
 
-	report, err := (&engine.Engine{Door: open, Deadline: 200 * time.Millisecond}).Run(t.Context(), entries)
+	// Two seconds rather than something tighter because this deadline bounds
+	// the handshake too, and a handshake here is a process spawn: a fork, a Go
+	// runtime starting up and a script being read, twice over, since the hang
+	// costs a restart. What the test needs is only that the hang resolves in a
+	// fraction of the suite's own wall clock, and a budget that also has to
+	// cover an exec on a loaded machine is a budget that fails for a reason
+	// this test is not about.
+	report, err := (&engine.Engine{Door: open, Deadline: 2 * time.Second}).Run(t.Context(), entries)
 	if err != nil {
 		t.Fatalf("the run could not be made: %v", err)
 	}
@@ -207,6 +265,49 @@ func TestThePerCaseDeadlineIsTheEngines(t *testing.T) {
 
 	if outcomes["packed-invalid-sign"] != engine.Passed {
 		t.Errorf("the entry behind the hang did not pass:\n%v", report)
+	}
+}
+
+// TestAnAdapterThatStopsReadingIsNotAHangTheEngineWaitsOut bounds the half of
+// an operation that is easy to leave unbounded.
+//
+// An adapter that answers the handshake and then stops attending to its
+// standard input — one that deadlocked in its own startup — is not an adapter
+// that fails to answer. It is one the engine cannot finish writing to, and the
+// generate frame carries every entry's descriptor at once, so it is comfortably
+// the frame that fills a pipe. A deadline on the answer alone would never be
+// reached, because the request it was waiting to have answered was never sent.
+//
+// The corpus is doubled until the frame cannot fit in any pipe buffer a system
+// might have — a megabyte or so, against Linux's default of 64 KiB — because a
+// write that happens to fit succeeds and tests the read deadline instead.
+func TestAnAdapterThatStopsReadingIsNotAHangTheEngineWaitsOut(t *testing.T) {
+	entries := corpus(t)
+
+	for len(entries) < 1024 {
+		entries = append(entries, entries...)
+	}
+
+	open, _ := door(t, script{DeafAfterHello: true})
+
+	report, err := (&engine.Engine{
+		Door: open, Deadline: 2 * time.Second, BuildDeadline: 2 * time.Second,
+	}).Run(t.Context(), entries)
+	if err != nil {
+		t.Fatalf("the run could not be made: %v", err)
+	}
+
+	if len(report.Results) != len(entries) {
+		t.Fatalf("the run reported %d of %d entries", len(report.Results), len(entries))
+	}
+
+	if !strings.Contains(reported(report, entries[0].Name), "did not read") {
+		t.Errorf("the fault is %q, and the adapter stopped reading rather than stopped answering",
+			reported(report, entries[0].Name))
+	}
+
+	if report.Restarts != 0 {
+		t.Errorf("the run started %d fresh adapters over a generate that would block again", report.Restarts)
 	}
 }
 

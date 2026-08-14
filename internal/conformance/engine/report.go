@@ -21,9 +21,17 @@ import (
 type Outcome int
 
 const (
+	// Unknown is the zero value, and is never a verdict a run reaches. It is
+	// first so that nothing defaults to having passed: a [Result] nobody filled
+	// in, or an entry looked up in a map of outcomes it was never added to,
+	// reads as an entry nothing is known about rather than as one that
+	// succeeded. That is the one direction a conformance report must not
+	// default in — an entry lost to a broken adapter has told nobody anything.
+	Unknown Outcome = iota
+
 	// Passed is an entry the adapter answered and whose answer is what the
 	// entry states — in both directions, where the adapter declared a writer.
-	Passed Outcome = iota
+	Passed
 
 	// Mismatched is an entry the adapter answered and whose answer is not what
 	// the entry states. Something is wrong with the generator or with the entry,
@@ -38,6 +46,8 @@ const (
 
 func (o Outcome) String() string {
 	switch o {
+	case Unknown:
+		return "UNKNOWN"
 	case Passed:
 		return "PASS"
 	case Mismatched:
@@ -169,7 +179,10 @@ func (r *Report) Counts() (passed, mismatched, faulted int) {
 			passed++
 		case Mismatched:
 			mismatched++
-		case Faulted:
+		case Faulted, Unknown:
+			// An outcome nobody set is counted with the faults rather than
+			// dropped, so that the three numbers always sum to the entries and
+			// a result that was never filled in cannot go missing from a total.
 			faulted++
 		}
 	}

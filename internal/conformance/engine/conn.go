@@ -99,13 +99,8 @@ func (c *conn) exchange(ctx context.Context, deadline time.Duration, req *reques
 		return nil, &brokenError{Err: err}
 	}
 
-	// One Write of the whole line, which is the flush the contract requires
-	// after every frame: the conversation is strictly alternating, so a side
-	// that buffered a frame would deadlock against a peer waiting for it, and
-	// the peer has no way out — an adapter blocked on a request the engine
-	// never flushed is forbidden to time out, to exit, and to answer.
-	if _, err := c.process.Stdin().Write(frame); err != nil {
-		return nil, &brokenError{Err: fmt.Errorf("the adapter stopped reading its input during %s: %w", req.Op, err)}
+	if err := c.write(ctx, deadline, req, frame); err != nil {
+		return nil, err
 	}
 
 	got, err := c.read(ctx, deadline, req)
@@ -125,6 +120,53 @@ func (c *conn) exchange(ctx context.Context, deadline time.Duration, req *reques
 	}
 
 	return got, nil
+}
+
+// write puts one frame on the adapter's standard input, bounded by the same
+// deadline as the answer to it.
+//
+// One Write of the whole line, which is the flush the contract requires after
+// every frame: the conversation is strictly alternating, so a side that
+// buffered a frame would deadlock against a peer waiting for it, and the peer
+// has no way out — an adapter blocked on a request the engine never flushed is
+// forbidden to time out, to exit, and to answer.
+//
+// The bound is the half that is easy to leave out, and leaving it out is a hang
+// with no way out either. An adapter that stops *reading* — one that deadlocked
+// in its own startup, or that answered the handshake and then stopped attending
+// to its input — parks this write forever once the pipe's buffer is full, and
+// the generate frame carries every entry's descriptor at once, so it is
+// comfortably the frame that fills one. A deadline on the read alone would
+// never be reached, because the request it was waiting to have answered was
+// never sent.
+func (c *conn) write(ctx context.Context, deadline time.Duration, req *request, frame []byte) error {
+	// Written in a goroutine for the reason the read is: there is no way to
+	// interrupt a blocking write to a pipe, and what ends it is the process
+	// being killed. The channel is buffered so that a write which completes
+	// after the deadline was given up on is discarded rather than leaking the
+	// goroutine holding it.
+	written := make(chan error, 1)
+
+	go func() {
+		_, err := c.process.Stdin().Write(frame)
+		written <- err
+	}()
+
+	timer := time.NewTimer(deadline)
+	defer timer.Stop()
+
+	select {
+	case err := <-written:
+		if err != nil {
+			return &brokenError{Err: fmt.Errorf("the adapter stopped reading its input during %s: %w", req.Op, err)}
+		}
+
+		return nil
+	case <-timer.C:
+		return &brokenError{Err: fmt.Errorf("the adapter did not read the %s request within %s", req.Op, deadline)}
+	case <-ctx.Done():
+		return &brokenError{Err: fmt.Errorf("the run was cancelled while %s was being sent: %w", req.Op, ctx.Err())}
+	}
 }
 
 // read waits for one frame, or for the deadline.

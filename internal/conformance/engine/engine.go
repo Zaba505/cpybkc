@@ -141,7 +141,7 @@ func (e *Engine) pass(ctx context.Context, session *session, entries []*conforma
 		// entry, so neither is retried: an adapter that could not generate the
 		// corpus would fail to generate it again.
 		if broke(err) {
-			session.abandon(err)
+			err = session.abandon(err)
 		} else {
 			report.note(session.bye(ctx, e.grace()))
 		}
@@ -177,8 +177,7 @@ func (e *Engine) pass(ctx context.Context, session *session, entries []*conforma
 
 		// The conversation is over. The entries behind this one are carried to
 		// a fresh process, which is what keeps one crash from costing the run.
-		session.abandon(err)
-		report.fault(entry, err)
+		report.fault(entry, session.abandon(err))
 
 		return entries[i+1:]
 	}
@@ -222,9 +221,7 @@ func (e *Engine) hello(ctx context.Context, report *Report) (*session, error) {
 	session := &session{conn: newConn(process)}
 
 	if err := session.handshake(ctx, e.deadline()); err != nil {
-		session.abandon(err)
-
-		return nil, err
+		return nil, session.abandon(err)
 	}
 
 	// The first adapter's declaration is the run's. A restarted process that
@@ -519,18 +516,30 @@ func (s *session) bye(ctx context.Context, grace time.Duration) error {
 	return nil
 }
 
-// abandon ends a conversation that is already over, and folds what the adapter
-// wrote to standard error into the fault that ended it — which an engine SHOULD
-// capture and quote beside a fault, and which is usually the only explanation
-// there is for a stream that stopped parsing.
+// abandon ends a conversation that is already over, and hands back the fault
+// that ended it with what the adapter wrote to standard error folded in — which
+// an engine SHOULD capture and quote beside a fault, and which is usually the
+// only explanation there is.
 //
-// It is called before the fault is reported, so that the report carries the
-// diagnostics rather than acquiring them afterwards.
-func (s *session) abandon(err error) {
+// Every fault gets it and not only a broken one. A refused handshake is the
+// case where it matters most: the run failed before a single entry was asked,
+// so the adapter's own words are the only evidence of why, and an engine that
+// captured them and then dropped them because the failure was orderly would
+// throw away the whole explanation.
+func (s *session) abandon(err error) error {
 	diagnostics := s.conn.abandon()
-
-	var broken *brokenError
-	if diagnostics != "" && errors.As(err, &broken) {
-		broken.Diagnostics = diagnostics
+	if diagnostics == "" || err == nil {
+		return err
 	}
+
+	// A broken conversation already renders its diagnostics, so it takes them
+	// rather than being wrapped again.
+	var broken *brokenError
+	if errors.As(err, &broken) {
+		broken.Diagnostics = diagnostics
+
+		return err
+	}
+
+	return fmt.Errorf("%w\nthe adapter's standard error:\n%s", err, diagnostics)
 }
