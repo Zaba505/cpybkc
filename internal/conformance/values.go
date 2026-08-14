@@ -126,17 +126,20 @@ func decodeOne(b []byte, document any) error {
 
 // check holds a values document to the descriptor of the entry it belongs to.
 //
-// What it checks is the record names, and only those. A pass walking the node
-// tree beside every value would be a second reading of what a descriptor means
-// — the reading the generated code already performs, and the one thing the
-// corpus exists to compare answers about — so a value of the wrong shape is
-// left to be reported as the disagreement it is, by [Compare], against a runner
-// that actually decoded the bytes.
+// What it checks is the record names and the spelling of every scalar it can
+// reach, and neither the shape of a value nor what a value says. A pass holding
+// the document's *shape* to the node tree would be a second reading of what a
+// descriptor means — the reading the generated code already performs, and the
+// one thing the corpus exists to compare answers about — so a value of the
+// wrong shape is left to be reported as the disagreement it is, by [Compare],
+// against a runner that actually decoded the bytes.
 //
 // A name is worth checking here because it is the one part of a values document
 // that no runner can disagree with: the names come out of the descriptor, so an
 // entry naming a record the descriptor does not carry is a typo that would
-// otherwise be reported as every record in the file being unexpected.
+// otherwise be reported as every record in the file being unexpected. A
+// spelling is worth checking for the same reason and is [Values.spellings],
+// which says at length why it walks the tree where this does not (#196).
 func (v *Values) check(descriptor *irpb.Descriptor) error {
 	names := recordNames(descriptor)
 
@@ -148,6 +151,8 @@ func (v *Values) check(descriptor *irpb.Descriptor) error {
 				ValuesName, record.Name, strings.Join(names, ", ")))
 		}
 	}
+
+	faults = append(faults, v.spellings(descriptor)...)
 
 	return joined(faults)
 }

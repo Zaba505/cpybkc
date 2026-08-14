@@ -110,6 +110,11 @@ func TestEveryEntryLayoutIsWellFormed(t *testing.T) {
 // rather than pass quietly.
 func TestAnEntryTheFormatRefuses(t *testing.T) {
 	tests := map[string]struct {
+		// entry is the shipped entry the case breaks, and "" is the one entry
+		// most of them break. A case names another where the rule it is about
+		// needs an item no other entry carries — a float, whose form no entry
+		// of ordinary items can be wrong about.
+		entry  string
 		breaks func(t *testing.T, dir string)
 		says   string
 	}{
@@ -188,11 +193,59 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 			},
 			says: "unknown field",
 		},
+
+		// One case per rule of the value language, each of them a spelling of
+		// the right value (#196). They are here rather than only beside the
+		// grammars because what this asserts is that the loader reaches them:
+		// a rule the walk never applies to an entry's values is a rule that
+		// passes its own tests and refuses nothing.
+		"a number carrying a leading zero": {
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"42"`, `"042"`)
+			},
+			says: numberHasNoZero,
+		},
+		"a number written as a JSON number": {
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"42"`, `42`)
+			},
+			says: scalarIsAString,
+		},
+		"a character item padded to its width": {
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"A001"`, `"A001 "`)
+			},
+			says: textIsTrimmed,
+		},
+		"a float in a form the corpus does not write": {
+			entry: "float-ieee754",
+			breaks: func(t *testing.T, dir string) {
+				rewriteValues(t, dir, `"0x1p+0"`, `"0x1P+0"`)
+			},
+			says: floatIsWritten,
+		},
+		"a run of bytes that is not base64": {
+			breaks: func(t *testing.T, dir string) {
+				// The corpus carries no INDEX, POINTER or NATIONAL item, so
+				// the mutation is on the side that decides the form rather
+				// than on the value: LINE-SKU becomes an INDEX item, and the
+				// three characters the entry states for it stop being a
+				// padded base64 quantum. An entry that carries one of the
+				// three usages is the day this case states the value instead.
+				asIndexItem(t, dir, "LINE-SKU")
+			},
+			says: bytesAreBase64,
+		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			dir := entryCopy(t)
+			entry := test.entry
+			if entry == "" {
+				entry = "orders-fixed"
+			}
+
+			dir := entryCopy(t, entry)
 
 			test.breaks(t, dir)
 
@@ -220,7 +273,7 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 // specification first, which is the direction this reservation has to be
 // defended in.
 func TestTheReservedMemberIsAdmittedAndReadByNothing(t *testing.T) {
-	dir := entryCopy(t)
+	dir := entryCopy(t, "orders-fixed")
 
 	without, err := LoadEntry(dir)
 	if err != nil {
@@ -270,14 +323,66 @@ func TestNoShippedEntryCarriesTheReservedMember(t *testing.T) {
 	}
 }
 
-// entryCopy is a copy of the shipped entry, in a directory of the test's own, so
-// that a case may break it without breaking the corpus.
-func entryCopy(t *testing.T) string {
+// rewriteValues is one thing done to an entry's values document: the first
+// occurrence of was, written as is.
+//
+// It fails where the replacement did not apply, which is what keeps a case
+// about the rule rather than about the fixture — an entry edited until the
+// mutation no longer matches would otherwise load, and the case would pass by
+// asserting nothing.
+func rewriteValues(t *testing.T, dir, was, is string) {
 	t.Helper()
 
-	source := filepath.Join(CorpusPath(repoRoot(t)), "orders-fixed")
+	path := filepath.Join(dir, ValuesName)
 
-	dir := filepath.Join(t.TempDir(), "orders-fixed")
+	values := read(t, path)
+
+	rewritten := strings.Replace(values, was, is, 1)
+	if rewritten == values {
+		t.Fatalf("%s does not carry %s, and the case is about rewriting it", ValuesName, was)
+	}
+
+	write(t, path, rewritten)
+}
+
+// asIndexItem rewrites the named item's usage to USAGE_INDEX, which is one of
+// the three usages the value language writes as base64.
+//
+// The usage is written ahead of the names inside a field, so the one to rewrite
+// is the last one before the name — which is what makes this a change to the
+// named item and not to whichever item came first. The rendering stays
+// canonical, because only an enum's spelling changed and nothing about the
+// shape of the document did.
+func asIndexItem(t *testing.T, dir, name string) {
+	t.Helper()
+
+	const was = `"usage": "USAGE_DISPLAY"`
+
+	path := filepath.Join(dir, DescriptorName)
+
+	descriptor := read(t, path)
+
+	named := strings.Index(descriptor, `"original": "`+name+`"`)
+	if named < 0 {
+		t.Fatalf("%s carries no item named %s", DescriptorName, name)
+	}
+
+	at := strings.LastIndex(descriptor[:named], was)
+	if at < 0 {
+		t.Fatalf("%s states no %s ahead of %s", DescriptorName, was, name)
+	}
+
+	write(t, path, descriptor[:at]+`"usage": "USAGE_INDEX"`+descriptor[at+len(was):])
+}
+
+// entryCopy is a copy of a shipped entry, in a directory of the test's own, so
+// that a case may break it without breaking the corpus.
+func entryCopy(t *testing.T, entry string) string {
+	t.Helper()
+
+	source := filepath.Join(CorpusPath(repoRoot(t)), entry)
+
+	dir := filepath.Join(t.TempDir(), entry)
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatalf("%v", err)
 	}

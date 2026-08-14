@@ -134,6 +134,14 @@ platform they are run.
    the entry, and the run reports what the generated code decoded where it
    differs from what you wrote.
 
+The loader holds every scalar to the spelling the value language gives its form,
+so a decimal string carrying a leading zero, a base64 value in the wrong
+alphabet or padding, a float in the form some other language's formatter happens
+to write, and a character item still padded to its width are all refused where
+you wrote them (#196). That is deliberate: `"012"` and `"12"` are one value
+written down twice, and left to the comparison it would surface as a generator
+appearing to disagree with you about a number.
+
 The rendering of `ir.json` is the one thing worth generating: write the content
 by hand, then let the canonicalisation check tell you where the whitespace goes.
 

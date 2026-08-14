@@ -166,6 +166,101 @@ func TestTheNormalizersCarryTheirOwnRules(t *testing.T) {
 	})
 }
 
+// TestFloatFaultReadsTheGrammar walks the spellings a values document may carry
+// for a float and the ones it may not.
+//
+// The refused half is where the value is: every case is a spelling some other
+// language's formatter writes by default — Go's padded exponent, Java's missing
+// `+`, Python's fixed-width fraction, C's uppercase `%A` — so each of them is an
+// entry somebody will write, and each has to be refused by the loader rather
+// than turn up as a generator appearing to disagree about a number.
+func TestFloatFaultReadsTheGrammar(t *testing.T) {
+	admitted := []string{
+		"NaN", "Infinity", "-Infinity",
+		"0x0p+0", "-0x0p+0",
+		"0x1p+0", "-0x1p+1", "0x1.2p+3", "0x1p-5",
+		"0x1.999999999999ap-4", "0x1.fffffffffffffp+1023", "0x1p-1074", "0x1p+10",
+	}
+
+	for _, text := range admitted {
+		if fault := floatFault(text); fault != "" {
+			t.Errorf("%q is refused — %s — and the form admits it", text, fault)
+		}
+	}
+
+	refused := map[string]struct {
+		text string
+		says string
+	}{
+		"an uppercase prefix":              {text: "0X1p+0", says: floatIsWritten},
+		"an uppercase exponent marker":     {text: "0x1P+0", says: floatIsWritten},
+		"an uppercase hexadecimal digit":   {text: "0x1.Ap+3", says: floatIsWritten},
+		"a lowercase sentinel":             {text: "nan", says: floatIsWritten},
+		"the short spelling of infinity":   {text: "Inf", says: floatIsWritten},
+		"a decimal":                        {text: "1.5", says: floatIsWritten},
+		"a JSON number's digits":           {text: "42", says: floatIsWritten},
+		"nothing at all":                   {text: "", says: floatIsWritten},
+		"no exponent":                      {text: "0x1", says: floatIsWritten},
+		"an unnormalized significand":      {text: "0x0.8p+1", says: floatIsNormalized},
+		"a significand of two":             {text: "0x2p+0", says: floatIsNormalized},
+		"a fraction ending in zero":        {text: "0x1.20p+3", says: floatHasNoTrailing},
+		"a point with no fraction":         {text: "0x1.p+3", says: floatHasNoTrailing},
+		"an exponent Go padded":            {text: "0x1p+00", says: floatExponentSign},
+		"an exponent Java left unsigned":   {text: "0x1p3", says: floatExponentSign},
+		"a negative zero exponent":         {text: "0x1p-0", says: floatExponentSign},
+		"a zero whose exponent is not +0":  {text: "0x0p+3", says: floatZeroExponent},
+		"a zero written with an exponent":  {text: "-0x0p-1", says: floatZeroExponent},
+		"a negative zero exponent on zero": {text: "0x0p-0", says: floatZeroExponent},
+	}
+
+	for name, test := range refused {
+		t.Run(name, func(t *testing.T) {
+			fault := floatFault(test.text)
+
+			if fault == "" {
+				t.Fatalf("%q is admitted, and the form does not spell a value that way", test.text)
+			}
+
+			if fault != test.says {
+				t.Errorf("%q is refused as %q, and the rule it breaks is %q", test.text, fault, test.says)
+			}
+		})
+	}
+}
+
+// TestEveryFloatFormatFloatWritesIsAdmitted is the obligation the reader and the
+// writer have to each other: nothing this repository writes may be a thing this
+// repository refuses to read.
+//
+// It is what stands in for a round trip. [floatFault] reads the grammar rather
+// than parsing a value and asking whether [FormatFloat] would write it back —
+// so that a spelling the format admits and a float64 cannot hold is not refused
+// for a reason the format never stated — and the cost of that is two independent
+// readings of one form, which would be free to drift. This is the direction the
+// drift would matter in: a value the corpus's own driver writes and the corpus's
+// own loader will not load.
+func TestEveryFloatFormatFloatWritesIsAdmitted(t *testing.T) {
+	values := []float64{
+		math.NaN(), math.Inf(1), math.Inf(-1), 0, math.Copysign(0, -1),
+		1, -1, 2, 9, 0.03125, 0.1, 1.0 / 3.0, 1024, -1e-300, 1e300,
+		math.MaxFloat64, -math.MaxFloat64,
+		math.SmallestNonzeroFloat64, float64(math.Float32frombits(1)),
+		float64(float32(0.1)), math.Pi, -math.Pi,
+	}
+
+	for i := range 1024 {
+		values = append(values, float64(i)/7, -float64(i)*1e10)
+	}
+
+	for _, value := range values {
+		form := FormatFloat(value)
+
+		if fault := floatFault(form); fault != "" {
+			t.Errorf("%v is written %q, which the loader refuses: %s", value, form, fault)
+		}
+	}
+}
+
 // TestFormatFloatSeparatesTheSignsOfZero is the defect the form was changed
 // for, asserted on its own rather than left to be inferred from the table.
 //

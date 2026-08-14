@@ -58,8 +58,14 @@
 // ir.json is a descriptor that passes
 // [github.com/Zaba505/cpybkc/internal/assemble.Validate] and is written in the
 // canonical rendering [github.com/Zaba505/cpybkc/internal/emit.MarshalJSON]
-// produces, values.json names records the descriptor carries, and the directory
-// holds no file the format has no place for.
+// produces, values.json names records the descriptor carries and spells every
+// scalar the way the value language spells one, and the directory holds no file
+// the format has no place for.
+//
+// A spelling is checked here rather than left to the comparison because "012"
+// and "12" are one value written down twice — an author's typo, not something
+// two implementations can disagree about — and a generator appearing to
+// disagree about a number sends its author to their decoder (#196).
 //
 // It does not check that the values are the *right* values for the bytes.
 // Nothing here decodes anything: that is what a runner does, and a loader that
