@@ -7,6 +7,7 @@ package descriptive_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -84,22 +85,39 @@ func TestTheHandshakeDeclaresADescriptiveGenerator(t *testing.T) {
 
 	got := read[0]
 
-	switch {
-	case got.ID != 1:
+	// Every member is asserted rather than the first one that disagrees, because
+	// these are independent claims about one frame: an adapter that answered the
+	// wrong id and declared kind codec has two things wrong with it, and a run
+	// that reported only the id would send somebody to fix the smaller one.
+	if got.ID != 1 {
 		t.Errorf("the adapter answered id %d and it was asked id 1", got.ID)
-	case !got.OK:
+	}
+
+	if !got.OK {
 		t.Errorf("the adapter refused the handshake: %s", got.Error)
-	case got.Protocol == nil || *got.Protocol != descriptive.Protocol:
+	}
+
+	if got.Protocol == nil || *got.Protocol != descriptive.Protocol {
 		t.Errorf("the adapter stated protocol %v and it speaks %d", got.Protocol, descriptive.Protocol)
-	case got.Kind != "descriptive":
+	}
+
+	if got.Kind != "descriptive" {
 		t.Errorf("the adapter declared kind %q, and it drives a generator that never opens a data file", got.Kind)
-	case got.Name != "cpybkc-gen-graph adapter":
+	}
+
+	if got.Name != "cpybkc-gen-graph adapter" {
 		t.Errorf("the adapter calls itself %q, and a report should be able to say which generator declined", got.Name)
-	case got.Version != "0.0.0-test":
+	}
+
+	if got.Version != "0.0.0-test" {
 		t.Errorf("the adapter states version %q, and it was given 0.0.0-test", got.Version)
-	case got.Capabilities == nil:
+	}
+
+	if got.Capabilities == nil {
 		t.Fatalf("the adapter declared no capabilities, and the member is required even when it is empty")
-	case len(*got.Capabilities) != 0:
+	}
+
+	if len(*got.Capabilities) != 0 {
 		t.Errorf("the adapter declared the capabilities %v, and it serves no optional operation", *got.Capabilities)
 	}
 
@@ -121,6 +139,10 @@ func TestAHandshakeWithoutANameIsStillReadable(t *testing.T) {
 		t.Fatalf("the adapter broke: %v", err)
 	}
 
+	if len(read) != 1 {
+		t.Fatalf("one request was made and the adapter wrote %d frames", len(read))
+	}
+
 	if got := read[0]; got.Name == "" {
 		t.Errorf("the adapter declared no name, and a report has nothing to call it")
 	}
@@ -140,17 +162,30 @@ func TestARefusedHandshakeStatesItsOwnProtocol(t *testing.T) {
 				t.Fatalf("the adapter broke: %v", err)
 			}
 
+			if len(read) != 1 {
+				t.Fatalf("one request was made and the adapter wrote %d frames", len(read))
+			}
+
 			got := read[0]
 
-			switch {
-			case got.OK:
+			if got.OK {
 				t.Errorf("the adapter agreed a handshake for a protocol it does not speak")
-			case got.Protocol == nil || *got.Protocol != descriptive.Protocol:
+			}
+
+			if got.Error == "" {
+				t.Errorf("the adapter refused the handshake and said nothing about why")
+			}
+
+			if got.Protocol == nil || *got.Protocol != descriptive.Protocol {
 				t.Errorf("the adapter stated protocol %v, and a report should say which two versions failed to meet",
 					got.Protocol)
-			case got.Kind != "":
+			}
+
+			if got.Kind != "" {
 				t.Errorf("the refused handshake declared kind %q, and it agreed no version to declare one under", got.Kind)
-			case got.Capabilities != nil:
+			}
+
+			if got.Capabilities != nil {
 				t.Errorf("the refused handshake declared capabilities, and it agreed no version to declare them under")
 			}
 		})
@@ -234,6 +269,32 @@ func TestEndOfInputIsAByeAlreadyAnswered(t *testing.T) {
 
 	if len(read) != 0 {
 		t.Errorf("the adapter wrote %q after end of input, and it exits zero without writing anything further", raw)
+	}
+}
+
+// TestAFrameOfAnyLengthIsRead is the receiver's MUST that reading into a fixed
+// buffer breaks.
+//
+// A bufio.Scanner stops at a line longer than the buffer it reads into, which is
+// why this adapter reads with ReadString instead, and a stated MUST resting on a
+// comment is one nothing would notice the loss of. The length is made of an
+// unknown member because that is what a later version of the contract adds: it
+// is ignored rather than refused, so what comes back is an ordinary handshake.
+func TestAFrameOfAnyLengthIsRead(t *testing.T) {
+	long := fmt.Sprintf(`{"id":1,"op":"hello","protocol":1,"a-member-a-later-version-added":%q}`,
+		strings.Repeat("x", 256<<10))
+
+	read, _, err := converse(t, frame(long))
+	if err != nil {
+		t.Fatalf("the adapter broke on a frame of %d bytes: %v", len(long), err)
+	}
+
+	if len(read) != 1 {
+		t.Fatalf("one request was made and the adapter wrote %d frames", len(read))
+	}
+
+	if got := read[0]; !got.OK || got.Kind != "descriptive" {
+		t.Errorf("the adapter answered a long frame with %+v", got)
 	}
 }
 

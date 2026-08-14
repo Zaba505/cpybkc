@@ -60,9 +60,11 @@ type request struct {
 
 // response is a frame this adapter writes.
 //
-// Every member but the three the contract requires of every response is omitted
-// when empty, so that each operation's frame carries what that operation defines
-// and nothing else.
+// `id` and `ok` are written unconditionally, because the contract requires them
+// of every response and a zero one is an answer rather than an omission. Every
+// other member is omitted when empty, `error` included: it is present exactly
+// when `ok` is false, which is what omitting it from a successful frame
+// implements. So each frame carries what its operation defines and nothing else.
 type response struct {
 	ID    int    `json:"id"`
 	OK    bool   `json:"ok"`
@@ -121,7 +123,15 @@ func parse(line string) (*request, error) {
 
 	var frame request
 	if err := json.Unmarshal([]byte(body), &frame); err != nil {
-		return nil, fmt.Errorf("a frame is one JSON object on one line, and this is not: %s", quoted(body))
+		// Two different failures reach this branch: a line that is not one JSON
+		// object, and a line that is one but spells a member as something the
+		// contract does not give it — a protocol that is a float, an id that is
+		// a string. Both stop the conversation, because a frame whose members
+		// are not the types the contract fixes is a peer this adapter cannot
+		// read rather than a request it could refuse. Which of the two it was is
+		// the decoder's to say, so its words are carried rather than dropped.
+		return nil, fmt.Errorf("a frame is one JSON object on one line, written in the types the contract gives its "+
+			"members, and this is not: %w: %s", err, quoted(body))
 	}
 
 	if frame.ID == nil {

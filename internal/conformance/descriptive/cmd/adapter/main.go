@@ -45,19 +45,29 @@ func main() {
 
 	flag.Parse()
 
-	// The frames go to the standard output this process started with, and
-	// nothing else does.
+	// The frames go to the standard output this process started with, and this
+	// is the first statement of the program so that nothing has had the chance
+	// to print before it runs.
 	//
 	// docs/adapter/SPEC.md gives the recipe in POSIX's terms — dup the
 	// descriptor, then point standard output at standard error — and says
 	// plainly that it is a recipe rather than the requirement: what is required
-	// is the property that nothing but frames reaches the stream, which a
-	// platform without those calls meets by whatever means its runtime offers.
-	// Go's is os.Stdout, which every print in this process and in everything it
-	// imports resolves at the moment it writes. Moving it here, before anything
-	// else runs, is what makes a greeting from some dependency a diagnostic
-	// instead of a corrupted frame — and an adapter that instead resolved to be
-	// careful is one that is one dependency away from being wrong.
+	// is the property that nothing but frames reaches the stream.
+	//
+	// What this buys, exactly: every write that resolves os.Stdout at the moment
+	// it writes — fmt.Print and everything built on it — lands on standard
+	// error from here on, where it is a diagnostic instead of a corruption. What
+	// it does not buy is a writer captured during package initialisation, which
+	// runs before main (`var log = log.New(os.Stdout, …)`), or a write to file
+	// descriptor 1 that never goes through the variable at all. Those need the
+	// dup, which needs a syscall this repository does not otherwise depend on
+	// and a fallback for every platform without one.
+	//
+	// It is enough here because this program's whole import graph is the
+	// standard library and one package of this repository's, and neither does
+	// either of those things. An adapter that grew a dependency would be one
+	// this reasoning no longer covers, which is why it is written down rather
+	// than assumed.
 	frames := os.Stdout
 	os.Stdout = os.Stderr
 

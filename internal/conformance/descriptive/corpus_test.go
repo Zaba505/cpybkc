@@ -6,10 +6,14 @@
 package descriptive_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/conformance"
@@ -90,6 +94,80 @@ func TestADescriptiveGeneratorIsNotApplicableAndTheRunIsClean(t *testing.T) {
 
 	if report.Adapter.Kind != "descriptive" {
 		t.Errorf("the report calls the adapter %s, and it declared itself descriptive", report.Adapter)
+	}
+}
+
+// TestTheCommandExitsZeroOnlyWhenTheConversationEndedWell is the half of the
+// contract that is a property of the process rather than of a frame.
+//
+// An adapter MUST exit zero when it has answered bye or seen end of input, and
+// non-zero when it stopped for any other reason. Exiting quietly in the middle
+// of a conversation is the one failure that looks, from the engine's side,
+// exactly like a successful run that stopped early — so it is asserted against
+// the built binary's own status, which is the only place that distinction
+// exists.
+//
+// Every case also asserts that standard output carried frames and nothing else.
+// That is what the redirection at the top of main buys, and a diagnostic printed
+// on the frame stream would turn every frame after it into a parse error while
+// looking, in a report, like an adapter that answered gibberish.
+func TestTheCommandExitsZeroOnlyWhenTheConversationEndedWell(t *testing.T) {
+	adapter := build(t, repoRoot(t), "./internal/conformance/descriptive/cmd/adapter")
+
+	const hello = "{\"id\":1,\"op\":\"hello\",\"protocol\":1}\n"
+
+	tests := map[string]struct {
+		conversation string
+		zero         bool
+		frames       int
+	}{
+		"bye is answered":       {conversation: hello + "{\"id\":2,\"op\":\"bye\"}\n", zero: true, frames: 2},
+		"the input simply ends": {conversation: hello, zero: true, frames: 1},
+		"a blank line":          {conversation: hello + "\n", zero: false, frames: 1},
+		"a carriage return":     {conversation: "{\"id\":1,\"op\":\"hello\",\"protocol\":1}\r\n", zero: false, frames: 0},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.CommandContext(t.Context(), adapter, "--name", "graph")
+			cmd.Stdin = strings.NewReader(test.conversation)
+
+			var frames, diagnostics bytes.Buffer
+
+			cmd.Stdout = &frames
+			cmd.Stderr = &diagnostics
+
+			err := cmd.Run()
+
+			var exited *exec.ExitError
+			switch {
+			case test.zero && err != nil:
+				t.Errorf("the adapter exited non-zero on a conversation that ended well: %v\n%s", err, &diagnostics)
+			case !test.zero && err == nil:
+				t.Errorf("the adapter exited zero having neither answered bye nor seen end of input")
+			case !test.zero && !errors.As(err, &exited):
+				t.Fatalf("the adapter could not be run: %v", err)
+			}
+
+			if !test.zero && diagnostics.Len() == 0 {
+				t.Errorf("the adapter broke and said nothing on standard error, which is where a diagnostic goes")
+			}
+
+			var wrote int
+
+			for line := range strings.Lines(frames.String()) {
+				wrote++
+
+				var frame map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSuffix(line, "\n")), &frame); err != nil {
+					t.Errorf("the adapter wrote %q on the frame stream, and it carries frames and nothing else", line)
+				}
+			}
+
+			if wrote != test.frames {
+				t.Errorf("the adapter wrote %d frames and this conversation asked for %d", wrote, test.frames)
+			}
+		})
 	}
 }
 
