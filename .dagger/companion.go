@@ -431,24 +431,6 @@ const (
 	// for byte, and this repository already has that tree.
 	companionExampleDir = "example"
 
-	// graphGenerator is the diagram generator, by the name example/cpybkc.json
-	// asks for it by, and graphGeneratorExecutable and graphGeneratorPackage are
-	// what the CLI's PATH discovery looks for and what builds it.
-	//
-	// They are here rather than beside [generatorExecutable] in image.go because
-	// that name goes into a *published* image and this one does not: a release
-	// publishes the CLI image and one generator image, and cpybkc-gen-graph is
-	// neither. It reaches this check by being built and handed over as a file,
-	// which is the path a generator that ships no image takes.
-	//
-	// The check has to install it because the committed example runs two
-	// generators (#191). That is not an accident of this check: with one
-	// generator, "every generator in a run is handed the same descriptor" is
-	// vacuous, and the example carries the second one so it stops being.
-	graphGenerator           = "graph"
-	graphGeneratorExecutable = generatorPrefix + graphGenerator
-	graphGeneratorPackage    = "./cmd/" + graphGeneratorExecutable
-
 	// neverPulledRepository is the registry repository this check hands the
 	// module, and it is deliberately one that cannot exist: `.invalid` is
 	// reserved by RFC 2606 and resolves nowhere, ever.
@@ -554,10 +536,12 @@ var exampleInitVector = []string{
 // Requiring both to produce the committed example is what makes them
 // interchangeable rather than merely both present.
 //
-// The example runs two generators since #191, so each composition installs two.
-// The `graph` one goes in through with-generator-executable in both, because it
-// ships no image for with-generator to take one out of — see [graphGenerator].
-// The pair being compared is still the `go` half, which is what varies.
+// The example runs two generators since #191, so each composition installs two —
+// and since #230 both of them go in the same way on each side, because both are
+// published as images. `graph` used to be a with-generator-executable in both
+// compositions for want of an image to take it out of, which left the documented
+// adopter path uncovered for one of this project's two generators; the check for
+// it is now the same check `go` gets.
 //
 // Then the functions that are not part of that pair, because a check that
 // exercised only what it needed would leave the rest of the module's surface
@@ -593,18 +577,27 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 
 	committed := m.Source.Directory(companionExampleDir)
 
-	// Two generators in each composition, because the committed example runs two.
-	// The `go` half is what differs between them and is the pair being checked;
-	// the `graph` half is added the same way to both, since it ships no image for
-	// with-generator to take one out of.
+	// Two generators in each composition, because the committed example runs two,
+	// and each composition installs both of them its own way: every generator
+	// through with-generator on one side and through with-generator-executable on
+	// the other. That is what makes the two routes interchangeable *for each
+	// generator* rather than for whichever one happened to have an image.
+	//
+	// Each is written out rather than looped over [publishedGenerators], because
+	// what this check covers is the committed example's manifest and not the set
+	// of images a release publishes. The two agree today; a generator published
+	// without being added to the example, or the reverse, is a decision that
+	// should be made here rather than followed silently.
 	fromImage := m.companion(platform).
 		WithGenerator(ownGenerator, dagger.CompanionWithGeneratorOpts{
-			Image: m.generatorImage(platform),
+			Image: m.generatorImage(platform, ownGeneratorSpec()),
 		}).
-		WithGeneratorExecutable(graphGenerator, m.graphGeneratorBinary(platform))
+		WithGenerator(graphGenerator, dagger.CompanionWithGeneratorOpts{
+			Image: m.generatorImage(platform, graphGeneratorSpec()),
+		})
 	fromExecutable := m.companion(platform).
-		WithGeneratorExecutable(ownGenerator, m.generatorBinary(devVersion, platform)).
-		WithGeneratorExecutable(graphGenerator, m.graphGeneratorBinary(platform))
+		WithGeneratorExecutable(ownGenerator, m.generatorBinary(devVersion, platform, ownGeneratorSpec())).
+		WithGeneratorExecutable(graphGenerator, m.generatorBinary(devVersion, platform, graphGeneratorSpec()))
 
 	var errs []error
 
@@ -634,12 +627,11 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	// installed a second copy under another name would pass every assertion
 	// above.
 	//
-	// The pair is written down rather than read out of example/cpybkc.json,
-	// because the manifest does not carry the thing this needs: *how* a generator
-	// is installed. `go` has a published image and goes in through with-generator;
-	// `graph` has none and goes in as a file. A third entry in that manifest has
-	// to be added here too, and fails this check loudly rather than going
-	// uncovered if it is not.
+	// The pair is written down rather than read out of example/cpybkc.json or out
+	// of [publishedGenerators], because an expectation derived from what the
+	// compositions above were built from would agree with them however wrong they
+	// were. A third entry in that manifest has to be added here too, and fails
+	// this check loudly rather than going uncovered if it is not.
 	composed := []string{generatorExecutable, graphGeneratorExecutable}
 
 	if err := m.checkComposedImage(ctx, fromImage.Image(), composed); err != nil {
@@ -748,34 +740,6 @@ func (m *Cpybkc) companion(platform dagger.Platform) *dagger.Companion {
 		Image:      m.baseImage(platform),
 		Repository: neverPulledRepository,
 	})
-}
-
-// graphGeneratorBinary builds the diagram generator for one platform, as a file
-// to hand to with-generator-executable.
-//
-// It is [Cpybkc.generatorBinary] pointed at the other command, and it carries the
-// same CGO and -trimpath switches for the same reason: what goes into the
-// composed image has to start in a scratch one. The two are not folded into a
-// single parameterised helper because they are not the same thing — that one
-// builds what a release publishes as an image, and this one builds an executable
-// for a check, so a change to how a published artifact is stamped or documented
-// has no business reaching this.
-//
-// The version stamp is passed by hand for [Cpybkc.generatorBinary]'s reason:
-// nothing upstream stamps a binary built through the generic Go build, and a
-// generator refusing an IR version it does not implement names its own version in
-// the diagnostic.
-func (m *Cpybkc) graphGeneratorBinary(platform dagger.Platform) *dagger.File {
-	return dag.Go().
-		Build(m.appSource(), dagger.GoBuildOpts{
-			Pkg:          graphGeneratorPackage,
-			ArtifactName: graphGeneratorExecutable,
-			Trimpath:     true,
-			DisableCgo:   true,
-			Platform:     string(platform),
-			Stamps:       []string{"main.version=" + devVersion},
-		}).
-		File(graphGeneratorExecutable)
 }
 
 // checkComposedImage requires an image's plugin directory to hold the generators

@@ -80,6 +80,18 @@ func TestRepository(t *testing.T) {
 			want:       "ghcr.io/zaba505/cpybkc-gen-go",
 		},
 		{
+			// The other published generator, spelled out for the same reason: a
+			// caller who passed neither --repository nor --image for `graph`
+			// reaches this reference, and a release publishes to it. The root
+			// pipeline's TagScheme pins the same answer from the other side of the
+			// module boundary, which is what makes the pair a drift guard rather
+			// than one spelling checked twice.
+			testName:   "the other published default",
+			repository: "ghcr.io/zaba505/cpybkc",
+			name:       "graph",
+			want:       "ghcr.io/zaba505/cpybkc-gen-graph",
+		},
+		{
 			// The air-gap case, and the whole reason the derivation reads the
 			// caller's repository rather than a constant: redirecting the CLI image
 			// has to redirect its generators too.

@@ -41,6 +41,21 @@ beneath it — which is how you check that a layout describes the records you
 meant, in the order you meant, told apart on the bytes you meant, at the offsets
 you meant.
 
+Both are published as images of their own from every release, beside the CLI
+image and under the same tags:
+
+```console
+$ docker pull ghcr.io/zaba505/cpybkc-gen-go:v0
+$ docker pull ghcr.io/zaba505/cpybkc-gen-graph:v0
+```
+
+So neither needs a Go toolchain to run: a generator is copied out of its image
+into one built `FROM` the CLI's, which is the same route a stranger's generator
+takes. [Where this project's own generators are
+published](docs/container/SPEC.md#where-this-projects-own-generators-are-published)
+is the rule those addresses follow — derived from the CLI image's repository, so
+a mirror moves the whole family by moving one.
+
 A plugin written in anything else takes one of the two IR artifacts attached to
 every release: `ir.binpb`, the protobuf `FileDescriptorSet` that lets any
 runtime decode a descriptor with no code generation in the build, or

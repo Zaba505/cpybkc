@@ -121,12 +121,14 @@ have taught every adopter one more thing.
 ### Why cpybkc's own generator is not in the base image
 
 The base image holds **no** executable in the plugin directory (#55, #185).
-`cpybkc-gen-go` (#48–#53) is this project's own generator and reaches a user the
-way a stranger's does: as an image built `FROM` the base, adding one executable at
-the path this section names and changing nothing else.
+`cpybkc-gen-go` (#48–#53) and `cpybkc-gen-graph` are this project's own
+generators, and each reaches a user the way a stranger's does: as an image built
+`FROM` the base, adding one executable at the path this section names and
+changing nothing else.
 
-**Every release from the next one on publishes it**, at the repository
-[named below](#where-this-projects-own-generators-are-published) (#180).
+**Every release from the next one on publishes them**, one image each, at the
+repositories [named below](#where-this-projects-own-generators-are-published)
+(#180, #230).
 
 That is a change of state and not just of wording. The sentence above described
 an intention for as long as it stood alone: `v0.0.0` published the base image
@@ -137,6 +139,14 @@ to everybody outside this repository, while three places in the tree said it
 existed. What closes the gap is the generator image being cut from the same
 release as the base, over the same platforms, under the same tags, signed and
 attested the same way.
+
+The same argument is what added the second generator to that release (#230).
+`cpybkc-gen-graph` stood exactly where `cpybkc-gen-go` had: a peer in this
+project's own README, one of the two generators the [worked
+example](../../example/README.md) runs, and reachable only through a Go toolchain
+and a source checkout — while `with-generator graph` derived a reference nothing
+was ever pushed to. A rule that publishes one of two generators is a rule with an
+exception nobody documented.
 
 Until that release is cut, the references below resolve to nothing. They are
 written here ahead of it deliberately — the rule they follow is what the release
@@ -163,13 +173,14 @@ reference in a consumer's Dockerfile.
 
 A generator this project publishes for `<name>` is at the **base image's own
 repository with `-gen-<name>` appended**, in the same registry, under the same
-release's tags (#180). One generator is published under that rule, from the first
-release to carry it onwards:
+release's tags (#180). Two generators are published under that rule, from the
+first release to carry each onwards:
 
 | Image | Repository | Tags |
 | --- | --- | --- |
 | The cpybkc CLI | `<repository>` | [the family a release publishes](#tags-and-what-pinning-one-buys) |
 | The `go` generator | `<repository>-gen-go` | the same family, from the same release |
+| The `graph` generator | `<repository>-gen-graph` | the same family, from the same release |
 
 So with `ghcr.io/zaba505/cpybkc` as the repository, a release published under
 this rule is pulled as:
@@ -177,13 +188,14 @@ this rule is pulled as:
 ```console
 $ docker pull ghcr.io/zaba505/cpybkc:v0
 $ docker pull ghcr.io/zaba505/cpybkc-gen-go:v0
+$ docker pull ghcr.io/zaba505/cpybkc-gen-graph:v0
 ```
 
 The rule is **derived from the CLI image's repository and not from a constant**,
 which is what makes a mirror, an internal registry or an air-gapped copy redirect
-the whole family at once. Copy `<repository>` and `<repository>-gen-go` into
-`registry.internal/mirrors/`, point a build at
-`registry.internal/mirrors/cpybkc`, and the generator is where that rule says it
+the whole family at once. Copy `<repository>` and every `<repository>-gen-<name>`
+into `registry.internal/mirrors/`, point a build at
+`registry.internal/mirrors/cpybkc`, and each generator is where that rule says it
 is. A rule anchored to `ghcr.io` would instead send a build inside a network that
 cannot see it reaching back out on the second pull rather than the first.
 
@@ -204,9 +216,9 @@ change](#how-a-covered-thing-would-change) applies to it.
 
 What is **not** covered is which registry any of it is in, exactly as for the
 base image: a mirror serving the same digests satisfies this identically. Nor is
-the *set* of generators this project publishes — `go` is the only one today, and
-another arriving beside it is not a breaking change, while moving or withdrawing
-one is.
+the *set* of generators this project publishes — `go` and `graph` are the two
+today, and another arriving beside them is not a breaking change, while moving or
+withdrawing one is.
 
 None of this makes a published generator a privileged kind of plugin. It is
 built, named and discovered by the same rules as a stranger's, which is the whole
@@ -1289,11 +1301,12 @@ depending on something that may change in a patch release, with no notice:
 - Anything else appearing under `/usr/local/share/cpybkc/`. The two paths named
   above are the contract; a third file arriving beside them is not one to depend
   on until this document names it.
-- **Which** generators this project publishes, beyond `go`. The [naming
-  rule](#where-this-projects-own-generators-are-published) is covered and the set
-  it is applied to is not: another generator appearing beside `cpybkc-gen-go` is
-  not a breaking change, and neither is one never appearing. Nothing here
-  promises a generator for any particular language will exist.
+- **Which** generators this project publishes, beyond `go` and `graph`. The
+  [naming rule](#where-this-projects-own-generators-are-published) is covered and
+  the set it is applied to is not: another generator appearing beside
+  `cpybkc-gen-go` is not a breaking change — `cpybkc-gen-graph` is that having
+  happened — and neither is one never appearing. Nothing here promises a
+  generator for any particular language will exist.
 
 ### Why the platform set is the two it is
 
@@ -1391,8 +1404,8 @@ Go install with no document that applies to them.
 | Section | Implemented by |
 |---|---|
 | [The plugin directory](#the-plugin-directory) | #54, #55 `container`; #185 `container` withdraws the promise that the directory exists in the base image |
-| [Why cpybkc's own generator is not in the base image](#why-cpybkcs-own-generator-is-not-in-the-base-image) | #55 `container` for the base holding none, #48–#53 `gen-go` for the generator that goes through the front door, #180 `container` for the release that publishes it |
-| [Where this project's own generators are published](#where-this-projects-own-generators-are-published) | #180 `container` decides the rule is covered rather than internal, and publishes the first image under it |
+| [Why cpybkc's own generator is not in the base image](#why-cpybkcs-own-generator-is-not-in-the-base-image) | #55 `container` for the base holding none, #48–#53 `gen-go` for the generator that goes through the front door, #180 `container` for the release that publishes it, #230 `container` for the second generator joining it |
+| [Where this project's own generators are published](#where-this-projects-own-generators-are-published) | #180 `container` decides the rule is covered rather than internal, and publishes the first image under it; #230 `container` publishes the second, which is what makes the rule a family rather than an exception |
 | [The CLI's own path is not part of the contract](#the-clis-own-path-is-not-part-of-the-contract) | #55 `container`; #185 `container` is where it was spent |
 | [The entrypoint](#the-entrypoint) | #55 `container` |
 | [The arrangement survives a subcommand](#the-arrangement-survives-a-subcommand) | #183 `cli` adds the subcommand and restates the promise here; #213 `container` decides what a breaking CLI change does to this image's major tag |
