@@ -445,27 +445,22 @@ func (c *child) roundtrip() (json.RawMessage, error) {
 //
 // Closing the standard input first is what a codec program is written to end on,
 // so an ordinary stop is a process exiting zero rather than one being killed.
+// How it ended is kept beside what went wrong rather than instead of it. A codec
+// program killed by the engine's deadline, or by the machine running out of
+// memory, writes nothing at all — so "it wrote no document" is the whole of the
+// fault unless the exit status is carried with it.
 func (c *child) stop(err error) error {
 	_ = c.stdin.Close()
 
-	waited := c.cmd.Wait()
+	ended := errors.Join(err, c.cmd.Wait())
+	if ended == nil {
+		return nil
+	}
 
 	said := c.errs.String()
 	if said == "" {
-		if err == nil {
-			return waited
-		}
-
-		return err
+		return ended
 	}
 
-	if err == nil {
-		if waited == nil {
-			return nil
-		}
-
-		return fmt.Errorf("%w\nwhat it said:\n%s", waited, said)
-	}
-
-	return fmt.Errorf("%w\nwhat it said:\n%s", err, said)
+	return fmt.Errorf("%w\nwhat it said:\n%s", ended, said)
 }

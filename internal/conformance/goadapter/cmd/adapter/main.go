@@ -17,6 +17,12 @@
 // The generator is a path rather than a name on PATH because a run is nearly
 // always against a generator just built from the tree under test, and resolving
 // a name would find whichever one an author happened to have installed.
+//
+// `--version` is the other half of what a report calls this adapter, and it is
+// the door's to supply for the same reason: a published image knows which
+// release of the generator it carries (#203), and a run against a working tree
+// has no version string to give — so the corpus's own runs leave it empty, which
+// the contract makes optional exactly for this case.
 package main
 
 import (

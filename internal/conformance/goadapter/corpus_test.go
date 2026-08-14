@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -91,6 +92,8 @@ func TestTheAdapterDeclaresTheGeneratorItDrives(t *testing.T) {
 	switch {
 	case report.Adapter == nil:
 		t.Fatalf("the run reports no adapter at all")
+	case !strings.Contains(report.Adapter.Name, "cpybkc-gen-go"):
+		t.Errorf("the adapter calls itself %q, and a report has to say which generator it drove", report.Adapter.Name)
 	case report.Adapter.Kind != "codec":
 		t.Errorf("the adapter declared kind %q, and cpybkc-gen-go emits code that reads a file", report.Adapter.Kind)
 	case !report.Adapter.Writes():
@@ -193,13 +196,7 @@ func TestAnEntryTheGeneratorRefusesCostsOnlyThatEntry(t *testing.T) {
 		t.Fatalf("%s carries no record node to rename", good.Name)
 	}
 
-	adapter := &goadapter.Adapter{
-		Root:      root,
-		Name:      "go",
-		Generator: build(t, root, "./cmd/cpybkc-gen-go"),
-	}
-
-	read, err := hold(t, adapter,
+	read, err := hold(t, adapting(t, root),
 		frame(`{"id":1,"op":"hello","protocol":1}`),
 		generate(t, map[string]*irpb.Descriptor{"good": good.Descriptor, "refused": refused}),
 		frame(`{"id":3,"op":"decode","entry":"refused","input":""}`),
@@ -237,6 +234,241 @@ func TestAnEntryTheGeneratorRefusesCostsOnlyThatEntry(t *testing.T) {
 	}
 }
 
+// TestWhatTheAdapterHoldsBetweenADecodeAndARoundtrip is the retention rule, in
+// the only place it can be checked: from outside, over a conversation.
+//
+// An adapter holds the records of the most recent decode it answered ok: true,
+// until the next decode or the end of the conversation — and no more than that.
+// So a roundtrip of the entry before last is refused rather than answered out of
+// records that are no longer the reader's most recent, which is a state reset
+// that would stop holding silently.
+//
+// The last two frames are the other precondition: a read that stopped at a
+// failure holds no complete set of records to write back. A conforming engine
+// never sends that roundtrip, which is exactly why nothing else in this package
+// reaches the branch that refuses it.
+func TestWhatTheAdapterHoldsBetweenADecodeAndARoundtrip(t *testing.T) {
+	root := repoRoot(t)
+
+	entries, err := conformance.Load(conformance.CorpusPath(root))
+	if err != nil {
+		t.Fatalf("the conformance corpus: %v", err)
+	}
+
+	whole := readToTheEnd(t, entries, 2)
+	stopped := readThatStops(t, entries)
+
+	read, err := hold(t, adapting(t, root),
+		frame(`{"id":1,"op":"hello","protocol":1}`),
+		generate(t, map[string]*irpb.Descriptor{
+			whole[0].Name: whole[0].Descriptor,
+			whole[1].Name: whole[1].Descriptor,
+			stopped.Name:  stopped.Descriptor,
+		}),
+		decoding(t, 3, whole[0]),
+		asking(t, 4, "roundtrip", whole[0].Name),
+		decoding(t, 5, whole[1]),
+		asking(t, 6, "roundtrip", whole[0].Name),
+		decoding(t, 7, stopped),
+		asking(t, 8, "roundtrip", stopped.Name),
+		frame(`{"id":9,"op":"bye"}`),
+	)
+	if err != nil {
+		t.Fatalf("the adapter broke: %v", err)
+	}
+
+	if len(read) != 9 {
+		t.Fatalf("nine requests were made and the adapter wrote %d frames", len(read))
+	}
+
+	if got := read[1]; !got.OK {
+		t.Fatalf("the adapter could not generate for these three entries: %s", got.Error)
+	}
+
+	switch {
+	case !read[2].OK:
+		t.Fatalf("the adapter could not read %s: %s", whole[0].Name, read[2].Error)
+	case !read[3].OK:
+		t.Errorf("the adapter would not write back the records it had just read: %s", read[3].Error)
+	case len(read[3].Written) == 0:
+		t.Errorf("the roundtrip carries no written document")
+	case !read[4].OK:
+		t.Fatalf("the adapter could not read %s: %s", whole[1].Name, read[4].Error)
+	case read[5].OK:
+		t.Errorf("the adapter wrote back the records of %s after decoding %s, and it holds one entry's",
+			whole[0].Name, whole[1].Name)
+	case !read[6].OK:
+		t.Fatalf("a file the generated reader refused is an answer and not a fault: %s", read[6].Error)
+	case failure(t, read[6].Decoded) == "":
+		t.Fatalf("%s was chosen because its read stops, and this one did not", stopped.Name)
+	case read[7].OK:
+		t.Errorf("the adapter wrote back a read that stopped at a failure, which holds no complete set of records")
+	}
+}
+
+// TestTwoRecordNamesThatFoldAlikeStopThatEntry is the failure mode of the
+// pairing that replaced the positional one.
+//
+// A Go type is paired with a record node by folding both names down to their
+// letters and digits, so two records the generator gives different identifiers —
+// CUSTOMER-ID becomes CustomerId and CustomerID stays CustomerID — can still
+// fold alike. That is the one case the fold cannot tell apart, and the entry is
+// stopped with a diagnostic rather than walked against whichever record was
+// found first. Nothing else in the corpus reaches it, because no entry is named
+// that way.
+func TestTwoRecordNamesThatFoldAlikeStopThatEntry(t *testing.T) {
+	root := repoRoot(t)
+
+	entries, err := conformance.Load(conformance.CorpusPath(root))
+	if err != nil {
+		t.Fatalf("the conformance corpus: %v", err)
+	}
+
+	entry := twoRecords(t, entries)
+
+	folded, ok := proto.Clone(entry.Descriptor).(*irpb.Descriptor)
+	if !ok {
+		t.Fatalf("a cloned descriptor is not a descriptor")
+	}
+
+	alike := []string{"CUSTOMER-ID", "CustomerID"}
+
+	for _, node := range folded.GetNodes() {
+		if record := node.GetRecord(); record != nil && len(alike) > 0 {
+			record.Names = &irpb.Names{Original: alike[0]}
+			alike = alike[1:]
+		}
+	}
+
+	read, err := hold(t, adapting(t, root),
+		frame(`{"id":1,"op":"hello","protocol":1}`),
+		generate(t, map[string]*irpb.Descriptor{"folded": folded}),
+		decoding(t, 3, &conformance.Entry{Name: "folded", Input: entry.Input}),
+		frame(`{"id":4,"op":"bye"}`),
+	)
+	if err != nil {
+		t.Fatalf("the adapter broke, and an entry it cannot pair costs one entry: %v", err)
+	}
+
+	if got := read[1]; !got.OK || len(got.Entries) != 1 || !got.Entries[0].OK {
+		// The two names munge to two identifiers, so the generator has no
+		// collision to refuse: the pairing is what cannot tell them apart.
+		t.Fatalf("the generator refused code the fold was supposed to be asked about: %+v", got)
+	}
+
+	got := read[2]
+
+	if got.OK {
+		t.Fatalf("the adapter answered about an entry whose records it cannot tell apart")
+	}
+
+	if !strings.Contains(got.Error, "named alike") {
+		t.Errorf("the refusal does not say the two records could not be told apart: %s", got.Error)
+	}
+}
+
+// adapting is this repository's adapter, built against the generator in the tree
+// under test and driven in this process rather than through a door.
+func adapting(t *testing.T, root string) *goadapter.Adapter {
+	t.Helper()
+
+	return &goadapter.Adapter{Root: root, Name: "go", Generator: build(t, root, "./cmd/cpybkc-gen-go")}
+}
+
+// readToTheEnd is the first n entries the generated reader reads to the end of,
+// which are the ones a roundtrip may be asked about.
+func readToTheEnd(t *testing.T, entries []*conformance.Entry, n int) []*conformance.Entry {
+	t.Helper()
+
+	var found []*conformance.Entry
+
+	for _, entry := range entries {
+		if entry.Values.Failure == "" && len(entry.Values.Records) > 0 {
+			found = append(found, entry)
+		}
+
+		if len(found) == n {
+			return found
+		}
+	}
+
+	t.Fatalf("the corpus holds fewer than %d entries whose read reaches the end of the file", n)
+
+	return nil
+}
+
+// readThatStops is an entry the file itself stops the reader on, which is what a
+// roundtrip has no complete set of records for.
+func readThatStops(t *testing.T, entries []*conformance.Entry) *conformance.Entry {
+	t.Helper()
+
+	for _, entry := range entries {
+		if entry.Values.Failure != "" {
+			return entry
+		}
+	}
+
+	t.Fatalf("the corpus holds no entry whose read stops at a failure")
+
+	return nil
+}
+
+// twoRecords is an entry whose descriptor carries at least two record nodes,
+// which is what it takes for two of them to be named alike.
+func twoRecords(t *testing.T, entries []*conformance.Entry) *conformance.Entry {
+	t.Helper()
+
+	for _, entry := range entries {
+		records := 0
+
+		for _, node := range entry.Descriptor.GetNodes() {
+			if node.GetRecord() != nil {
+				records++
+			}
+		}
+
+		if records >= 2 {
+			return entry
+		}
+	}
+
+	t.Fatalf("the corpus holds no entry carrying two record nodes")
+
+	return nil
+}
+
+// failure is what a values document says stopped the read, or the empty string
+// where it was read to the end.
+func failure(t *testing.T, document json.RawMessage) string {
+	t.Helper()
+
+	var values struct {
+		Failure string `json:"failure"`
+	}
+
+	if err := json.Unmarshal(document, &values); err != nil {
+		t.Fatalf("the adapter answered with a document that is not one: %v", err)
+	}
+
+	return values.Failure
+}
+
+// decoding is a decode frame carrying an entry's bytes, which encoding/json
+// writes as base64 exactly as the engine's own frame does.
+func decoding(t *testing.T, id int, entry *conformance.Entry) string {
+	t.Helper()
+
+	return marshalled(t, map[string]any{"id": id, "op": "decode", "entry": entry.Name, "input": entry.Input})
+}
+
+// asking is a frame for an operation that names an entry and carries nothing
+// else.
+func asking(t *testing.T, id int, op, entry string) string {
+	t.Helper()
+
+	return marshalled(t, map[string]any{"id": id, "op": op, "entry": entry})
+}
+
 // generate is a generate frame carrying the descriptors it is given, in the
 // binary encoding docs/plugin/SPEC.md hands a generator.
 func generate(t *testing.T, entries map[string]*irpb.Descriptor) string {
@@ -260,9 +492,16 @@ func generate(t *testing.T, entries map[string]*irpb.Descriptor) string {
 
 	req["entries"] = carried
 
+	return marshalled(t, req)
+}
+
+// marshalled is one request frame: one JSON object on one line.
+func marshalled(t *testing.T, req map[string]any) string {
+	t.Helper()
+
 	b, err := json.Marshal(req)
 	if err != nil {
-		t.Fatalf("failed to write the generate frame: %v", err)
+		t.Fatalf("failed to write a request frame: %v", err)
 	}
 
 	return string(b) + "\n"

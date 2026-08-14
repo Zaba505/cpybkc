@@ -107,6 +107,15 @@ func (c *conversation) generate(ctx context.Context, id int, req *request) *resp
 		return refuse(id, "this generate names no entry, so there is nothing to generate code for")
 	}
 
+	if twice := named(req.Entries); twice != "" {
+		// A response MUST carry exactly one result per entry the request named,
+		// and the pairing is by name — so a request naming one entry twice is
+		// one this adapter cannot answer at all rather than one it can answer
+		// badly. Refusing the operation is also the only answer that leaves no
+		// entry both reported as failed and registered as having code.
+		return refuse(id, "this generate names %q twice, and a result is paired with an entry by name", twice)
+	}
+
 	if c.scratch != "" {
 		// generate is sent exactly once, and this is one of the few ordering
 		// preconditions worth checking rather than attempting: a second one
@@ -139,7 +148,15 @@ func (c *conversation) generate(ctx context.Context, id int, req *request) *resp
 		compiling = append(compiling, entry)
 	}
 
-	for name, why := range c.compile(ctx, compiling) {
+	broke, err := c.compile(ctx, compiling)
+	if err != nil {
+		// Nothing built at all, which is a failure of the toolchain rather than
+		// of any entry: reporting it once is what tells whoever reads it apart
+		// from a corpus every entry of which happens to be broken.
+		return refuse(id, "%v", err)
+	}
+
+	for name, why := range broke {
 		failed[name] = why
 
 		// An entry that would not compile has no code to read it with, so it is
@@ -193,10 +210,6 @@ func (c *conversation) prepare() error {
 func (c *conversation) emit(ctx context.Context, i int, asked requestEntry) (*built, error) {
 	if asked.Entry == "" {
 		return nil, fmt.Errorf("an entry of this generate carries no name, and a name is its identity")
-	}
-
-	if _, taken := c.built[asked.Entry]; taken {
-		return nil, fmt.Errorf("this generate names %q twice", asked.Entry)
 	}
 
 	var descriptor irpb.Descriptor
@@ -274,20 +287,23 @@ func (c *conversation) emit(ctx context.Context, i int, asked requestEntry) (*bu
 // to find out which entries the failure belongs to — a per-entry diagnostic is
 // what the contract asks for, and a combined build reports every package's
 // errors together without saying which programs it managed.
-func (c *conversation) compile(ctx context.Context, entries []*built) map[string]string {
+//
+// The error is the case that is not per entry at all: nothing built. A toolchain
+// that is absent, a context that was cancelled and a disk that is full fail every
+// package for one reason, and reporting that reason once per entry would say the
+// generator produced a corpus of uncompilable code. It carries the combined
+// build's own output, which is the message that explained the failure before it
+// was rediscovered one package at a time.
+func (c *conversation) compile(ctx context.Context, entries []*built) (map[string]string, error) {
 	failed := map[string]string{}
 
 	if len(entries) == 0 {
-		return failed
+		return failed, nil
 	}
 
 	bin := filepath.Join(c.scratch, binDir)
 	if err := os.MkdirAll(bin, 0o755); err != nil {
-		for _, entry := range entries {
-			failed[entry.name] = fmt.Sprintf("failed to make the directory the codec programs are built into: %v", err)
-		}
-
-		return failed
+		return nil, fmt.Errorf("failed to make the directory the codec programs are built into: %w", err)
 	}
 
 	packages := make([]string, 0, len(entries))
@@ -295,17 +311,22 @@ func (c *conversation) compile(ctx context.Context, entries []*built) map[string
 		packages = append(packages, entry.pkg)
 	}
 
-	if _, err := c.build(ctx, bin, packages...); err == nil {
-		return failed
+	said, err := c.build(ctx, bin, packages...)
+	if err == nil {
+		return failed, nil
 	}
 
 	for _, entry := range entries {
-		if said, err := c.build(ctx, bin, entry.pkg); err != nil {
-			failed[entry.name] = fmt.Sprintf("the generated code did not compile: %v\n%s", err, said)
+		if one, err := c.build(ctx, bin, entry.pkg); err != nil {
+			failed[entry.name] = fmt.Sprintf("the generated code did not compile: %v\n%s", err, one)
 		}
 	}
 
-	return failed
+	if len(failed) == len(entries) {
+		return nil, fmt.Errorf("nothing this adapter generated would build: %w\n%s", err, said)
+	}
+
+	return failed, nil
 }
 
 // build runs the go tool over the packages named.
@@ -335,6 +356,22 @@ func (c *conversation) name(dir string) (string, error) {
 	}
 
 	return "./" + filepath.ToSlash(rel), nil
+}
+
+// named is the first entry a generate names twice, or the empty string where it
+// names each of them once.
+func named(entries []requestEntry) string {
+	seen := make(map[string]bool, len(entries))
+
+	for _, entry := range entries {
+		if seen[entry.Entry] {
+			return entry.Entry
+		}
+
+		seen[entry.Entry] = true
+	}
+
+	return ""
 }
 
 // exeSuffix is what the go tool appends to the program it builds out of a
