@@ -247,9 +247,7 @@ func (c *compiler) assemble(top facts) *Automaton {
 	}
 
 	automaton := &Automaton{Start: start, Registers: c.registers}
-	for _, state := range reachable(start, states) {
-		automaton.States = append(automaton.States, state)
-	}
+	automaton.States = append(automaton.States, reachable(start, states)...)
 
 	return automaton
 }

@@ -62,7 +62,7 @@ func TestWriteReplacesAPathRatherThanTruncatingIt(t *testing.T) {
 		t.Fatalf("open %s: %v", dest, err)
 	}
 
-	defer before.Close()
+	defer func() { _ = before.Close() }()
 
 	if err := emit.Write(dest, io.Discard, descriptor(), emit.FormatBinary); err != nil {
 		t.Fatalf("write: %v", err)

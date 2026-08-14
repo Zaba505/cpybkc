@@ -3,9 +3,8 @@
 ## The pipeline
 
 fmt, vet, golangci-lint, `go test -race`, `buf lint`, the three artifacts a
-release attaches, the published base image, the worked example in the
-base-image contract and the attestations a release signs are defined once, in
-the root Dagger module under
+release attaches, the published base image and the worked example in the
+base-image contract are defined once, in the root Dagger module under
 [`.dagger/`](.dagger/). CI calls that module and so do you, which is the point:
 there is no arrangement of local commands that passes while CI fails, because
 they are the same functions.
@@ -22,8 +21,11 @@ runs the schema lint, the IR module's own stages, a build of [the CLI
 itself](#building-the-cli), a build of the [release
 artifacts](#the-release-artifacts), a build of [the published
 image](#building-the-image) on every platform it ships for, a build of the
-[base-image contract](docs/container/SPEC.md)'s worked example, and the
-[attestations](#signing-a-release) a release attaches, alongside them.
+[base-image contract](docs/container/SPEC.md)'s worked example alongside them.
+
+`ci` builds an image, so the module needs real git metadata — which means no
+`dagger call` runs from a git worktree. See [The pipeline does not run from a git
+worktree](#the-pipeline-does-not-run-from-a-git-worktree).
 
 ### Running one stage
 
@@ -64,8 +66,39 @@ had broken, since no other stage reads it, so `ci` extracts it from that file,
 builds it, and replays its final stage onto the image `image-contract` just
 checked. Edit that example and this is the stage that will tell you about it.
 
-`dagger check` runs all twelve as a checklist, if you would rather see them
+`dagger check` runs them all as a checklist, if you would rather see them
 together than pick one.
+
+### The pipeline does not run from a git worktree
+
+**Run `dagger call` from an ordinary clone.** From a git worktree every call
+fails, including the ones that have nothing to do with an image:
+
+```
+failed to sync: failed to create local fs: failed to create base fs:
+stat …/.git: not a directory
+```
+
+The reason is one line of git's design meeting one line of Dagger's. The shared
+pipeline archetype stamps the commit into every binary it builds and annotates
+every image with the commit, its committer time and the repository's origin, so
+it needs real git metadata; the root module binds that as its own argument,
+`--git-dir`, defaulting to `/.git`. In an ordinary clone that is a directory. **In
+a worktree it is a *file*** pointing back at the main repository. Dagger resolves
+a `+defaultPath` argument when it constructs the module, before it knows which
+function you asked for, so the failure lands on `dagger call fmt` exactly as it
+lands on `dagger call image-contract`.
+
+There is no flag that fixes it. What a worktree would need is the main
+repository's `.git`, and handing that over would mean stamping an image from one
+tree while building it from another — a build identity that is not this tree's,
+which is the whole thing the argument exists to prevent.
+
+This is not a footnote for this repository: its own backlog cycle develops every
+issue in a per-issue worktree under `.claude/worktrees/`, so the gate a
+contributor is expected to run before pushing is the one that cannot run where
+they are working. Clone the repository somewhere else, copy the tree over, and run
+`dagger call ci` there.
 
 ### Building the CLI
 
@@ -112,11 +145,24 @@ failures separately — "it holds on amd64 and not on arm64" is the finding. The
 foreign-platform legs are cross-compiled by the toolchain container; only the
 runs *through* the entrypoint are emulated, and they are one `--version` each.
 
-The image is assembled in [`.dagger/image.go`](.dagger/image.go) rather than by
-the standard pipeline's app archetype, which publishes one image per binary and
-has no notion of a base other people build `FROM`. That file carries the whole
-argument, and `.dagger/main.go`'s package comment says why the factory this
-module calls is still `GoLib`.
+The image is **not** assembled here any more. It used to be, on the argument that
+the standard pipeline's app archetype published one image per binary and had no
+notion of a base other people build `FROM`; the refactored archetype's plugin
+directory, non-root user and content contributions are exactly what this project
+needed, so the image is `Go.App` plus this repository's two contributions and
+`.dagger/image.go` is now only the contract check.
+[`.dagger/main.go`](.dagger/main.go)'s package comment carries what this module
+still owns and why.
+
+There is no `dagger call publish`. The archetype's publish is signed and attested
+by construction and refuses a run it cannot produce provenance for, so the only
+caller that can reach it is the release workflow holding an OIDC token. To get
+the image onto your own machine, export it and load it:
+
+```sh
+dagger call image --platform=linux/amd64 export --path=cpybkc.tar
+docker load < cpybkc.tar
+```
 
 ### Getting the tools
 
@@ -161,8 +207,8 @@ the same commit.
 
 `ci` does not implement the four stages. It hands the source to
 [`github.com/z5labs/devex/daggerverse/z5labs`](https://github.com/z5labs/devex/tree/main/daggerverse/z5labs)
-and lets that module's `GoLib` archetype run them — the same standard
-`z5labs/dfcad` runs.
+and lets that module's `Go` chain run them — the same standard `z5labs/dfcad`
+runs.
 
 Reimplementing them here would be a second definition of what "checked" means in
 a Z5Labs repository, and two definitions drift. A stage added to the standard
@@ -172,37 +218,40 @@ wrote down. Wrapping costs one dependency and makes that impossible. The full
 reasoning, including why the stage functions are not a fork of it, is in
 [`.dagger/main.go`](.dagger/main.go)'s package comment.
 
-`GoLib` rather than `GoApp`, even now that `cmd/cpybkc-gen-go` is a main package
-and the image is built. What `GoApp` adds is a multi-platform image build and the
-publish half of the standard, and the image half of that turned out not to fit:
-`GoApp` publishes one image per binary, and cpybkc publishes a *base* — a
-directory on `PATH` that other people's images copy into, owned by a pinned
-non-root user. Teaching the archetype that shape would be teaching it this
-repository's plugin model. So the image is assembled in
-[`.dagger/image.go`](.dagger/image.go), the four check stages gate a pull request
-exactly as before, and the publish half went the same way once the image did:
-[`.dagger/release.go`](.dagger/release.go) pushes the base this module assembles,
-under tags this module derives, and `GoApp` has no notion of either.
+The image and the publish come from the same place. They did not use to: the
+archetype published one image per binary and had no notion of a base other
+people build `FROM`, so this module built the image, derived the tag family and
+signed the result itself — about 2,000 lines of it. The refactored `Go` → `App` →
+`Publish` chain removed that premise, and cpybkc adopted it whole. `/usr/local/bin`
+is the archetype's plugin directory with `PATH` composed from the same constant,
+65532:65532 is its pinned non-root user, `App.WithFile` and `App.WithDirectory`
+contribute the IR schema with a document each, and `App.Publish` derives the tag
+family, pushes one index under every tag of it, signs it recursively and attaches
+provenance and SBOMs.
+
+What this module still owns is the contract checks, whether a commit is a release,
+the release notes, and the fact that this repository holds four Go modules.
+[`.dagger/main.go`](.dagger/main.go)'s package comment is the full list and the
+argument for each.
 
 Both dependencies in `dagger.json` are pinned to one `devex` commit, so a bump
 has to move them together.
 
 ## Linting
 
-`.golangci.yml` is written in golangci-lint **v1** syntax, not v2, and that is
-deliberate. The standard pipeline pins golangci-lint v1.64.8 and offers no way to
-override it, and v1 refuses a v2 configuration file outright rather than ignoring
-what it does not understand. Writing it in v1 is what lets the module pass this
-repository's own configuration to the pipeline, so the file you read here is the
-one CI enforces.
+`.golangci.yml` is written in the golangci-lint **v2** dialect, because v2 is the
+major the standard pipeline runs. The majors are not interchangeable: a v2 binary
+refuses a v1 file outright, before any linter runs, and v1 refuses a v2 one. The
+`version: "2"` at the top of the file is the config schema's version, not a tool
+pin — the tool pin lives in the shared Go module, which is where a bump belongs.
 
-The linter selection is unchanged by that: errcheck, govet, ineffassign,
-staticcheck and unused, which is golangci-lint v2's default set. It goes back to
-v2 syntax once the standard pipeline runs v2 — tracked upstream as
-[z5labs/devex#374](https://github.com/z5labs/devex/issues/374).
+The linter selection is v2's own default set, spelled out rather than inherited:
+errcheck, govet, ineffassign, staticcheck and unused. Note that `staticcheck` in
+v2 subsumes what v1 called `gosimple` and `stylecheck`, so the same five names
+select more checks than they did under v1.
 
-If you run `golangci-lint` directly rather than through `dagger call lint`, use
-v1.64.8 or it will reject the config for the mirror-image reason.
+If you run `golangci-lint` directly rather than through `dagger call lint`, use a
+v2 release or it will reject the config for the mirror-image reason.
 
 ### Linting the IR schema
 
@@ -361,49 +410,39 @@ published, building them with the same three calls above at the release's tag.
 
 ## Signing a release
 
-A published image carries a signature and two kinds of attestation, and
-[`.dagger/sign.go`](.dagger/sign.go) is where all three are produced. What a
-consumer does with them is [the base-image
-contract](docs/container/SPEC.md#verifying-a-signature)'s, including [after
-mirroring into an internal
-registry](docs/container/SPEC.md#after-mirroring-to-an-internal-registry); this
-is the side that makes them exist.
+A published image carries a signature and two kinds of attestation, and **none
+of them is produced here any more.** `.dagger/sign.go` is gone, and so are
+`sbom`, `provenance`, `attest` and `attestations`: `App.Publish` in the shared
+pipeline signs every published digest recursively, attaches a signed SLSA
+provenance statement, and attaches an SPDX and a CycloneDX document per platform.
+It refuses a publish it cannot produce provenance for, so there is no arrangement
+in which an image goes out unsigned.
 
-Both halves are things you can build from a checkout:
+What a consumer does with any of it is [the base-image
+contract](docs/container/SPEC.md#verifying-a-signature)'s, including [how to
+discover the attestations](docs/container/SPEC.md#discovering-the-attestations)
+and [what changes after mirroring into an internal
+registry](docs/container/SPEC.md#after-mirroring-to-an-internal-registry).
 
-```sh
-dagger call sbom export --path=sbom                     # one document per executable per platform
-dagger call sbom --platform=linux/arm64 export --path=sbom
-dagger call provenance --image=ghcr.io/zaba505/cpybkc@sha256:… \
-  --builder=… contents                                  # the SLSA v1 predicate
-dagger call attestations                                # the check `ci` runs
-```
-
-`attest` is the third, and it is the one that needs a release: it signs a
-published digest and attaches the predicate and the SBOMs to it. `release` is
-what calls it, with the digest its publish returned.
-
-Four things about it are worth knowing before changing any of it:
+Three things are worth knowing:
 
 - **The signature is recursive; the attestations are not.** A tag resolves to a
-  multi-platform index, so `cosign sign --recursive` covers the index *and* each
-  per-platform manifest under it — otherwise the manifest a consumer's runtime
-  pulls is unsigned while `cosign verify` against their tag still passes. The
-  provenance and the SBOMs go on the index digest alone, because they are
-  statements about the release and the release is the index.
-- **Everything names a digest.** `attest` refuses a reference that is not
-  digest-qualified rather than resolving a tag itself. Three of the four
-  published tags move by design, and what gets signed has to be what was pushed.
-- **Signing is keyless.** There is no cpybkc key to hold or rotate; the identity
-  is the release workflow, certified for the length of one run from the OIDC
-  token GitHub mints. That is why `attest` takes the token request endpoint and
-  its bearer token, and why the release job needs `id-token: write`.
-- **Only half of it is checked on a pull request.** `attestations` covers the
-  provenance predicate's shape and the SBOM set — one valid SPDX 2.3 document per
-  executable per platform, each carrying its own binary's checksum. Producing a
-  real signature needs an OIDC token, a registry and a public transparency log,
-  none of which a pull request has, and a check that faked one would be checking
-  the fake. The signing flow is first exercised by a release.
+  multi-platform index, so the signature covers the index *and* each per-platform
+  manifest under it — otherwise the manifest a consumer's runtime pulls is
+  unsigned while `cosign verify` against their tag still passes. The provenance
+  and the SBOMs go on the index digest alone, because they are statements about
+  the release and the release is the index.
+- **Signing is keyless, and the provenance says only what the token says.** There
+  is no cpybkc key to hold or rotate; the identity is the release workflow,
+  certified for the length of one run from the OIDC token GitHub mints. Every
+  identifying field in the provenance comes out of that token's claims, which is
+  why `release` no longer takes a `--builder` or an `--invocation`: anything a
+  caller could have supplied attests to nothing.
+- **Nothing here checks them, and that is deliberate.** There is no predicate of
+  this repository's left to check the shape of, and a table here would be a
+  second copy of somebody else's rule — the copy that stays green after the
+  original moves. The documents are checked upstream, against the code that
+  writes them.
 
 ## Making a release
 
@@ -430,27 +469,30 @@ pushes with. Every release after that one is the paragraph above.
 Releases are also expected to be cut in ascending version order. The moving tags
 follow the release being published rather than the highest version ever
 published, so a backport cut *after* the release that supersedes it would land
-`v0` and `latest` back on the older image — see `versionTags` in
-[`.dagger/release.go`](.dagger/release.go).
+`v0` and `latest` back on the older image.
 
-### Which tags a release publishes is a function, not a step
+### Whether a commit is a release is a function, not a step
 
-[`.dagger/release.go`](.dagger/release.go) is handed the release's tag, checks it
-against the refs at HEAD and derives the tag list from it, and [the base-image
-contract](docs/container/SPEC.md#tags-and-what-pinning-one-buys) is the table it
-implements: the full version tag never moves, the minor tag moves on each patch,
-the **moving major tag** moves on each release in that major, and `latest` moves
-on each release. The major tag is the one a derived Dockerfile should usually
-pin — it picks up every fix inside the compatibility guarantees — and it is what
-the [companion Dagger module's default](#the-default-image-tag-is-the-moving-major-tag)
+[`.dagger/release.go`](.dagger/release.go) is handed the release's tag and checks
+it against the refs at HEAD: a canonical `vX.Y.Z` pointing at HEAD is a release
+of the image, and anything else is not. The **tag family** that version implies —
+the table in [the base-image
+contract](docs/container/SPEC.md#tags-and-what-pinning-one-buys) — is the shared
+pipeline's, derived from the version and checked there against its own literals.
+That split is stated in the document itself, so a reader concludes neither that
+the table is unenforced nor that this repository enforces it.
+
+The major tag is the one a derived Dockerfile should usually pin — it picks up
+every fix inside the compatibility guarantees — and it is what the [companion
+Dagger module's default](#the-default-image-tag-is-the-moving-major-tag)
 resolves through.
 
 ```sh
-dagger call tag-scheme             # the derivation, over the cases that matter
+dagger call tag-scheme             # the release decision, over the cases that matter
 dagger call release-notes-contract # the block a release's notes carry
 ```
 
-Both are in `ci`, so the scheme is checked on every pull request rather than
+Both are in `ci`, so the decision is checked on every pull request rather than
 discovered at a release. Three edge cases are settled there rather than in
 production:
 
@@ -473,8 +515,8 @@ full version tag is never repointed. Both are true because the image is a
 function of the source: the binary is built `-trimpath` and CGO-free, the IR
 artifacts are byte-deterministic, and the image is assembled from those alone. A
 second run pushes the same bytes, so every tag lands back on the digest it
-already named. `release` asserts it by requiring every tag of one release to
-resolve to one digest, and refusing the release if they do not.
+already named — one index pushed once, with every tag of the family pointing at
+it.
 
 The asset uploads use `--clobber`, the signature and the attestations are
 additive rather than replacing, and the notes block is delimited and regenerated
@@ -488,18 +530,20 @@ outright.
 ### Publishing somewhere else
 
 Where the image goes is an argument, not a constant: `release` takes the
-repository, and `publish` pushes one multi-platform index to any registry you can
-authenticate against.
+registry and the repository as two arguments, so a mirror or an internal registry
+serves the same release by changing one of them and nothing else.
 
-```sh
-dagger call publish --address=localhost:5000/cpybkc:v0 \
-  --username=… --password=env://REGISTRY_PASSWORD
-```
+There is no `publish` verb beside it any more, and nothing replaces the
+capability. The archetype's publish refuses a run it cannot produce provenance
+for, so the only caller that can reach it is the release workflow holding an OIDC
+token — pushing to a test registry by hand is not something this pipeline offers.
+What a contributor does instead is [export the image and load
+it](#building-the-image).
 
-That is deliberate — [the base-image
-contract](docs/container/SPEC.md#also-out-of-scope) holds the registry out of
-what it promises, because a mirror serving the same digest satisfies it
-identically. What is *not* an argument is which tags exist, for the reason above.
+Holding the registry out is deliberate — [the base-image
+contract](docs/container/SPEC.md#also-out-of-scope) holds it out of what it
+promises, because a mirror serving the same digest satisfies it identically. What
+is *not* an argument is which tags exist, for the reason above.
 
 ## The companion Dagger module
 
@@ -983,11 +1027,19 @@ is not a weaker check — it is a claim that something is being verified. So the
 story is closed as unnecessary rather than carried against a premise this
 decision removed.
 
-What survives of it is the one thing the default depends on. Every release
-[publishes the moving major tag](#which-tags-a-release-publishes-is-a-function-not-a-step)
-(#59), and `dagger call tag-scheme` is what says so on every pull request; if
-that ever stopped being published, this decision is what would have to be
-reopened, rather than the default quietly patched at the call site.
+What survives of it is the one thing the default depends on: that every release
+publishes the moving major tag. Since #185 the tag family is [derived and
+published by the shared
+pipeline](docs/container/SPEC.md#tags-and-what-pinning-one-buys), so
+`dagger call tag-scheme` no longer says it — that check covers only [whether a
+commit is a release at
+all](#whether-a-commit-is-a-release-is-a-function-not-a-step). What says it now is
+`release` itself: after the push it reads back the references the publish
+returned and requires a stable release to have moved more than the version tag
+and a prerelease to have moved nothing, so a family that stopped moving the major
+tag is a release that goes red. If that ever stopped being published, this
+decision is what would have to be reopened, rather than the default quietly
+patched at the call site.
 
 ## The conformance corpus
 

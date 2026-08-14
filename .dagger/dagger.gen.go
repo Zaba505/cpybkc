@@ -63,9 +63,11 @@ func (r Cpybkc) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source     *dagger.Directory
 		LintConfig *dagger.File
+		GitDir     *dagger.Directory
 	}
 	concrete.Source = r.Source
 	concrete.LintConfig = r.LintConfig
+	concrete.GitDir = r.GitDir
 	return json.Marshal(&concrete)
 }
 
@@ -73,6 +75,7 @@ func (r *Cpybkc) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		Source     *dagger.Directory
 		LintConfig *dagger.File
+		GitDir     *dagger.Directory
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -80,6 +83,7 @@ func (r *Cpybkc) UnmarshalJSON(bs []byte) error {
 	}
 	r.Source = concrete.Source
 	r.LintConfig = concrete.LintConfig
+	r.GitDir = concrete.GitDir
 	return nil
 }
 
@@ -202,90 +206,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 	switch parentName {
 	case "Cpybkc":
 		switch fnName {
-		case "Attest":
-			var parent Cpybkc
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var gitDir *dagger.Directory
-			if inputArgs["gitDir"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["gitDir"]), &gitDir)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
-				}
-			}
-			var image string
-			if inputArgs["image"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["image"]), &image)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg image", err))
-				}
-			}
-			var username string
-			if inputArgs["username"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["username"]), &username)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg username", err))
-				}
-			}
-			var password *dagger.Secret
-			if inputArgs["password"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["password"]), &password)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg password", err))
-				}
-			}
-			var idTokenRequestUrl string
-			if inputArgs["idTokenRequestUrl"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["idTokenRequestUrl"]), &idTokenRequestUrl)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestUrl", err))
-				}
-			}
-			var idTokenRequestToken *dagger.Secret
-			if inputArgs["idTokenRequestToken"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["idTokenRequestToken"]), &idTokenRequestToken)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestToken", err))
-				}
-			}
-			var builder string
-			if inputArgs["builder"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["builder"]), &builder)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg builder", err))
-				}
-			}
-			var version string
-			if inputArgs["version"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
-				}
-			}
-			var tags []string
-			if inputArgs["tags"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["tags"]), &tags)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tags", err))
-				}
-			}
-			var invocation string
-			if inputArgs["invocation"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["invocation"]), &invocation)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg invocation", err))
-				}
-			}
-			return (*Cpybkc).Attest(&parent, ctx, gitDir, image, username, password, idTokenRequestUrl, idTokenRequestToken, builder, version, tags, invocation)
-		case "Attestations":
-			var parent Cpybkc
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Cpybkc).Attestations(&parent, ctx)
 		case "Binary":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -440,101 +360,24 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).ProtoLint(&parent, ctx)
-		case "Provenance":
-			var parent Cpybkc
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var gitDir *dagger.Directory
-			if inputArgs["gitDir"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["gitDir"]), &gitDir)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
-				}
-			}
-			var image string
-			if inputArgs["image"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["image"]), &image)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg image", err))
-				}
-			}
-			var builder string
-			if inputArgs["builder"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["builder"]), &builder)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg builder", err))
-				}
-			}
-			var version string
-			if inputArgs["version"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
-				}
-			}
-			var tags []string
-			if inputArgs["tags"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["tags"]), &tags)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tags", err))
-				}
-			}
-			var invocation string
-			if inputArgs["invocation"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["invocation"]), &invocation)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg invocation", err))
-				}
-			}
-			return (*Cpybkc).Provenance(&parent, ctx, gitDir, image, builder, version, tags, invocation)
-		case "Publish":
-			var parent Cpybkc
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var address string
-			if inputArgs["address"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["address"]), &address)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg address", err))
-				}
-			}
-			var username string
-			if inputArgs["username"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["username"]), &username)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg username", err))
-				}
-			}
-			var password *dagger.Secret
-			if inputArgs["password"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["password"]), &password)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg password", err))
-				}
-			}
-			return (*Cpybkc).Publish(&parent, ctx, address, username, password)
 		case "Release":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			var gitDir *dagger.Directory
-			if inputArgs["gitDir"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["gitDir"]), &gitDir)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
-				}
-			}
 			var tag string
 			if inputArgs["tag"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
 				if err != nil {
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			var registry string
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
 				}
 			}
 			var repository string
@@ -572,33 +415,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestToken", err))
 				}
 			}
-			var builder string
-			if inputArgs["builder"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["builder"]), &builder)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg builder", err))
-				}
-			}
-			var invocation string
-			if inputArgs["invocation"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["invocation"]), &invocation)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg invocation", err))
-				}
-			}
-			return (*Cpybkc).Release(&parent, ctx, gitDir, tag, repository, username, password, idTokenRequestUrl, idTokenRequestToken, builder, invocation)
+			return (*Cpybkc).Release(&parent, ctx, tag, registry, repository, username, password, idTokenRequestUrl, idTokenRequestToken)
 		case "ReleaseNotes":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var gitDir *dagger.Directory
-			if inputArgs["gitDir"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["gitDir"]), &gitDir)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
-				}
 			}
 			var tag string
 			if inputArgs["tag"] != nil {
@@ -621,7 +443,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repository", err))
 				}
 			}
-			return (*Cpybkc).ReleaseNotes(&parent, ctx, gitDir, tag, notes, repository)
+			return (*Cpybkc).ReleaseNotes(&parent, ctx, tag, notes, repository)
 		case "ReleaseNotesContract":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -629,20 +451,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Cpybkc).ReleaseNotesContract(&parent)
-		case "Sbom":
-			var parent Cpybkc
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var platform string
-			if inputArgs["platform"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
-				}
-			}
-			return (*Cpybkc).Sbom(&parent, ctx, platform)
 		case "TagScheme":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)
@@ -691,7 +499,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintConfig", err))
 				}
 			}
-			return New(source, lintConfig), nil
+			var gitDir *dagger.Directory
+			if inputArgs["gitDir"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["gitDir"]), &gitDir)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gitDir", err))
+				}
+			}
+			return New(source, lintConfig, gitDir), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

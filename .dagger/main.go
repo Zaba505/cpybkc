@@ -1,40 +1,55 @@
 // Package main implements cpybkc's root Dagger module: the one definition of
 // this repository's pipeline, called by CI and by contributors alike.
 //
-// # Why this wraps the Z5Labs standard pipeline
+// # What this module still owns, now that the archetype builds the image
 //
-// Ci does not implement fmt, vet, lint and `go test -race`. It hands the source
-// to github.com/z5labs/devex/daggerverse/z5labs and lets that module's GoLib
-// archetype run them, which is the same standard z5labs/dfcad runs. A
-// reimplementation here would be a second definition of what "checked" means in
-// a Z5Labs repository, and two definitions drift: a stage added to the standard
-// would silently not apply to cpybkc, and a difference in how a stage is invoked
-// would show up as this repository disagreeing with every other one for reasons
-// nobody wrote down. Wrapping costs one dependency and keeps that impossible.
+// This module used to build cpybkc's published base image itself, sign it and
+// derive its tag family, and about 2,000 of its lines existed for that reason
+// alone. The argument was recorded here and in image.go at length: the Z5Labs
+// standard pipeline's GoApp archetype published one image per binary — a scratch
+// image holding one executable, with no PATH, no user and no second directory —
+// and cpybkc publishes a *base*, a directory on PATH that other people's images
+// copy into, owned by a pinned non-root user (#55, #58, #59).
 //
-// GoLib rather than GoApp, even now that cmd/cpybkc-gen-go is a main package
-// (#48), the image is built (#55) and it is published (#59). What GoApp adds
-// over GoLib is a multi-platform image build and the publish half of the
-// standard, and the image story expected to reach the image by switching
-// factories. It did not, and image.go's own comment says why at length: GoApp
-// publishes one image per binary, and cpybkc publishes a *base* — a directory on
-// PATH that other people's images copy into, owned by a pinned non-root user.
-// Four of the six promises docs/container/SPEC.md makes are that shape rather
-// than settings GoApp is missing.
+// That premise is gone (#185). github.com/z5labs/devex/daggerverse/z5labs is now
+// a chainable Go -> App -> Publish API, and every one of the things this
+// repository needed is the archetype's own: /usr/local/bin is its fixed plugin
+// directory with PATH composed from the same constant, 65532:65532 is its pinned
+// non-root user, App.WithFile and App.WithDirectory contribute content that
+// carries a document, and App.Publish derives the tag family, pushes one
+// multi-platform index under every tag of it, signs the result recursively and
+// attaches provenance and SBOMs. So the image, the publish, the tags and the
+// signing are all the standard's, and this module states the version and the
+// repository and gets out of the way.
 //
-// So the factory stays GoLib, and the four check stages still gate a pull
-// request and still cover cmd/ because they run over ./... . The image is built
-// by this module in image.go and published by it in release.go — the shape avroc
-// arrived at for the same reason (avroc#166, avroc#168). The publish half went
-// the same way as the image half once the image did: what a release pushes is
-// the base this module assembles, under tags this module derives, and GoApp has
-// no notion of either.
+// Four things did not move, and each is a fact about *this* project rather than
+// about how an image gets built:
+//
+//   - The contract checks. ImageContract, WorkedExample, CompanionModule,
+//     CliSurface, EngineLock, IrArtifacts, LayoutArtifact, IrDescriptorSet,
+//     IrProtos, LayoutSchema, ProtoLint, ProtoGen and Build are assertions about
+//     docs/container/SPEC.md, docs/plugin/SPEC.md and docs/cli/SPEC.md, and every
+//     one of them holds against a container whoever built it. They are also the
+//     evidence that adopting the archetype changed nothing a consumer can see
+//     that this change did not choose to change, which is the only thing that
+//     makes a change of this size reviewable.
+//   - Whether this commit is a release. The archetype takes a version from its
+//     caller and derives the tag family from it; reading the refs at HEAD to
+//     decide whether there is a release here at all, refusing two version tags
+//     and refusing `+build` metadata stay in release.go, because they are facts
+//     about this repository's release process. TagScheme is what checks them.
+//   - The release notes. ReleaseNotes, ReleaseNotesContract and the IR version
+//     they state have no counterpart upstream and gain none: which IR version the
+//     published image speaks is the one fact about a release a reader cannot
+//     recover from its tag.
+//   - Which four Go modules this repository holds, and that the IR schema under
+//     proto/ is linted. The archetype has no opinion about either.
 //
 // # Why the release is decided here too
 //
-// release.go decides whether a commit is a release, which tags it carries and
-// what its notes say about the image (#59). That decision is in the module and
-// not in .github/workflows/release.yaml because the alternative is the tag scheme
+// release.go decides whether a commit is a release and what its notes say about
+// the image (#59, #185). That decision is in the module and not in
+// .github/workflows/release.yaml because the alternative is the release rule
 // written down a second time, in a file that runs once per release and is
 // exercised nowhere else. TagScheme and ReleaseNotesContract are in Ci for the
 // same reason the artifact builds are: a recipe whose first real run is on a tag
@@ -42,7 +57,7 @@
 //
 // # Why the stage functions exist alongside it
 //
-// GoLib exposes only the whole pipeline, and waiting on four stages to learn
+// GoChain.Ci exposes only the whole pipeline, and waiting on four stages to learn
 // that one file is unformatted is not the loop to develop in. So Fmt, Vet, Lint
 // and Test are here too. They are not a second implementation: each one drives
 // the same github.com/z5labs/devex/daggerverse/go builder that the standard
@@ -50,6 +65,27 @@
 // configuration. Both dependencies are pinned to a single devex commit for that
 // reason — a bump has to move them together, or a stage run on its own stops
 // being the stage Ci runs.
+//
+// # Why .git is bound apart from the source
+//
+// The archetype needs real git metadata: Go.App stamps the short HEAD SHA into
+// every binary, annotates every image with the commit, its committer time and the
+// origin, and calls requireGitWorkingTree before it builds anything. The check
+// stages need the opposite — a tree that does not change when a commit is made,
+// or fmt, vet, lint and test miss their cache on every commit.
+//
+// So .git is not in Source and is not folded back into it. It is New's own
+// argument, with an ignore list of its own, and appSource is the one place the
+// two are put together.
+//
+// The cost is a git *worktree*, whose .git is a file rather than a directory.
+// Dagger resolves a +defaultPath argument when it constructs the module, before
+// it knows which function was asked for, so *every* call fails there — not only
+// the ones that build an image. CONTRIBUTING.md says so, because this
+// repository's own backlog cycle develops in worktrees under .claude/worktrees/,
+// and the remedy is an ordinary clone rather than a flag: what a worktree would
+// have to hand over is the main repository's .git, which is a build identity that
+// is not this tree's.
 //
 // # Why ProtoLint is not one of them
 //
@@ -125,19 +161,18 @@
 // invocation of protoc, which is what makes the release asset and the in-image
 // copy two ways of getting one artifact.
 //
-// # Why signing is here too, and why only half of it is checked
+// # Why nothing here checks the signature or the attestations any more
 //
-// Attest signs a published digest and attaches its provenance and SBOMs (#58),
-// and sign.go carries the argument for what is attached to what. It is on this
-// module for the reason the artifact builds are: a recipe that only ever ran
-// inside .github/workflows/release.yaml would first run on a tag, where a
-// failure is a release that did not happen.
-//
-// Only half of it can be a check. Producing a real signature needs an OIDC
-// token, a registry and a public transparency log, none of which a pull request
-// has, so Attestations checks what is a function of this repository — the
-// provenance predicate's shape and the SBOM set — and says outright that the
-// signature itself is first exercised by a release.
+// Attest, Attestations, Sbom and Provenance are gone with sign.go (#185). Every
+// published digest still carries a recursive signature, a signed SLSA provenance
+// statement and an SBOM per platform — App.Publish refuses a run it cannot
+// produce provenance for — but none of that is this repository's to render any
+// more, so there is no predicate of its own left to check the shape of. The
+// documents are checked upstream, by the archetype's own selftests, against the
+// code that writes them; a table here would be a second statement of somebody
+// else's rule, and the way that fails is the copy staying green after the
+// original moved. What a consumer runs to find them is docs/container/SPEC.md's,
+// and that document changed in the same commit.
 //
 // # Why a document is one of the stages
 //
@@ -191,6 +226,10 @@ type Cpybkc struct {
 	Source *dagger.Directory
 	// +private
 	LintConfig *dagger.File
+	// GitDir is the repository's .git, bound apart from Source so that the
+	// check stages never see it. Only appSource folds it back in.
+	// +private
+	GitDir *dagger.Directory
 }
 
 // New binds the repository to the pipeline.
@@ -198,10 +237,44 @@ type Cpybkc struct {
 // source defaults to the repository root, so `dagger call ci` from a checkout
 // needs no arguments. The ignore list drops what no check stage reads: .git is
 // excluded because none of fmt, vet, lint or test looks at git metadata, and
-// leaving it in would make every commit a cache miss for all four. That changes
-// if the archetype ever becomes GoApp — it stamps binaries from the refs at HEAD
-// and does need real git metadata, so .git has to come off this list in the same
-// change that switches factories.
+// leaving it in would make every commit a cache miss for all four.
+//
+// It stays excluded now that the archetype builds the image (#185), rather than
+// coming off the list as the comment here used to predict. The archetype does
+// need real git metadata — Go.App refuses a tree without it, stamps the short
+// HEAD SHA into every binary and annotates every image with the commit, its
+// committer time and the origin — but it needs it on the one path that builds an
+// App, and folding .git into Source would have bought that by making fmt, vet,
+// lint and test miss their cache on every commit. gitDir is that metadata bound
+// as its own input, and appSource is the only thing that puts the two back
+// together.
+//
+// gitDir defaults to the repository's own .git. It is a *directory* rather than
+// something derived, because git's own answers are what the archetype stamps and
+// anything this module computed would be a build identity a caller could have
+// supplied. Note that a git *worktree* has a .git **file** rather than a
+// directory, so the default path resolves to nothing there and every call fails
+// on it — see the package comment. CONTRIBUTING.md says to run from an ordinary
+// clone.
+//
+// Its own ignore list is the other half of the caching argument, and it is not
+// decoration. Everything read out of here is a function of the commit — HEAD, the
+// refs pointing at it, the commit object's committer time, and the origin in
+// config — while a .git directory also holds a great deal that is not: the reflog
+// under logs/, FETCH_HEAD and ORIG_HEAD, the staging index, and the hooks. Folded
+// in whole, an ordinary `git fetch` moves every one of those and the image stages
+// miss their cache for reasons nothing in the tree explains. What is excluded is
+// chosen to be things none of the four readers above touches, so dropping them
+// costs nothing.
+//
+// It does **not** make two builds of one commit hash identically in general, and
+// claiming that would be claiming more than a list of exclusions can deliver.
+// objects/ has to stay — HEAD's own commit object is in it — so a `git gc` that
+// repacks, or a fetch that adds a pack, still moves this input; so do packed-refs
+// and refs/remotes/**, which a fetch of any branch rewrites. What the list buys is
+// the cheapest and most frequent churn, which is the churn a contributor generates
+// by working: the reflog moves on every checkout and commit, and the index on
+// every `git add`.
 //
 // lintConfig defaults to the repository's own .golangci.yml. It is passed
 // explicitly rather than left to the standard pipeline's bundled default so that
@@ -209,11 +282,10 @@ type Cpybkc struct {
 // against — a .golangci.yml that CI ignored would be a file contributors read
 // and trusted while the pipeline enforced something else.
 //
-// That file is written in golangci-lint v1 syntax because the standard pipeline
-// pins v1.64.8 and offers no way to override it: GoLib takes a config but not a
-// version. v1 refuses a v2 config outright rather than ignoring what it does not
-// understand, so a v2 file here would fail the lint stage on every run. See
-// z5labs/devex#374, and .golangci.yml's own comment.
+// That file is written in the golangci-lint **v2** dialect, because v2 is the
+// major the standard pipeline runs and a v2 binary refuses a v1 file outright,
+// before any linter runs. The tool pin is the shared Go module's, and nothing
+// here restates it.
 func New(
 	// +optional
 	// +defaultPath="/"
@@ -221,11 +293,66 @@ func New(
 	source *dagger.Directory,
 	// +optional
 	lintConfig *dagger.File,
+	// +optional
+	// +defaultPath="/.git"
+	// +ignore=["logs", "hooks", "index", "FETCH_HEAD", "ORIG_HEAD", "COMMIT_EDITMSG"]
+	gitDir *dagger.Directory,
 ) *Cpybkc {
 	if lintConfig == nil {
 		lintConfig = source.File(".golangci.yml")
 	}
-	return &Cpybkc{Source: source, LintConfig: lintConfig}
+
+	return &Cpybkc{Source: source, LintConfig: lintConfig, GitDir: gitDir}
+}
+
+// goChain is the standard Go chain bound to a source tree and configured the one
+// way this repository is checked.
+//
+// It is one helper rather than a call at each site because all four invocations
+// have to agree about the lint configuration and about the race detector: a chain
+// configured four times is four definitions of what "checked" means here, which
+// is the thing wrapping the standard exists to prevent.
+//
+// WithTest(true) is written out rather than left to the default. The archetype's
+// race detector is on unless a caller says otherwise, so the argument is redundant
+// today and is stated anyway — "the race detector is on because this repository
+// asked for it" is a different claim from "because nobody turned it off".
+//
+// The chain carries no .git: none of the four check stages reads git metadata,
+// and the ignore list on New exists to keep them cache-stable. appChain is where
+// the metadata arrives.
+func (m *Cpybkc) goChain(source *dagger.Directory) *dagger.Z5LabsGoChain {
+	return dag.Z5Labs().
+		Go(source).
+		WithLint(dagger.Z5LabsGoChainWithLintOpts{Config: m.LintConfig}).
+		WithTest(true)
+}
+
+// appSource is the source tree an App is built from: this repository's, with its
+// git metadata folded back in.
+//
+// This is the only place the two are put together, and that is the whole of
+// #185's answer to a problem New's old comment predicted: the archetype stamps
+// binaries and annotates images from the refs at HEAD, so it needs real git
+// metadata, and the check stages need a tree that does not change when a commit
+// is made. One argument, folded in on one path, gives both.
+func (m *Cpybkc) appSource() *dagger.Directory {
+	// A nil GitDir is handed on rather than dereferenced. It is not reachable
+	// from the command line — the argument carries a default path — but it is
+	// reachable from a module-to-module call and from any struct literal, and
+	// Directory.WithDirectory asserts its argument is non-nil and *panics*, a
+	// long way from whoever left it out. Returning the source unchanged instead
+	// puts the failure where it belongs: the archetype refuses a tree with no
+	// .git in it, in its own words, naming what it was looking for.
+	//
+	// That is also the message somebody running an image stage from a git
+	// worktree gets, where .git is a file and the default path resolves to
+	// nothing useful.
+	if m.GitDir == nil {
+		return m.Source
+	}
+
+	return m.Source.WithDirectory(".git", m.GitDir)
 }
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
@@ -233,32 +360,38 @@ func New(
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
 // build of the three artifacts a release publishes, the published base image on
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
-// an adopter, the attestations a release attaches to what it publishes, the tag
-// scheme and release notes a release is published under, the companion
-// module's coverage of the CLI's flags, and that module's own functions driven
-// over the image this run just built. This is the single entrypoint — CI is
+// an adopter, the release decision and the release notes a release is published
+// under, the companion module's coverage of the CLI's flags, and that module's
+// own functions driven over the image this run just built. This is the single entrypoint — CI is
 // one `dagger call ci` and stays one, because a workflow step that reran any of
 // these stages would be a second definition of them.
 //
-// The sixteen parts run concurrently and all are reported, for the reason the
+// The fifteen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
 //
+// It was sixteen until #185. Attestations checked the provenance predicate and
+// the SBOM set this module used to render, and both are the archetype's now, so
+// the stage went with sign.go rather than being kept as a check on somebody
+// else's output.
+//
+// ImageContract is one of the fifteen, and since #185 that stage builds an App —
+// so this call needs real git metadata and does not run from a git worktree. See
+// New.
+//
 // +check
 // +cache="session"
 func (m *Cpybkc) Ci(ctx context.Context) error {
-	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr error
+	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr error
 	var tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr error
 
 	var wg sync.WaitGroup
-	wg.Add(16)
+	wg.Add(15)
 
 	go func() {
 		defer wg.Done()
-		goErr = dag.Z5Labs().
-			GoLib(m.Source, dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
-			Ci(ctx)
+		goErr = m.goChain(m.Source).Ci(ctx)
 	}()
 
 	go func() {
@@ -301,11 +434,6 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
-		attestErr = m.Attestations(ctx)
-	}()
-
-	go func() {
-		defer wg.Done()
 		tagErr = m.TagScheme()
 	}()
 
@@ -341,7 +469,7 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 
 	wg.Wait()
 
-	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr, attestErr,
+	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr,
 		tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr)
 }
 
@@ -360,9 +488,7 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 // +check
 // +cache="session"
 func (m *Cpybkc) IrCi(ctx context.Context) error {
-	return dag.Z5Labs().
-		GoLib(m.Source.Directory("irpb"), dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
-		Ci(ctx)
+	return m.goChain(m.Source.Directory("irpb")).Ci(ctx)
 }
 
 // pipelineModuleDir is this pipeline's own Go module — the one whose functions
@@ -394,9 +520,7 @@ const pipelineModuleDir = ".dagger"
 // +check
 // +cache="session"
 func (m *Cpybkc) PipelineCi(ctx context.Context) error {
-	return dag.Z5Labs().
-		GoLib(m.Source.Directory(pipelineModuleDir), dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
-		Ci(ctx)
+	return m.goChain(m.Source.Directory(pipelineModuleDir)).Ci(ctx)
 }
 
 // Fmt reports any file that gofmt would rewrite, as a diff.
@@ -625,11 +749,35 @@ func (m *Cpybkc) IrArtifacts(ctx context.Context) error {
 // would be a build nobody can reproduce locally.
 //
 // The engine's own platform, because that is what a contributor exporting one
-// wants. Every published image carries the same build with a platform argument
-// (image.go's binary), so there is one recipe for the executable and not one per
-// destination.
+// wants.
+//
+// It is no longer the recipe the published image uses. Since #185 the archetype
+// compiles the CLI for every platform it publishes, with its own CGO, -trimpath
+// and -ldflags switches — and ImageContract reads three of those back out of the
+// executable that landed in the image, so the two agreeing is a check rather
+// than an arrangement. What this function is still for is the loose executable:
+// something a contributor exports and runs, and the input Build's empty-image
+// smoke test needs.
 func (m *Cpybkc) Binary() *dagger.File {
 	return m.binary("")
+}
+
+// binary builds the CLI for one platform.
+//
+// The platform is a cross-compile by the toolchain container rather than a build
+// under emulation. Nothing about a Go build needs the target's architecture to
+// be executable, and paying qemu for every compile to learn what `go build`
+// already knows would be minutes per platform per run.
+func (m *Cpybkc) binary(platform dagger.Platform) *dagger.File {
+	return dag.Go().
+		Build(m.Source, dagger.GoBuildOpts{
+			Pkg:          cliPackage,
+			ArtifactName: cliBinary,
+			Trimpath:     true,
+			DisableCgo:   true,
+			Platform:     string(platform),
+		}).
+		File(cliBinary)
 }
 
 // Build builds the CLI and runs it in an empty image.

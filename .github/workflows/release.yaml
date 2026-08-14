@@ -113,14 +113,16 @@ jobs:
   # table gives this release, signed, attested, and named in the release's own
   # notes (#59).
   #
-  # Which tags exist, and whether this release is a release of the image at all,
-  # is decided by the module from the refs at HEAD — not by an `if:` here and not
-  # by a tag assembled in the steps below. A workflow that decided would have to
-  # write the tag scheme down to do it, in a file that runs once per release and
+  # Whether this release is a release of the image at all is decided by the module
+  # from the release's tag and the refs at HEAD — not by an `if:` here and not by
+  # a tag assembled in the steps below. A workflow that decided would have to
+  # write the release rule down to do it, in a file that runs once per release and
   # is exercised nowhere else, while `dagger call tag-scheme` runs the same
-  # derivation on every pull request. What is left here is *where* to publish and
-  # what credentials to publish with, which genuinely are properties of this
-  # deployment rather than of the release.
+  # derivation on every pull request. Which tags that version then implies is the
+  # shared pipeline's since #185, derived from the version and checked by its own
+  # table. What is left here is *where* to publish and what credentials to publish
+  # with, which genuinely are properties of this deployment rather than of the
+  # release.
   #
   # That is also why this job carries no tag filter. This repository publishes two
   # tag schemes, and `irpb/vX.Y.Z` is a release of the IR module rather than of
@@ -187,38 +189,52 @@ jobs:
               BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # The registry and the repository are two values now, because the shared
+      # pipeline separates them: a mirror or an internal registry serves the same
+      # release by changing the first and nothing else.
+      #
       # ghcr.io is a registry, and a registry's repository path is lowercase. The
-      # owner of this repository is not, so `ghcr.io/${{ github.repository }}` is
-      # a reference no registry will accept — a failure that would first appear
-      # halfway through a release, after the contract check had passed. It is
-      # lowercased once, here, and read from a variable everywhere below so the
-      # publish and the notes cannot disagree about where the image went.
+      # owner of this repository is not, so `${{ github.repository }}` is a path
+      # no registry will accept — a failure that would first appear halfway
+      # through a release, after the contract check had passed. It is lowercased
+      # once, here, and read from variables everywhere below so the publish and
+      # the notes cannot disagree about where the image went.
       - name: Resolve where the image is published
-        run: echo "IMAGE_REPOSITORY=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          {
+            echo "IMAGE_REGISTRY=ghcr.io"
+            echo "IMAGE_REPOSITORY=${GITHUB_REPOSITORY,,}"
+            echo "IMAGE_REFERENCE=ghcr.io/${GITHUB_REPOSITORY,,}"
+          } >> "$GITHUB_ENV"
 
-      # The same contract check CI runs on every pull request, run once more
-      # against the tag before anything is pushed. A published version tag is
-      # never repointed, so this is the last moment at which a broken promise
-      # costs nothing.
-      - name: Check the image against its contract
-        run: dagger call image-contract
-
-      # One call publishes the image as a multi-platform index under every tag
-      # this release carries, then signs the digest it resolved to and attaches
-      # the provenance statement and the SBOMs (#58).
+      # One call publishes the image as a multi-platform index under every tag of
+      # the family this release's version implies, signs it recursively and
+      # attaches the provenance statement and the SBOMs (#185).
+      #
+      # There is no separate contract-check step in front of it any more, and its
+      # absence is deliberate. The check is a gate *inside* `release`, over the
+      # very containers that call is about to push — see .dagger/release.go, "Why
+      # the contract check is a gate inside Release". A standalone
+      # `dagger call image-contract` here would be a second, cache-identical build
+      # that merely agrees with the one being published, which is a weaker claim
+      # than the one it looked like it was making. Pull requests still run the
+      # standalone check, because a pull request has no release to gate.
       #
       # It is safe to re-run. The image is a function of the source, so a second
       # run pushes the same bytes and every tag lands back on the digest it
-      # already named; .dagger/release.go's comment carries the argument, and the
-      # publish asserts it by requiring every tag of one release to resolve to one
-      # digest.
+      # already named; .dagger/release.go's comment carries the argument.
       #
       # The two ACTIONS_ID_TOKEN_REQUEST_* variables are put in the environment by
-      # `id-token: write` above. They are the workload identity exchange: cosign
-      # trades a token minted from them for a short-lived sigstore certificate, so
-      # the signature says which workflow at which ref produced the image rather
-      # than which key somebody is holding. The token is passed as a secret
-      # because it mints identity tokens for this repository.
+      # `id-token: write` above. They are the workload identity exchange: a token
+      # minted from them is traded for a short-lived sigstore certificate, so the
+      # signature and the provenance say which workflow at which ref produced the
+      # image rather than which key somebody is holding. The token is passed as a
+      # secret because it mints identity tokens for this repository.
+      #
+      # Nothing names the builder or the run any more. Every identifying field in
+      # the provenance comes out of the exchanged token's claims, because anything
+      # a caller could have supplied attests to nothing.
       - name: Publish, sign and attest the image
         env:
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -227,13 +243,12 @@ jobs:
           set -euo pipefail
           dagger call release \
             --tag "$TAG" \
+            --registry "$IMAGE_REGISTRY" \
             --repository "$IMAGE_REPOSITORY" \
             --username "${{ github.actor }}" \
             --password env://REGISTRY_PASSWORD \
             --id-token-request-url "$ACTIONS_ID_TOKEN_REQUEST_URL" \
-            --id-token-request-token env://ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-            --builder "${{ github.server_url }}/${{ github.workflow_ref }}" \
-            --invocation "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            --id-token-request-token env://ACTIONS_ID_TOKEN_REQUEST_TOKEN
 
       # The one fact about a release a reader cannot recover from its tag: which
       # IR version the image speaks. A generator refuses a descriptor written
@@ -254,5 +269,5 @@ jobs:
           dagger call release-notes \
             --tag "$TAG" \
             --notes "$RUNNER_TEMP/notes.md" \
-            --repository "$IMAGE_REPOSITORY" > "$RUNNER_TEMP/notes.new.md"
+            --reference "$IMAGE_REFERENCE" > "$RUNNER_TEMP/notes.new.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.new.md"

@@ -1,72 +1,96 @@
 // This file publishes a release: it decides from the release's own tag whether
-// there is one, works out which tags it carries, pushes the multi-platform image
-// under every one of them, hands the digest it resolved to sign.go's Attest, and
-// renders the block of release notes that says which IR version the image just
-// published speaks (#59).
+// there is one, hands the archetype the version and the repository to publish it
+// under, and renders the block of release notes that says which IR version the
+// image just published speaks (#59, #185).
 //
 // # Why the decision is here and not an `if:` on a job
 //
-// A workflow that decided would have to write the tag scheme down to do it — a
-// `for tag in "$VERSION" "${VERSION%.*}" …` line, or a job-level `if:` naming
-// the ref shape that counts as a release. That is a second place the scheme
-// lives, beside docs/container/SPEC.md's tag table, in a file that runs once per
-// release and is exercised nowhere else. The two drift in the direction nobody
-// notices: a prerelease moves `latest`, or a patch release forgets to move `v0`,
-// and both are discovered by somebody whose `FROM` line resolved to an image
-// they did not ask for.
+// A workflow that decided would have to write the release rule down to do it — a
+// job-level `if:` naming the ref shape that counts as a release, or a
+// `for tag in "$VERSION" "${VERSION%.*}" …` line back when the tag family was
+// this repository's too. That is a second place the rule lives, in a file that
+// runs once per release and is exercised nowhere else. The two drift in the
+// direction nobody notices: a release that publishes when it should not have, or
+// one that publishes under a version nobody tagged, is discovered by somebody
+// whose `FROM` line resolved to an image they did not ask for.
 //
 // So the module is handed the release's tag, and everything downstream is a
 // function of that tag and the refs at HEAD. TagScheme runs the same derivation
-// over a table of cases on every pull request, which is what makes the scheme
+// over a table of cases on every pull request, which is what makes the rule
 // something this repository checks rather than something it intends. What is
 // left to the workflow is *which release* — the tag of the object that triggered
-// it — and *where* — the registry repository and the credentials. Both are
-// genuinely properties of the deployment and of the event rather than of the tag
-// scheme, and the second is why docs/container/SPEC.md keeps the registry out of
-// the contract.
+// it — and *where* — the registry, the repository and the credentials. All of
+// those are genuinely properties of the deployment and of the event rather than
+// of the release rule, and the last is why docs/container/SPEC.md keeps the
+// registry out of the contract.
 //
-// # The three edge cases the plan settles
+// # What moved to the archetype, and what did not
 //
-// Each of these is a question a release workflow otherwise discovers in
-// production, at the one moment where this project's own contract forbids the
-// obvious fix:
+// The tag *family* moved (#185). Which tags a version implies — `v0.2.0` also
+// coming to name `v0.2`, `v0` and `latest`, a prerelease moving none of them —
+// is the archetype's now, derived from the version a caller states, checked by
+// its own table over its own literals, and published as one manifest list pushed
+// once with every tag pointing at the one digest. So did the signature, the
+// provenance and the SBOMs: every published digest carries a recursive cosign
+// signature, a signed SLSA provenance statement whose build identity comes from
+// the exchanged OIDC token's claims rather than from anything this module could
+// have asserted, and an SPDX and a CycloneDX document per platform describing
+// the whole image. `versionTags`, `publishTags` and the whole of sign.go are
+// gone with them.
 //
-//   - A **prerelease** publishes its own full version tag and moves none of the
-//     other three. `v0`, `v0.2` and `latest` are what a derived Dockerfile pins
-//     to pick up fixes without an edit, and a release candidate is not a fix
-//     anybody consented to be given.
-//   - A version carrying **`+build` metadata** is refused rather than mangled.
-//     An OCI tag is `[A-Za-z0-9_.-]`, which has no `+` in it, so dropping the
-//     metadata would publish `v0.2.0` and `v0.2.0+build.5` under one tag — and a
-//     published full version tag is never repointed.
-//   - **Two version tags on one commit** is an error. Which of them `latest`
-//     should follow has no defensible answer, and a pipeline that picked one
-//     would repoint a moving tag on a coin toss.
+// What did not move is the sentence "this release is a release of the image".
+// The archetype takes a version from its caller and has no opinion about where
+// one comes from, and *this repository* releases by tagging a commit — and cuts
+// two kinds of release from one tree, `vX.Y.Z` for the CLI and `irpb/vX.Y.Z` for
+// the IR module. So a release whose own tag is a canonical version is a release
+// of the image; one whose tag is not publishes nothing and succeeds, because
+// "this is not a release of the image" is an answer rather than a fault; two
+// canonical version tags at HEAD is an error, because which of them the moving
+// tags should follow has no defensible answer; and a version carrying `+build`
+// metadata is refused, because `+` cannot be spelled in an OCI tag and mangling
+// it away would publish two releases under one name. planRelease is all four,
+// and TagScheme is what checks them.
 //
-// A release whose own tag is not a canonical version is none of those: it
-// publishes nothing and succeeds, because "this is not a release of the image"
-// is an answer rather than a fault. That is what lets the release workflow fire
-// on every published release — including the IR module's `irpb/vX.Y.Z` — without
-// a filter naming tag shapes in YAML, and it holds even when the two modules are
-// cut from one commit, because what decides is the tag of the release object
-// rather than whatever else points at the same tree.
+// `+build` is refused at both ends after #185, since Go.App refuses it too. That
+// is belt and braces worth keeping rather than a duplicate to delete: the
+// refusal here happens before a credential is used and names this repository's
+// own rule, and a release that reached the archetype to find out would have
+// authenticated to a registry first.
+//
+// # Why the contract check is a gate inside Release
+//
+// docs/container/SPEC.md's guarantees are checked by ImageContract, and the
+// release workflow used to call it as a step of its own before calling this.
+// That worked while this module built the image, because both calls came through
+// one `image` function; it stops meaning what it said once the container is the
+// archetype's, because the guarantee that the container a check read is *the
+// very container that will be pushed* holds only within one chained call. Two
+// separate `dagger call` invocations are a second, cache-identical build that
+// merely agrees with the first.
+//
+// A published version tag is never repointed here, so "the image was checked,
+// and then an identical one was pushed" is not a property worth resting a
+// release on. The check is therefore a gate inside this function, over the App
+// this function is about to publish, and a failure means nothing was pushed. The
+// standalone `dagger call image-contract` stays, because a pull request has no
+// release to gate and wants the check on its own.
 //
 // # Why re-running a release is safe
 //
 // docs/container/SPEC.md says a published full version tag is never repointed,
 // and that sits oddly beside a job somebody may have to run twice. Both hold at
 // once because the image is a function of the source: the binary is built
-// -trimpath and CGO-free, the IR artifacts are byte-deterministic, and the image
-// is assembled from those alone. A second run at the same tag therefore pushes
-// the same bytes, the registry stores one manifest, and every tag lands back on
-// the digest it already named — a repoint of a tag onto itself, which is no
-// repoint at all. publishTags asserts exactly that, by requiring every tag of one
-// release to resolve to one digest.
+// -trimpath and CGO-free and stamped from the commit rather than from the clock,
+// the IR artifacts are byte-deterministic, and the image is assembled from those
+// alone. A second run at the same tag therefore pushes the same bytes, the
+// registry stores one manifest, and every tag lands back on the digest it
+// already named — a repoint of a tag onto itself, which is no repoint at all.
 //
 // What a re-run does add is another signature and another set of attestations on
-// that digest. Those are additive by design — cosign attaches rather than
-// replaces, and a consumer verifying finds more than one valid statement rather
-// than a conflict — so a re-run costs a transparency log entry and nothing else.
+// that digest. Those are additive by design — a signature is attached rather
+// than replaced, and a consumer verifying finds more than one valid statement
+// rather than a conflict — so a re-run costs a transparency log entry and
+// nothing else.
 //
 // The notes block is the one part that would otherwise accumulate, since
 // appending twice would say everything twice. It is delimited and regenerated
@@ -87,11 +111,7 @@ import (
 )
 
 const (
-	// rollingTag is docs/container/SPEC.md's rolling tag, the one that moves on
-	// every release.
-	rollingTag = "latest"
-
-	// notesOpen and notesClose delimit the block Release Notes maintains inside a
+	// notesOpen and notesClose delimit the block ReleaseNotes maintains inside a
 	// release's body. They are HTML comments because GitHub renders release notes
 	// as Markdown and a comment is the one thing that survives rendering without
 	// appearing in it.
@@ -103,35 +123,51 @@ const (
 	notesClose = "<!-- /cpybkc:image -->"
 )
 
-// Release publishes the base image for the release at HEAD, signs the digest it
-// resolved to and attaches its provenance and SBOMs (#59).
+// Release publishes the base image for the release at HEAD (#59, #185).
 //
-// Whether there is a release at all is decided here, from the refs at HEAD: a
-// single canonical version tag pointing at HEAD is a release, and anything else
-// — a branch alone, no tag, a tag that is not a version — is not. A run with no
-// release publishes nothing and succeeds; a run with two version tags fails, for
-// the reason this file's comment gives.
+// Whether there is a release at all is decided here, from the release's own tag
+// and the refs at HEAD: a canonical version tag pointing at HEAD is a release,
+// and anything else — a branch alone, no tag, the IR module's `irpb/vX.Y.Z` — is
+// not. A run with no release publishes nothing and succeeds; a run with two
+// version tags fails, for the reason this file's comment gives.
 //
-// repository is where to publish, without a tag — `ghcr.io/zaba505/cpybkc`. It
-// is the caller's because a mirror or an internal registry serves the same
-// release, and docs/container/SPEC.md holds the registry out of the contract for
-// the same reason. Which tags exist is not the caller's, and is not spelled
-// anywhere but versionTags.
+// registry is the registry alone — `ghcr.io` — and repository is the image's
+// path within it — `zaba505/cpybkc`. They are two arguments because the
+// archetype separates them, and it separates them so that a mirror or an
+// internal registry serves the same release by changing one of the two and
+// nothing else. docs/container/SPEC.md holds the registry out of the contract
+// for the same reason.
 //
-// Signing goes through Attest rather than through a signing path of this
-// function's own, so what a release signs is what `dagger call attestations`
-// checks the shape of on every pull request.
+// Which tags exist is not the caller's and is no longer this module's either:
+// App.Publish derives the family from the version and pushes one multi-platform
+// index under every tag of it.
 //
-// It returns a report naming the repository, the digest and the tags now
-// pointing at it.
+// Every published image is signed and carries provenance and SBOMs, and none of
+// that is optional: the archetype refuses a publish it cannot produce provenance
+// for. That is why the OIDC arguments are required here and why there is no
+// `dagger call publish` beside this one — the only caller with a token to
+// exchange is the release workflow. A contributor who wants the image on their
+// own machine exports it: `dagger call image export --path ./cpybkc.tar`, then
+// `docker load`.
+//
+// There is no builder or invocation argument any more. Every identifying field
+// in the provenance comes out of the exchanged OIDC token's claims, because
+// anything a caller could have supplied attests to nothing.
+//
+// The git metadata is New's, not an argument here. It used to be one, because
+// the release was the only thing in this module that read git; since #185 every
+// image build reads it too, so New binds it once and this reads m.GitDir. Two
+// independent inputs for one fact is what that avoids, and the way it would have
+// gone wrong is specific: `dagger call --git-dir=A release --git-dir=B` was
+// accepted, and would have taken the release decision from one tree while the
+// archetype stamped and annotated the image from the other.
+//
+// It returns a report naming the repository and every reference published,
+// pinned to the digest it resolved to.
 //
 // +cache="never"
 func (m *Cpybkc) Release(
 	ctx context.Context,
-	// The repository's git metadata. The refs at HEAD are what decide whether
-	// this commit is a release, so a checkout without tags publishes nothing.
-	// +defaultPath="/.git"
-	gitDir *dagger.Directory,
 	// The tag of the release being published — `github.event.release.tag_name`
 	// on GitHub Actions. It is what decides whether this release is a release of
 	// the image: a canonical `vX.Y.Z` is one, and the IR module's `irpb/vX.Y.Z`
@@ -139,27 +175,23 @@ func (m *Cpybkc) Release(
 	// hand against a checkout wants.
 	// +optional
 	tag string,
-	// The image's repository, without a tag — `ghcr.io/zaba505/cpybkc`.
+	// The registry to publish to, without a repository path — `ghcr.io`.
+	registry string,
+	// The image's repository within that registry, without a tag —
+	// `zaba505/cpybkc`.
 	repository string,
 	// The registry username to authenticate as.
 	username string,
 	// The registry password or token to authenticate with.
 	password *dagger.Secret,
 	// The CI provider's OIDC token request endpoint —
-	// `ACTIONS_ID_TOKEN_REQUEST_URL` on GitHub Actions. Signing is keyless, and
-	// cosign exchanges a token from it for the certificate that signs.
+	// `ACTIONS_ID_TOKEN_REQUEST_URL` on GitHub Actions. The publish exchanges a
+	// token from it for the identity that signs, so a run that publishes needs
+	// it.
 	idTokenRequestUrl string,
 	// The bearer token for that endpoint — `ACTIONS_ID_TOKEN_REQUEST_TOKEN` on
 	// GitHub Actions. A secret, because it mints identity tokens.
 	idTokenRequestToken *dagger.Secret,
-	// What ran this release, for the provenance predicate's builder — the
-	// workflow reference on GitHub Actions. This module cannot know what invoked
-	// it, and provenance that guessed would be provenance about nothing.
-	builder string,
-	// The run this release came from — a URL to the workflow run on GitHub
-	// Actions.
-	// +optional
-	invocation string,
 ) (string, error) {
 	// Every credential the run needs is checked before the first byte moves, and
 	// before the run has worked out whether there is anything to publish. A
@@ -174,47 +206,147 @@ func (m *Cpybkc) Release(
 	// release that was supposed to push — which is the same "first real run is on
 	// a tag" failure this file is written against.
 	switch {
+	case registry == "":
+		return "", errors.New("registry is required: it is the registry alone, such as `ghcr.io`, and never a repository path")
 	case repository == "":
-		return "", errors.New("repository is required: it is the image's full repository, without a tag")
+		return "", errors.New("repository is required: it is the image's path within the registry, without a tag")
 	case username == "" || password == nil:
 		return "", errors.New("username and password are both required: a release is pushed to a registry that authenticates")
 	case idTokenRequestUrl == "" || idTokenRequestToken == nil:
 		return "", errors.New("idTokenRequestUrl and idTokenRequestToken are both required: every published digest is signed, and signing exchanges a workload identity token")
-	case builder == "":
-		return "", errors.New("builder is required: the provenance predicate names what ran the release, and this module cannot know that")
 	}
 
-	plan, refs, err := m.releasePlan(ctx, gitDir, tag)
+	version, refs, err := m.releasePlan(ctx, tag)
 	if err != nil {
 		return "", err
 	}
 
-	if plan.version == "" {
+	if version == "" {
 		return fmt.Sprintf("%s is not a release of the image (refs at HEAD: %s); nothing published",
 			releaseName(tag), strings.Join(refs, ", ")), nil
 	}
 
-	digest, err := m.publishTags(ctx, repository, plan.tags, username, password)
-	if err != nil {
-		return "", err
+	app := m.baseApp(version)
+
+	// The gate. Nothing is pushed until the image has been checked against
+	// docs/container/SPEC.md on every platform it is published for, and it is
+	// checked on the containers this very App carries — see this file's comment
+	// for why that is not the same as having run `dagger call image-contract` a
+	// moment earlier.
+	//
+	// checkBaseImage rather than a sequence assembled here, so that a check added
+	// to ImageContract is a check this gate acquires.
+	var errs []error
+	for _, platform := range imagePlatforms() {
+		for _, err := range m.checkBaseImage(ctx, app.Container(platform), platform) {
+			errs = append(errs, fmt.Errorf("%s: %w", platform, err))
+		}
 	}
 
-	attested, err := m.Attest(ctx, gitDir, repository+"@"+digest, username, password,
-		idTokenRequestUrl, idTokenRequestToken, builder, plan.version, plan.tags, invocation)
-	if err != nil {
-		return "", err
+	if err := errors.Join(errs...); err != nil {
+		return "", fmt.Errorf("refusing to publish %s: %w", version, err)
 	}
 
-	// Attest's own report is appended whole rather than merged into this one. It
-	// is what `dagger call attest` prints on its own, and a release reading
-	// differently from the function it called would be a second account of one
-	// event.
+	published, err := app.
+		WithRegistry(registry, username, password).
+		WithOidc(idTokenRequestUrl, idTokenRequestToken).
+		Publish(ctx, []string{repository})
+	if err != nil {
+		return "", fmt.Errorf("publishing %s/%s: %w", registry, repository, err)
+	}
+
 	var report strings.Builder
-	fmt.Fprintf(&report, "%s\n  version:    %s\n  digest:     %s\n  tags:       %s\n\n",
-		repository, plan.version, digest, strings.Join(plan.tags, ", "))
-	report.WriteString(attested)
+	fmt.Fprintf(&report, "%s/%s\n  version:    %s\n", registry, repository, version)
+	for _, ref := range published {
+		fmt.Fprintf(&report, "  %s\n", ref)
+	}
+
+	if err := checkPublished(version, published); err != nil {
+		return report.String(), err
+	}
 
 	return report.String(), nil
+}
+
+// checkPublished holds what the publish actually did to what this repository
+// tells a consumer it does.
+//
+// It is an assertion over the **result**, and that is what makes it legitimate
+// rather than a second copy of the archetype's tag table. Restating the
+// derivation here — v0.2.0 also names v0.2, v0 and latest — would be somebody
+// else's rule written down twice, and the copy is the one that stays green after
+// the original moves. Reading back what was published is the opposite: it cannot
+// agree with a family that changed, because it never says what the family is.
+//
+// Three properties, and each is something docs/container/SPEC.md publishes to
+// strangers:
+//
+//   - Every published reference is digest-qualified and they all name **one**
+//     digest. That is the machine-checkable form of the tag table's promise that
+//     v0.2 and v0.2.0 are the same image, and it is the one assertion the
+//     retired publishTags made that nothing upstream restates in this
+//     repository's terms.
+//   - The version tag is among them. A release that published only moving tags
+//     would leave the one reference this project promises never moves absent.
+//   - A prerelease publishes exactly that one reference and a stable release
+//     publishes more than one. That is the *shape* of the table — "a release
+//     moves the other tags, a prerelease moves none" — without naming which they
+//     are, so it stays true across a change to the family and false the moment
+//     the distinction stops being made.
+//
+// It runs after the push, because there is nothing to read before it. It cannot
+// unpublish, and it is not pretending to: what it turns is a contract that has
+// quietly become false into a release that goes red, which is the difference
+// between finding out here and finding out from a consumer whose FROM line
+// resolved to something they did not ask for.
+func checkPublished(version string, published []string) error {
+	if len(published) == 0 {
+		return fmt.Errorf("publishing %s reported no references at all", version)
+	}
+
+	var errs []error
+
+	var digest string
+	for _, ref := range published {
+		_, pushed, ok := strings.Cut(ref, "@")
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s is not digest-qualified: what a release signs has to be what was "+
+				"pushed, and a tag is not a build", ref))
+
+			continue
+		}
+
+		switch {
+		case digest == "":
+			digest = pushed
+		case pushed != digest:
+			errs = append(errs, fmt.Errorf("%s names %s where %s names %s: every tag of one release names one image",
+				ref, pushed, published[0], digest))
+		}
+	}
+
+	if !slices.ContainsFunc(published, func(ref string) bool {
+		name, _, _ := strings.Cut(ref, "@")
+
+		return strings.HasSuffix(name, ":"+version)
+	}) {
+		errs = append(errs, fmt.Errorf("nothing was published under %s itself (%s): it is the one tag this project "+
+			"promises never moves", version, strings.Join(published, ", ")))
+	}
+
+	v, _ := parseVersion(version)
+
+	switch {
+	case v.prerelease != "" && len(published) != 1:
+		errs = append(errs, fmt.Errorf("the prerelease %s published %d references (%s): a release candidate moves "+
+			"none of the tags a derived Dockerfile pins to pick up fixes",
+			version, len(published), strings.Join(published, ", ")))
+	case v.prerelease == "" && len(published) == 1:
+		errs = append(errs, fmt.Errorf("the release %s published only %s: a release moves the tags a derived "+
+			"Dockerfile pins to pick up fixes, and this one moved none of them", version, published[0]))
+	}
+
+	return errors.Join(errs...)
 }
 
 // ReleaseNotes returns a release's notes with the block naming the published
@@ -229,25 +361,30 @@ func (m *Cpybkc) Release(
 // It is read out of the built CLI rather than restated here, so it cannot claim
 // a version the image does not produce.
 //
-// The tags come from the same derivation Release publishes under, and the
-// decision about whether this release is a release of the image at all is made
-// from the same input — the release's own tag. A release that is not one of the
-// image — `irpb/v0.1.0`, the IR module's own tag — leaves the notes exactly as
-// they were, which is what lets the release workflow run this step on every
-// release without a filter naming tag shapes in YAML. Passing the same tag here
-// as to Release is what keeps the two from disagreeing: the block is spliced
-// into the notes of the release it describes, and into no other.
+// The decision about whether this release is a release of the image at all is
+// made from the same input Release makes it from — the release's own tag. A
+// release that is not one of the image — `irpb/v0.1.0`, the IR module's own tag
+// — leaves the notes exactly as they were, which is what lets the release
+// workflow run this step on every release without a filter naming tag shapes in
+// YAML. Passing the same tag here as to Release is what keeps the two from
+// disagreeing: the block is spliced into the notes of the release it describes,
+// and into no other.
 //
-// repository is optional, for the same reason it is Release's argument rather
-// than a constant: where the image is published is a property of the deployment.
-// Given one, the block names the reference to pull; given none, it names the
-// tags alone.
+// reference is optional, for the same reason Release's registry and repository
+// are arguments rather than constants: where the image is published is a
+// property of the deployment. Given one, the block names the reference to pull;
+// given none, it names the version alone.
+//
+// It is one argument here and two there, and the names differ so a call site
+// cannot confuse them. Release takes a registry and a repository because the
+// archetype separates them, so its `repository` is the path *within* a registry
+// — `zaba505/cpybkc`. What goes in a `docker pull` line is the whole thing, so
+// this one takes the whole thing and is called `reference`. Spelling both
+// `repository` was the arrangement in which a workflow passing the wrong one of
+// two adjacent variables produces release notes sending readers to Docker Hub,
+// and nothing anywhere goes red.
 func (m *Cpybkc) ReleaseNotes(
 	ctx context.Context,
-	// The repository's git metadata, for the refs that decide what this release
-	// is.
-	// +defaultPath="/.git"
-	gitDir *dagger.Directory,
 	// The tag of the release whose notes these are — the same one Release was
 	// given. It decides whether this release is a release of the image; given
 	// none, the refs at HEAD decide.
@@ -257,12 +394,12 @@ func (m *Cpybkc) ReleaseNotes(
 	// still to be written.
 	// +optional
 	notes *dagger.File,
-	// The image's repository, without a tag — `ghcr.io/zaba505/cpybkc`. Empty
-	// leaves the pull reference out of the block.
+	// The image's full reference, registry included and tag excluded —
+	// `ghcr.io/zaba505/cpybkc`. Empty leaves the pull reference out of the block.
 	// +optional
-	repository string,
+	reference string,
 ) (string, error) {
-	plan, _, err := m.releasePlan(ctx, gitDir, tag)
+	version, _, err := m.releasePlan(ctx, tag)
 	if err != nil {
 		return "", err
 	}
@@ -277,7 +414,7 @@ func (m *Cpybkc) ReleaseNotes(
 
 	// Not a release of the image: the notes come back untouched, so the step that
 	// writes them back is a no-op rather than an error.
-	if plan.version == "" {
+	if version == "" {
 		return body, nil
 	}
 
@@ -286,23 +423,28 @@ func (m *Cpybkc) ReleaseNotes(
 		return "", err
 	}
 
-	return spliceNotes(body, releaseNotesBlock(plan, irVersion, repository))
+	return spliceNotes(body, releaseNotesBlock(version, irVersion, reference))
 }
 
-// TagScheme is docs/container/SPEC.md's tag table executed rather than read.
+// TagScheme is the half of the release decision this repository still makes,
+// executed rather than read.
 //
-// The table is the part of a release that cannot be checked by releasing. A tag
-// that moved when it should not have is discovered by a consumer whose `FROM`
-// line resolved to something they did not ask for, and by then the tag has been
-// published and this project's own contract says it is never repointed. So the
-// derivation is a pure function of the refs, and this runs it over the cases that
-// matter — including the ones with no release in them, since "publishes nothing"
-// is as much a promise as "publishes four tags".
+// What it covers is what planRelease answers: whether a release is a release of
+// the image at all, and which version it is. The tag *family* that version
+// implies is the archetype's since #185, and is checked by its own table over
+// its own literals — restating it here would be a second copy of somebody else's
+// rule, which is exactly what this file exists to avoid having.
+// docs/container/SPEC.md's tag table says where each half is checked, so that a
+// reader concludes neither that the table is unenforced nor that this repository
+// enforces it.
 //
-// Every expected tag below is a literal, never one of this file's own constants.
-// A table written in terms of rollingTag would move with it and pass on a release
-// that had quietly started publishing something else under a different name,
-// which is the one failure this check exists to catch.
+// This is the part of a release that cannot be checked by releasing. A commit
+// that published when it should not have, or published under a version nobody
+// tagged, is discovered afterwards, and by then the tag is out and this
+// project's own contract says it is never repointed.
+//
+// Every expected value below is a literal, never one of this file's own
+// constants, so the check cannot move with the code it checks.
 //
 // +check
 // +cache="session"
@@ -311,28 +453,15 @@ func (m *Cpybkc) TagScheme() error {
 		refs    []string
 		tag     string
 		version string
-		tags    []string
 		fails   bool
 	}{
-		// A release: the full version tag, plus the three that move.
-		{
-			refs:    []string{"refs/tags/v0.2.0", "refs/heads/main"},
-			version: "v0.2.0",
-			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
-		},
-		{
-			refs:    []string{"refs/tags/v1.10.3"},
-			version: "v1.10.3",
-			tags:    []string{"v1.10.3", "v1.10", "v1", "latest"},
-		},
-		// A prerelease publishes itself and moves nothing: `v0`, `v0.2` and
-		// `latest` are what a derived Dockerfile pins to get fixes, and a release
-		// candidate is not a fix anybody asked to be given.
-		{
-			refs:    []string{"refs/tags/v0.3.0-rc.1"},
-			version: "v0.3.0-rc.1",
-			tags:    []string{"v0.3.0-rc.1"},
-		},
+		// A release: a single canonical version tag at HEAD.
+		{refs: []string{"refs/tags/v0.2.0", "refs/heads/main"}, version: "v0.2.0"},
+		{refs: []string{"refs/tags/v1.10.3"}, version: "v1.10.3"},
+		// A prerelease is a release of the image too. What it does *not* do —
+		// move the tags a derived Dockerfile pins to pick up fixes — is the
+		// archetype's rule now, and its table is where that is checked.
+		{refs: []string{"refs/tags/v0.3.0-rc.1"}, version: "v0.3.0-rc.1"},
 		// Not a release of the image. A branch, no refs at all, a tag that is not
 		// a version, and three tags that look like versions and are not canonical
 		// all publish nothing rather than publishing something surprising.
@@ -353,7 +482,6 @@ func (m *Cpybkc) TagScheme() error {
 		{
 			refs:    []string{"refs/tags/v0.2.0", "refs/heads/main", "refs/remotes/origin/main"},
 			version: "v0.2.0",
-			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
 		},
 		// Both modules cut from one tree, which is the shape that decides whether
 		// the release workflow's claim about `irpb/vX.Y.Z` is true. The refs are
@@ -364,7 +492,6 @@ func (m *Cpybkc) TagScheme() error {
 			refs:    []string{"refs/tags/v0.2.0", "refs/tags/irpb/v0.1.0", "refs/heads/main"},
 			tag:     "v0.2.0",
 			version: "v0.2.0",
-			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
 		},
 		// The IR module's release reaches this and publishes nothing, rather than
 		// finding the CLI's tag at HEAD and republishing the image under it.
@@ -377,21 +504,21 @@ func (m *Cpybkc) TagScheme() error {
 		{
 			refs:    []string{"refs/tags/v0.2.0", "refs/tags/irpb/v0.1.0", "refs/heads/main"},
 			version: "v0.2.0",
-			tags:    []string{"v0.2.0", "v0.2", "v0", "latest"},
 		},
 		// A release whose tag is not the one this checkout is at would publish
 		// bytes that tag was never cut from.
 		{refs: []string{"refs/tags/v0.2.0", "refs/heads/main"}, tag: "v0.3.0", fails: true},
 		// Build metadata cannot be spelled in an OCI tag, so a version carrying
 		// it is refused rather than silently mangled into one that can — and a
-		// prerelease carrying it is refused too, rather than taking the
-		// prerelease's early return before the metadata is ever looked at.
+		// prerelease carrying it is refused too. The archetype refuses it as well;
+		// this end refuses it before a credential has been used and in this
+		// repository's own words.
 		{refs: []string{"refs/tags/v0.2.0+build.5"}, fails: true},
 		{refs: []string{"refs/tags/v0.3.0-rc.1+build.5"}, fails: true},
-		// Two version tags at HEAD: which of them `latest` should follow is not a
-		// question with a defensible answer, so it is an error and not a choice.
-		// Naming one of them as the release does not settle it, because the moving
-		// tags are shared between the two.
+		// Two version tags at HEAD: which of them the moving tags should follow is
+		// not a question with a defensible answer, so it is an error and not a
+		// choice. Naming one of them as the release does not settle it, because
+		// the moving tags are shared between the two.
 		{refs: []string{"refs/tags/v0.2.0", "refs/tags/v0.3.0"}, fails: true},
 		{refs: []string{"refs/tags/v0.2.0", "refs/tags/v0.3.0"}, tag: "v0.3.0", fails: true},
 	}
@@ -399,12 +526,12 @@ func (m *Cpybkc) TagScheme() error {
 	var errs []error
 
 	for _, c := range cases {
-		plan, err := planRelease(c.refs, c.tag)
+		version, err := planRelease(c.refs, c.tag)
 
 		if c.fails {
 			if err == nil {
-				errs = append(errs, fmt.Errorf("%v (release %q): planned %v, want an error",
-					c.refs, releaseName(c.tag), plan.tags))
+				errs = append(errs, fmt.Errorf("%v (release %q): planned %q, want an error",
+					c.refs, releaseName(c.tag), version))
 			}
 
 			continue
@@ -416,17 +543,9 @@ func (m *Cpybkc) TagScheme() error {
 			continue
 		}
 
-		// Two independent assertions rather than a chain: a case that got both
-		// the version and the tags wrong should say so twice, and the tags are the
-		// half a reader of this table came for.
-		if plan.version != c.version {
+		if version != c.version {
 			errs = append(errs, fmt.Errorf("%v (release %q): version is %q, want %q",
-				c.refs, releaseName(c.tag), plan.version, c.version))
-		}
-
-		if !slices.Equal(plan.tags, c.tags) {
-			errs = append(errs, fmt.Errorf("%v (release %q): tags are %v, want %v",
-				c.refs, releaseName(c.tag), plan.tags, c.tags))
+				c.refs, releaseName(c.tag), version, c.version))
 		}
 	}
 
@@ -440,8 +559,9 @@ func (m *Cpybkc) TagScheme() error {
 // never take back:
 //
 //   - The block says what it is for. It names the IR version the image speaks —
-//     the fact a reader cannot recover from the tag — and every tag the release
-//     publishes, and it says of a prerelease that it moves none of them.
+//     the fact a reader cannot recover from the tag — and the version it
+//     publishes, and it says of a prerelease that it moves none of the tags a
+//     derived Dockerfile pins.
 //   - Splicing is idempotent. A release job re-run appends nothing: splicing into
 //     a body that already carries a block replaces that block, leaving everything
 //     around it alone, and a second splice is a fixed point.
@@ -450,6 +570,11 @@ func (m *Cpybkc) TagScheme() error {
 // is read out of the built CLI at release time precisely so that there is one
 // statement of it, and a literal here would be the second.
 //
+// It does not enumerate the tag family either, and neither does the block. Which
+// tags a version implies is the archetype's rule since #185; a block listing
+// them would be this repository restating it, and a check over that list would
+// go green while the real family moved.
+//
 // +check
 // +cache="session"
 func (m *Cpybkc) ReleaseNotesContract() error {
@@ -457,28 +582,10 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 
 	const irVersion = 7
 
-	// Both plans go through versionTags rather than being written out as literals,
-	// so that what the block says about a release is checked against the tags that
-	// release would actually publish. A hand-built plan would let the block call a
-	// stable release a prerelease, or the reverse, and nothing here would notice.
-	plan := func(version string) releasePlan {
-		tags, err := versionTags(version)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("deriving the tags for %s: %w", version, err))
-
-			return releasePlan{version: version}
-		}
-
-		return releasePlan{version: version, tags: tags}
-	}
-
-	release := plan("v0.2.0")
-	prerelease := plan("v0.3.0-rc.1")
-
-	block := releaseNotesBlock(release, irVersion, "ghcr.io/zaba505/cpybkc")
+	block := releaseNotesBlock("v0.2.0", irVersion, "ghcr.io/zaba505/cpybkc")
 	for _, want := range []string{
 		"IR version 7",
-		"v0.2.0", "`v0.2`", "`v0`", "`latest`",
+		"`v0.2.0`",
 		"ghcr.io/zaba505/cpybkc:v0.2.0",
 		notesOpen, notesClose,
 	} {
@@ -491,21 +598,31 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 	// sees a release published and assumes `v0` followed it is exactly who this
 	// sentence is for.
 	//
-	// Two independent assertions and not a chain: a block that both mentions
-	// `latest` and fails to say it is a prerelease is wrong twice, and a chain
-	// would report one of them and hide the other — including the case where the
-	// first fires spuriously and silently retires the second.
-	pre := releaseNotesBlock(prerelease, irVersion, "")
-	if strings.Contains(pre, "`latest`") {
-		errs = append(errs, fmt.Errorf("a prerelease's notes mention `latest`, which it does not move:\n%s", pre))
-	}
-
+	// It used to be checked by looking for `latest` in the prerelease's block,
+	// which was one half of a two-sided assertion while the stable block listed
+	// the tag family. The block names no tag but the version now, so that half
+	// became unfalsifiable for every input — a check that cannot fail, sitting
+	// under a comment describing it as one that could. What replaced it is the
+	// property that is still checkable and still the one a reader depends on: the
+	// two blocks say *different* things about the moving tags, so a block that
+	// stopped distinguishing a prerelease from a release fails here whichever way
+	// round it collapsed.
+	//
+	// Two independent assertions and not a chain, for the reason the pair below
+	// are: a block that is wrong twice should say so twice, and a chain would
+	// report one and hide the other.
+	pre := releaseNotesBlock("v0.3.0-rc.1", irVersion, "")
 	if !strings.Contains(pre, "prerelease") {
 		errs = append(errs, fmt.Errorf("a prerelease's notes do not say so:\n%s", pre))
 	}
 
-	// And the stable release must not call itself one, which is the half a plan
-	// built out of literals could never have caught.
+	if movingTagsSentence(pre) == movingTagsSentence(block) {
+		errs = append(errs, fmt.Errorf("a prerelease and a release say the same thing about the tags a derived "+
+			"Dockerfile pins:\n%s", pre))
+	}
+
+	// And the stable release must not call itself one, which is the half a block
+	// that read its own tag list rather than its version could never have caught.
 	if strings.Contains(block, "prerelease") {
 		errs = append(errs, fmt.Errorf("a stable release's notes call it a prerelease:\n%s", block))
 	}
@@ -543,7 +660,7 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 		// The property the release job rests on: running it again changes
 		// nothing. The second splice is given a *different* block, so a fixed
 		// point cannot be reached by the block happening to be identical.
-		twice, err := spliceNotes(once, releaseNotesBlock(prerelease, irVersion, ""))
+		twice, err := spliceNotes(once, releaseNotesBlock("v0.3.0-rc.1", irVersion, ""))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s, spliced twice: %w", c.name, err))
 
@@ -571,29 +688,33 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 	return errors.Join(errs...)
 }
 
-// releasePlan is what the refs at HEAD decided: the version being released, and
-// every tag that ends up pointing at it. A zero value is "this commit is not a
-// release of the image".
-type releasePlan struct {
-	version string
-	tags    []string
-}
-
-// releasePlan reads the refs at HEAD and plans the release they describe,
-// returning the refs alongside it so that a run publishing nothing can say what
-// it saw.
-func (m *Cpybkc) releasePlan(ctx context.Context, gitDir *dagger.Directory, tag string) (releasePlan, []string, error) {
-	refs, err := headRefs(ctx, m.Source, gitDir)
-	if err != nil {
-		return releasePlan{}, nil, err
+// releasePlan reads the refs at HEAD and decides which version this release
+// publishes, returning the refs alongside it so that a run publishing nothing
+// can say what it saw. An empty version is "this is not a release of the image".
+func (m *Cpybkc) releasePlan(ctx context.Context, tag string) (string, []string, error) {
+	// Refused rather than dereferenced, for the reason appSource returns the
+	// source unchanged on the same input: Container.WithMountedDirectory asserts
+	// its argument is non-nil and *panics*, a long way from whoever left it out.
+	// It is unreachable from the command line, because New's argument carries a
+	// default path, and reachable from a module-to-module call or a struct
+	// literal — and unlike the image path there is nothing to fall back to, since
+	// the whole question this answers is what the refs at HEAD say.
+	if m.GitDir == nil {
+		return "", nil, errors.New("this module was constructed with no git directory, and whether a commit is a " +
+			"release is read out of the refs at HEAD: pass gitDir to the constructor")
 	}
 
-	plan, err := planRelease(refs, tag)
+	refs, err := headRefs(ctx, m.Source, m.GitDir)
 	if err != nil {
-		return releasePlan{}, refs, err
+		return "", nil, err
 	}
 
-	return plan, refs, nil
+	version, err := planRelease(refs, tag)
+	if err != nil {
+		return "", refs, err
+	}
+
+	return version, refs, nil
 }
 
 // releaseName is how a run with nothing to publish refers to what it was asked
@@ -606,8 +727,9 @@ func releaseName(tag string) string {
 	return tag
 }
 
-// planRelease returns what to publish, from the tag the release carries and the
-// refs at HEAD.
+// planRelease returns the version to publish, from the tag the release carries
+// and the refs at HEAD. An empty version is "this is not a release of the
+// image".
 //
 // # Which of the two decides
 //
@@ -643,7 +765,13 @@ func releaseName(tag string) string {
 // so publishing it under a tag cut from somewhere else would put a name on bytes
 // that name was never given to — and a published version tag is never repointed
 // to take it back.
-func planRelease(refs []string, tag string) (releasePlan, error) {
+//
+// And a version carrying `+build` metadata. An OCI tag is `[A-Za-z0-9_.-]`,
+// which has no `+` in it, so dropping the metadata would publish `v0.2.0` and
+// `v0.2.0+build.5` under one tag. The archetype refuses it too; refusing here as
+// well costs one branch and means the refusal arrives before a credential has
+// been used, in this repository's own words.
+func planRelease(refs []string, tag string) (string, error) {
 	var versions []string
 
 	for _, ref := range refs {
@@ -658,29 +786,30 @@ func planRelease(refs []string, tag string) (releasePlan, error) {
 	}
 
 	if len(versions) > 1 {
-		return releasePlan{}, fmt.Errorf("HEAD carries more than one version tag (%s): which release this is, and "+
+		return "", fmt.Errorf("HEAD carries more than one version tag (%s): which release this is, and "+
 			"which of them the moving tags should follow, is not a question this pipeline can answer",
 			strings.Join(versions, ", "))
 	}
 
 	var version string
 
-	switch {
-	case tag == "":
+	if tag == "" {
+		// No release object to name, so the refs at HEAD are the only thing that
+		// can say what this commit is.
 		if len(versions) == 1 {
 			version = versions[0]
 		}
-	default:
+	} else {
 		// The release that triggered this run is a release of something else —
 		// the IR module, most often. Publishing nothing is the answer rather than
 		// a fault, which is what lets the workflow fire on every release without
 		// a filter naming tag shapes in YAML.
 		if _, ok := parseVersion(tag); !ok {
-			return releasePlan{}, nil
+			return "", nil
 		}
 
 		if !slices.Contains(versions, tag) {
-			return releasePlan{}, fmt.Errorf("the release's tag %q does not point at HEAD (refs: %s): the image is "+
+			return "", fmt.Errorf("the release's tag %q does not point at HEAD (refs: %s): the image is "+
 				"built from this checkout, so publishing it under that tag would name bytes the tag was never cut from",
 				tag, strings.Join(refs, ", "))
 		}
@@ -689,15 +818,15 @@ func planRelease(refs []string, tag string) (releasePlan, error) {
 	}
 
 	if version == "" {
-		return releasePlan{}, nil
+		return "", nil
 	}
 
-	tags, err := versionTags(version)
-	if err != nil {
-		return releasePlan{}, err
+	if v, _ := parseVersion(version); v.build != "" {
+		return "", fmt.Errorf("version tag %q carries build metadata, which cannot be spelled in an OCI tag: "+
+			"release it under a version without one", version)
 	}
 
-	return releasePlan{version: version, tags: tags}, nil
+	return version, nil
 }
 
 // semver is a parsed canonical version tag.
@@ -738,99 +867,6 @@ func parseVersion(tag string) (semver, bool) {
 	}, true
 }
 
-// versionTags is docs/container/SPEC.md's tag table, as a function.
-//
-// A release publishes the full version tag, which never moves, and the three
-// that do: the minor tag, the major tag and the rolling tag. A prerelease
-// publishes its own tag and nothing else, for the reason this file's comment
-// gives.
-//
-// # What a pure function of one version cannot see
-//
-// The moving tags follow *this* release, because that is what
-// docs/container/SPEC.md's table says they do — the minor tag moves on each
-// patch, the major tag and the rolling tag on each release. Releasing out of
-// order therefore walks them backwards: a backport `v0.1.5` cut after `v0.2.0`
-// has shipped publishes `v0.1.5, v0.1, v0, latest`, and `v0` and `latest` land
-// back on the older image. `v0` is the tag CONTRIBUTING.md tells a derived
-// Dockerfile to pin, so that is not a small blast radius.
-//
-// Nothing here can catch it: this is a function of one version, and TagScheme
-// runs it over refs rather than over a registry, so neither sees what is already
-// published. Making the moving tags follow the *highest* released version rather
-// than the most recent one is a change to the published tag table and not an
-// implementation detail, so it belongs in that document before it belongs here.
-// Until then the constraint is on the releaser: cut releases in ascending order,
-// and cut a backport before the release that supersedes it.
-func versionTags(tag string) ([]string, error) {
-	v, ok := parseVersion(tag)
-	if !ok {
-		return nil, fmt.Errorf("%q is not a canonical version tag", tag)
-	}
-
-	// An OCI tag is [A-Za-z0-9_.-], which has no `+` in it. Refusing is the only
-	// honest answer: mangling the metadata away would publish `v0.2.0` and
-	// `v0.2.0+build.5` under one name, and this project's contract says a
-	// published version tag is never repointed.
-	if v.build != "" {
-		return nil, fmt.Errorf("version tag %q carries build metadata, which cannot be spelled in an OCI tag: "+
-			"release it under a version without one", tag)
-	}
-
-	if v.prerelease != "" {
-		return []string{tag}, nil
-	}
-
-	return []string{
-		tag,
-		"v" + v.major + "." + v.minor,
-		"v" + v.major,
-		rollingTag,
-	}, nil
-}
-
-// publishTags pushes the image under every tag the release carries and returns
-// the digest they all point at.
-//
-// Every tag is a separate push of the same content, so the registry stores one
-// manifest and the tags are names for it. The digests are required to agree,
-// which is the machine-checkable form of the promise the tag table makes: `v0.2`
-// and `v0.2.0` are the same image, or one of them is lying. It is also what makes
-// a re-run visibly safe — the second run pushes the same bytes, so every tag
-// lands back on the digest it already named.
-func (m *Cpybkc) publishTags(
-	ctx context.Context,
-	repository string,
-	tags []string,
-	username string,
-	password *dagger.Secret,
-) (string, error) {
-	var digest string
-
-	for _, tag := range tags {
-		ref, err := m.Publish(ctx, repository+":"+tag, username, password)
-		if err != nil {
-			return "", fmt.Errorf("publishing %s:%s: %w", repository, tag, err)
-		}
-
-		_, pushed, ok := strings.Cut(ref, "@")
-		if !ok {
-			return "", fmt.Errorf("publishing %s:%s returned %q, which is not digest-qualified",
-				repository, tag, ref)
-		}
-
-		switch {
-		case digest == "":
-			digest = pushed
-		case pushed != digest:
-			return "", fmt.Errorf("%s:%s published as %s but %s:%s published as %s: every tag of one release "+
-				"names one image", repository, tag, pushed, repository, tags[0], digest)
-		}
-	}
-
-	return digest, nil
-}
-
 // irVersion is the IR version the published image speaks, read out of the CLI
 // that image ships.
 //
@@ -860,54 +896,73 @@ func (m *Cpybkc) irVersion(ctx context.Context) (int, error) {
 
 // releaseNotesBlock renders the block a release's notes carry.
 //
-// It is a pure function of the plan, the IR version and where the image was
+// It is a pure function of the version, the IR version and where the image was
 // published, so ReleaseNotesContract can read it back without a registry, a git
 // checkout or a release.
 //
-// repository empty leaves the pull reference out rather than guessing one: where
+// It names the version and no other tag. Which tags a version implies is the
+// shared pipeline's rule since #185, and a block enumerating them would be this
+// repository restating somebody else's table in the one artifact a reader cannot
+// check against anything — so it points at docs/container/SPEC.md's table
+// instead, which is where that rule is written down and where the note saying
+// who enforces it lives.
+//
+// What it does still say for itself is whether this is a prerelease, because
+// that is a property of the version rather than of the family: a reader who sees
+// a release published and assumes the moving tags followed it is exactly who
+// that sentence is for.
+//
+// reference empty leaves the pull reference out rather than guessing one: where
 // the image lives is a property of the deployment, and a block naming `ghcr.io`
 // on a mirror's release would be telling a reader to pull from somewhere this
 // release did not go.
-func releaseNotesBlock(plan releasePlan, irVersion int, repository string) string {
+func releaseNotesBlock(version string, irVersion int, reference string) string {
 	var b strings.Builder
 
 	b.WriteString(notesOpen)
 	b.WriteString("\n## The image this release publishes\n\n")
 
-	if repository != "" {
-		fmt.Fprintf(&b, "```console\n$ docker pull %s:%s\n```\n\n", repository, plan.version)
+	if reference != "" {
+		fmt.Fprintf(&b, "```console\n$ docker pull %s:%s\n```\n\n", reference, version)
 	}
 
 	fmt.Fprintf(&b, "**This image speaks IR version %d.** Every descriptor the `cpybkc` in it writes carries that\n"+
 		"version, and a generator that implements a lower one refuses the descriptor rather than guessing — so a\n"+
 		"plugin used beside this image has to implement IR version %d or higher.\n\n", irVersion, irVersion)
 
-	quoted := make([]string, 0, len(plan.tags))
-	for _, tag := range plan.tags {
-		quoted = append(quoted, "`"+tag+"`")
-	}
-
-	// Read off the version rather than inferred from the number of tags. That the
-	// two agree is a property of versionTags today and not a fact about a
-	// release, and this block is the one artifact a reader cannot check against
-	// anything else — so it says "prerelease" when the version is one, and not
-	// when the tag list happens to have a single entry.
-	v, _ := parseVersion(plan.version)
+	v, _ := parseVersion(version)
 
 	if v.prerelease != "" {
-		fmt.Fprintf(&b, "This is a **prerelease**. It publishes %s and moves none of the tags a derived Dockerfile\n"+
-			"pins to pick up fixes: a release candidate is not a fix anybody consented to be given.\n\n", quoted[0])
+		fmt.Fprintf(&b, "This is a **prerelease**. It publishes `%s` and moves none of the tags a derived Dockerfile\n"+
+			"pins to pick up fixes: a release candidate is not a fix anybody consented to be given.\n\n", version)
 	} else {
-		fmt.Fprintf(&b, "It is a multi-platform index over %s, published under %s. Only the first of those never\n"+
-			"moves; the other three follow releases, which is what they are for.\n\n",
-			strings.Join(platformNames(), " and "), strings.Join(quoted, ", "))
+		fmt.Fprintf(&b, "It is a multi-platform index over %s, published under `%s` and under the moving tags that\n"+
+			"follow a release. Only the version tag never moves.\n\n",
+			strings.Join(platformNames(), " and "), version)
 	}
 
-	b.WriteString("What pinning each of those buys, and how to verify the signature and attestations on the digest\n" +
-		"they resolve to, is in [the base-image contract](docs/container/SPEC.md).\n")
+	b.WriteString("Which tags a release publishes, what pinning each of them buys, and how to verify the signature\n" +
+		"and the attestations on the digest they resolve to, is in " +
+		"[the base-image contract](docs/container/SPEC.md).\n")
 	b.WriteString(notesClose)
 
 	return b.String()
+}
+
+// movingTagsSentence is the part of a block that talks about the tags a derived
+// Dockerfile pins, reduced to something two blocks can be compared on.
+//
+// The whole line rather than a keyword, because what is being checked is that a
+// prerelease and a release say *different* things about the moving tags, and a
+// keyword search is how two different sentences come to look identical.
+func movingTagsSentence(block string) string {
+	for _, line := range strings.Split(block, "\n") {
+		if strings.Contains(line, "moving tags") || strings.Contains(line, "moves none") {
+			return strings.TrimSpace(line)
+		}
+	}
+
+	return ""
 }
 
 // platformNames is the published platform set as a consumer reads it.
@@ -976,4 +1031,17 @@ func headRefs(ctx context.Context, source, gitDir *dagger.Directory) ([]string, 
 	}
 
 	return refs, nil
+}
+
+// gitContainer is a container holding the source with its git metadata grafted
+// back on.
+//
+// New drops .git from the source it binds, because none of the check stages
+// reads git metadata and leaving it in would make every commit a cache miss for
+// all of them. The release decision does read it, so it is mounted rather than
+// folded into the source — which keeps a release's need from costing every other
+// stage its cache. appSource is the other half of the same argument, for the
+// path that builds an image.
+func gitContainer(source, gitDir *dagger.Directory) *dagger.Container {
+	return dag.Go().Container(source).WithMountedDirectory("/src/.git", gitDir)
 }

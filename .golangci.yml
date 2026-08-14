@@ -1,22 +1,35 @@
-run:
-  timeout: 5m
-
-# The same five linters this file has always selected — golangci-lint v2's
-# default ("standard") set — written in v1 syntax rather than as `version: "2"`.
+# The lint policy for this repository, and the one CI enforces.
 #
-# The Z5Labs standard pipeline pins golangci-lint v1.64.8, and v1 rejects a v2
-# configuration file outright rather than ignoring the parts it does not
-# understand. The root dagger module passes this file to that pipeline so that
-# the configuration committed here is the configuration CI enforces, which only
-# holds while the file is in the dialect the pinned linter reads. Tracked
-# upstream as z5labs/devex#374; restore the v2 form, and the cobol-go wording
-# with it, once the standard pipeline runs golangci-lint v2.
+# It is not consulted by a `golangci-lint` you happen to have on PATH — it is
+# passed explicitly to the Z5Labs standard pipeline by .dagger/main.go, so that
+# the configuration committed here is the configuration the lint stage runs
+# against. A .golangci.yml that CI ignored would be a file contributors read and
+# trusted while the pipeline enforced something else. The same file is passed to
+# all four invocations, so this repository's four Go modules are linted against
+# one configuration rather than one each.
+#
+# Written in the golangci-lint **v2** dialect, because that is the major the
+# standard pipeline runs. The majors are not interchangeable: a v2 binary refuses
+# a v1 file outright, before any linter runs, and v1 refuses a v2 one. The
+# `version: "2"` below is the config schema's version, required by v2 and absent
+# from v1; it is not the tool pin. The tool pin lives in
+# github.com/z5labs/devex/daggerverse/go, which is where a bump belongs, and
+# nothing here restates it.
+#
+# The enabled set is v2's own "standard" set, spelled out rather than inherited
+# so that a change to golangci-lint's defaults is a change this repository has to
+# make deliberately.
 #
 # Unlike cobol-go, `unused` is left enabled: this repository starts from an
 # empty package tree rather than a pre-seeded set of building-block helpers,
 # so there is nothing legitimately unused to exempt.
+version: "2"
+
+run:
+  timeout: 5m
+
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
     - govet

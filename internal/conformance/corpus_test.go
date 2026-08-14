@@ -66,7 +66,7 @@ func TestEveryEntryLayoutIsWellFormed(t *testing.T) {
 		t.Fatalf("the published schema: %v", err)
 	}
 
-	defer published.Close()
+	defer func() { _ = published.Close() }()
 
 	schema, err := layoutschema.Load(published)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestEveryEntryLayoutIsWellFormed(t *testing.T) {
 				t.Fatalf("%v", err)
 			}
 
-			defer layout.Close()
+			defer func() { _ = layout.Close() }()
 
 			diagnostics, err := schema.Validate(entry.Layout, layout)
 			if err != nil {

@@ -11,13 +11,13 @@
     },
     {
       "name": "go",
-      "source": "github.com/z5labs/devex/daggerverse/go@78d4f2ec89804325ade1e867b28a927676201f0d",
-      "pin": "78d4f2ec89804325ade1e867b28a927676201f0d"
+      "source": "github.com/z5labs/devex/daggerverse/go@c10a12007999eb807f68cd9af9000fbaeab159cb",
+      "pin": "c10a12007999eb807f68cd9af9000fbaeab159cb"
     },
     {
       "name": "z5labs",
-      "source": "github.com/z5labs/devex/daggerverse/z5labs@78d4f2ec89804325ade1e867b28a927676201f0d",
-      "pin": "78d4f2ec89804325ade1e867b28a927676201f0d"
+      "source": "github.com/z5labs/devex/daggerverse/z5labs@c10a12007999eb807f68cd9af9000fbaeab159cb",
+      "pin": "c10a12007999eb807f68cd9af9000fbaeab159cb"
     }
   ],
   "source": ".dagger",
