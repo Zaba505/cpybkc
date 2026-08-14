@@ -654,11 +654,21 @@ func (m *Cpybkc) Generate(
 // deliberately does not.
 //
 // Nothing is written to the host, exactly as with Generate: the File that comes
-// back is a value, and exporting it is the caller's separate step. Where it goes
-// is theirs — this module writes the scaffold to a path of its own inside the
-// container ([scaffoldPath]) that nothing was mounted into, so the run cannot
+// back is a value, and exporting it is the caller's separate step. What it is
+// called is theirs — this module writes the scaffold to a path of its own inside
+// the container ([scaffoldPath]) that nothing was mounted into, so the run cannot
 // land on something the caller already has, and the name it takes in their tree
 // is the one they give `export`.
+//
+// *Where* it goes is theirs within one constraint, and it is the one thing here
+// a caller cannot infer from the signature. The scaffold names each copybook by
+// the path it was given, which is relative to the root of source, and a layout's
+// own paths are relative to the layout — so the file belongs at that root, beside
+// the copybooks it names. Exported into a subdirectory it is a layout whose
+// copybook paths resolve nowhere, and nothing at export time will say so. A
+// project that keeps its layout somewhere else moves the paths as it moves the
+// file; they are the adopter's to edit, like the rest of what `init` leaves
+// blank.
 //
 // The destination this module supplies is a file rather than a stream, so
 // `--out -` is not offered here. A caller who wants the scaffold on standard
@@ -691,6 +701,12 @@ func (m *Cpybkc) Init(
 	// no path for the scaffold to state. Everything else is the CLI's to refuse —
 	// a value naming a directory is a run that failed rather than a line that
 	// was wrong, and it says so with a diagnostic naming the path.
+	//
+	// One boundary belongs to the command line rather than to cpybkc: `dagger
+	// call` renders a list argument as `--copybook a.cpy --copybook b.cpy` or as
+	// one comma-separated `--copybook a.cpy,b.cpy`, so a copybook whose path
+	// contains a comma cannot be spelled here. That one is Run's, where the
+	// vector is passed through as written.
 	copybook []string,
 ) (*dagger.File, error) {
 	args, err := argv.Init(copybook, scaffoldPath)
@@ -698,22 +714,32 @@ func (m *Cpybkc) Init(
 		return nil, err
 	}
 
+	// Resolved once and used for both the project mount and the scaffold
+	// directory below, which is the whole reason [Cpybkc.user] is a function:
+	// two answers to who this image is would be two answers.
 	user, err := m.user(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	project, err := m.project(ctx, source)
-	if err != nil {
-		return nil, err
-	}
+	project := m.mount(user, source)
 
-	// An empty directory owned by whoever the container runs as, because the
-	// scaffold is written through a temporary file created beside its
-	// destination and linked into place — the write is atomic or it does not
-	// happen — so the process needs a directory it can create in, not merely a
-	// path nothing occupies.
+	// Emptied first, then an empty directory owned by whoever the container runs
+	// as.
+	//
+	// Emptied because WithDirectory *merges*: whatever the image already had
+	// here would survive it, and a caller may have passed --image, which this
+	// module is not entitled to have an opinion about the contents of. Without
+	// the removal, such a container carrying anything at [scaffoldPath] would
+	// fail the run on a destination its caller never named and cannot see in the
+	// call — which is the one failure this path is arranged to make impossible.
+	//
+	// Owned, because the scaffold is written through a temporary file created
+	// beside its destination and linked into place — the write is atomic or it
+	// does not happen — so the process needs a directory it can create in, not
+	// merely a path nothing occupies.
 	return project.
+		WithoutDirectory(scaffoldDir).
 		WithDirectory(scaffoldDir, dag.Directory(), dagger.ContainerWithDirectoryOpts{Owner: user}).
 		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
 		File(scaffoldPath), nil
@@ -791,9 +817,15 @@ func (m *Cpybkc) project(ctx context.Context, source *dagger.Directory) (*dagger
 		return nil, err
 	}
 
+	return m.mount(user, source), nil
+}
+
+// mount is [Cpybkc.project] with the user already in hand, for a caller that
+// needs it for something else as well and should not ask twice.
+func (m *Cpybkc) mount(user string, source *dagger.Directory) *dagger.Container {
 	return m.Container.
 		WithDirectory(projectDir, source, dagger.ContainerWithDirectoryOpts{Owner: user}).
-		WithWorkdir(projectDir), nil
+		WithWorkdir(projectDir)
 }
 
 // user is who the container runs as, and it is the owner every directory this

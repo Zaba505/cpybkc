@@ -190,6 +190,12 @@ const cliPackageDir = "cmd/cpybkc"
 // flag moving from Run to a curated argument is an edit here in the same commit
 // that adds the argument, which is what happened to `init`'s two below.
 //
+// That five is counted off the map rather than carried forward. It read "six"
+// while the map held seven, which is the kind of thing a number in prose does if
+// nobody re-derives it — and it is worth saying rather than quietly fixing,
+// because this comment is the drift record and a count nobody checked is exactly
+// what it warns about everywhere else.
+//
 // This is a table in the pipeline rather than a list in the module because it is
 // this repository's opinion about the module, in the file that already holds the
 // other two (#61). The module states the same split in prose, in its package
@@ -696,14 +702,21 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 //
 // The two sides are compared as trees rather than as strings so that a
 // disagreement arrives as a diff naming the line, through the same helper the
-// tree comparisons above use.
+// tree comparisons above use. [Cpybkc.diffTrees] runs diff(1), which compares
+// contents and nothing else, so the two sides may be built differently — one
+// from the file cpybkc wrote and one from bytes — without a mode or an owner
+// deciding the outcome.
 func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error {
 	bare := m.companion(platform)
 	example := m.Source.Directory(companionExampleDir)
 
+	// "did not succeed" rather than "did not reach the CLI", because both are
+	// reachable from here: run may fail to reach the CLI at all, and the CLI may
+	// be reached and exit non-zero — which is what a typo in the hand-maintained
+	// [exampleInitVector] looks like. The wrapped error says which.
 	handTyped, err := bare.Run(exampleInitVector, dagger.CompanionRunOpts{Source: example}).Stdout(ctx)
 	if err != nil {
-		return fmt.Errorf("run --args=init,… over %s/'s copybooks did not reach the CLI: %w",
+		return fmt.Errorf("run --args=init,… over %s/'s copybooks did not succeed: %w",
 			companionExampleDir, err)
 	}
 

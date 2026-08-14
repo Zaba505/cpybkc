@@ -192,11 +192,21 @@ func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpyb
 // deliberately does not.
 //
 // Nothing is written to the host, exactly as with Generate: the File that comes
-// back is a value, and exporting it is the caller's separate step. Where it goes
-// is theirs — this module writes the scaffold to a path of its own inside the
-// container ([scaffoldPath]) that nothing was mounted into, so the run cannot
+// back is a value, and exporting it is the caller's separate step. What it is
+// called is theirs — this module writes the scaffold to a path of its own inside
+// the container ([scaffoldPath]) that nothing was mounted into, so the run cannot
 // land on something the caller already has, and the name it takes in their tree
 // is the one they give `export`.
+//
+// *Where* it goes is theirs within one constraint, and it is the one thing here
+// a caller cannot infer from the signature. The scaffold names each copybook by
+// the path it was given, which is relative to the root of source, and a layout's
+// own paths are relative to the layout — so the file belongs at that root, beside
+// the copybooks it names. Exported into a subdirectory it is a layout whose
+// copybook paths resolve nowhere, and nothing at export time will say so. A
+// project that keeps its layout somewhere else moves the paths as it moves the
+// file; they are the adopter's to edit, like the rest of what `init` leaves
+// blank.
 //
 // The destination this module supplies is a file rather than a stream, so
 // `--out -` is not offered here. A caller who wants the scaffold on standard
@@ -204,7 +214,7 @@ func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpyb
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  run --source . --args=init,--copybook,posting.cpy,--out,- stdout
-func (r *Companion) Init(source *Directory, copybook []string) *File { // companion (../../../daggerverse/cpybkc/main.go:669:1)
+func (r *Companion) Init(source *Directory, copybook []string) *File { // companion (../../../daggerverse/cpybkc/main.go:679:1)
 	assertNotNil("source", source)
 	q := r.query.Select("init")
 	q = q.Arg("source", source)
@@ -225,7 +235,7 @@ type CompanionRunOpts struct {
 	// contact nothing. With no source the container is the image as it was
 	// resolved, and cpybkc runs in whatever directory the image left it in.
 	//
-	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:769:2)
+	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:795:2)
 }
 
 // Run is the escape hatch: cpybkc invoked with an argument vector this module
@@ -262,7 +272,7 @@ type CompanionRunOpts struct {
 // unrecognised flag is, whether a flag may repeat and what a usage error exits
 // with are all docs/cli/SPEC.md's, and the exec's failure carries them back
 // verbatim.
-func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:756:1)
+func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:782:1)
 	q := r.query.Select("run")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `source` optional argument
