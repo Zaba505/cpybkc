@@ -70,6 +70,26 @@ const (
        01  FIRST-RECORD.
            05  FST-TYPE            PIC X(2).
 `
+
+	// both is one 01-level carrying a redefine outside a repeating group and
+	// one inside: several record types and a variant over them.
+	both = `       01  BOTH-RECORD.
+           05  BTH-BODY            PIC X(6).
+           05  BTH-CARD            REDEFINES BTH-BODY PIC X(6).
+           05  BTH-LINE            OCCURS 4 TIMES.
+               10  BLN-BODY        PIC X(12).
+               10  BLN-CARD        REDEFINES BLN-BODY PIC X(12).
+`
+
+	// filler describes a run of bytes a second way with an item that has no
+	// data-name, which no item reference can spell. `cobol-go` refuses the
+	// mirror image — a REDEFINES *of* a FILLER cannot name its target — so this
+	// is the reachable half.
+	filler = `       01  FILLER-RECORD.
+           05  FLR-TYPE            PIC X(2).
+           05  FLR-BODY            PIC X(6).
+           05  FILLER              REDEFINES FLR-BODY PIC X(6).
+`
 )
 
 // deriveOf is the scaffold one set of copybooks decides, or a fatal test.
@@ -216,6 +236,75 @@ func TestARedefineInsideARepeatingGroupIsNeverAnAlternative(t *testing.T) {
 
 	if got := variant.arms; !slices.Equal(got, []string{"LN-BODY", "LN-CARD"}) {
 		t.Errorf("the arms are %v, want one per alternative", got)
+	}
+}
+
+// A variant is chosen once per occurrence, so it is one form however many
+// record types the 01-level resolves to — and the reference it carries has to
+// be rooted at one of them.
+func TestAVariantIsOneFormOverAnLevelThatResolvesToSeveralRecordTypes(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("both.cpy", both))
+
+	if got := len(derived.records); got != 2 {
+		t.Fatalf("derived %d record types, want one per alternative of the redefine outside the table", got)
+	}
+
+	if got := len(derived.variants); got != 1 {
+		t.Fatalf("raised %d variant discriminators, want one per redefine inside a repeating group", got)
+	}
+
+	// Rooted at the first record type over the 01-level, which is the one an
+	// adopter reads the form beside; a layout carrying the others writes a form
+	// of its own for each, which they are writing anyway.
+	if got := derived.variants[0].item.String(); got != "(item BOTH-RECORD-BTH-BODY BTH-LINE BLN-BODY)" {
+		t.Errorf("the variant is %s, want it rooted at the first record type", got)
+	}
+
+	if got := derived.variants[0].arms; !slices.Equal(got, []string{"BLN-BODY", "BLN-CARD"}) {
+		t.Errorf("the arms are %v, want one per alternative", got)
+	}
+
+	// And the redefine outside the table is still an alternative on each
+	// record, rather than being swallowed by the variant beside it.
+	for _, r := range derived.records {
+		if len(r.alternatives) != 1 {
+			t.Errorf("%s carries %d alternatives, want one", r.name, len(r.alternatives))
+		}
+	}
+}
+
+// A layout names an alternative with an item reference, and a reference is a
+// path of names, so an item with no data-name is one no layout could name.
+// Refusing beats writing a reference with a hole in it that would parse and then
+// be reported against a line cpybkc wrote.
+func TestARedefineOverAnItemWithNoDataNameIsRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := Derive([]Copybook{book("filler.cpy", filler)})
+	if err == nil {
+		t.Fatal("a REDEFINES over an unnamed item was accepted")
+	}
+
+	var unnameable *UnnamedAlternativeError
+	if !errors.As(err, &unnameable) {
+		t.Fatalf("the fault is %v, want an alternative no layout could name", err)
+	}
+
+	if got := diag.Render(err); !strings.Contains(got, "filler.cpy") || !strings.Contains(got, "FILLER-RECORD") {
+		t.Errorf("the diagnostic names neither the copybook nor the 01-level:\n%s", got)
+	}
+}
+
+// `sequence` names every record once, and there is no shape it could take over
+// none — so a scaffold over no copybooks is not an empty scaffold, it is a
+// question that was not asked.
+func TestDerivingFromNoCopybooksIsRefused(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Derive(nil); !errors.Is(err, ErrNoCopybooks) {
+		t.Errorf("deriving from nothing gave %v, want %v", err, ErrNoCopybooks)
 	}
 }
 
@@ -415,7 +504,11 @@ func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 
 		chosen := make([]string, 0, len(record.Alternatives))
 		for _, alternative := range record.Alternatives {
-			chosen = append(chosen, alternative.Name())
+			// The whole containment path rather than the leaf name. A
+			// reference into the wrong group has the same leaf, so comparing
+			// leaves would let this test pass over a scaffold naming bytes
+			// nobody meant.
+			chosen = append(chosen, strings.Join(alternative.Path, " "))
 		}
 
 		want = append(want, strings.Join(chosen, "+"))
@@ -426,7 +519,11 @@ func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 	for _, record := range derived.records {
 		chosen := make([]string, 0, len(record.alternatives))
 		for _, alternative := range record.alternatives {
-			chosen = append(chosen, alternative.path[len(alternative.path)-1])
+			if len(alternative.path) == 0 {
+				t.Fatalf("%s carries an alternative with no path, which no layout could name", record.name)
+			}
+
+			chosen = append(chosen, strings.Join(alternative.path, " "))
 		}
 
 		got = append(got, strings.Join(chosen, "+"))

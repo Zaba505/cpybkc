@@ -70,7 +70,7 @@ const tempAttempts = 64
 // parent is far more often a typo than an intention.
 func Write(dest string, out io.Writer, b []byte) error {
 	if dest == "" {
-		return fmt.Errorf("name a file to write the scaffold to, or %q for standard output", Stdout)
+		return ErrNoDestination
 	}
 
 	if dest == Stdout {

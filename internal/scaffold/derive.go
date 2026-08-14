@@ -129,6 +129,15 @@ func dialect() copybook.Dialect { return copybook.IBMEnterprise() }
 // is a file whose `sequence` is short and whose incompleteness reads exactly
 // like the incompleteness that is deliberate.
 func Derive(books []Copybook) (*Scaffold, error) {
+	// A scaffold over no copybooks is not an empty scaffold: `sequence` names
+	// every record once, and there is no shape for it to take over none. The
+	// command line already refuses this as a usage error — `--copybook` is
+	// required and appears at least once — and the check is here as well
+	// because this function is reachable without one.
+	if len(books) == 0 {
+		return nil, ErrNoCopybooks
+	}
+
 	var faults diag.List
 
 	s := new(Scaffold)
@@ -238,6 +247,18 @@ func (s *Scaffold) take(
 	// per record: they are properties of the 01-level.
 	several := len(shape.Combinations) > 1
 
+	// The note is written before the records it is about rather than after
+	// them. Both counts are known as soon as the shape is, so there is nothing
+	// to wait for, and a copybook whose combinations are numerous enough to be
+	// worth warning about is the one where the work that follows this line is
+	// the expensive part.
+	if several {
+		s.notes = append(s.notes, fmt.Sprintf(
+			"%s: %s carries %d REDEFINES outside a repeating group, which resolve to %d record types",
+			book.Path, item.Name, redefines(shape), len(shape.Combinations),
+		))
+	}
+
 	root := ""
 
 	for _, combination := range shape.Combinations {
@@ -297,12 +318,6 @@ func (s *Scaffold) take(
 		}
 	}
 
-	if several {
-		s.notes = append(s.notes, fmt.Sprintf(
-			"%s: %s carries %d REDEFINES outside a repeating group, which resolve to %d record types",
-			book.Path, item.Name, redefines(shape), len(shape.Combinations),
-		))
-	}
 }
 
 // recordName is the symbol one combination is called, per docs/cli/SPEC.md, "How
@@ -357,24 +372,23 @@ func pathTo(root, field *copybook.Field) []string {
 	return path
 }
 
-// unreachable is the first item in shape that a layout could not write a
-// reference to, or nil where every one of them can be named.
+// unreachable is the first item in shape that a layout could not name, or nil
+// where every one of them can be named.
 //
-// An alternative or a variant with no data-name — one written FILLER, or one
-// whose name was simply omitted — has no spelling in an item reference, and
-// neither has an unnamed group between it and the 01-level. Finding it here is
-// what keeps a reference cpybkc wrote from being reported against the adopter
-// later.
+// An item with no data-name — one written FILLER, or one whose name was simply
+// omitted — has no spelling in an item reference or in an `arm`, and neither has
+// an unnamed group between it and the 01-level. Finding it here is what keeps a
+// reference cpybkc wrote from being reported against the adopter later.
+//
+// Every alternative of every alternation is walked, in a table and out of one.
+// Out of one each alternative is named by an `alternative` child; in one the
+// redefined item is named by the variant's reference and each alternative by an
+// `arm`, so there is no alternative a layout does not have to spell either way.
 func unreachable(root *copybook.Field, shape resolve.Shape) *copybook.Field {
 	for _, alternation := range shape.Alternations {
-		targets := alternation.Alternatives
-		if alternation.InTable {
-			targets = []*copybook.Field{alternation.Item}
-		}
-
-		for _, target := range targets {
+		for _, target := range alternation.Alternatives {
 			for at := target; at != nil && at != root; at = at.Parent {
-				if at.Name == "" {
+				if unnamed(at) {
 					return at
 				}
 			}
@@ -383,3 +397,13 @@ func unreachable(root *copybook.Field, shape resolve.Shape) *copybook.Field {
 
 	return nil
 }
+
+// unnamed reports an item nothing in a layout can refer to.
+//
+// Both halves are tested rather than only the empty name. `cobol-go` documents
+// Name as empty for a FILLER item, so today the second is implied by the first —
+// but Filler is the field that *means* "this item has no data-name", and
+// [read] already tests the pair when it decides which top-level items are
+// records. A guard whose whole job is to catch an item no reference can name is
+// the wrong place to depend on two spellings of that staying in agreement.
+func unnamed(field *copybook.Field) bool { return field.Name == "" || field.Filler }

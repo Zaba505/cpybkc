@@ -46,11 +46,22 @@ type Shape struct {
 
 	// Combinations are the record types the alternations outside a repeating
 	// group multiply out to, one entry per record type. Each entry names the
-	// alternative chosen at each such run, in the order [Alternations] gives
-	// them.
+	// alternative chosen at each such run it passes through, in containment
+	// order: outermost and earliest first, which is the order [Alternations] is
+	// in.
 	//
 	// A record whose copybook writes no such run has exactly one entry, and
 	// that entry is empty: one record type, chosen at nothing.
+	//
+	// **An entry is not positionally aligned with [Alternations], and two
+	// entries need not be the same length.** A run nested inside one
+	// alternative of another run only exists where that alternative was chosen,
+	// so a combination that took a sibling passes through fewer runs and names
+	// fewer alternatives. Reading a choice back to the run it was made at is
+	// therefore a walk of the copybook and not an index into this slice; what
+	// this promises is that the names are in containment order, which is what
+	// docs/cli/SPEC.md, "How a combination's record name is chosen", builds a
+	// name out of.
 	Combinations [][]*copybook.Field
 
 	// Tables are the items carrying an OCCURS DEPENDING ON, in source order.

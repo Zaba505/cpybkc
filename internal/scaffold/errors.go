@@ -6,10 +6,23 @@
 package scaffold
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
+
+// ErrNoCopybooks is [Derive] handed nothing to derive from.
+//
+// It is an ordinary error rather than a [diag.Error] because it is not a fault
+// in anybody's file: it says the caller asked for a scaffold over no copybooks,
+// which the command line refuses as a usage error before this package is
+// reached.
+var ErrNoCopybooks = errors.New("there is no copybook to derive a scaffold from")
+
+// ErrNoDestination is [Write] handed nowhere to put the scaffold, for
+// [ErrNoCopybooks]'s reason.
+var ErrNoDestination = errors.New("name a file to write the scaffold to, or " + Stdout + " for standard output")
 
 // Every fault here leads with the copybook or the destination it is about and
 // says nothing else about where it is. There is no layout under `init` — that is

@@ -5,7 +5,12 @@
 
 package scaffold
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // The two shapes a line of a scaffold takes.
 //
@@ -311,12 +316,55 @@ func line(out *strings.Builder, text string) {
 
 // quote renders a path as the string literal a `copybook` child takes.
 //
-// Only the two characters the grammar needs escaped are escaped, and nothing
-// else is touched: the path is written as it was typed, and a path cpybkc
-// re-spelled — a non-ASCII byte turned into an escape sequence, say — would be
-// one the adopter cannot find in the command line they wrote.
+// The escape set is the grammar's own — the one `sexpr-go`'s printer writes and
+// its tokenizer reads back — because the scaffold has to parse whatever a
+// copybook is called, and a POSIX path may hold any byte but a slash and a NUL.
+// A newline in a path is rare and it is legal, and writing one raw would produce
+// the single failure the incompleteness is not allowed to be: a file reported as
+// one lexical fault instead of as the checklist it is meant to be.
+//
+// Nothing beyond that set is touched. A non-ASCII path goes out as itself rather
+// than as a run of escapes, because the path is written as it was typed and one
+// cpybkc re-spelled would be one the adopter cannot find in the command line
+// they wrote.
 func quote(path string) string {
-	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path)
+	var out strings.Builder
 
-	return `"` + escaped + `"`
+	out.Grow(len(path) + 2)
+	out.WriteByte('"')
+
+	for _, r := range path {
+		switch r {
+		case '"':
+			out.WriteString(`\"`)
+		case '\\':
+			out.WriteString(`\\`)
+		case '\n':
+			out.WriteString(`\n`)
+		case '\r':
+			out.WriteString(`\r`)
+		case '\t':
+			out.WriteString(`\t`)
+		case '\b':
+			out.WriteString(`\b`)
+		case '\f':
+			out.WriteString(`\f`)
+		default:
+			// Every other control character has no short escape in this
+			// grammar, and a byte that is not valid UTF-8 would not survive
+			// being written raw, so both go out as \uXXXX. unicode.IsControl
+			// covers DEL and the C1 range as well as C0.
+			if unicode.IsControl(r) || r == utf8.RuneError {
+				_, _ = fmt.Fprintf(&out, `\u%04X`, r)
+
+				continue
+			}
+
+			out.WriteRune(r)
+		}
+	}
+
+	out.WriteByte('"')
+
+	return out.String()
 }

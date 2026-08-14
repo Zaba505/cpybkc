@@ -209,24 +209,45 @@ func TestTheFormsComeInTheOrderTheLayoutFormatTablesThem(t *testing.T) {
 			t.Fatalf("the scaffold does not carry %q, or carries it out of order:\n%s", form, text)
 		}
 
-		at += found
+		// Past the match, not to it: advancing only to the start would let the
+		// next search re-scan text this one has already accepted, which asserts
+		// non-decreasing positions rather than an order.
+		at += found + len(form)
 	}
 }
 
 // The one thing a scaffold has to be is readable as S-expressions, whatever its
 // copybooks are called.
+//
+// A POSIX path may hold any byte but a slash and a NUL, so a newline or a tab in
+// one is rare and legal — and writing it raw would produce the single failure
+// the incompleteness is not allowed to be: a file reported as one lexical fault
+// instead of as the checklist it is meant to be.
 func TestAPathWithACharacterTheGrammarEscapesStillParses(t *testing.T) {
 	t.Parallel()
 
-	derived := deriveOf(t, book(`odd"name\.cpy`, header))
+	for _, test := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{"a quote and a backslash", `odd"name\.cpy`, `"odd\"name\\.cpy"`},
+		{"a newline and a tab", "odd\nname\t.cpy", `"odd\nname\t.cpy"`},
+		{"a control character with no short escape", "odd\x01name.cpy", `"odd\u0001name.cpy"`},
+		{"a non-ASCII name, written as itself", "copies/naïve.cpy", `"copies/naïve.cpy"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-	text := string(derived.Bytes())
+			text := string(deriveOf(t, book(test.path, header)).Bytes())
 
-	if err := readLayout(t, text); err == nil {
-		t.Fatal("the layout reader accepted a scaffold")
-	}
+			if err := readLayout(t, text); err == nil {
+				t.Fatal("the layout reader accepted a scaffold")
+			}
 
-	if !strings.Contains(text, `(copybook "odd\"name\\.cpy" LEDGER-HEADER)`) {
-		t.Errorf("the path was not escaped as the grammar needs:\n%s", text)
+			if !strings.Contains(text, "(copybook "+test.want+" LEDGER-HEADER)") {
+				t.Errorf("the path was not written as %s:\n%s", test.want, text)
+			}
+		})
 	}
 }
