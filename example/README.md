@@ -1,7 +1,7 @@
 # A worked example
 
 One artifact carried from a layout to bytes: the files a caller writes, the Go
-package cpybkc writes for them, and tests over both.
+package and the diagram cpybkc writes for them, and tests over both.
 
 Everything here is checked in, and the two halves are told apart by which of
 them a person edited.
@@ -9,8 +9,15 @@ them a person edited.
 | What a caller writes | What cpybkc writes |
 |---|---|
 | [`cpybkc.json`](cpybkc.json) — the project manifest | [`ledger/`](ledger) — the generated Go package |
-| [`ledger.sexpr`](ledger.sexpr) — the layout | [`cpybkc.gen.json`](cpybkc.gen.json) — the record of what was generated |
-| [`header.cpy`](header.cpy), [`posting.cpy`](posting.cpy), [`trailer.cpy`](trailer.cpy) — the copybooks the layout names | |
+| [`ledger.sexpr`](ledger.sexpr) — the layout | [`graph/graph.md`](graph/graph.md) — the generated diagram of the automaton |
+| [`header.cpy`](header.cpy), [`posting.cpy`](posting.cpy), [`trailer.cpy`](trailer.cpy) — the copybooks the layout names | [`cpybkc.gen.json`](cpybkc.gen.json) — the record of what was generated |
+
+The manifest names **two** generators, `go` and `graph`, each with its own `out`
+directory, because the path an adopter takes has two steps on it: generate, and
+then *look at the graph* before trusting what was generated. It is also the only
+project in this repository that runs more than one generator, which is what makes
+it the place [one thing the plugin contract
+asserts](#one-descriptor-two-generators) can be tested at all.
 
 `ledger/roundtrip_test.go` is neither. It is a test file, so it is not part of
 the package the regeneration below pins, and it lives *inside* the generated
@@ -27,13 +34,29 @@ hand. Nothing asserted that the descriptors the goldens pin are descriptors
 `assemble` would ever emit, and the path an adopter actually takes — write a
 layout, generate, read a file — was the one path nothing ran end to end.
 
-So [`regenerate_test.go`](regenerate_test.go)'s one test regenerates `ledger/`
-and `cpybkc.gen.json` from the inputs beside it, through the real CLI and the
-real generator built out of the tree under test, and holds every byte of the
-result against what is checked in.
+So [`regenerate_test.go`](regenerate_test.go) regenerates `ledger/`,
+`graph/graph.md` and `cpybkc.gen.json` from the inputs beside it, through the
+real CLI and both real generators built out of the tree under test, and holds
+every byte of the result against what is checked in.
 A change to any layer — the layout reader, the copybook reader, `resolve`,
-`assemble`, the IR or the emitter — arrives as a diff somebody reviews rather
-than as a fact buried in an assertion.
+`assemble`, the IR or either emitter — arrives as a diff somebody reviews rather
+than as a fact buried in an assertion. The diagram is the half of that a reviewer
+can read without reading Go: a change to what `cpybkc-gen-graph` draws shows up
+here as the picture changing.
+
+Which generators *that test* covers is read out of `cpybkc.json` rather than
+written down beside it — the names it builds, the executables it puts on `PATH`
+and the directories it walks all come from the manifest — so a third generator
+added here is covered by having been added, as long as it is a command in this
+repository's `cmd/`.
+
+Two things outside this directory do have to be told, and a third entry that
+skipped them would fail rather than go uncovered.
+[`.dagger/companion.go`](../.dagger/companion.go) composes the generators into an
+image by hand and requires the plugin directory to hold exactly them — it cannot
+read the manifest, because *how* a generator is installed is not in it: `go` has
+a published image and `graph` does not. And `cmd/cpybkc-gen-<name>` has to exist
+to be built.
 
 The generated code is a Go **package** rather than a fixture under `testdata/`,
 for the reason [the golden packages](../cmd/cpybkc-gen-go/internal/README.md)
@@ -141,20 +164,135 @@ They are retained in an unexported field, so the assertion that they survived a
 read is one only code inside the generated package can make. That is why
 `ledger/roundtrip_test.go` is inside `ledger/` rather than beside it.
 
+## The diagram
+
+[`graph/graph.md`](graph/graph.md) is what
+[`cpybkc-gen-graph`](../cmd/cpybkc-gen-graph/) draws for this layout: the
+sequencing automaton as a Mermaid `stateDiagram-v2`, the registers it remembers
+in, and one table of items and offsets per record. It is the question an adopter
+asks before they trust a layout — *the right records, in the right order, told
+apart on the right bytes, at the right offsets* — asked of the descriptor rather
+than of the file a person wrote.
+
+Everything in it is checkable against [`ledger.sexpr`](ledger.sexpr) by eye, and
+the point of it being here is that you should:
+
+- **Header, postings, trailer, in that order.** `[*] --> s77` is where a read
+  begins; the one edge out of it is `LEDGER-HEADER`. Everything after it loops
+  among the postings, and the only way out is `LEDGER-TRAILER`. That is
+  `(seq LEDGER-HEADER (times (alt …)) LEDGER-TRAILER)` drawn.
+- **Six posting types, under a count.** Every state between the header and the
+  trailer offers all six — `DEBIT-POSTING`, `DEBIT-POSTING-REF`,
+  `CREDIT-POSTING`, `CREDIT-POSTING-REF`, `MEMO-POSTING`, `MEMO-POSTING-REF` —
+  which is the six `record` forms the copybook's three `REDEFINES` over two
+  independent runs resolve to, and the six names the `(alt …)` lists. Reading
+  one of them arrives at a state of its own, and a posting may be followed by a
+  posting of any type, so those seven states each carry the same seven
+  transitions and the picture is the complete graph over them. That density is
+  the layout's, not the drawing's.
+- **`HDR-COUNT` in the register table.** The header's edge carries
+  `then r76 = HDR-COUNT`; every posting edge carries `if r76 greater than zero,
+  then r76 = r76 - 1`; the trailer's carries `if r76 = 0`. The **Registers**
+  table names `r76` and every transition that binds it, because a register
+  carries an identifier and no name — without it the guards on the edges say
+  nothing.
+
+  This is where the diagram is worth more than the prose above it. [Why the
+  header counts the postings](#why-the-header-counts-the-postings) says no state
+  offers both a posting and the trailer, and what is drawn is every posting state
+  offering both. Both are true, and the guards are the difference: the
+  alternatives are written at one state and are mutually exclusive on `r76`, so
+  no *reachable* choice between them exists and the two offsets never have to be
+  told apart. Read the guards, not the edge count.
+- **Two offsets, in the item tables.** `PST-TYPE` is at offset **12** in every
+  posting table, behind the ten-byte account key and the two-byte sequence every
+  posting shares; `HDR-TYPE` and `TRL-TYPE` are both at offset **0**. Those are
+  the eight `discriminate` forms, and the tables are where you check that the
+  field a discriminator names is the field you meant.
+- **The literals are bytes.** `when PST-TYPE = 0xC4 0xC1` is `"DA"` in cp037,
+  which is the charset `(encoding (charset cp037) …)` declares. A diagram that
+  printed `"DA"` would be printing ASCII for a field that is not in it.
+- **`*slack*` in the credit tables.** Four bytes at offset 38 that no credit
+  posting describes — `PST-CREDIT` being shorter than the run it redefines —
+  drawn as a row of its own rather than as a gap between two offsets.
+
+**The offsets are summed, not read.** No IR node carries one, so every number in
+those tables is the generator's own arithmetic; the document says so itself. That
+is why the tables are worth checking against a copybook rather than being taken
+as a restatement of it.
+
+`format=mermaid` is the manifest's choice and it is a judgment call: this
+automaton is dense — nine states and fifty transitions — and
+[`cpybkc-gen-graph`'s README](../cmd/cpybkc-gen-graph/README.md#which-rendering-to-reach-for)
+reaches for `dot` at that density. Mermaid is what the example commits anyway,
+because a worked example is read where it is checked in: a `.md` renders the
+diagram on the forge, and its registers and item tables are Markdown tables a
+reader can check by eye in the diff, where Graphviz's are HTML markup inside a
+file that renders nowhere on its own. Changing `"format": "mermaid"` to `"dot"`
+in [`cpybkc.json`](cpybkc.json) and regenerating is what it takes to see the
+other one.
+
+## One descriptor, two generators
+
+`docs/plugin/SPEC.md` says a run assembles **one** descriptor and hands every
+generator in it the same bytes — and that those bytes are what `--emit-ir`
+writes for the same inputs, which is what makes reproducing a failing generation
+by hand possible at all. With one generator in a manifest the equality has
+nothing to hold between: there is no second set of bytes, so it is satisfied by
+there being nothing to compare.
+
+This is the first project in the repository to run two, so
+[`regenerate_test.go`](regenerate_test.go)'s second test is the first place it
+can fail. It puts a stub generator on `PATH` under both of the manifest's names —
+one that copies the file at `--descriptor` into its own `--out` and writes
+nothing else — runs cpybkc over this manifest, and requires the two copies that
+land in the project to be byte-identical to each other and to what
+`--emit-ir` writes for the same run.
+
+What it does not show is the *one* in "one descriptor". Assembly is
+deterministic, so a pipeline that assembled a fresh descriptor for each
+generator would hand both stubs identical bytes and pass. Counting assemblies
+would need them to be observable and nothing makes them so — and the equality,
+not the count, is what a reader reproducing a generation by hand depends on.
+
+Two more things a one-generator manifest could not show are covered beside it.
+
+[`cpybkc.gen.json`](cpybkc.gen.json) records **both** generators' output, sorted
+together, and it is that one record — not one per generator — which drives
+stale-file pruning. That is what lets a generator *removed* from the manifest
+have its output pruned, so a third test starts from a project whose record names
+a stale file in every output directory and requires every one of them to be gone
+and the record to come out as the one checked in. A pipeline keeping the record
+per generator behaves identically with one generator and prunes the wrong
+directory with two.
+
+And a run that merges two scratch directories is one that fails whole if either
+generator fails: nothing reaches the project tree until every generator has
+exited zero, so a diagram is never written for a package that failed to
+generate.
+
 ## Regenerating
 
 From the repository root:
 
 ```sh
 go build -o "$(go env GOPATH)/bin/cpybkc-gen-go" ./cmd/cpybkc-gen-go
+go build -o "$(go env GOPATH)/bin/cpybkc-gen-graph" ./cmd/cpybkc-gen-graph
 go run ./cmd/cpybkc --manifest example/cpybkc.json
 ```
 
-The generator is found on `PATH` by name, which is the whole of how a generator
-is identified — the manifest names `go`, and cpybkc looks for `cpybkc-gen-go`.
+Each generator is found on `PATH` by name, which is the whole of how a generator
+is identified — the manifest names `go` and `graph`, and cpybkc looks for
+`cpybkc-gen-go` and `cpybkc-gen-graph`.
 
 Then commit what changed. `go test ./example/...` is what fails if you do not:
 it makes the same run into a temporary directory and holds the result against
-what is checked in, naming the file and the first line the two disagree on. It
-does not print the new file — regenerating is the two commands above, and
-`ledger/file.go` alone is several thousand lines.
+what is checked in, naming the file the two disagree on.
+
+What it prints of that file depends on how long it is. A short one — the diagram
+is under two hundred lines — is printed whole, both sides, so that what a change
+did to the picture is legible in the failure and the new bytes come out of the
+test's own output. A long one is not: `ledger/file.go` alone is several thousand
+lines, and a failure carrying two copies of it is one nobody reads, so that one
+names the first line the two disagree on and leaves regenerating to the commands
+above.

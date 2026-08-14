@@ -943,9 +943,17 @@ which is what makes the two
 [interchangeable](#composing-a-generator-is-copy---from-split-across-two-methods)
 rather than merely both present (#63). Both start from the base image, which
 carries the CLI and **no** generator — so a generation that succeeded did so with
-the generator these calls installed and not with something lying around in the
+the generators these calls installed and not with something lying around in the
 image. `image` and `run` are checked too, since a check that exercised only what
 it needed would leave the rest of the module's surface covered by nothing.
+
+**Two generators, because the example runs two.** Since #191 the committed
+example names `go` *and* `graph`, so each composition installs both and the
+plugin directory is required to hold exactly those two. `cpybkc-gen-graph` ships
+no image — a release publishes the CLI image and one generator image, and that is
+not one of them — so it goes in through `with-generator-executable` in both
+compositions, built from this tree. What the pair is still being compared on is
+the `go` half, which is the one added two different ways.
 
 Every call is checked and every failure reported rather than stopping at the
 first, and each message names the module function that broke: *it works from the

@@ -124,11 +124,17 @@ plugin contract says so, and why.
 ## A worked example
 
 [`example/`](example/) carries one artifact from a layout to bytes: a layout, the
-copybooks it names, the manifest, and the Go package cpybkc writes for them, all
-checked in. A test regenerates that package from those inputs and requires it
-byte for byte, so the path an adopter takes — write a layout, generate, read a
-file — is one this repository runs on every pull request rather than one it
-describes.
+copybooks it names, the manifest, and the Go package and the diagram cpybkc
+writes for them, all checked in. A test regenerates both from those inputs and
+requires them byte for byte, so the path an adopter takes — write a layout,
+generate, look at the graph, read a file — is one this repository runs on every
+pull request rather than one it describes.
+
+It is also the one project here that runs **two** generators, `go` and `graph`,
+which is what makes it the place the plugin contract's central equality can be
+tested rather than only stated: every generator in a run — and `--emit-ir` — is
+handed the same descriptor bytes. With one generator there is no second set of
+bytes for that to hold between.
 
 Its layout is deliberately a hard one, because a worked example is what an
 adopter reads to find out whether their own file is describable: six record

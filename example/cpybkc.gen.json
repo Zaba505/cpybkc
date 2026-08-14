@@ -1,6 +1,7 @@
 {
   "version": 1,
   "files": [
+    "graph/graph.md",
     "ledger/codec.go",
     "ledger/doc.go",
     "ledger/file.go",

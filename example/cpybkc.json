@@ -8,6 +8,14 @@
         "package_name": "ledger",
         "receiver": "p"
       }
+    },
+    {
+      "name": "graph",
+      "out": "graph",
+      "options": {
+        "format": "mermaid",
+        "records": "all"
+      }
     }
   ]
 }
