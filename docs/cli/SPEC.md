@@ -651,11 +651,16 @@ unrecoverable act is a flag that gets written into a script once and is never
 reconsidered, and what it saves is one `rm` — a gesture the adopter performs
 deliberately and their shell records.
 
-Whether `init` could instead *extend* a layout that already exists, adding
-records for a copybook a project has taken on, is a real question this document
-does not answer; it is filed on its own (#212). Nothing above forecloses it: an
-existing destination is a failure today, and a future release turning that into
-a defined behaviour behind a flag is the additive direction.
+All this section has to say about a layout that already exists is the rule
+above: a destination that is occupied fails the run, whatever is in it and
+however mature it is. Whether `init` has anything else to offer such a project —
+the derived forms for a copybook it has taken on — is [`init` does not extend a
+layout that already
+exists](#init-does-not-extend-a-layout-that-already-exists)'s question, and it
+is answered there, with what the adopter does instead (#212). Nothing in that
+answer loosens anything here: there is still no `--force`, still no destination
+cpybkc writes through, and the derived forms reach an existing layout by way of
+the adopter's editor.
 
 ### The scaffold is deliberately incomplete
 
@@ -854,6 +859,92 @@ defaulting `--out` to the path the manifest's `layout` names — turns a command
 line that was a usage error into one that works, which [How a covered thing
 would change](#how-a-covered-thing-would-change) admits in a minor release.
 Reading a manifest now and withdrawing it later would not be.
+
+### `init` does not extend a layout that already exists
+
+cpybkc **MUST NOT** accept a flag naming a layout under `init`, **MUST NOT**
+read a layout there, and **MUST NOT** vary what a scaffold carries or the order
+it carries it in ([What the scaffold states, form by
+form](#what-the-scaffold-states-form-by-form)) because a layout exists (#212). A
+project with six copybooks and a seventh to take on runs the same command over
+the seventh that it ran over the first six.
+
+That project is not left with nothing, which is the part worth saying plainly.
+The derivation is the whole of what this command performs and it is available to
+them unchanged: `cpybkc init --copybook new.cpy --out -` writes that copybook's
+`record` forms — and the commented questions they raise — to standard output,
+which is [the spelling `--out` already carries](#the-vector-init-takes) and the
+one destination the rule above has nothing to refuse, from where the adopter's
+editor picks them up and puts them where they belong in the layout they already
+have. `--out` with a scratch path does the same into a file. What `init`
+declines is not the derivation; it is the *merge*.
+
+**What is emitted is the whole scaffold, and the adopter prunes it.** Not a
+fragment: the header comment, the commented `encoding` and the commented
+`framing` are written for the seventh copybook exactly as they were for the
+first, and the adopter deletes the ones their layout has already answered.
+Emitting less would make `init` write a third kind of file — neither the
+scaffold this document specifies nor a layout the reader accepts — whose
+membership is conditional on a file cpybkc was told about. `sequence` is where
+that stops being a small change: it names *every* record once, so a `sequence`
+over the new records alone is not a shorter sequence but a list the adopter has
+to splice into theirs, and a scaffold that omitted it would drop the one form
+that has to be edited rather than pasted.
+
+So the prune is not uniform, and what the adopter does with each part is worth
+writing down. The header comment, the commented `encoding` and the commented
+`framing` are deleted, because their layout has already answered them — as is a
+commented `copybook-reading`, where it has. The `record` forms and the commented
+`rename`, `discriminate` and `discriminate-variant` questions raised over them
+move across as they stand. The commented `sequence` is the one part that is read
+rather than moved: the new record names come out of it and into the sequencing
+expression the layout already carries, at whatever position in that expression
+the adopter's file puts them. That last act is the only one this command could
+not have performed for them under any of the shapes weighed here — where a
+record belongs in a file's order is not in a copybook — which is what makes a
+whole scaffold the smaller imposition, and it needs no second description of
+what a scaffold is.
+
+**Record names are checked by the layout reader, not by `init`.** [How a
+combination's record name is chosen](#how-a-combinations-record-name-is-chosen)
+holds within a run, and a run that read no layout cannot see the names one
+carries — so a derived name colliding with a name the adopter's layout already
+holds is caught after the paste rather than before it, by the reader: a
+duplicate record name is one of the faults [the layout reader
+reports](../layout/SPEC.md#validation-and-diagnostics) (#24), over a file it has
+in front of it and [with a span for each
+occurrence](../layout/SPEC.md#every-diagnostic-carries-a-span-and-some-carry-two).
+That is the division [The scaffold is deliberately
+incomplete](#the-scaffold-is-deliberately-incomplete) already draws: what the
+finished layout is missing is reported by the reader that will have to accept
+it, rather than by a second implementation inside `init` that would have to be
+kept in agreement with it.
+
+The flag that would buy the merge is priced like every other. `--layout` would
+be [covered](#compatibility-guarantees) for a major version — its name, its
+value and its meaning — in exchange for the pruning above. It costs more than
+[`init` reads no manifest](#init-reads-no-manifest) refuses for: a layout is
+validated as a unit by a reader a mature layout passes and a half-edited one
+does not, and a project adopting a copybook is routinely mid-edit, so the flag
+would fail the run at exactly the moment the command is worth running. That is
+the manifest's argument arriving over a second file. `--layout` is therefore not
+a flag [the vector `init` takes](#the-vector-init-takes) lists, and is a usage
+error like any other flag that table does not carry.
+
+Rewriting the layout in place is refused further still, and not only for the
+write. cpybkc would have to *print* the layout format — preserving an adopter's
+comments, their spacing and their ordering, or silently losing them — which is a
+printer and a compatibility surface of its own over a file this document does
+not own. And it puts a write over an edited layout back on the table, which is
+the [one unrecoverable act this command
+has](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten).
+
+The direction stays open in the sense the rest of this document uses. A release
+that adds `--layout` leaves every command line written against this one behaving
+exactly as it did, so it would be [a minor release's
+change](#how-a-covered-thing-would-change) — made when an adopter has asked for
+it rather than before. What this section claims is that the paste is small
+enough that nobody will.
 
 ### No flag states what only an adopter knows
 
@@ -1410,6 +1501,30 @@ overwriting](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten)
 two rules over two files with two answers, at the moment one of them is already
 the only unrecoverable act this command can perform.
 
+### Extending a layout that already exists
+
+`init` neither merges forms into a layout nor shapes what it emits around one.
+There is no `--layout` flag and no other way to name a layout to it, no partial
+scaffold shaped by one, and no in-place rewrite of a layout the adopter has
+edited. The occupied-destination rule is unchanged and is stated where it
+belongs, under [Where the scaffold is written, and why nothing is ever
+overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten).
+
+Reason: argued in full under [`init` does not extend a layout that already
+exists](#init-does-not-extend-a-layout-that-already-exists) — the derivation is
+already theirs and only the paste is being declined, so the exclusion costs a
+project with a mature layout nothing it cannot do today. What the adopter does
+instead is run `cpybkc init --copybook <new.cpy> --out -`, or `--out` a scratch
+path: what comes back is the ordinary whole scaffold for that copybook. They
+move the `record` forms and the commented questions raised over them into the
+layout they have, delete the header, `encoding` and `framing` their layout has
+already answered, and take the new record names out of the commented `sequence`
+and into the sequencing expression their layout already carries — the one part
+of the scaffold that is read rather than moved. Whether a derived record name
+collides with one that layout carries is answered by the reader the next time
+the layout is resolved, not by `init`, which read no layout to compare against
+(#212).
+
 ### Also out of scope
 
 - **Flags that state what only an adopter knows.** No `--encoding`,
@@ -1463,12 +1578,13 @@ the only unrecoverable act this command can perform.
 | [What a copybook decides, and what only the adopter can](#what-a-copybook-decides-and-what-only-the-adopter-can) | #183 `cli` draws the split, over the forms #25–#29 `layout` fix; the derivation itself, #215 `cli` |
 | [The vector `init` takes](#the-vector-init-takes) | #183 `cli`, implemented by #214 `cli` |
 | [Where the copybooks come from](#where-the-copybooks-come-from) | #183 `cli`, over the refusal to search #148 `cli` already states |
-| [Where the scaffold is written, and why nothing is ever overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten) | #183 `cli`, implemented by #215 `cli`; whether a layout that exists can be extended, #212 `cli` |
+| [Where the scaffold is written, and why nothing is ever overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten) | #183 `cli`, implemented by #215 `cli`; that the rule holds whatever is at the destination, and that a layout which already exists is not extended, #212 `cli` |
 | [The scaffold is deliberately incomplete](#the-scaffold-is-deliberately-incomplete) | #183 `cli`, over the layout reader #24 `layout` and the batched diagnostics #150 `cli` |
 | [What the scaffold states, form by form](#what-the-scaffold-states-form-by-form) | #183 `cli` decides it, #215 `cli` emits it, against the forms #25–#29 `layout` fix and the alternatives #164 `layout` settled |
 | [How a combination's record name is chosen](#how-a-combinations-record-name-is-chosen) | #183 `cli`, over the alternatives #164 `layout` settled and the collision #50 `gen-go` refuses |
 | [The combination count is reported, not bounded](#the-combination-count-is-reported-not-bounded) | #183 `cli`, implemented by #215 `cli` |
 | [`init` reads no manifest](#init-reads-no-manifest) | #183 `cli`, against the manifest reader #40 `plugin` |
+| [`init` does not extend a layout that already exists](#init-does-not-extend-a-layout-that-already-exists) | #212 `cli` — decided here, over the destination rule #183 `cli` states and the collision the layout reader #24 `layout` reports on the paste; no implementation story follows, because the derivation #215 `cli` already emits is the whole of what is offered |
 | [No flag states what only an adopter knows](#no-flag-states-what-only-an-adopter-knows) | #183 `cli`, holding the line #25 `layout` draws for the four axes |
 | [`init`'s streams and exit codes](#inits-streams-and-exit-codes) | #183 `cli`, over the format #150 `cli` and the statuses #147 `cli` fix; implemented by #214 `cli` |
 | [Why this is a subcommand and not a script over the published schema](#why-this-is-a-subcommand-and-not-a-script-over-the-published-schema) | #183 `cli`, against the published schema #23 `layout` and the reader #24 `layout` |
@@ -1488,5 +1604,6 @@ the only unrecoverable act this command can perform.
 | [How a covered thing would change](#how-a-covered-thing-would-change) | #146 `cli`; the subcommand priced against it, #183 `cli`; which release number pays it and what it does to the image's major tag, #213 `container` |
 | The project manifest — out of scope, see above | #40 `plugin` |
 | Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli` |
+| Extending a layout that already exists — out of scope, see above | #212 `cli` |
 | This document | #146 `cli` |
 | Conventions this document follows | #15 `setup` |
