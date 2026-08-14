@@ -72,13 +72,27 @@ to; the `PATH` membership is what makes the copied file reachable by the name a
 manifest asks for. Either half alone is useless, which is why this is one
 requirement rather than two facts in different sections.
 
-The image **MUST** set `Env` so that `PATH` contains `/usr/local/bin`, and the
-directory **MUST** exist in the base image even when it is empty, so that a
-`COPY` into it never depends on the builder creating it. A derived image **MUST
-NOT** remove it from `PATH`, and **MUST NOT** shadow it with an earlier `PATH`
-entry holding an executable of the same name: the plugin contract's rule that
-[the earliest `PATH` match wins](../plugin/SPEC.md#discovery) is exactly what
-makes that a way to substitute a generator silently.
+The image **MUST** set `Env` so that `PATH` contains `/usr/local/bin`. A derived
+image **MUST NOT** remove it from `PATH`, and **MUST NOT** shadow it with an
+earlier `PATH` entry holding an executable of the same name: the plugin
+contract's rule that [the earliest `PATH` match wins](../plugin/SPEC.md#discovery)
+is exactly what makes that a way to substitute a generator silently.
+
+**The directory does not exist in the base image.** It appears when something is
+copied into it, and until then the base carries no `/usr/local/bin` at all
+(#185). This document used to require it to exist even when empty, "so that a
+`COPY` into it never depends on the builder creating it" — and what withdrew the
+requirement is that `COPY` creates its destination's parents itself, which is not
+a thing this project takes on faith: both [worked
+examples](#worked-example-adding-a-generator) below are built by the pipeline on
+every pull request, and one of them is exactly this `COPY`.
+
+What replaced the requirement is a stronger rule upstream. The image is built by
+the shared Z5Labs pipeline archetype, which refuses to place content in any
+directory the image's `PATH` resolves against, because a file contributed at build
+time carries no architecture and would be discoverable by bare name in every
+platform's image. An executable reaches the plugin directory by being copied into
+it — which is what a derived Dockerfile does, and the only thing that does.
 
 An executable copied there **MUST** be executable by the [image's
 user](#the-user), and **MUST** be a statically linked native executable for the
@@ -106,11 +120,15 @@ have taught every adopter one more thing.
 
 ### Why cpybkc's own generator is not in the base image
 
-The base image holds **one** executable in the plugin directory — the cpybkc CLI
-— and **no generator** (#55). `cpybkc-gen-go` (#48–#53) is this project's own
-generator and reaches a user the way a stranger's does: as an image built `FROM`
-the base, adding one executable at the path this section names and changing
-nothing else.
+The base image holds **no** executable in the plugin directory (#55, #185).
+`cpybkc-gen-go` (#48–#53) is this project's own generator and reaches a user the
+way a stranger's does: as an image built `FROM` the base, adding one executable at
+the path this section names and changing nothing else.
+
+The CLI is not in there either. It used to be, and its path was never part of
+this contract — see [The CLI's own path is not part of the
+contract](#the-clis-own-path-is-not-part-of-the-contract), which is why the base
+image being able to move it cost a consumer nothing.
 
 A base image carrying its own generator would publish the same bytes and would
 quietly stop testing anything. A generator that is on `PATH` because the build
@@ -133,6 +151,10 @@ Keeping it out is deliberate: the image is built by a shared pipeline archetype
 with its own opinion about where a binary goes (#55), and pinning the CLI's path
 here would make a promise to strangers out of a detail of this repository's
 build. Nothing a derived image legitimately does requires knowing it.
+
+That sentence was written before the archetype could build this image and has
+since been spent: adopting it (#185) moved the CLI out of the plugin directory,
+and because its path was never promised, no consumer had anything to change.
 
 ## The entrypoint
 
@@ -187,12 +209,19 @@ the number other people's tooling already expects.
 
 ### What it means for ownership
 
-The [plugin directory](#the-plugin-directory) is owned by 65532:65532 in the
-base image. A derived image copying a plugin in **SHOULD** use
-`--chown=65532:65532` and **MUST** ensure the result is readable and executable
-by that user; a world-readable, world-executable file satisfies this without the
-`--chown`, which is what makes the omission a latent bug rather than an
-immediate one.
+A derived image copying a plugin into the [plugin
+directory](#the-plugin-directory) **SHOULD** use `--chown=65532:65532` and
+**MUST** ensure the result is readable and executable by that user; a
+world-readable, world-executable file satisfies this without the `--chown`, which
+is what makes the omission a latent bug rather than an immediate one.
+
+Nothing is promised about the ownership of the plugin *directory* itself, and
+that is a change (#185). It used to be owned by 65532:65532 in the base image;
+the base image no longer has one, and the directory a derived image's `COPY`
+creates is the builder's — root-owned and traversable by every UID. Nothing
+depended on the old promise: what a running process needs is to traverse the
+directory and execute the file in it, and both are properties of the *file's*
+mode and ownership, which are the paragraph above and are unchanged.
 
 Files cpybkc writes are created by the process, so they are owned by whichever
 UID the container is actually running as — 65532 unless a caller says otherwise.
@@ -304,8 +333,19 @@ A derived image **MUST NOT** modify either in place. An image that rewrote the
 descriptor set would be publishing a cpybkc whose shipped schema no longer
 describes the descriptors its own CLI emits, and every generator in it would
 decode against a contract the entrypoint does not implement. The files are
-root-owned and mode `0644`, so the running user cannot do it by accident; the
-requirement is on the build that could.
+**read-only to everybody, including their owner** — mode `0444` for the
+descriptor set, `0555` throughout the include root, all of it owned by
+65532:65532 — so the running user cannot do it by accident; the requirement is on
+the build that could.
+
+They were root-owned and mode `0644`/`0755` before #185, and the change is a
+hardening rather than a break. Both covered properties survive whole: the
+descriptor set is still a world-readable regular file, the include root is still
+world-traversable, and "**MUST NOT** modify it in place" is more true rather than
+less, because `0444` denies the owner where `0644` only denied everybody else.
+The literal owner and mode are descriptive here; which UID owns a file that is
+not in the plugin directory is already on the not-covered half of the
+[compatibility guarantees](#compatibility-guarantees).
 
 ### Their size, which is not a guarantee
 
@@ -416,6 +456,16 @@ digest is the fifth way to name the image:
 | Rolling tag | `latest` | On each release |
 | Digest | `@sha256:…` | Never, by construction |
 
+**Where the table is enforced.** Since #185 the family a version implies — the
+minor tag, the major tag, the rolling tag, and a prerelease moving none of them —
+is derived and published by the shared Z5Labs pipeline, and checked there against
+its own table of literals. What cpybkc still decides, and still checks on every
+pull request, is whether a commit is a release of the image at all: a single
+canonical version tag at HEAD, no tag or a non-version tag publishing nothing,
+two version tags an error, and `+build` metadata refused. A reader should not
+conclude from that split that the table below is unenforced, nor that cpybkc is
+what enforces it.
+
 A published full-version tag **MUST NOT** be repointed at a different manifest
 after it is published — not for a rebuild, not for a base-image refresh, not to
 correct a broken release. A release that has to be corrected gets a new version
@@ -457,10 +507,17 @@ without any prior arrangement with this project:
 - a **signature**, over the published index and over each per-platform manifest
   beneath it, so the manifest a runtime actually pulls is signed and not only
   the one the tag named;
-- **attestations** — a provenance statement and an SBOM — attached to the
-  published index digest and to that alone. They are statements about the
-  release, and the release is the index; a per-platform manifest carries none of
-  its own, and looking for one there finds nothing.
+- **attestations** — a provenance statement and SBOMs — attached to the published
+  index digest and to that alone. They are statements about the release, and the
+  release is the index; a per-platform manifest carries none of its own, and
+  looking for one there finds nothing.
+
+Attestations are attached as **OCI referrers** and discovered through the
+[referrers API](#discovering-the-attestations), or through its fallback tag scheme
+on a registry that has none — `ghcr.io` is one. Nothing writes a second copy under
+cosign's `sha256-<digest>.att` tag, so `cosign verify-attestation` reports no
+attestations against these images (#185). The signature is unaffected: it is
+attached the way it always was, and every `cosign verify` below is unchanged.
 
 Signing is **keyless**: there is no cpybkc public key to obtain or trust. The
 signing identity is [this repository's release
@@ -476,11 +533,19 @@ Nothing is ever attached to a **tag**, only to a digest. An attestation about a
 name that moves would say nothing, which is why verifying a moving tag is
 verifying whatever it resolves to at that moment.
 
-The SBOMs are **one SPDX 2.3 document per executable per platform** (#58), not
-one per image. Each document is tied to the SHA-256 of the binary it describes,
-so a single document for an index spanning two platforms would name one of those
-binaries and be wrong about the other — and a consumer matching an advisory
-against it would be matching against a build they are not running.
+The SBOMs are **one document per platform, describing that platform's whole
+image**, in **both SPDX 2.3 and CycloneDX** (#185). Two documents per platform,
+four for a release spanning two platforms, and each names the platform it
+describes.
+
+They used to be one SPDX document per *executable* per platform, on the argument
+that a document tied to one binary's SHA-256 could not be wrong about another
+architecture's. That argument holds and has been answered rather than dropped:
+the documents are still per-platform, so nothing describes bytes from an image a
+consumer is not running, and the subject widened because the image is no longer
+only an executable. cpybkc ships two IR artifacts inside it, and a document about
+the binary alone describes some of what is in the image with no way for a
+consumer to tell which part.
 
 ### Verifying a signature
 
@@ -514,28 +579,44 @@ verifies the per-platform manifest a runtime on that platform actually pulls —
 substitute its digest for the reference. That is the check a shop pinning a
 digest in a `FROM` line wants, and it is the reason the signature is recursive.
 
-The same two flags verify the attestations, with `--type` naming which of the
-two is wanted:
+### Discovering the attestations
+
+**`cosign verify-attestation` finds nothing against these images, and that is
+the arrangement rather than a fault** (#185). The provenance and the SBOMs are
+attached as OCI referrers of the index digest, and nothing writes the second copy
+under the `sha256-<digest>.att` tag that command looks for. The signature is
+attached the way it always was, so everything above this section is unchanged.
+
+`oras discover` is what lists them. Each referrer carries an artifact type, which
+is how the right kind is picked out:
+
+| Artifact type | What it is |
+| --- | --- |
+| `application/vnd.in-toto+json` | the signed SLSA provenance statement |
+| `application/spdx+json` | an SBOM in SPDX 2.3, one per platform |
+| `application/vnd.cyclonedx+json` | the same SBOM in CycloneDX, one per platform |
 
 ```console
-$ cosign verify-attestation --type slsaprovenance1 \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
-    ghcr.io/zaba505/cpybkc:v0.2.0
-
-$ cosign verify-attestation --type spdxjson \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-identity 'https://github.com/Zaba505/cpybkc/.github/workflows/release.yaml@refs/tags/v0.2.0' \
-    ghcr.io/zaba505/cpybkc:v0.2.0
+$ oras discover --format tree ghcr.io/zaba505/cpybkc:v0.2.0
 ```
 
-`--type spdxjson` returns every SBOM on the digest, one per executable per
-platform. Which build a document describes is inside the document rather than in
-how it was attached: its name and the SHA-256 on its subject package.
+Each referrer manifest holds one layer, and that layer's
+`org.opencontainers.image.title` annotation names the platform it describes —
+which is how one of several SBOMs is chosen:
 
-Both attestation commands take the **index** — a tag, or the digest that tag
-resolves to. Asking a per-platform manifest for one finds nothing, and that is
-the arrangement rather than a fault.
+```console
+$ oras manifest fetch ghcr.io/zaba505/cpybkc@sha256:… \
+    | jq -r '.layers[].annotations["org.opencontainers.image.title"]'
+$ oras blob fetch --output - ghcr.io/zaba505/cpybkc@sha256:… > sbom.spdx.json
+```
+
+`ghcr.io` implements no referrers API, so `oras` reads these through the OCI
+fallback tag scheme; the commands are the same either way, which is why they work
+there at all.
+
+Discovery takes the **index** — a tag, or the digest that tag resolves to. Asking
+a per-platform manifest for a referrer finds nothing, for the reason [above](#what-a-tag-carries-besides-the-image):
+the attestations are statements about the release, and the release is the index.
 
 #### After mirroring to an internal registry
 
@@ -548,13 +629,16 @@ stored, so they hold the same values against a mirror as against `ghcr.io`.
 Rewriting them to name the mirror would be asserting that the mirror built the
 release, which is exactly the claim the signature exists to distinguish.
 
-**Copy the signatures, not just the image.** A signature and an attestation are
-ordinary objects in the same repository as the image, under tags derived from
-its digest — `sha256-<digest>.sig` and `sha256-<digest>.att`. A mirror made by
-pulling one tag and pushing it elsewhere copies the image alone and leaves both
-behind, and the copy then fails to verify with nothing found. `cosign copy`
-moves all of it, and a mirroring tool that copies *every* tag in the repository
-does the same job, because those objects are tags:
+**Copy the signatures, not just the image.** A signature is an ordinary object in
+the same repository as the image, under a tag derived from its digest —
+`sha256-<digest>.sig`. The attestations are referrers of the same digest, read
+through the [referrers API or its fallback
+tags](#discovering-the-attestations). A mirror made by pulling one tag and
+pushing it elsewhere copies the image alone and leaves all of it behind, and the
+copy then fails to verify with nothing found. `cosign copy` moves the signature,
+and a mirroring tool that copies *every* tag in the repository moves the
+attestations too, because on a registry without a referrers API they are tags as
+well; `oras copy --recursive` is the direct way to move them:
 
 ```console
 $ cosign copy ghcr.io/zaba505/cpybkc:v0.2.0 registry.internal/mirror/cpybkc:v0.2.0
@@ -1048,7 +1132,7 @@ change to any of them is a breaking change:
 
 | Guarantee | Value |
 | --- | --- |
-| [The plugin directory](#the-plugin-directory) | `/usr/local/bin`, on `PATH`, existing and owned by the image's user |
+| [The plugin directory](#the-plugin-directory) | `/usr/local/bin`, on `PATH` |
 | [The entrypoint](#the-entrypoint) | Is the cpybkc CLI, and takes its arguments |
 | [The user](#the-user) | UID 65532, GID 65532, non-root, overridable |
 | [The IR `FileDescriptorSet`](#the-ir-schema-in-the-image) | `/usr/local/share/cpybkc/ir.binpb`, a world-readable regular file, byte-identical to the release asset |
@@ -1056,7 +1140,7 @@ change to any of them is a breaking change:
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
-| [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM |
+| [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM per platform, as referrers |
 
 **Not covered**, and explicitly implementation detail. Depending on any of it is
 depending on something that may change in a patch release, with no notice:
@@ -1074,7 +1158,12 @@ depending on something that may change in a patch release, with no notice:
   this image makes.
 - Layer count, layer ordering, image size, build timestamps, and every other
   label or annotation on the manifest.
-- Which UID owns a file that is not in the plugin directory.
+- Which UID owns a file that is not in the plugin directory, and the mode of any
+  file this document does not name a mode for.
+- Whether `/usr/local/bin` exists in the base image, and the ownership and mode
+  of the directory a derived image's `COPY` creates there. What is covered is the
+  path, its membership of `PATH`, and that an executable copied in is readable and
+  executable by the image's user.
 - The **size** of either IR artifact, and the number of files under
   `/usr/local/share/cpybkc/proto/`. Both move with the schema; [the figures
   given](#their-size-which-is-not-a-guarantee) are a description of one release
@@ -1178,24 +1267,25 @@ Go install with no document that applies to them.
 
 | Section | Implemented by |
 |---|---|
-| [The plugin directory](#the-plugin-directory) | #54, #55 `container` |
+| [The plugin directory](#the-plugin-directory) | #54, #55 `container`; #185 `container` withdraws the promise that the directory exists in the base image |
 | [Why cpybkc's own generator is not in the base image](#why-cpybkcs-own-generator-is-not-in-the-base-image) | #55 `container` for the base holding none, #48–#53 `gen-go` for the generator that goes through the front door |
-| [The CLI's own path is not part of the contract](#the-clis-own-path-is-not-part-of-the-contract) | #55 `container` |
+| [The CLI's own path is not part of the contract](#the-clis-own-path-is-not-part-of-the-contract) | #55 `container`; #185 `container` is where it was spent |
 | [The entrypoint](#the-entrypoint) | #55 `container` |
 | [The user](#the-user) | #55 `container` |
 | [Shell or no shell](#shell-or-no-shell) | #55 `container` |
-| [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container` |
-| [What a tag carries besides the image](#what-a-tag-carries-besides-the-image) | #58 `container` |
+| [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container`; #185 `container` moves the family's derivation to the shared pipeline |
+| [What a tag carries besides the image](#what-a-tag-carries-besides-the-image) | #58 `container`; #185 `container` for the SBOM's subject and formats |
 | [Verifying a signature](#verifying-a-signature) | #58 `container` |
 | [After mirroring to an internal registry](#after-mirroring-to-an-internal-registry) | #58 `container` |
+| [Discovering the attestations](#discovering-the-attestations) | #185 `container` |
 | [Worked example: adding a generator](#worked-example-adding-a-generator) | #54 `container` |
 | [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for replaying that stage onto a base image of this pipeline's own |
 | [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container` |
 | [Why the platform set is the two it is](#why-the-platform-set-is-the-two-it-is) | #54 `container` decides it, #55 `container` builds it, #56 `container` retires the third leg it once had |
-| [The IR schema in the image](#the-ir-schema-in-the-image) | #57 `container` |
+| [The IR schema in the image](#the-ir-schema-in-the-image) | #57 `container`; #185 `container` for its ownership and mode |
 | [Worked example: reading the IR without generated code](#worked-example-reading-the-ir-without-generated-code) | #57 `container`; #19 `ir` for what the descriptor set contains |
 | The multi-platform build itself — out of scope, see above | #55 `container` |
 | The Dagger module's default image tag — out of scope, see above | #104 `dagger` settles it in [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module); #61 `dagger` carries it onto the constructor |
-| Signing, provenance and SBOM — verifiable, so the tags section cites them | #58 `container` |
+| Signing, provenance and SBOM — verifiable, so the tags section cites them | #58 `container`; #185 `container` moves their production to the shared pipeline |
 | This document | #54 `container`; its shape and the settled `Scope`, `Governing sources` and `Out of Scope`, #15 `setup` |
 | Conventions this document follows | #15 `setup` |

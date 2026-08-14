@@ -69,9 +69,7 @@ const companionModuleDir = "daggerverse/cpybkc"
 // +check
 // +cache="session"
 func (m *Cpybkc) CompanionCi(ctx context.Context) error {
-	return dag.Z5Labs().
-		GoLib(m.Source.Directory(companionModuleDir), dagger.Z5LabsGoLibOpts{LintConfig: m.LintConfig}).
-		Ci(ctx)
+	return m.goChain(m.Source.Directory(companionModuleDir)).Ci(ctx)
 }
 
 // EngineLock checks that the companion module pins the same Dagger
@@ -557,7 +555,7 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 // they are set at all.
 func (m *Cpybkc) companion(platform dagger.Platform) *dagger.Companion {
 	return dag.Companion(dagger.CompanionOpts{
-		Image:      m.image(platform),
+		Image:      m.baseImage(platform),
 		Repository: neverPulledRepository,
 	})
 }
@@ -590,20 +588,25 @@ func (m *Cpybkc) generatorBinary(platform dagger.Platform) *dagger.File {
 // adopter's generator image actually is rather than a container assembled to
 // suit this check. Deriving it from the same base also settles the platform:
 // with-generator refuses a generator image built for another one, and a
-// container that came from image() cannot be for another one.
+// container that came from baseImage cannot be for another one.
+//
+// The COPY creates the plugin directory, because since #185 the base image does
+// not have one — nothing is in it, and the archetype refuses a contribution to
+// any directory the image's PATH resolves against. That is what an adopter's
+// Dockerfile does too, and what the worked example checks.
 //
 // It is not published and never will be. What #48 ships is a release's business;
 // this is one file in a container that exists for the length of one call.
 func (m *Cpybkc) generatorImage(platform dagger.Platform) *dagger.Container {
-	return m.image(platform).WithFile(
+	return m.baseImage(platform).WithFile(
 		pluginDir+"/"+generatorExecutable,
 		m.generatorBinary(platform),
-		dagger.ContainerWithFileOpts{Owner: imageUser, Permissions: executableMode},
+		dagger.ContainerWithFileOpts{Owner: imageUser, Permissions: derivedExecutableMode},
 	)
 }
 
 // checkComposedImage requires the composed image's plugin directory to hold the
-// CLI and the generator, and nothing else.
+// generator, and nothing else.
 //
 // The directory is listed rather than the image run, because the image is a
 // scratch one: there is no shell and no `ls` in it, and the only thing that can
@@ -623,7 +626,11 @@ func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Contai
 		return fmt.Errorf("listing %s in the composed image: %w", pluginDir, err)
 	}
 
-	want := []string{cliBinary, generatorExecutable}
+	// The generator alone. The CLI is not in the plugin directory since #185 —
+	// the archetype puts an application's own binary in /app and names it
+	// absolutely in the entrypoint — so what a composition leaves here is exactly
+	// what the composition added.
+	want := []string{generatorExecutable}
 	slices.Sort(want)
 	slices.Sort(entries)
 

@@ -279,7 +279,7 @@ func (m *Cpybkc) checkReadsTheShippedIr(
 	ran := derived.
 		WithUser(overrideUser).
 		WithNewFile(descriptor, minimalDescriptor, dagger.ContainerWithNewFileOpts{
-			Permissions: dataMode,
+			Permissions: contributedFileMode,
 		}).
 		WithDirectory(out, dag.Directory(), dagger.ContainerWithDirectoryOpts{
 			Owner: overrideUser,
@@ -582,10 +582,10 @@ func (e *workedExample) rules() error {
 	switch mode, err := copied.mode(); {
 	case err != nil:
 		errs = append(errs, err)
-	case mode != executableMode:
+	case mode != derivedExecutableMode:
 		errs = append(errs, fmt.Errorf("the final stage's COPY is --chmod=%q, which is mode %04o; it has to be "+
 			"%04o, because cpybkc discovers only a file carrying an execute bit",
-			copied.flags["chmod"], mode, executableMode))
+			copied.flags["chmod"], mode, derivedExecutableMode))
 	}
 
 	if len(copied.operands) != 2 {
@@ -728,7 +728,7 @@ func (m *Cpybkc) checkExtendsTheImage(
 		return nil, err
 	}
 
-	derived := m.image(platform).WithFile(destination, built.File(source), dagger.ContainerWithFileOpts{
+	derived := m.baseImage(platform).WithFile(destination, built.File(source), dagger.ContainerWithFileOpts{
 		Owner:       copied.flags["chown"],
 		Permissions: mode,
 	})

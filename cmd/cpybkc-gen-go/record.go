@@ -950,7 +950,7 @@ func uniformCase(name string) bool {
 		}
 	}
 
-	return !(upper && lower)
+	return !upper || !lower
 }
 
 // namesOf is what a node is called: the copybook's name for it and the rename

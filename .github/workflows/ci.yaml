@@ -59,27 +59,36 @@ jobs:
     name: ci
     runs-on: ubuntu-latest
     permissions:
-      # Reading the source is all the pipeline does. It now builds the two IR
-      # artifacts a release attaches (#19) and the provenance predicate and
-      # SBOMs a release signs (#58), but it builds them inside the engine and
+      # Reading the source is all the pipeline does. It builds the two IR
+      # artifacts a release attaches (#19) and the published base image on every
+      # platform it ships for (#55), but it builds them inside the engine and
       # throws them away — nothing here uploads, pushes or signs anything. So no
       # `contents: write`, which belongs to release.yaml's job because that is
       # where an asset is attached; no `packages: write`, because nothing is
-      # pushed; and no `id-token: write`, because the signature itself is made at
-      # release time and this job never asks for a workload identity token. Each
-      # grant belongs to the change that gives it a use, next to the step that
-      # needs it, rather than being held here in advance against a job that would
-      # not notice it missing.
+      # pushed; and no `id-token: write`, because the signature and the
+      # attestations are produced by the shared pipeline at release time and this
+      # job never asks for a workload identity token. Each grant belongs to the
+      # change that gives it a use, next to the step that needs it, rather than
+      # being held here in advance against a job that would not notice it
+      # missing.
       contents: read
     steps:
-      # A shallow checkout on purpose. The module excludes .git from the source
-      # directory it checks, because none of fmt, vet, lint or test reads git
-      # metadata, so there is nothing here for the extra history to feed. That
-      # changes with the archetype: a GoApp stamps binaries from the refs at
-      # HEAD and needs real metadata, so `fetch-depth: 0` comes back in the same
-      # change that drops .git from the module's ignore list.
+      # Unshallow, with tags, because `ci` builds an image (#185). The module
+      # still excludes .git from the *source* directory the check stages read —
+      # none of fmt, vet, lint or test looks at git metadata, and folding it in
+      # would make every commit a cache miss for all four — but it binds .git as
+      # its own input, and the archetype refuses to build an App without one. Ci
+      # runs ImageContract, so this job is one of the ones that builds.
+      #
+      # `fetch-depth: 0` rather than a shallow clone with `fetch-tags`, because
+      # what the archetype reads is HEAD's own commit object — its SHA, its
+      # committer time — and a repository whose objects are a graft point is one
+      # `git log -1` can still answer from but which nothing else about a build
+      # should have to reason about.
       - name: Check out the repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # Pinned to the engineVersion the module itself declares, read out of
       # dagger.json rather than repeated here. The CLI provisions an engine of
