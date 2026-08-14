@@ -385,10 +385,12 @@ recompute it without running anything of ours.
 It exists because conformance is what an outsider runs once, on a whim, before
 they are invested, and the obvious alternative — a container image — is a
 procurement ticket for anybody whose builders have no egress and whose registry
-runs an allowlist (#202). A download and an `--exec` is the offline path. The
-container door is #203's, and it is where the properties that make a result
-believable live: `--exec` provides no isolation of any kind, and
-`cpybkc-conform` says so in every report it writes.
+runs an allowlist (#202). A download and an `--exec` is the offline path.
+`--image` is the other door onto the same contract (#203), and it is where the
+properties that make a result believable live — no network, a read-only root, a
+memory and process cap and a wall-clock bound. Container execution is the
+standard and not the gate: `--exec` provides no isolation of any kind, and
+`cpybkc-conform` says which door produced a result in every report it writes.
 
 Four properties are worth knowing before you touch any of them:
 

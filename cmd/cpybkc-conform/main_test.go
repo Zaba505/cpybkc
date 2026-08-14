@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -287,7 +288,12 @@ func TestUsageStatesTheDefaultsTheFlagsCarry(t *testing.T) {
 		engine.DefaultDeadline.String(),
 		engine.DefaultBuildDeadline.String(),
 		engine.DefaultGrace.String(),
+		engine.DefaultImageTimeout.String(),
 		`(default "` + defaultCorpus + `")`,
+		`(default "` + engine.DefaultRuntime + `")`,
+		`(default "` + engine.DefaultMemory + `")`,
+		`(default "` + engine.DefaultScratch + `")`,
+		"(default " + strconv.Itoa(engine.DefaultProcesses) + ")",
 	} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("the synopsis does not state %s, so it describes flags this program does not have", want)
@@ -313,7 +319,7 @@ func TestRunRejectsBadUsage(t *testing.T) {
 		{name: "an adapter named rather than pathed", args: []string{"check", "--exec", "adapter"}},
 		{name: "an adapter named as a bare word that exists on PATH", args: []string{"check", "--exec", "sh"}},
 		{name: "an adapter that is a directory", args: []string{"check", "--exec", dir}},
-		{name: "a flag this program does not have", args: []string{"check", "--image", "example.com/x"}},
+		{name: "a flag this program does not have", args: []string{"check", "--exec", os.Args[0], "--isolated"}},
 		{name: "a deadline of zero", args: []string{"check", "--exec", os.Args[0], "--deadline", "0"}},
 		{name: "a negative build deadline", args: []string{"check", "--exec", os.Args[0], "--build-deadline", "-1s"}},
 		{name: "an operand digest does not take", args: []string{"digest", "extra"}},

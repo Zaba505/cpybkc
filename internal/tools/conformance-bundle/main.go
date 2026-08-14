@@ -30,8 +30,11 @@
 // first-day bounce costs the adoption entirely (#202).
 //
 // So the offline path is a download and an `--exec`: no registry, no daemon and
-// no image. A container door is the other door and is #203's, and it is where
-// the properties that make a result believable live.
+// no image. `--image` is the other door the same program offers, and it is
+// where the properties that make a result believable to somebody else live — no
+// network, a read-only root, a memory and process cap, a wall-clock bound
+// (#203). It is the standard and deliberately not the gate: what an adopter can
+// run on their first afternoon has to be the one that needs nothing.
 //
 // # Why the binaries are in it
 //

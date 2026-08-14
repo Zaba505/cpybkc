@@ -64,11 +64,23 @@
 //
 // The argument vector, the working directory, the environment and whether the
 // process is local at all are not the contract's, which is why they are not
-// this package's either: [Door] is the seam, [Command] is the door that runs a
-// command, and a door that starts a container is a sibling of it rather than a
-// change here (#203). What a door adds — a run with no network, a read-only
-// root, a wall-clock cap — is reportable and is the door's own to describe, and
-// [Report] quotes that description rather than claiming a guarantee of its own.
+// this package's either: [Door] is the seam, and the two doors this package
+// ships are siblings behind one implementation of the conversation (#203).
+//
+//   - [Command] runs a command. It provides nothing beyond a process: no
+//     network namespace, no read-only root, no cap of any kind. A result
+//     produced through it is the author's own working result.
+//   - [Image] runs a container image, with no network, a read-only root, a
+//     writable tmpfs at /tmp, a memory cap, a process cap and a wall-clock
+//     bound. A result produced through it is one the author can hand to
+//     somebody else.
+//
+// What a door adds is the door's own to describe and is never the contract's,
+// and [Report] quotes that description rather than claiming a guarantee of its
+// own — an engine MUST NOT report a result as though it carried a guarantee its
+// door did not provide. Neither door makes a run a claim a third party should
+// be asked to trust without qualification; both are self-reports, and the
+// difference between them is how much of one.
 //
 // # Failure reporting is the point
 //

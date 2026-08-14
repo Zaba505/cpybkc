@@ -98,9 +98,17 @@ with no clone, no registry and no container runtime in front of you. [The
 published corpus](docs/conformance/SPEC.md#the-published-corpus) is the
 archive's layout and the digest rule; [the corpus
 format](docs/conformance/SPEC.md) is what an entry holds and the language a
-decoded record is written in. A run through `--exec` is your own working result
-rather than one to hand to somebody else — the door provides no isolation, and
-the report says so.
+decoded record is written in.
+
+There are two doors onto that one contract, and which one a run went through is
+part of the result. `--exec` provides no isolation at all, so a run through it
+is your own working result. `--image ghcr.io/you/gen-rust-adapter:v1` runs the
+adapter in a container with no network, a read-only root, a memory and process
+cap and a wall-clock bound, which is a result you can hand to somebody else.
+The report quotes whichever door produced it, because those guarantees are the
+door's and never the contract's. Neither makes a run a claim a third party
+should be asked to trust without qualification: cpybkc awards no level, profile,
+score or badge, and a result is a self-report either way.
 
 ## The project manifest
 
