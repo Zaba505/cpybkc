@@ -145,8 +145,10 @@ stateDiagram-v2
 
 #### Why an edge is taken
 
-Behind the record name an edge label reads as a sentence, in three sections,
-each of which is left out when the transition carries nothing for it:
+Behind the record name an edge label reads as a sentence, in three sections.
+`if` and `then` are left out where the transition carries no guard and no
+binding; `when` is always there, because a transition carrying no predicate says
+so rather than saying nothing:
 
 | Section | What it is |
 |---|---|
@@ -159,7 +161,8 @@ none](../../docs/ir/SPEC.md#a-transition-may-carry-no-predicate) and that is a
 meaning rather than a gap: such a transition matches every record, is selected
 by its guards alone, and gives up the undescribed-record diagnostic at the state
 that offers it. It is not the same as a predicate whose literal happens to be
-trivial, and the document does not draw the two alike.
+trivial — that draws as `when TYPE-CODE = ""` — and the document does not draw
+the two alike.
 
 **An accepting state's guards are on its `--> [*]` edge.** Acceptance may be
 conditional — `s3 --> [*]: if r20 = 0` is a state where end of input is a

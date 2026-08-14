@@ -43,12 +43,9 @@ func TestAPredicateIsDrawnOnTheEdgeItSelects(t *testing.T) {
 			// The path within the record, since a field two groups down is one
 			// the reader finds by the names they wrote and not by a node
 			// identifier this generator did not invent either.
-			name: "a field two groups down",
-			nodes: []*irpb.Node{
-				equalPredicate(50, 106, "\xc8"),
-				fieldNode(106, "KIND", 1),
-			},
-			want: "when ENTRY.SUB.KIND = 0xC8",
+			name:  "a field two groups down",
+			nodes: []*irpb.Node{equalPredicate(50, 106, "\xc8")},
+			want:  "when ENTRY.SUB.KIND = 0xC8",
 		},
 	}
 
@@ -150,6 +147,26 @@ func TestALiteralIsBytesUnlessItIsKnownToBeText(t *testing.T) {
 			value: "\x00\x15",
 			text:  true,
 			want:  "0x00 0x15",
+		},
+		{
+			// The quoted form is written past every escaping pass, so a literal
+			// that could become an arrow is one that must not be written as
+			// text. `guard.phrase` refuses to write `>` at all for the same
+			// reason, and this is the same reasoning applied where a literal
+			// rather than a phrase carries the character.
+			name:  "a literal that could grow a transition arrow is bytes",
+			value: "-->",
+			text:  true,
+			want:  "0x2D 0x2D 0x3E",
+		},
+		{
+			// A Mermaid label's text is markup — it is how `<br/>` works in one
+			// — so these would render as markup rather than as the value
+			// somebody is checking.
+			name:  "a literal that could become markup is bytes",
+			value: "a&b",
+			text:  true,
+			want:  "0x61 0x26 0x62",
 		},
 	}
 
@@ -263,6 +280,59 @@ func TestEveryGuardTestIsDrawnOverEitherRegisterKind(t *testing.T) {
 
 			if got := g.states[0].edges[0].label(mermaidLabel); !strings.Contains(got, "if "+testCase.want) {
 				t.Errorf("the edge reads %q, and does not carry the guard %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestAGuardsLiteralMustBeTheKindItsRegisterHolds is the check the schema
+// splits Literal into two members to make possible.
+//
+// Both kinds draw as a sentence this document knows how to write — `r20 = 0`
+// and `r21 = 0x00` are each well formed on their face — so a literal of the
+// wrong kind is not a rendering that fails, it is one that says something the
+// descriptor does not. docs/ir/SPEC.md words it as a producer MUST, and a
+// consumer that does not check is a consumer the two members bought nothing.
+func TestAGuardsLiteralMustBeTheKindItsRegisterHolds(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		nodes []*irpb.Node
+		says  string
+	}{
+		{
+			name:  "an integer literal against a bytes register",
+			nodes: []*irpb.Node{bytesRegister(21), equalsIntegerGuard(60, 21, 5)},
+			says:  "guard 60 compares a register that holds bytes against an integer",
+		},
+		{
+			name:  "a bytes literal against an integer register",
+			nodes: []*irpb.Node{integerRegister(20), equalsBytesGuard(60, 20, "\x00")},
+			says:  "guard 60 compares a register that holds an integer against bytes",
+		},
+		{
+			// The set is checked literal by literal, so one of the wrong kind
+			// among several of the right kind is still refused.
+			name:  "one literal of the wrong kind in a set",
+			nodes: []*irpb.Node{bytesRegister(21), mixedOneOfGuard(60, 21)},
+			says:  "guard 60 compares a register that holds bytes against an integer",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := read(oneRecordAutomaton(append(testCase.nodes,
+				edgeNode(30, 100, 2, nil, []uint64{60}, nil))...))
+
+			if err == nil {
+				t.Fatal("read accepted a guard whose literal is not the kind its register holds")
+			}
+
+			if !strings.Contains(err.Error(), testCase.says) {
+				t.Errorf("the refusal reads %q, and does not say %q", err, testCase.says)
 			}
 		})
 	}
@@ -416,6 +486,48 @@ func TestARegisterNoTransitionBindsIsDrawnAndSaidSo(t *testing.T) {
 	}
 }
 
+// TestARecordNameInTheRegisterTableIsEscapedAsMarkdown is the table's half of
+// the rule the diagram has for its labels.
+//
+// A cell is two contexts at once: table syntax, where `|` ends the cell, and
+// ordinary Markdown inline text, where a backtick opens a code span that
+// swallows the rest of the row and `<` opens raw HTML. The record name sits
+// outside the backticks quoting the edge beside it, so it is in that inline
+// context with nothing around it to protect it — and a record name is the
+// copybook's and may hold anything.
+func TestARecordNameInTheRegisterTableIsEscapedAsMarkdown(t *testing.T) {
+	t.Parallel()
+
+	written := writtenDocument(t, &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			unframedFile(1, 2),
+			stateNode(2, true, 30),
+			integerRegister(20), fieldBinding(70, 20, 101),
+			edgeNode(30, 100, 2, nil, nil, []uint64{70}),
+			recordOf(100, 105, "A`B|C<D*E_F"),
+			groupNode(105, "ROOT", 101),
+			fieldNode(101, "DTL-COUNT", 2),
+		},
+	})
+
+	if want := "(A\\`B\\|C\\<D\\*E\\_F)"; !strings.Contains(written, want) {
+		t.Errorf("the register table does not carry the escaped name %q:\n%s", want, written)
+	}
+
+	// The row is still one row: an unescaped `|` would have made it three
+	// columns of something else.
+	for _, line := range strings.Split(written, "\n") {
+		if !strings.HasPrefix(line, "| r20 ") {
+			continue
+		}
+
+		if got := strings.Count(line, "|") - strings.Count(line, `\|`); got != 4 {
+			t.Errorf("the register row is %q, and it holds %d unescaped cell separators rather than 4", line, got)
+		}
+	}
+}
+
 // TestADescriptorCarryingNoRegisterHasNoRegisterSection keeps the section off
 // the document most layouts produce.
 //
@@ -474,6 +586,37 @@ func TestAReferenceInThisHalfOfTheAutomatonThatDoesNotResolveIsRefused(t *testin
 			name:  "a one-of predicate carrying one literal",
 			nodes: []*irpb.Node{oneOfPredicate(50, 101, "\xc8"), edgeNode(30, 100, 2, predicateAt(50), nil, nil)},
 			says:  "predicate 50 tests membership of a set of 1 literals",
+		},
+		{
+			// The other half of the same rule. Left unchecked it draws as
+			// `is one of 0xC8 or 0xC8`, which is a test no reader can act on.
+			name:  "a one-of predicate carrying the same literal twice",
+			nodes: []*irpb.Node{oneOfPredicate(50, 101, "\xc8", "\xc8"), edgeNode(30, 100, 2, predicateAt(50), nil, nil)},
+			says:  "predicate 50 tests membership of a set carrying the same literal twice",
+		},
+		{
+			// Not "the field is not in the record", which would name the
+			// predicate's target and blame the containment rule for a bug in
+			// the record's own member list.
+			name: "a record whose member list names a node that is not there",
+			nodes: []*irpb.Node{
+				equalPredicate(50, 900, "\xc8"), fieldNode(900, "ELSEWHERE", 1),
+				recordOf(200, 205, "GAPPY-RECORD"), groupNode(205, "GAPPY-RECORD", 206),
+				edgeNode(30, 200, 2, predicateAt(50), nil, nil),
+			},
+			says: "a member of a record a transition admits names node 206",
+		},
+		{
+			name: "an arm of a variant whose body is not there",
+			nodes: []*irpb.Node{
+				equalPredicate(50, 900, "\xc8"), fieldNode(900, "ELSEWHERE", 1),
+				recordOf(200, 205, "VARIED-RECORD"), groupNode(205, "VARIED-RECORD", 206),
+				{Id: 206, Kind: &irpb.Node_Variant{Variant: &irpb.Variant{
+					Arms: []*irpb.Arm{{PredicateId: 50, Body: &irpb.Arm_GroupId{GroupId: 207}}},
+				}}},
+				edgeNode(30, 200, 2, predicateAt(50), nil, nil),
+			},
+			says: "the body of an arm of a variant in a record a transition admits names node 207",
 		},
 		{
 			name:  "a predicate whose target is not a field",
@@ -746,23 +889,35 @@ func countedAutomaton() *irpb.Descriptor {
 // nodes a test cares about carried beside it.
 //
 // The record is nested rather than flat — `HEADER-RECORD` holding `ENTRY`
-// holding `SUB` — so that a path within a record is something these fixtures
-// can be wrong about. The transition is the caller's, because what a test of
-// this half of the automaton varies is what hangs off the transition.
+// holding `SUB` holding `KIND` — so that a path within a record is something
+// these fixtures can be wrong about. The transition is the caller's, because
+// what a test of this half of the automaton varies is what hangs off the
+// transition.
+//
+// The caller's nodes come first, so a test that carries a node with one of
+// these identifiers replaces it: a descriptor's first node with an identifier
+// is the one that wins, and that is what lets a test say "the same record, but
+// this field is in ASCII" without restating the record. It also means the
+// fixture below is well formed on its own — every member list resolves — which
+// is what the walk over it is entitled to assume when a test is about something
+// else entirely.
 func oneRecordAutomaton(nodes ...*irpb.Node) *irpb.Descriptor {
+	carried := []*irpb.Node{
+		unframedFile(1, 2),
+		stateNode(2, true, 30),
+
+		recordOf(100, 105, "HEADER-RECORD"),
+		groupNode(105, "HEADER-RECORD", 101, 102, 103),
+		fieldNode(101, "TYPE-CODE", 1),
+		fieldNode(102, "DTL-COUNT", 2),
+		groupNode(103, "ENTRY", 104),
+		groupNode(104, "SUB", 106),
+		fieldNode(106, "KIND", 1),
+	}
+
 	return &irpb.Descriptor{
 		Version: supportedIRVersion,
-		Nodes: append([]*irpb.Node{
-			unframedFile(1, 2),
-			stateNode(2, true, 30),
-
-			recordOf(100, 105, "HEADER-RECORD"),
-			groupNode(105, "HEADER-RECORD", 101, 102, 103),
-			fieldNode(101, "TYPE-CODE", 1),
-			fieldNode(102, "DTL-COUNT", 2),
-			groupNode(103, "ENTRY", 104),
-			groupNode(104, "SUB", 106),
-		}, nodes...),
+		Nodes:   append(append([]*irpb.Node{}, nodes...), carried...),
 	}
 }
 
@@ -862,6 +1017,17 @@ func oneOfIntegerGuard(id, reg uint64, values ...int64) *irpb.Node {
 func positiveGuard(id, reg uint64) *irpb.Node {
 	return guardNode(id, reg, func(g *irpb.Guard) {
 		g.Test = &irpb.Guard_GreaterThanZero{GreaterThanZero: &irpb.GreaterThanZero{}}
+	})
+}
+
+// mixedOneOfGuard tests membership of a set carrying one literal of each kind,
+// which is a set at most one member of which matches its register.
+func mixedOneOfGuard(id, reg uint64) *irpb.Node {
+	return guardNode(id, reg, func(g *irpb.Guard) {
+		g.Test = &irpb.Guard_OneOf{OneOf: &irpb.LiteralSet{Values: []*irpb.Literal{
+			{Value: &irpb.Literal_BytesValue{BytesValue: []byte("\xd5")}},
+			{Value: &irpb.Literal_Integer{Integer: 3}},
+		}}}
 	})
 }
 

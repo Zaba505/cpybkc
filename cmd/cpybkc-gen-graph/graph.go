@@ -339,9 +339,16 @@ func (g *graph) readRegisters(nodes nodeSet) error {
 	for _, s := range g.states {
 		for _, e := range s.edges {
 			for _, b := range e.bindings {
-				// Every binding's register resolved on the way in, so a
-				// register a binding writes is a register in the list above.
-				held := at[b.register]
+				// Every binding's register resolved on the way in, so this
+				// lookup is expected to find one. It is read comma-ok anyway,
+				// because a missing key answers zero and zero is a valid index:
+				// the failure of that expectation would not be a crash but a
+				// binding credited to whichever register happens to be first,
+				// in a table that looks perfectly well formed.
+				held, ok := at[b.register]
+				if !ok {
+					return unresolved(b.register, "the register a transition's binding writes")
+				}
 
 				g.registers[held].boundBy = append(g.registers[held].boundBy,
 					binder{from: s.id, to: e.to, record: e.record})

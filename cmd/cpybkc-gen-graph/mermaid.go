@@ -127,13 +127,31 @@ func mermaidBinders(bound []binder) string {
 
 // markdownCell is a name as a table cell may carry it.
 //
-// A record name is the copybook's and may hold anything, and the one character
-// a GitHub-flavoured Markdown table reacts to is `|`, which ends the cell. A
-// newline would end the row; no name from a copybook carries one, and escaping
-// it costs a line here rather than a malformed table if one ever does.
-func markdownCell(name string) string {
-	return strings.NewReplacer("|", `\|`, "\n", " ", "\r", " ").Replace(name)
-}
+// A record name is the copybook's and may hold anything, and a cell is two
+// contexts at once. As table syntax, `|` ends the cell and a newline ends the
+// row. As ordinary Markdown *inline* text — which is what a cell's contents are
+// — a backtick opens a code span that swallows the rest of the row, `*` and `_`
+// become emphasis, `[` and `]` an unresolved link, and `<` and `&` raw HTML.
+// The record name sits outside the backticks that quote the edge beside it, so
+// it is in that inline context with nothing around it to protect it.
+//
+// Each is backslash-escaped rather than dropped or replaced, because CommonMark
+// admits a backslash escape in front of any ASCII punctuation and a reader has
+// to be able to see the name the copybook spells. Only the characters that
+// actually open something are escaped: a COBOL name is mostly hyphens, and
+// `HEADER\-RECORD` in a diff would be this generator protecting itself from a
+// character that does nothing.
+//
+// The same posture as [mermaidLabel] takes towards the diagram, arrived at
+// separately because it is a different notation. Nothing here is shared with
+// it: an escape one accepts is a literal backslash to the other.
+var markdownEscapes = strings.NewReplacer(
+	`\`, `\\`, "`", "\\`", "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`,
+	"<", `\<`, ">", `\>`, "&", `\&`, "~", `\~`, "|", `\|`,
+	"\n", " ", "\r", " ",
+)
+
+func markdownCell(name string) string { return markdownEscapes.Replace(name) }
 
 // mermaidBody is the diagram's lines, after `stateDiagram-v2` and before the
 // closing fence.

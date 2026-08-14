@@ -297,10 +297,19 @@ func conjunction(guards []guard) string {
 // The quoted form is written into the document literally, without an escaping
 // pass, so it may only carry characters that end no line of any notation this
 // generator writes and open no construct of one. `"` would close the quotes,
-// `:` and `;` end a Mermaid label, `|` ends a cell of the register table, and
-// `#` opens Mermaid's own numeric escape. A literal carrying one of those, or
-// any byte that is not printable ASCII at all, is printed as bytes instead —
-// which says the same thing and needs no convention for saying it.
+// `:` and `;` end a Mermaid label, `|` ends a cell of the register table, `#`
+// opens Mermaid's own numeric escape, and `<`, `>` and `&` are what a Mermaid
+// label's text is markup in — it is how `<br/>` works in one — so a literal
+// carrying them would render as markup rather than as the value somebody is
+// checking, and `>` is besides the character a transition arrow is made of. A
+// literal carrying one of those, or any byte that is not printable ASCII at
+// all, is printed as bytes instead — which says the same thing and needs no
+// convention for saying it.
+//
+// The set is the same judgment [guard.phrase] makes when it writes "greater
+// than zero" rather than `> 0`: a phrase written past every escaping pass is
+// one to keep the metacharacters out of, and the cost of being conservative is
+// a literal rendered as bytes rather than a document that renders wrongly.
 func literalBytes(b []byte, text bool) string {
 	// Before either rendering, because [hex] prints no bytes as nothing at all
 	// — a blank where a value goes, which is the one thing this document may
@@ -317,7 +326,8 @@ func literalBytes(b []byte, text bool) string {
 		switch {
 		case one < 0x20 || one > 0x7E:
 			return hex(b)
-		case one == '"', one == '#', one == ':', one == ';', one == '|', one == '`', one == '\\':
+		case one == '"', one == '#', one == ':', one == ';', one == '|', one == '`', one == '\\',
+			one == '<', one == '>', one == '&':
 			return hex(b)
 		}
 	}
@@ -349,7 +359,23 @@ func predicateOf(nodes nodeSet, t *irpb.Transition, record *irpb.Record) (predic
 		if len(test.BytesOneOf.GetValues()) < 2 {
 			return predicate{}, malformed(
 				fmt.Sprintf("predicate %d tests membership of a set of %d literals", id, len(test.BytesOneOf.GetValues())),
-				"a producer MUST carry at least two and MUST NOT carry the same literal twice; see docs/ir/SPEC.md, \"Discriminator predicates\"")
+				"a producer MUST carry at least two literals in a one-of predicate; see docs/ir/SPEC.md, \"Discriminator predicates\"")
+		}
+
+		// The other half of the same rule, and drawn rather than a rule this
+		// generator only quotes: a set carrying one literal twice draws as
+		// `is one of 0xC8 or 0xC8`, which is a test no reader can act on and a
+		// producer that did not check its own overlap.
+		seen := make(map[string]bool, len(test.BytesOneOf.GetValues()))
+
+		for _, value := range test.BytesOneOf.GetValues() {
+			if seen[string(value)] {
+				return predicate{}, malformed(
+					fmt.Sprintf("predicate %d tests membership of a set carrying the same literal twice", id),
+					"a producer MUST NOT carry the same literal twice: it is a value tested twice and a producer that did not check its own overlap; see docs/ir/SPEC.md, \"Discriminator predicates\"")
+			}
+
+			seen[string(value)] = true
 		}
 
 		p.oneOf, p.values = true, test.BytesOneOf.GetValues()
@@ -385,17 +411,29 @@ func guardAt(nodes nodeSet, id uint64, position string) (guard, error) {
 		return guard{}, unresolved(id, position)
 	}
 
-	if _, ok := nodes.register(node.GetRegisterId()); !ok {
+	read, ok := nodes.register(node.GetRegisterId())
+	if !ok {
 		return guard{}, unresolved(node.GetRegisterId(), fmt.Sprintf("the register guard %d reads", id))
 	}
+
+	// The register is kept rather than dropped after resolution, because its
+	// kind is what says whether the literals beside it are the right kind of
+	// literal. See [literalOf].
+	kind := read.GetKind()
 
 	g := guard{register: node.GetRegisterId()}
 
 	switch test := node.GetTest().(type) {
 	case *irpb.Guard_GreaterThanZero:
+		// The one test with no literal beside it, and the one this generator
+		// does not check the register's kind for. docs/ir/SPEC.md words it as
+		// "the register holds an integer greater than zero", so a bytes
+		// register under it is a producer bug — and it is the same producer bug
+		// as a bytes register holding an integer, which is a fact about the
+		// binding that wrote it rather than about this guard.
 		g.positive = true
 	case *irpb.Guard_Equals:
-		one, err := literalOf(test.Equals, id)
+		one, err := literalOf(test.Equals, id, kind)
 		if err != nil {
 			return guard{}, err
 		}
@@ -408,6 +446,13 @@ func guardAt(nodes nodeSet, id uint64, position string) (guard, error) {
 			// in whatever compiled the automaton and not a set this document
 			// has an honest way to draw — the alternative is `is one of` with
 			// nothing behind it.
+			//
+			// Empty and not "fewer than two", which is where this differs from
+			// the predicate set above. A producer MUST carry two literals in a
+			// BytesOneOf and the schema says so; it states no such minimum for
+			// a guard's LiteralSet, and refusing a one-literal set here would
+			// be this generator inventing a rule and then reporting a
+			// conforming descriptor as malformed.
 			return guard{}, malformed(fmt.Sprintf("guard %d tests membership of an empty set of literals", id),
 				"a guard tests the register against a literal or against a set of them; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 		}
@@ -415,7 +460,7 @@ func guardAt(nodes nodeSet, id uint64, position string) (guard, error) {
 		g.oneOf = true
 
 		for _, value := range test.OneOf.GetValues() {
-			one, err := literalOf(value, id)
+			one, err := literalOf(value, id, kind)
 			if err != nil {
 				return guard{}, err
 			}
@@ -430,16 +475,57 @@ func guardAt(nodes nodeSet, id uint64, position string) (guard, error) {
 	return g, nil
 }
 
-// literalOf is one literal a guard carries.
-func literalOf(l *irpb.Literal, guardID uint64) (literal, error) {
+// literalOf is one literal a guard carries, checked against the kind of the
+// register it will be compared against.
+//
+// The check is here rather than left to a producer because the two kinds print
+// differently and neither printing is wrong on its face: `r20 = 0` and
+// `r21 = 0x00` are both sentences this document knows how to write, so a
+// literal of the wrong kind draws confidently and says something the descriptor
+// does not. That is the failure the schema splits Literal into two members to
+// prevent — "a `0` compared against a counter and a `0x00` compared against a
+// flag are different facts" — and a consumer that does not check is a consumer
+// the split bought nothing.
+func literalOf(l *irpb.Literal, guardID uint64, kind irpb.RegisterKind) (literal, error) {
+	// The rule below is about a literal disagreeing with a register whose kind
+	// the descriptor states. A register that states no kind at all is a
+	// different failure, and [holdsOf] is where it is reported; reporting it
+	// here as well would name this guard for a bug in the register node.
+	mismatched := func(carried string) error {
+		return malformed(
+			fmt.Sprintf("guard %d compares a register that holds %s against %s", guardID, holds(kind), carried),
+			"which member of a literal is set MUST match the kind of the register tested; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
+	}
+
 	switch value := l.GetValue().(type) {
 	case *irpb.Literal_BytesValue:
+		if kind == irpb.RegisterKind_REGISTER_KIND_INTEGER {
+			return literal{}, mismatched("bytes")
+		}
+
 		return literal{isBytes: true, bytes: value.BytesValue}, nil
 	case *irpb.Literal_Integer:
+		if kind == irpb.RegisterKind_REGISTER_KIND_BYTES {
+			return literal{}, mismatched("an integer")
+		}
+
 		return literal{integer: value.Integer}, nil
 	default:
 		return literal{}, malformed(fmt.Sprintf("guard %d compares a register against a literal that carries no value", guardID),
 			"a literal is bytes or an integer, and which member is set MUST match the kind of the register tested; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
+	}
+}
+
+// holds is a register kind as a diagnostic names it, including the kind a
+// register node that states nothing has.
+func holds(kind irpb.RegisterKind) string {
+	switch kind {
+	case irpb.RegisterKind_REGISTER_KIND_BYTES:
+		return "bytes"
+	case irpb.RegisterKind_REGISTER_KIND_INTEGER:
+		return "an integer"
+	default:
+		return "nothing this generator has a name for"
 	}
 }
 
@@ -475,13 +561,12 @@ func bindingAt(nodes nodeSet, id uint64, record *irpb.Record) (binding, error) {
 	return b, nil
 }
 
-// holdsOf is a register's kind as the table states it.
+// holdsOf is a register's kind as the table states it, refused where the
+// register node states none.
 func holdsOf(r *irpb.Register, id uint64) (string, error) {
 	switch r.GetKind() {
-	case irpb.RegisterKind_REGISTER_KIND_BYTES:
-		return "bytes", nil
-	case irpb.RegisterKind_REGISTER_KIND_INTEGER:
-		return "an integer", nil
+	case irpb.RegisterKind_REGISTER_KIND_BYTES, irpb.RegisterKind_REGISTER_KIND_INTEGER:
+		return holds(r.GetKind()), nil
 	default:
 		return "", malformed(fmt.Sprintf("register node %d says nothing about what it holds", id),
 			"a register's kind is bytes or an integer; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
@@ -520,7 +605,11 @@ func fieldPath(nodes nodeSet, record *irpb.Record, id uint64, position string) (
 	// element. A reader already knows which record the edge is about — the
 	// label says so two words earlier — and repeating it in front of every
 	// field would say it twice.
-	path, found := walkTo(nodes, root, id, nil, map[uint64]bool{record.GetRootId(): true})
+	path, found, err := walkTo(nodes, root, id, nil, map[uint64]bool{record.GetRootId(): true})
+	if err != nil {
+		return "", err
+	}
+
 	if !found {
 		return "", malformed(
 			fmt.Sprintf("%s names node %d, and that field is not in the record the transition admits", position, id),
@@ -533,16 +622,26 @@ func fieldPath(nodes nodeSet, record *irpb.Record, id uint64, position string) (
 // walkTo is the path from a group down to the field with this identifier, and
 // whether it is beneath that group at all.
 //
-// seen carries the nodes this descent has already entered, so a member list
-// that contains an ancestor of itself is a walk that stops rather than one that
-// runs until the stack is gone. A descriptor cannot legally hold one — a member
-// list states containment downward — and a diagram generator is not the place
-// to find out that a producer emitted one the hard way.
-func walkTo(nodes nodeSet, g *irpb.Group, id uint64, prefix []string, seen map[uint64]bool) ([]string, bool) {
+// seen carries the nodes this walk has already entered, so a member list that
+// contains an ancestor of itself is a walk that stops rather than one that runs
+// until the stack is gone. A descriptor cannot legally hold one — a member list
+// states containment downward — and a diagram generator is not the place to
+// find out that a producer emitted one the hard way. It is shared across the
+// whole walk rather than per path, which is safe here because the identity
+// check below happens before the prune: a node reached twice is a node already
+// tested against the target.
+//
+// A member naming no node at all is refused rather than skipped. Skipping it
+// would make the walk exhaust the record and report "that field is not in the
+// record" — which names the predicate's target and blames the containment rule,
+// when what is broken is the member list and the identifier it names. Two
+// different bugs, and only one of them is in the place that diagnostic sends a
+// reader to look.
+func walkTo(nodes nodeSet, g *irpb.Group, id uint64, prefix []string, seen map[uint64]bool) ([]string, bool, error) {
 	for _, memberID := range g.GetMemberIds() {
 		if memberID == id {
 			if f, ok := nodes.field(memberID); ok {
-				return extend(prefix, nameOf(f.GetNames())), true
+				return extend(prefix, nameOf(f.GetNames())), true, nil
 			}
 		}
 
@@ -552,10 +651,16 @@ func walkTo(nodes nodeSet, g *irpb.Group, id uint64, prefix []string, seen map[u
 
 		seen[memberID] = true
 
-		switch kind := nodes.by[memberID].GetKind().(type) {
+		member, ok := nodes.by[memberID]
+		if !ok {
+			return nil, false, unresolved(memberID, "a member of a record a transition admits")
+		}
+
+		switch kind := member.GetKind().(type) {
 		case *irpb.Node_Group:
-			if path, ok := walkTo(nodes, kind.Group, id, extend(prefix, nameOf(kind.Group.GetNames())), seen); ok {
-				return path, true
+			path, found, err := walkTo(nodes, kind.Group, id, extend(prefix, nameOf(kind.Group.GetNames())), seen)
+			if err != nil || found {
+				return path, found, err
 			}
 		case *irpb.Node_Variant:
 			// A variant contributes no element: docs/ir/SPEC.md gives it no
@@ -579,7 +684,7 @@ func walkTo(nodes nodeSet, g *irpb.Group, id uint64, prefix []string, seen map[u
 					}
 
 					if f, ok := nodes.field(body.FieldId); ok {
-						return extend(prefix, nameOf(f.GetNames())), true
+						return extend(prefix, nameOf(f.GetNames())), true, nil
 					}
 				case *irpb.Arm_GroupId:
 					if seen[body.GroupId] {
@@ -590,18 +695,19 @@ func walkTo(nodes nodeSet, g *irpb.Group, id uint64, prefix []string, seen map[u
 
 					held, ok := nodes.group(body.GroupId)
 					if !ok {
-						continue
+						return nil, false, unresolved(body.GroupId, "the body of an arm of a variant in a record a transition admits")
 					}
 
-					if path, ok := walkTo(nodes, held, id, extend(prefix, nameOf(held.GetNames())), seen); ok {
-						return path, true
+					path, found, err := walkTo(nodes, held, id, extend(prefix, nameOf(held.GetNames())), seen)
+					if err != nil || found {
+						return path, found, err
 					}
 				}
 			}
 		}
 	}
 
-	return nil, false
+	return nil, false, nil
 }
 
 // extend is a path with one more element, in storage of its own.
