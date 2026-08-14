@@ -70,7 +70,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	door, err := door(flags, chosen{
+	door, err := chooseDoor(flags, chosen{
 		exec:          *exec,
 		dir:           *dir,
 		image:         *image,
@@ -79,6 +79,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		scratch:       *imageScratch,
 		processes:     *imageProcesses,
 		timeout:       *imageDeadline,
+		deadline:      *deadline,
 		buildDeadline: *buildDeadline,
 		// Everything the flags did not consume, which is the adapter's own
 		// argument vector: docs/adapter/SPEC.md leaves it to the door precisely

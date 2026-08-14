@@ -43,8 +43,8 @@ when the run could not be attempted at all.
                              (default "docker")
   --image-deadline <duration>
                              --image only: bounds the whole container, by the
-                             wall clock, and must outlive --build-deadline
-                             (default 30m0s)
+                             wall clock, and must outlive --deadline and
+                             --build-deadline (default 30m0s)
   --image-memory <size>      --image only: the memory cap (default "2g")
   --image-processes <n>      --image only: the process cap (default 256)
   --image-scratch <size>     --image only: the size of the writable /tmp the
@@ -69,6 +69,12 @@ produced through it is your own working result.
 properties and never the contract's, which is why the report quotes the door
 rather than assuming them of every run — and why a result produced through this
 door is one you can hand to somebody else.
+
+/tmp is the only writable path in that container, and no host directory is
+mounted into it. An adapter image whose toolchain writes under a home directory
+has to point it there itself — TMPDIR, HOME, GOCACHE, CARGO_HOME, whatever it
+reads — because a build that fails on a read-only root fails for a reason that
+has nothing to do with the corpus.
 
 Neither is a conformance claim a third party should be asked to trust without
 qualification: a run computed on your machine, against a corpus you downloaded,

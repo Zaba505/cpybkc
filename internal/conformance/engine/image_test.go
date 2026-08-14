@@ -6,6 +6,7 @@
 package engine_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -31,11 +32,15 @@ import (
 // which is the runtime's promise and not this door's.
 const runtimeEnv = "CPYBKC_CONFORMANCE_FAKE_RUNTIME"
 
-// fakeImage is the reference the stub answers to, and hangImage is the one it
-// answers by never answering.
+// fakeImage is the reference the stub answers to, hangImage is the one it
+// answers by never answering, and unknownImage is the one it refuses the way a
+// runtime refuses an image it cannot get: exit 125, before any container
+// exists.
 const (
-	fakeImage = "ghcr.io/example/fake-adapter:v1"
-	hangImage = "ghcr.io/example/never-ends:v1"
+	fakeImage     = "ghcr.io/example/fake-adapter:v1"
+	hangImage     = "ghcr.io/example/never-ends:v1"
+	unknownImage  = "ghcr.io/example/not-published:v1"
+	unknownStatus = 125
 )
 
 // TestBothDoorsDriveOneContract is the story's first line and the reason [Door]
@@ -239,6 +244,12 @@ func TestKillingTheAdapterTakesItsContainerAway(t *testing.T) {
 		t.Fatalf("the door would not open: %v", err)
 	}
 
+	// The container is waited for before it is killed. Open returns when the
+	// runtime client has started, which is before the client has done anything,
+	// and a test that killed it in that window would be asserting the removal of
+	// a container the stub had not recorded starting.
+	invocation(t, record, "run")
+
 	process.Kill()
 
 	_ = process.Wait()
@@ -246,9 +257,78 @@ func TestKillingTheAdapterTakesItsContainerAway(t *testing.T) {
 	assertRemoved(t, record)
 }
 
-// TestAnImageDoorThatCannotOpen keeps the two ways it cannot apart, and both
+// TestARuntimeThatCouldNotRunTheImageIsNotAnAdapterThatSaidNothing is the
+// failure this door has that a command door does not: the process the engine
+// gets is the runtime's client, so an image that does not exist, a flag the
+// daemon will not take or an entrypoint that cannot be run all arrive as a
+// client that exited after the door had already opened — which, unexplained,
+// reads as an adapter whose stream stopped and sends a generator author to look
+// at their generator.
+func TestARuntimeThatCouldNotRunTheImageIsNotAnAdapterThatSaidNothing(t *testing.T) {
+	entries := corpus(t, "packed-ebcdic")
+
+	image, _, _ := imageDoor(t, script{Entries: answers(t, entries)})
+	image.Reference = unknownImage
+
+	report, err := (&engine.Engine{Door: image}).Run(t.Context(), entries)
+	if err != nil {
+		t.Fatalf("the run could not be made: %v", err)
+	}
+
+	if !report.Failed() {
+		t.Fatalf("a run against an image that could not be run came back as one that passed:\n%v", report)
+	}
+
+	// Both halves: the door's reading of the status, and the runtime's own
+	// words, which are what settle whether the reading was right.
+	for _, want := range []string{"could not run the image", unknownImage, "Unable to find image"} {
+		if !strings.Contains(report.String(), want) {
+			t.Errorf("the report does not say %q, so the failure reads as the adapter's:\n%v", want, report)
+		}
+	}
+}
+
+// TestACallersOwnDeadlineIsNotTheDoorsBound keeps two ways of running out of
+// time apart. The door's wall clock and a deadline on the context it was handed
+// both end the same container, and a door that reported the second as the first
+// would name a bound that never elapsed — sending whoever reads it to raise a
+// flag that was not the one holding the run.
+func TestACallersOwnDeadlineIsNotTheDoorsBound(t *testing.T) {
+	image, _, record := imageDoor(t, script{})
+	image.Reference = hangImage
+	image.Timeout = time.Hour
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+
+	process, err := image.Open(ctx)
+	if err != nil {
+		t.Fatalf("the door would not open: %v", err)
+	}
+
+	err = process.Wait()
+	if err == nil {
+		t.Fatal("a container the caller gave up on came back as one that ended well")
+	}
+
+	if strings.Contains(err.Error(), "wall-clock") {
+		t.Errorf("the caller's own deadline is reported as the door's bound: %v", err)
+	}
+
+	// The container is still taken away: whose clock ran out changes what is
+	// said about it and not what becomes of it.
+	assertRemoved(t, record)
+}
+
+// TestAnImageDoorThatCannotOpen keeps the ways it cannot apart, and all of them
 // away from a run that reports nothing: a door that cannot start a process at
-// all costs the run, and says which of the two it was.
+// all costs the run, and says which of them it was.
+//
+// The reference beginning with a dash is the one that is not merely a
+// diagnostic. The vector is `run <the door's flags> <reference> <the
+// container's args>`, so a reference the runtime reads as another option to
+// itself starts something else — with whatever came next as its image, and
+// without the isolation the report would then describe.
 func TestAnImageDoorThatCannotOpen(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -264,6 +344,16 @@ func TestAnImageDoorThatCannotOpen(t *testing.T) {
 			name: "a runtime that is not installed",
 			door: &engine.Image{Reference: fakeImage, Runtime: "not-a-container-runtime-anybody-has"},
 			says: "not-a-container-runtime-anybody-has",
+		},
+		{
+			name: "an image reference that is a flag",
+			door: &engine.Image{Reference: "--network=host", Runtime: os.Args[0]},
+			says: "begins with a dash",
+		},
+		{
+			name: "an image reference that is a mount",
+			door: &engine.Image{Reference: "-v/:/host:rw", Runtime: os.Args[0]},
+			says: "begins with a dash",
 		},
 	}
 
@@ -408,6 +498,14 @@ func runAsRuntime(record string) int {
 		fmt.Fprintln(os.Stderr, "the stub runtime was given no image to run")
 
 		return 2
+	}
+
+	if rest[0] == unknownImage {
+		// What a runtime does when it cannot get the image: it says so on its
+		// own standard error and exits 125, having created nothing.
+		fmt.Fprintf(os.Stderr, "Unable to find image %q locally: no such image\n", rest[0])
+
+		return unknownStatus
 	}
 
 	if rest[0] == hangImage {

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -57,6 +58,15 @@ const (
 	// a directory. One tmpfs, in memory, inside the container's own mount
 	// namespace, is the smallest thing that lets that work while leaving nothing
 	// behind and touching no host path.
+	//
+	// It is the *only* writable path, and that is a requirement on the image
+	// rather than a surprise to discover: a toolchain left to its own defaults
+	// writes under a home directory, and $HOME on a read-only root is a build
+	// that fails for a reason having nothing to do with the corpus. An adapter
+	// image points its caches at /tmp — TMPDIR, HOME, GOCACHE, CARGO_HOME,
+	// whatever its toolchain reads — and the door deliberately does not set
+	// those itself, because an environment this door injected would be one the
+	// image's own author could not see in their Dockerfile.
 	DefaultScratch = "1g"
 )
 
@@ -140,10 +150,19 @@ type Image struct {
 	Scratch   string
 }
 
+// errWallClock is this door's own wall clock, and nothing else's.
+//
+// It is a cause rather than a comparison against [context.DeadlineExceeded],
+// because the context [Image.Open] is given may carry a deadline of the
+// caller's: a run bounded at five minutes by whoever started it would otherwise
+// be reported as having hit a thirty-minute bound that never elapsed, which
+// names the wrong thing to go and change.
+var errWallClock = errors.New("the door's wall-clock bound elapsed")
+
 // Open starts one container and hands back the conversation with it.
 func (i *Image) Open(ctx context.Context) (Process, error) {
-	if i.Reference == "" {
-		return nil, fmt.Errorf("the door has no image to run")
+	if err := i.reference(); err != nil {
+		return nil, err
 	}
 
 	// Resolved here rather than left to os/exec, so that a machine with no
@@ -161,7 +180,7 @@ func (i *Image) Open(ctx context.Context) (Process, error) {
 
 	// The wall clock, armed before the process exists so that a runtime which
 	// hangs before it has started anything is bounded too.
-	ctx, cancel := context.WithTimeout(ctx, i.timeout())
+	ctx, cancel := context.WithTimeoutCause(ctx, i.timeout(), errWallClock)
 
 	inner, err := (&Command{Path: path, Args: i.argv(name), Env: i.Env}).Open(ctx)
 	if err != nil {
@@ -171,22 +190,60 @@ func (i *Image) Open(ctx context.Context) (Process, error) {
 	}
 
 	return &container{
-		Process: inner,
-		runtime: path,
-		env:     i.Env,
-		name:    name,
-		timeout: i.timeout(),
-		ctx:     ctx,
-		cancel:  cancel,
+		Process:   inner,
+		runtime:   path,
+		env:       i.Env,
+		name:      name,
+		reference: i.Reference,
+		timeout:   i.timeout(),
+		ctx:       ctx,
+		cancel:    cancel,
 	}, nil
 }
 
-// Describe says what this door provides, in the numbers this run actually used.
-func (i *Image) Describe() string {
-	said := fmt.Sprintf("the image %s, run by %s with no network, a read-only root", i.Reference, i.runtime())
+// reference is the image this door was given, checked for the one shape that
+// would make it something other than an image.
+//
+// A reference beginning with a dash lands in the runtime's own flag position —
+// the argument vector is `run <the door's flags> <reference> <the container's
+// args>` — so `-v/:/host` or `--network=host` would be read by the runtime as
+// another option to itself, and the container after it started with whatever
+// came next. Every guarantee this door then describes would be one it did not
+// provide, which is the one failure it exists to prevent. A reference is
+// therefore refused rather than escaped: `--` before it would work on the two
+// runtimes this door is written against, and a door whose safety rested on a
+// terminator every runtime is assumed to honour is a door resting on an
+// assumption about programs it does not ship.
+func (i *Image) reference() error {
+	switch {
+	case i.Reference == "":
+		return fmt.Errorf("the door has no image to run")
+	case strings.HasPrefix(i.Reference, "-"):
+		return fmt.Errorf("%q is not an image reference: it begins with a dash, which the container runtime would "+
+			"read as another option to itself and start something else entirely", i.Reference)
+	default:
+		return nil
+	}
+}
 
-	return fmt.Sprintf("%s and a %s tmpfs at /tmp, capped at %s of memory and %d processes, "+
-		"under a %s wall-clock bound", said, i.scratch(), i.memory(), i.processes(), i.timeout())
+// Describe says what this door provides, in the numbers this run actually used.
+//
+// The two isolations are stated flatly and the two caps are stated as asked
+// for, and the difference is not hedging. A runtime that cannot give a
+// container an empty network namespace or a read-only root refuses to start it,
+// so a run that happened had both. A memory or process cap is different: a
+// kernel without swap accounting or without the pids controller leaves the
+// flag unhonoured, warns on its standard error and runs the container anyway —
+// so a report that stated those as facts would be reporting a guarantee the
+// door may not have provided, which is the one thing an engine must not do.
+// The runtime's warning is captured with the adapter's own diagnostics and
+// quoted beside a fault, which is where a reader finds out which it was.
+func (i *Image) Describe() string {
+	said := fmt.Sprintf("the image %s, run by %s with no network and a read-only root", i.Reference, i.runtime())
+
+	return fmt.Sprintf("%s, a %s tmpfs at /tmp its only writable path, asked of the runtime for at most %s of "+
+		"memory and %d processes, under a %s wall-clock bound",
+		said, i.scratch(), i.memory(), i.processes(), i.timeout())
 }
 
 // argv is the runtime's argument vector for one container.
@@ -298,54 +355,131 @@ func containerName() (string, error) {
 type container struct {
 	Process
 
-	runtime string
-	env     []string
-	name    string
-	timeout time.Duration
+	runtime   string
+	env       []string
+	name      string
+	reference string
+	timeout   time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	once sync.Once
+
+	// mu guards said, which is written by whoever waits on the container and
+	// read by the engine afterwards.
+	mu   sync.Mutex
+	said string
 }
 
-// Wait waits for the container to end, and takes it away if it was still there.
+// Diagnostics is what the door captured of the container's standard error, with
+// the door's own reading of a runtime-level failure in front of it.
+//
+// The reading goes here rather than only into the error [container.Wait]
+// returns, because the path that matters most throws that error away: an engine
+// abandoning a conversation kills the process, reaps it without reading how it
+// went, and quotes the diagnostics beside the fault. A container that never
+// started is exactly that case, so this is where its explanation has to be for
+// anybody to see it.
+func (c *container) Diagnostics() string {
+	c.mu.Lock()
+	said := c.said
+	c.mu.Unlock()
+
+	if said == "" {
+		return c.Process.Diagnostics()
+	}
+
+	return said + "\n" + c.Process.Diagnostics()
+}
+
+// Wait waits for the container to end, and takes it away unless it ended well.
 //
 // The removal is the part a plain command does not need. `run --rm` cleans up a
 // container that exited on its own, and the case it does not cover is the one
 // this door has to get right: killing an attached client does not stop what it
-// was attached to, so a wall clock that expired — or a caller who gave up —
-// leaves a container running an adapter nobody is talking to any more. That is
-// exactly the resource leak the caps exist to prevent, arriving by the door
-// that promised them.
+// was attached to, so a wall clock that expired, a caller who gave up, or a
+// client that died for a reason of its own leaves a container running an
+// adapter nobody is talking to any more. That is exactly the resource leak the
+// caps exist to prevent, arriving by the door that promised them.
+//
+// So anything other than a clean exit is followed by a removal. The cost of
+// removing a container that had already gone is one doomed process; the cost of
+// not removing one that had not is a container holding memory until somebody
+// notices.
 func (c *container) Wait() error {
 	err := c.Process.Wait()
 
 	// Read before the cancel below, which would otherwise make every ended
 	// conversation look like one that was cut short.
-	expired := c.ctx.Err()
+	cause := context.Cause(c.ctx)
 
 	c.cancel()
 
-	if expired == nil {
+	if err == nil && cause == nil {
+		return nil
+	}
+
+	c.remove()
+
+	switch {
+	case err == nil:
+		// The container ended on its own while the run was being given up on.
+		// Nothing was lost and nothing is wrapped: a conversation that finished
+		// is not a failure because the clock ran out a moment later.
+		return nil
+	case errors.Is(cause, errWallClock):
+		return fmt.Errorf("the adapter's container was taken away after the door's %s wall-clock bound: %w",
+			c.timeout, err)
+	default:
+		return c.explain(err)
+	}
+}
+
+// explain names a failure that is the runtime's rather than the adapter's.
+//
+// The three statuses are the ones the Docker and Podman clients reserve for
+// themselves: the container could not be created (125), its entrypoint could
+// not be run (126), or there was nothing there to run (127). Without this the
+// engine reports an image that does not exist, a flag the daemon would not
+// take, or an entrypoint that is not executable as an adapter whose stream
+// stopped — which sends a generator author to look at their generator.
+//
+// It is a reading rather than a certainty, and it says so, because a container
+// that exited 125 of its own accord is indistinguishable from a client that
+// never started one. The client's own message is captured with the adapter's
+// diagnostics and quoted beside the fault, which is what settles it.
+func (c *container) explain(err error) error {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
 		return err
 	}
 
-	c.remove()
+	switch exit.ExitCode() {
+	case 125, 126, 127:
+		said := fmt.Sprintf("the container runtime exited %d, which is what it reports when it could not run the "+
+			"image %s at all rather than what it passes on from an adapter", exit.ExitCode(), c.reference)
 
-	if errors.Is(expired, context.DeadlineExceeded) {
-		return fmt.Errorf("the adapter's container was taken away after the door's %s wall-clock bound: %w",
-			c.timeout, err)
+		c.mu.Lock()
+		c.said = said
+		c.mu.Unlock()
+
+		return fmt.Errorf("%s: %w", said, err)
+	default:
+		return err
 	}
-
-	return err
 }
 
-// Kill ends the container, rather than the client attached to it.
+// Kill ends the container, rather than only the client attached to it.
+//
+// The client is killed first and the container taken away after, because the
+// engine calls this when it wants the conversation over now: the removal is a
+// process of its own and a runtime that is slow to answer would otherwise hold
+// up the kill that was actually asked for.
 func (c *container) Kill() {
-	c.remove()
 	c.Process.Kill()
 	c.cancel()
+	c.remove()
 }
 
 // remove takes the container away, once, and best effort.

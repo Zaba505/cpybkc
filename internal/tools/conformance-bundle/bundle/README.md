@@ -87,7 +87,12 @@ the network, and nothing it did outlived the container.
 
 Both doors drive the same contract with one implementation behind them, so the
 conversation, the entries and the comparison are identical and only the
-guarantees differ.
+guarantees differ. Two things about the container are worth knowing before you
+build the image: `/tmp` is the only writable path in it, so point `TMPDIR`,
+`HOME`, `GOCACHE` or `CARGO_HOME` there if your toolchain needs a cache; and the
+memory and process caps are asked of your runtime, which warns on its own
+standard error when a kernel will not honour one. `cpybkc-conform` quotes that
+warning beside the report rather than claiming a cap it may not have had.
 
 Either way it is a self-report in a second sense: a run computed on your machine,
 against a corpus you downloaded, by a program you are holding. Nothing here is

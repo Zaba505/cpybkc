@@ -131,6 +131,32 @@ func TestARunGoesThroughOneDoor(t *testing.T) {
 			args: []string{"check", "--corpus", dir, "--image", "example.com/adapter", "--image-deadline", "0"},
 			says: "is not one",
 		},
+		{
+			name: "a runtime that is not named",
+			args: []string{"check", "--corpus", dir, "--image", "example.com/adapter", "--runtime", ""},
+			says: "--runtime names the container runtime",
+		},
+		{
+			name: "a size in a notation no runtime has",
+			args: []string{"check", "--corpus", dir, "--image", "example.com/adapter", "--image-memory", "bananas"},
+			says: "is not a size",
+		},
+		{
+			name: "a scratch size in a notation no runtime has",
+			args: []string{"check", "--corpus", dir, "--image", "example.com/adapter", "--image-scratch", "1 gig"},
+			says: "is not a size",
+		},
+		{
+			// The reference goes where the runtime reads its own options, so a
+			// reference that is a flag starts something else — with whatever
+			// followed it as the image, and none of the isolation the report
+			// would then describe. Refused here as a usage error and again in
+			// the door, which is the half that covers a caller who is not this
+			// program.
+			name: "an image reference the runtime would read as a flag",
+			args: []string{"check", "--corpus", dir, "--image", "--network=host"},
+			says: "begins with a dash",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -147,25 +173,44 @@ func TestARunGoesThroughOneDoor(t *testing.T) {
 	}
 }
 
-// TestTheWallClockMustOutliveTheBuildDeadline is the one bound whose wrong
-// value is silent. The wall clock takes the whole container away and generate
-// may legitimately run a compiler over the whole corpus, so a container removed
-// first reads as a generator that answered nothing rather than as a door that
-// would not wait for it.
-func TestTheWallClockMustOutliveTheBuildDeadline(t *testing.T) {
+// TestTheWallClockMustOutliveTheEnginesBounds is the pair of bounds whose wrong
+// value is silent. The wall clock takes the whole container away, while the
+// engine's deadlines bound one operation each: a container ended in the middle
+// of a build the run allowed, or of an entry it allowed, faults for a reason
+// that is the door's and reads as one that is the generator's.
+func TestTheWallClockMustOutliveTheEnginesBounds(t *testing.T) {
 	dir := t.TempDir()
 
-	_, _, err := drive(t, "check",
-		"--corpus", dir,
-		"--image", "example.com/adapter",
-		"--build-deadline", "10m",
-		"--image-deadline", "5m")
-	if err == nil {
-		t.Fatal("check accepted a wall clock that ends every build it allows")
+	testCases := []struct {
+		name string
+		args []string
+		says string
+	}{
+		{
+			name: "shorter than the build deadline",
+			args: []string{"--build-deadline", "10m", "--image-deadline", "5m"},
+			says: "--build-deadline",
+		},
+		{
+			name: "shorter than the per-operation deadline",
+			args: []string{"--build-deadline", "1m", "--deadline", "30m", "--image-deadline", "5m"},
+			says: "--deadline",
+		},
 	}
 
-	if !strings.Contains(err.Error(), "--build-deadline") {
-		t.Errorf("the refusal does not name the bound it conflicts with:\n%v", err)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			args := append([]string{"check", "--corpus", dir, "--image", "example.com/adapter"}, testCase.args...)
+
+			_, _, err := drive(t, args...)
+			if err == nil {
+				t.Fatal("check accepted a wall clock that ends work the same run allows")
+			}
+
+			if !strings.Contains(err.Error(), testCase.says) {
+				t.Errorf("the refusal does not name the bound it conflicts with:\n%v", err)
+			}
+		})
 	}
 }
 

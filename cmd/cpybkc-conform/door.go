@@ -8,10 +8,18 @@ package main
 import (
 	"flag"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Zaba505/cpybkc/internal/conformance/engine"
 )
+
+// sizes is a size as the container runtimes spell one: a number of bytes, with
+// an optional unit. It is deliberately looser than either runtime's own parser
+// — the runtime is the authority on its own notation, and this only has to
+// catch the mistake that would otherwise be discovered as a corpus that faulted.
+var sizes = regexp.MustCompile(`^[0-9]+[bkmgBKMG]?$`)
 
 // chosen is what the flags said about the door, gathered so that the choice
 // between the two is made in one place and reads as one decision.
@@ -28,8 +36,9 @@ type chosen struct {
 	processes int
 	timeout   time.Duration
 
-	// buildDeadline is the engine's, and is here because the wall clock has to
-	// outlive it. See [imageDoor].
+	// deadline and buildDeadline are the engine's, and are here because the wall
+	// clock has to outlive both. See [imageDoor].
+	deadline      time.Duration
 	buildDeadline time.Duration
 
 	// args is the adapter's own argument vector, whichever door it goes
@@ -37,14 +46,15 @@ type chosen struct {
 	args []string
 }
 
-// door is the door this run goes through: a command, or a container image.
+// chooseDoor is the door this run goes through: a command, or a container
+// image.
 //
 // Exactly one, and neither is a default. The two provide very different things
 // — the image door is where no network, a read-only root and a wall-clock bound
 // live, and the command door provides none of them — so a run that fell back
 // from one to the other would produce a result whose believability depended on
 // something the caller never wrote down.
-func door(flags *flag.FlagSet, c chosen) (engine.Door, error) {
+func chooseDoor(flags *flag.FlagSet, c chosen) (engine.Door, error) {
 	// Which flags were written, rather than which hold a value: every flag
 	// below has a default, so a caller who spelled one out and a caller who
 	// left it alone are otherwise indistinguishable — and the whole point of
@@ -108,24 +118,56 @@ func imageDoor(set map[string]bool, c chosen) (engine.Door, error) {
 		return nil, err
 	}
 
+	if c.runtime == "" {
+		return nil, fmt.Errorf("--runtime names the container runtime to find on PATH, and an empty name is not "+
+			"one: write which you meant, or leave the flag alone for %s\n\n%s", engine.DefaultRuntime, usage)
+	}
+
 	if c.processes < 1 {
 		return nil, fmt.Errorf("--image-processes %d is not a cap: an adapter is at least one process", c.processes)
 	}
 
-	if c.memory == "" || c.scratch == "" {
-		return nil, fmt.Errorf("--image-memory and --image-scratch are sizes in your runtime's own notation, and " +
-			"an empty one is not a size: write what you meant, or leave the flag alone for the default")
+	for _, size := range []struct{ flag, value string }{
+		{flag: "--image-memory", value: c.memory},
+		{flag: "--image-scratch", value: c.scratch},
+	} {
+		// Checked here rather than left to the runtime, which reports a size it
+		// will not take by refusing to create the container — after the door has
+		// opened, so what the operator reads is every entry faulting rather
+		// than the flag they mistyped.
+		if !sizes.MatchString(size.value) {
+			return nil, fmt.Errorf("%s %q is not a size: write a number of bytes, optionally followed by b, k, m "+
+				"or g, as your runtime spells it", size.flag, size.value)
+		}
 	}
 
-	// The one bound whose wrong value is silent. The wall clock takes the whole
-	// container away, and generate may legitimately run a compiler over the
-	// whole corpus under --build-deadline; a container removed first would fault
-	// every entry, which reads as a generator that answered nothing rather than
-	// as a door that would not wait for it.
-	if c.timeout <= c.buildDeadline {
-		return nil, fmt.Errorf("--image-deadline %s is not longer than --build-deadline %s: the wall clock bounds "+
-			"the whole container, so a shorter one takes the adapter away in the middle of a build it was allowed "+
-			"to run and faults every entry", c.timeout, c.buildDeadline)
+	// A reference is refused here as well as in the door, so that the shape of
+	// what was written is a usage error rather than a run that could not be
+	// started. The reason it matters is the door's: see [engine.Image.Open].
+	if strings.HasPrefix(c.image, "-") {
+		return nil, fmt.Errorf("--image %q begins with a dash, and the reference goes where the container runtime "+
+			"reads its own options: write the image you meant\n\n%s", c.image, usage)
+	}
+
+	// The two bounds whose wrong value is silent. The wall clock takes the whole
+	// container away, while the engine's deadlines bound one operation each:
+	// generate may legitimately run a compiler over the whole corpus under
+	// --build-deadline, and every entry is asked under --deadline. A wall clock
+	// shorter than either takes the adapter away in the middle of something it
+	// was allowed to do, and the entry it was on faults for a reason that is the
+	// door's rather than the generator's.
+	for _, bound := range []struct {
+		flag  string
+		value time.Duration
+	}{
+		{flag: "--build-deadline", value: c.buildDeadline},
+		{flag: "--deadline", value: c.deadline},
+	} {
+		if c.timeout <= bound.value {
+			return nil, fmt.Errorf("--image-deadline %s is not longer than %s %s: the wall clock bounds the whole "+
+				"container, so a shorter one ends the adapter in the middle of work this run allows it",
+				c.timeout, bound.flag, bound.value)
+		}
 	}
 
 	return &engine.Image{
