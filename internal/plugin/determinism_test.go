@@ -54,7 +54,7 @@ func TestSourceDateEpochReachesAGeneratorFromCpybkcsOwnEnvironment(t *testing.T)
 
 	// A nil Env: this process's environment, which is what a run made by
 	// anything but a test has.
-	r := &Runner{Log: log, TempDir: t.TempDir()}
+	r := &Runner{Log: log}
 
 	if err := r.Run(t.Context(), descriptor(), []Invocation{invocation}); err != nil {
 		t.Fatalf("running the generator: %v", err)

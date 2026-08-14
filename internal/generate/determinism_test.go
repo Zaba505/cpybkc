@@ -67,10 +67,23 @@ const emitsItsHostname = `echo "$HOSTNAME" > "$4/host"`
 
 // machine is a runner whose surroundings are stated rather than inherited, so
 // that two runs can genuinely disagree about all of them: the user, the host,
-// the home directory, the temporary directory, the time zone, the locale and
-// the working directory, each as a generator finds it in its environment, plus
-// the scratch space and the plugin's own path, which differ because every
-// directory here is the test's own.
+// the home directory, the time zone, the locale and the working directory, each
+// as a generator finds it in its environment, plus the plugin's own path, which
+// differs because every directory here is the test's own.
+//
+// The axis that used to be the temporary directory is now [Runner.Scratch], and
+// it varies with n through [generate]: since #184 that field is what decides
+// where a run's scratch space goes and where, one level inside it, each
+// invocation's descriptor directory goes. Those are the two absolute paths this
+// package chooses, so they are what the comparison has to see differ.
+//
+// TMPDIR is still varied, and it is varied at a path that is not a directory at
+// all. Nothing reads it any more — that is the claim — and a claim is worth a
+// check: a generator that took a path from it would fail outright rather than
+// quietly passing because two runs agreed about a directory neither of them was
+// looking at. What cpybkc itself would do with TMPDIR is the other half, and it
+// is scratch_test.go's TestARunNeedsNoTemporaryDirectoryOfTheSystems, which
+// states the variable in this process rather than in a generator's environment.
 //
 // Environment-visible throughout, which is the limit of what a run in this
 // process can vary; see the note at the top of this file for what covers the
@@ -87,8 +100,7 @@ func machine(t *testing.T, n int) *Runner {
 
 	return &Runner{
 		Plugins: &plugin.Runner{
-			Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-			TempDir: t.TempDir(),
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			Env: []string{
 				// PATH so that a shell script can reach the commands it calls,
 				// and this process's because a stated one would be a claim
@@ -99,13 +111,16 @@ func machine(t *testing.T, n int) *Runner {
 				"LOGNAME=person-" + id,
 				"HOME=/home/person-" + id,
 				"PWD=" + t.TempDir(),
-				"TMPDIR=" + t.TempDir(),
+				// Not a directory, on purpose: see the note above. The
+				// generators below never look at it, and one that started to
+				// would fail rather than agree with its neighbour about a
+				// directory neither had.
+				"TMPDIR=" + notADirectory(t, id),
 				"TZ=" + []string{"UTC", "Australia/Eucla"}[n%2],
 				"LANG=" + []string{"C", "tr_TR.UTF-8"}[n%2],
 				"SOURCE_DATE_EPOCH=1700000000",
 			},
 		},
-		TempDir: t.TempDir(),
 	}
 }
 
@@ -118,6 +133,12 @@ func generate(t *testing.T, n int, bodies ...string) map[string]string {
 
 	r := machine(t, n)
 	r.Root = project
+
+	// The axis that used to be TMPDIR. The run's scratch space is made here,
+	// and each invocation's descriptor directory one level inside it, so this
+	// is the field the absolute paths cpybkc chooses now come from — and it is
+	// a different directory on every run.
+	r.Scratch = project
 
 	generators := make([]Generator, 0, len(bodies))
 
@@ -187,4 +208,20 @@ func TestTheComparisonWouldSeeARunThatVariedWithItsMachine(t *testing.T) {
 	if maps.Equal(generate(t, 0, emitsItsHostname), generate(t, 1, emitsItsHostname)) {
 		t.Error("two runs whose machines disagree produced one tree from a generator that embeds its hostname")
 	}
+}
+
+// notADirectory is a path with a regular file at it, for TMPDIR to name.
+//
+// A file rather than a missing path because os.MkdirAll creates what is missing
+// and would carry on; nothing creates a directory over a file, so every way of
+// asking for one under this fails with ENOTDIR.
+func notADirectory(t *testing.T, id string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "not-a-temporary-directory-"+id)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+
+	return path
 }

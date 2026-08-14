@@ -7,6 +7,7 @@ package generate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -21,7 +22,21 @@ import (
 
 // scratchPattern is the prefix [os.MkdirTemp] builds the name of one run's
 // scratch space from.
-const scratchPattern = "cpybkc-out-"
+//
+// It names cpybkc because the space is made under [Runner.Scratch] — for
+// cpybkc's own runs, the project's root — rather than in a temporary directory
+// the operating system would eventually sweep. A run killed outright, where the
+// deferred removal never happens, leaves this directory in somebody's tree, so
+// the name has to say what left it and that it is nobody's output.
+//
+// The leading dot is what keeps that survivor out of the way of everything
+// else. `go build ./...`, `go vet ./...` and the go tool generally skip a
+// directory whose name begins with a dot or an underscore, so a half-written
+// package left by a killed run is not a package the next build tries to
+// compile, and a build running in the tree while a run is in progress does not
+// see one either. It stays visible to `git status`, which is where a person
+// finds it.
+const scratchPattern = ".cpybkc-scratch-"
 
 // scratchMode is the mode a generator's own directory inside that space is
 // created with: this process's and nothing else's.
@@ -75,11 +90,11 @@ type Owner struct {
 
 // Runner runs the generators of one project.
 //
-// The zero value runs them: the generators are run by the zero
-// [github.com/Zaba505/cpybkc/internal/plugin.Runner], the scratch directories
-// are made wherever the system puts temporary files, everything merged is given
-// this process's umask applied to the usual creation modes, and ownership is
-// left as the merging process's.
+// [Runner.Scratch] is required and everything else has a zero value that runs:
+// the generators are run by the zero
+// [github.com/Zaba505/cpybkc/internal/plugin.Runner], everything merged is
+// given this process's umask applied to the usual creation modes, and ownership
+// is left as the merging process's.
 type Runner struct {
 	// Plugins runs the generator executables. Nil is the zero
 	// [github.com/Zaba505/cpybkc/internal/plugin.Runner], read at the moment of
@@ -87,13 +102,31 @@ type Runner struct {
 	// is still heard.
 	Plugins *plugin.Runner
 
-	// TempDir is where this run's scratch space is created. Empty is the
-	// default [os.MkdirTemp] uses.
+	// Scratch is the directory this run's scratch space is created in, and is
+	// required. A run has nowhere to put its generators' output without one, so
+	// an empty Scratch fails the run before a generator is started rather than
+	// falling back to somewhere ambient.
 	//
-	// It is worth setting to somewhere beside the project when the two are on
-	// different filesystems: the merge copies rather than renames, so nothing
-	// breaks when they differ, but the run then writes its whole output twice.
-	TempDir string
+	// That it is required is the whole of #184. What an empty field used to mean
+	// was [os.MkdirTemp]'s default — TMPDIR, or the system's temporary directory
+	// — and a field defaulting to that is what made an ambient directory
+	// reachable at all. cpybkc's image carries no /tmp to reach, so the fallback
+	// is deleted rather than repaired, and the type is what says so: no zero
+	// value of this Runner can run.
+	//
+	// It is a field of its own rather than [Runner.Root] because the two answer
+	// differently when unset. A run that has not been told where the project's
+	// root is keeps no record and prunes nothing, which is an honest degraded
+	// run; a run that has not been told where to put its scratch space has no
+	// degraded form at all, and guessing is exactly what this field exists to
+	// stop. cpybkc's own runs pass the project's root for both, which is what
+	// puts the scratch space in the tree the run is already writing.
+	//
+	// The merge copies rather than renames, so Scratch and the project need not
+	// share a filesystem — a caller whose tree is on a small or slow one may
+	// point this somewhere else, at the cost of the run writing its output
+	// twice. What it may not be is nothing.
+	Scratch string
 
 	// Umask is the file-creation mask taken out of the mode of everything the
 	// merge creates. Nil is this process's own, read once per run.
@@ -175,6 +208,20 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 	// finding it after a run would mean discovering it once the work was done.
 	var invalid diag.List
 
+	// Checked with them, and first, because it is the same kind of fault: a run
+	// with nowhere to make its scratch space is a caller that assembled a Runner
+	// it never finished, and there is no directory this package is entitled to
+	// pick on its behalf (#184).
+	//
+	// Worded for whoever reads it rather than for whoever wrote this file. It
+	// is not reachable from the command line — cmd/cpybkc passes the project's
+	// root, which is filepath.Dir of the manifest's path and so is never empty
+	// — so the only reader is a caller embedding this package, and what they
+	// need is what was not decided rather than which field spells it.
+	if r.Scratch == "" {
+		invalid.Fail(errors.New("this run has nowhere to make its scratch space; it was given no project directory to make it in"))
+	}
+
 	for _, generator := range generators {
 		if generator.Out == "" {
 			invalid.Fail(fmt.Errorf("the generator %s has no directory for its output to land in",
@@ -195,7 +242,7 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 		return err
 	}
 
-	root, err := os.MkdirTemp(r.TempDir, scratchPattern)
+	root, err := os.MkdirTemp(r.Scratch, scratchPattern)
 	if err != nil {
 		return &ScratchError{Err: err}
 	}
@@ -209,7 +256,7 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 	}()
 
 	// Made absolute so that the diagnostics and the argument vector name the
-	// same directory even when TempDir was written relative.
+	// same directory even when Scratch was written relative.
 	root, err = filepath.Abs(root)
 	if err != nil {
 		return &ScratchError{Err: err}
@@ -237,6 +284,13 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 // docs/plugin/SPEC.md says a scratch directory is not. Nothing reads the name:
 // a plugin is told where to write and is entitled to derive nothing from the
 // path it was told.
+//
+// Each generator's directory is one level down from root, and the merge walks
+// those and never root itself. That is what makes room for
+// [github.com/Zaba505/cpybkc/internal/plugin]'s per-invocation descriptor
+// directories, which land beside them here (#184): they are inside this run's
+// scratch space, outside every walk the merge makes, and removed with the space
+// they are in — without being hidden, and without a rule anybody has to keep.
 func (r *Runner) scratch(generators []Generator, root string) ([]plugin.Invocation, error) {
 	invocations := make([]plugin.Invocation, len(generators))
 

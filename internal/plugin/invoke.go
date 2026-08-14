@@ -50,7 +50,14 @@ const descriptorFile = "descriptor.bin"
 
 // descriptorDirPattern is the prefix [os.MkdirTemp] builds the per-invocation
 // directory's name from.
-const descriptorDirPattern = "cpybkc-descriptor-"
+//
+// It names cpybkc because the directory is made beside the invocation's output
+// directory rather than in a temporary directory the operating system would
+// eventually sweep, so a process killed outright leaves it where a person will
+// find it — and what a person finds has to say what left it. The leading dot is
+// [github.com/Zaba505/cpybkc/internal/generate]'s scratch pattern's: a survivor
+// of a killed run is not something the go tool should try to compile.
+const descriptorDirPattern = ".cpybkc-descriptor-"
 
 // Option is one option a generator is invoked with, which reaches it as a
 // single `--opt k=v` argument.
@@ -98,6 +105,15 @@ type Invocation struct {
 	// answer to where a generator's output goes. What happens here is only that
 	// the path is made absolute, because docs/plugin/SPEC.md requires the
 	// vector to carry one.
+	//
+	// It is also where this package puts the directory holding the invocation's
+	// descriptor: beside it, in its parent, for the whole of the invocation and
+	// no longer (#184). That makes the descriptor's location a function of the
+	// one directory an invocation cannot be run without, so a [Runner] has
+	// nothing to be told about where temporary files go and no zero value of
+	// one can reach an ambient directory. It costs the caller nothing it was
+	// not already deciding: whoever chose a scratch directory for a generator
+	// chose the tree the descriptor lands in at the same moment.
 	Out string
 
 	// Options are the options to pass, in the order they are to be passed —
@@ -110,8 +126,8 @@ type Invocation struct {
 // Runner runs generators.
 //
 // The zero value runs them: the process's own environment is passed through,
-// the per-invocation descriptor directories are made wherever the system puts
-// temporary files, and what the generators write is surfaced through
+// each invocation's descriptor directory is made beside the directory that
+// invocation writes into, and what the generators write is surfaced through
 // [slog.Default].
 type Runner struct {
 	// Log is where a generator's output is surfaced. A nil Log is
@@ -130,10 +146,6 @@ type Runner struct {
 	// environment instead of moving the one the test binary runs in; the same
 	// reasoning makes [Resolve] take a PATH.
 	Env []string
-
-	// TempDir is where the directory holding one invocation's descriptor is
-	// created. Empty is the default [os.MkdirTemp] uses.
-	TempDir string
 }
 
 // Run runs every invocation against d, concurrently, and reports every one that
@@ -237,7 +249,15 @@ func (r *Runner) invoke(ctx context.Context, invocation Invocation, descriptor [
 	// removed with its directory once the generator has exited — whether it
 	// exited zero or not. One directory per invocation is what makes the bytes
 	// attributable; the removal is the whole of the file's lifetime.
-	dir, err := os.MkdirTemp(r.TempDir, descriptorDirPattern)
+	//
+	// It is made beside the output directory rather than in whatever the system
+	// calls its temporary directory (#184). The parent of an absolute --out is
+	// a directory the caller already had to make, so cpybkc needs no writable
+	// /tmp, reads no TMPDIR, and a Runner nobody configured cannot reach an
+	// ambient directory. It is a *sibling* of the output directory and not a
+	// child of it, because the one thing docs/plugin/SPEC.md promises about
+	// --out is that the generator finds it empty.
+	dir, err := os.MkdirTemp(filepath.Dir(out), descriptorDirPattern)
 	if err != nil {
 		return &DescriptorError{Name: invocation.Name, Err: err}
 	}

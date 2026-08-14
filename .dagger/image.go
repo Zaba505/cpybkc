@@ -103,19 +103,6 @@ const (
 	// dirMode is the mode of every directory in the image.
 	dirMode = 0o755
 
-	// tmpDir is a writable temporary directory, and it is the one thing in the
-	// image that docs/container/SPEC.md deliberately does not cover — it lists
-	// the directory under implementation detail rather than as a guarantee.
-	//
-	// It is here because cpybkc writes each invocation's descriptor into a
-	// directory it creates under os.TempDir, and hands each generator an output
-	// directory it created the same way, so a scratch image without one fails
-	// every generation with an error naming /tmp. tmpDirMode is 1777 —
-	// root-owned, world-writable and sticky — which is the ordinary arrangement
-	// and the one that keeps working when a caller overrides the UID.
-	tmpDir     = "/tmp"
-	tmpDirMode = 0o1777
-
 	// irDir is where the IR schema ships, and the two paths under it are the
 	// ones docs/container/SPEC.md fixes for a consumer (#57).
 	//
@@ -167,8 +154,9 @@ func imagePlatforms() []dagger.Platform {
 // document makes is made here: the CLI in /usr/local/bin with that directory on
 // PATH, the CLI as the entrypoint with an empty Cmd, UID and GID 65532 owning
 // the plugin directory and running the process, the IR schema under
-// /usr/local/share/cpybkc in both published forms, a writable temporary
-// directory, and nothing else in the filesystem at all.
+// /usr/local/share/cpybkc in both published forms, and nothing else in the
+// filesystem at all — not even a writable temporary directory, which cpybkc
+// stopped needing in #184.
 //
 // No generator is in it, and that absence is a promise rather than an omission:
 // cpybkc-gen-go (#48-#53) reaches a user the way a stranger's generator does, as
@@ -362,10 +350,12 @@ func (m *Cpybkc) image(platform dagger.Platform) *dagger.Container {
 		// rewrite them is what makes "MUST NOT modify it in place" true of the
 		// filesystem rather than only of the document.
 		WithDirectory(irDir, m.irDirectory()).
-		// A temporary directory, because cpybkc writes each invocation's
-		// descriptor into one. Not owned by the image's user: 1777 is what makes
-		// it usable by whichever UID the container is actually running as.
-		WithDirectory("/", m.tmpDirectory()).
+		// And nothing else. In particular no writable temporary directory:
+		// cpybkc makes its scratch space and each invocation's descriptor
+		// directory inside the project it was pointed at (#184), so a run needs
+		// nothing writable outside the tree the caller mounted, and a scratch
+		// image with no /tmp in it generates exactly as well as one with.
+		//
 		// PATH is set outright rather than appended to, because a scratch image
 		// has no PATH to append to. Only the guarantee that it contains the
 		// plugin directory is covered; the rest of the value is not.
@@ -397,29 +387,6 @@ func (m *Cpybkc) binary(platform dagger.Platform) *dagger.File {
 			Platform:     string(platform),
 		}).
 		File(cliBinary)
-}
-
-// tmpDirectory is a directory holding nothing but `tmp`, with mode 1777, for
-// grafting onto the image's root.
-//
-// It is staged by a real mkdir in a container that has one rather than by
-// WithDirectory's permissions argument, because that argument sets the mode of
-// the files written *into* a directory and not the mode of the directory
-// itself — which would leave /tmp root-owned at 0755, and every generation
-// failing with `permission denied` the moment the process is not root. That is
-// a fault the filesystem listing catches and no configuration check would.
-//
-// The toolchain container is the one dag.Go() already builds from this
-// repository's go.mod, rather than an image of this file's choosing: it is
-// pulled by every other stage anyway, so staging one directory costs nothing
-// beyond the exec.
-func (m *Cpybkc) tmpDirectory() *dagger.Directory {
-	const staging = "/staging"
-
-	return dag.Go().
-		Container(m.Source).
-		WithExec([]string{"install", "-d", "-m", "1777", staging + tmpDir}).
-		Directory(staging)
 }
 
 // irDirectory is the contents of irDir: the FileDescriptorSet beside an include
@@ -768,17 +735,11 @@ func buildSettings(out string) map[string]string {
 // derived image may copy out and must not modify, and 0644 owned by root is
 // that sentence enforced rather than asserted.
 //
-// Listing /tmp here does not make it a covered guarantee, and the two are not
-// the same kind of statement. Covered is about what a *consumer* may depend on,
-// and docs/container/SPEC.md keeps the temporary directory out of that
-// deliberately: its path and its mode may change in a patch release. This map
-// is what *this repository* expects its own build to produce, and it has to be
-// exhaustive or the promise it exists to check — scratch plus the files that
-// document names, so no shell, no libc and no package manager — degrades into a
-// spot check that a busybox under another name would pass. A patch release that
-// moved the temporary directory would edit this line in the same commit, which
-// is the difference between changing an implementation detail and changing it
-// without noticing.
+// There is no writable temporary directory in it, and that is the point of the
+// listing being exhaustive: cpybkc makes its scratch space and each
+// invocation's descriptor directory inside the project it was pointed at
+// (#184), so nothing in the image needs one, and a stage that put one back
+// would fail here rather than ship.
 // protos is every schema source the image carries, relative to the include root
 // — shippedProtos' answer, read out of the tree rather than named here.
 func baseImageContents(protos []string) map[string]imageEntry {
@@ -789,7 +750,6 @@ func baseImageContents(protos []string) map[string]imageEntry {
 	}
 
 	contents[pluginDir] = imageEntry{kindDir, imageUID, imageGID, dirMode}
-	contents[tmpDir] = imageEntry{kindDir, 0, 0, tmpDirMode}
 	contents[irDescriptorSetPath] = imageEntry{kindFile, 0, 0, dataMode}
 
 	for _, name := range baseImageExecutables() {

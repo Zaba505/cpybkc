@@ -89,10 +89,9 @@ func runner(t *testing.T) *Runner {
 
 	return &Runner{
 		Plugins: &plugin.Runner{
-			Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-			TempDir: t.TempDir(),
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
-		TempDir: t.TempDir(),
+		Scratch: t.TempDir(),
 	}
 }
 
@@ -355,8 +354,8 @@ func TestTheScratchSpaceDoesNotOutliveTheRun(t *testing.T) {
 
 			_ = run(t, r, generator(t, "go", test.body, out))
 
-			if !empty(t, r.TempDir) {
-				t.Errorf("%s left %v behind", test.about, tree(t, r.TempDir))
+			if !empty(t, r.Scratch) {
+				t.Errorf("%s left %v behind", test.about, tree(t, r.Scratch))
 			}
 		})
 	}
@@ -387,8 +386,8 @@ echo kept > "$4/orders.go"`, out)); err != nil {
 	// The one it wrote into the scratch space went with the scratch space, and
 	// the one it wrote where it liked stayed where it wrote it — outside the
 	// project's tree, which is the claim.
-	if !empty(t, r.TempDir) {
-		t.Errorf("the scratch space still holds %v", tree(t, r.TempDir))
+	if !empty(t, r.Scratch) {
+		t.Errorf("the scratch space still holds %v", tree(t, r.Scratch))
 	}
 
 	if !exists(t, escaped) {
@@ -421,7 +420,7 @@ func TestAGeneratorWithNowhereForItsOutputIsRefusedBeforeAnythingRuns(t *testing
 		t.Error("the generator ran, want the run refused before anything started")
 	}
 
-	if !empty(t, r.TempDir) {
-		t.Errorf("the refused run left %v behind", tree(t, r.TempDir))
+	if !empty(t, r.Scratch) {
+		t.Errorf("the refused run left %v behind", tree(t, r.Scratch))
 	}
 }

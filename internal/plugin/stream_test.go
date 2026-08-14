@@ -233,7 +233,7 @@ func TestBothStreamsAreSurfacedAndAttributed(t *testing.T) {
 	invocation := generator(t, "go", body, t.TempDir())
 
 	log, kept := recorder()
-	r := &Runner{Log: log, TempDir: t.TempDir(), Env: env()}
+	r := &Runner{Log: log, Env: env()}
 
 	if err := r.Run(t.Context(), descriptor(), []Invocation{invocation}); err != nil {
 		t.Fatalf("running the generator: %v", err)
@@ -265,7 +265,7 @@ func TestEachGeneratorsOutputIsAttributedToIt(t *testing.T) {
 	second := generator(t, "docs", `echo "error: from docs" >&2`, t.TempDir())
 
 	log, kept := recorder()
-	r := &Runner{Log: log, TempDir: t.TempDir(), Env: env()}
+	r := &Runner{Log: log, Env: env()}
 
 	if err := r.Run(t.Context(), descriptor(), []Invocation{first, second}); err != nil {
 		t.Fatalf("running the generators: %v", err)
@@ -306,7 +306,7 @@ func TestALineIsSurfacedBeforeTheGeneratorExits(t *testing.T) {
 	`, out)
 
 	log, kept := recorder()
-	r := &Runner{Log: log, TempDir: t.TempDir(), Env: env("OUT=" + out)}
+	r := &Runner{Log: log, Env: env("OUT=" + out)}
 
 	done := make(chan error, 1)
 

@@ -70,8 +70,7 @@ func runGenerator(t *testing.T, body string) (stderr, executable string, err err
 	var out bytes.Buffer
 
 	runner := &plugin.Runner{
-		Log:     logger(&out),
-		TempDir: t.TempDir(),
+		Log: logger(&out),
 		// PATH is stated rather than inherited because Env is either the whole
 		// environment or nothing, and a shell script needs the commands it
 		// calls.
