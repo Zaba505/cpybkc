@@ -1,0 +1,35 @@
+;; A variable-length dataset whose detail record carries an OCCURS DEPENDING
+;; ON table, read the way IBM Enterprise COBOL lays one out: the table slides,
+;; so the item behind it moves with the count and a record's extent is data
+;; rather than a constant. A fixed-length dataset could not carry such a record
+;; at all, which is why this one is framed.
+;;
+;; Two counts, and they are different kinds of thing. The header's count
+;; governs records other than the one it sits in, so it becomes a register the
+;; automaton binds and the transitions that follow guard on. The detail's count
+;; governs the table inside its own record, so it becomes a field the
+;; repetition names. The first is what `times` says; the second is what the
+;; copybook's DEPENDING ON says.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm VB))
+
+(record HEADER
+  (copybook "header.cpy" ODO-HEADER))
+
+(record DETAIL
+  (copybook "detail.cpy" ODO-DETAIL))
+
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+;; The type codes, as the bytes ASCII spells H and D with.
+(discriminate HEADER (equals (item HEADER HDR-TYPE) (bytes "48")))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) (bytes "44")))
+
+(sequence (seq HEADER (times DETAIL (item HEADER HDR-DETAIL-COUNT))))

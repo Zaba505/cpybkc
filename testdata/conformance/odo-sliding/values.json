@@ -1,0 +1,35 @@
+{
+  "records": [
+    {
+      "name": "ODO-HEADER",
+      "value": {
+        "HDR-TYPE": "H",
+        "HDR-DETAIL-COUNT": "2"
+      }
+    },
+    {
+      "name": "ODO-DETAIL",
+      "value": {
+        "DTL-TYPE": "D",
+        "DTL-LINE-COUNT": "1",
+        "DTL-LINE": [
+          {"DTL-SKU": "SK1"}
+        ],
+        "DTL-TAIL": "END1"
+      }
+    },
+    {
+      "name": "ODO-DETAIL",
+      "value": {
+        "DTL-TYPE": "D",
+        "DTL-LINE-COUNT": "3",
+        "DTL-LINE": [
+          {"DTL-SKU": "SK2"},
+          {"DTL-SKU": "SK3"},
+          {"DTL-SKU": "SK4"}
+        ],
+        "DTL-TAIL": "END2"
+      }
+    }
+  ]
+}
