@@ -381,16 +381,6 @@ const (
 	// for byte, and this repository already has that tree.
 	companionExampleDir = "example"
 
-	// generatorExecutable is what the CLI's PATH-based discovery looks for, and
-	// generatorPackage is what builds it.
-	//
-	// Both are assembled from worked_example.go's two constants rather than
-	// written out, so the executable this check installs is the one
-	// docs/plugin/SPEC.md's discovery rule names rather than a second spelling of
-	// it, and the command directory is not a third.
-	generatorExecutable = generatorPrefix + ownGenerator
-	generatorPackage    = "./cmd/" + generatorExecutable
-
 	// neverPulledRepository is the registry repository this check hands the
 	// module, and it is deliberately one that cannot exist: `.invalid` is
 	// reserved by RFC 2606 and resolves nowhere, ever.
@@ -402,6 +392,14 @@ const (
 	// generator, generate with it, and pass, quietly checking the last release
 	// instead of the change. Pointing the coordinates at a host with no registry
 	// behind it makes that call fail instead, naming this constant.
+	//
+	// #180 made that guard load bearing rather than precautionary, which is worth
+	// saying because the change looks like the opposite. Until a release published
+	// a generator image there was nothing at `<repository>-gen-go` for a forgotten
+	// --image to find, so the call would have failed at the registry anyway; from
+	// the first release onwards it resolves, and what it resolves to is the last
+	// release rather than the change. This constant is the whole of what stands
+	// between those two outcomes.
 	//
 	// The version is left at the module's own default. Nothing resolves it here
 	// for the same reason, and overriding it would only add a second unused
@@ -560,53 +558,8 @@ func (m *Cpybkc) companion(platform dagger.Platform) *dagger.Companion {
 	})
 }
 
-// generatorBinary builds cpybkc's own generator for one platform.
-//
-// It is image.go's binary with a different package and name, and it carries the
-// same CGO and -trimpath switches for the same reasons: what a generator image
-// ships has to start in a scratch image, which is the requirement
-// docs/container/SPEC.md states as `CGO_ENABLED=0` and leaves to whoever builds
-// the generator.
-func (m *Cpybkc) generatorBinary(platform dagger.Platform) *dagger.File {
-	return dag.Go().
-		Build(m.Source, dagger.GoBuildOpts{
-			Pkg:          generatorPackage,
-			ArtifactName: generatorExecutable,
-			Trimpath:     true,
-			DisableCgo:   true,
-			Platform:     string(platform),
-		}).
-		File(generatorExecutable)
-}
-
-// generatorImage is a generator image for cpybkc's own generator: the base image
-// this pipeline built, plus one executable in the plugin directory.
-//
-// That is the shape docs/container/SPEC.md fixes for a generator image — "an
-// image built FROM the base, adding one executable at the path this section
-// names and changing nothing else" — so with-generator is handed the thing an
-// adopter's generator image actually is rather than a container assembled to
-// suit this check. Deriving it from the same base also settles the platform:
-// with-generator refuses a generator image built for another one, and a
-// container that came from baseImage cannot be for another one.
-//
-// The COPY creates the plugin directory, because since #185 the base image does
-// not have one — nothing is in it, and the archetype refuses a contribution to
-// any directory the image's PATH resolves against. That is what an adopter's
-// Dockerfile does too, and what the worked example checks.
-//
-// It is not published and never will be. What #48 ships is a release's business;
-// this is one file in a container that exists for the length of one call.
-func (m *Cpybkc) generatorImage(platform dagger.Platform) *dagger.Container {
-	return m.baseImage(platform).WithFile(
-		pluginDir+"/"+generatorExecutable,
-		m.generatorBinary(platform),
-		dagger.ContainerWithFileOpts{Owner: imageUser, Permissions: derivedExecutableMode},
-	)
-}
-
-// checkComposedImage requires the composed image's plugin directory to hold the
-// generator, and nothing else.
+// checkComposedImage requires an image's plugin directory to hold the generator,
+// and nothing else.
 //
 // The directory is listed rather than the image run, because the image is a
 // scratch one: there is no shell and no `ls` in it, and the only thing that can

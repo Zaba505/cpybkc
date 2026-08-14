@@ -11,8 +11,8 @@
 // Three strings are composed, and they are the module's whole knowledge of how a
 // generator is named and where it goes: the filename inside the image and the
 // path it lands at, both of which the specs fix, and the repository a published
-// generator image is pulled from, which is this project's publishing rule rather
-// than anybody's contract. Everything else about a generator — the argument
+// generator image is pulled from, which docs/container/SPEC.md covers as of #180.
+// Everything else about a generator — the argument
 // vector, the descriptor, the exit codes, determinism — is docs/plugin/SPEC.md's,
 // holds with no container anywhere in the picture, and is not this module's
 // business.
@@ -79,9 +79,18 @@ func Path(name string) string {
 // Repository is where this project publishes the generator image for name,
 // derived from the repository the CLI image itself was pulled from.
 //
-// The derivation is a fact about how cpybkc publishes rather than a promise the
-// base-image contract makes, which is why it lives here and not in
-// docs/container/SPEC.md. Deriving it from the caller's --repository rather than
+// The derivation is a promise the base-image contract makes — "Where this
+// project's own generators are published", covered by its compatibility
+// guarantees. It was described here as an internal publishing rule binding
+// nobody until #180, which was true for exactly as long as nothing was published
+// under it: this module's default with no --image resolves precisely this
+// reference, so the first release to push a generator image made the rule
+// something a published module's public API rests on. It is written down at both
+// ends now, and the literals in TestRepository are one end of the drift guard —
+// .dagger's TagScheme is the other, because the two spellings are in Go modules
+// that cannot import each other.
+//
+// Deriving it from the caller's --repository rather than
 // from a constant is what makes a mirror, an internal registry or an air-gapped
 // copy redirect the whole family at once: a caller who moved the CLI image and
 // not its generators would otherwise reach back to ghcr.io from inside a network

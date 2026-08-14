@@ -123,7 +123,15 @@ const (
 	notesClose = "<!-- /cpybkc:image -->"
 )
 
-// Release publishes the base image for the release at HEAD (#59, #185).
+// Release publishes the images for the release at HEAD (#59, #185, #180).
+//
+// Two of them, over the same platforms and under the same release's tags: the
+// base image, and the generator image carrying cpybkc's own generator. The
+// second is not an extra artifact bolted on beside the first — it is the base
+// App with one more application composed into it, so it is signed, attested and
+// tagged by having been published the same way rather than by a second
+// arrangement here. Where it goes is derived from where the base went; see
+// generatorRepository.
 //
 // Whether there is a release at all is decided here, from the release's own tag
 // and the refs at HEAD: a canonical version tag pointing at HEAD is a release,
@@ -177,8 +185,9 @@ func (m *Cpybkc) Release(
 	tag string,
 	// The registry to publish to, without a repository path — `ghcr.io`.
 	registry string,
-	// The image's repository within that registry, without a tag —
-	// `zaba505/cpybkc`.
+	// The base image's repository within that registry, without a tag —
+	// `zaba505/cpybkc`. The generator image's is derived from it, so moving this
+	// one moves the whole family.
 	repository string,
 	// The registry username to authenticate as.
 	username string,
@@ -226,20 +235,50 @@ func (m *Cpybkc) Release(
 			releaseName(tag), strings.Join(refs, ", ")), nil
 	}
 
-	app := m.baseApp(version)
+	// The two images this release publishes, and the repository each goes to. The
+	// generator's is derived rather than an argument for the reason
+	// generatorRepository gives: a mirror redirects the whole family by moving
+	// the CLI image, and a caller who could name the two independently could
+	// publish a generator the companion module's default would never look for.
+	images := []struct {
+		app        *dagger.Z5LabsApp
+		repository string
+		check      func(context.Context, *dagger.Container, dagger.Platform) []error
+	}{
+		{
+			app:        m.baseApp(version),
+			repository: repository,
+			check:      m.checkBaseImage,
+		},
+		{
+			app:        m.generatorApp(version),
+			repository: generatorRepository(repository, ownGenerator),
+			check: func(ctx context.Context, image *dagger.Container, _ dagger.Platform) []error {
+				return m.checkGeneratorImage(ctx, image)
+			},
+		},
+	}
 
-	// The gate. Nothing is pushed until the image has been checked against
-	// docs/container/SPEC.md on every platform it is published for, and it is
-	// checked on the containers this very App carries — see this file's comment
-	// for why that is not the same as having run `dagger call image-contract` a
-	// moment earlier.
+	// The gate. Nothing is pushed until **both** images have been checked against
+	// docs/container/SPEC.md on every platform they are published for, and each is
+	// checked on the containers its own App carries — see this file's comment for
+	// why that is not the same as having run `dagger call image-contract` a moment
+	// earlier.
 	//
-	// checkBaseImage rather than a sequence assembled here, so that a check added
-	// to ImageContract is a check this gate acquires.
+	// checkBaseImage and checkGeneratorImage rather than sequences assembled here,
+	// so that a check added to ImageContract is a check this gate acquires.
+	//
+	// Both are gated before either is pushed, rather than each image being checked
+	// and then published in turn. A publish is not atomic across repositories, and
+	// a release that pushed the base and then found its generator unpublishable
+	// would leave a version tag out that this project's contract says is never
+	// repointed.
 	var errs []error
-	for _, platform := range imagePlatforms() {
-		for _, err := range m.checkBaseImage(ctx, app.Container(platform), platform) {
-			errs = append(errs, fmt.Errorf("%s: %w", platform, err))
+	for _, image := range images {
+		for _, platform := range imagePlatforms() {
+			for _, err := range image.check(ctx, image.app.Container(platform), platform) {
+				errs = append(errs, fmt.Errorf("%s %s: %w", image.repository, platform, err))
+			}
 		}
 	}
 
@@ -247,22 +286,32 @@ func (m *Cpybkc) Release(
 		return "", fmt.Errorf("refusing to publish %s: %w", version, err)
 	}
 
-	published, err := app.
-		WithRegistry(registry, username, password).
-		WithOidc(idTokenRequestUrl, idTokenRequestToken).
-		Publish(ctx, []string{repository})
-	if err != nil {
-		return "", fmt.Errorf("publishing %s/%s: %w", registry, repository, err)
-	}
-
 	var report strings.Builder
-	fmt.Fprintf(&report, "%s/%s\n  version:    %s\n", registry, repository, version)
-	for _, ref := range published {
-		fmt.Fprintf(&report, "  %s\n", ref)
-	}
 
-	if err := checkPublished(version, published); err != nil {
-		return report.String(), err
+	fmt.Fprintf(&report, "%s\n  version:    %s\n", registry, version)
+
+	for _, image := range images {
+		published, err := image.app.
+			WithRegistry(registry, username, password).
+			WithOidc(idTokenRequestUrl, idTokenRequestToken).
+			Publish(ctx, []string{image.repository})
+		if err != nil {
+			return report.String(), fmt.Errorf("publishing %s/%s: %w", registry, image.repository, err)
+		}
+
+		fmt.Fprintf(&report, "  %s\n", image.repository)
+		for _, ref := range published {
+			fmt.Fprintf(&report, "    %s\n", ref)
+		}
+
+		// Read back per image rather than over the union. The three properties are
+		// each about *one* release of *one* repository — every tag naming one
+		// digest most of all — and checking a merged list would let a generator
+		// that published nothing but its version tag hide behind the base's
+		// moving ones.
+		if err := checkPublished(version, published); err != nil {
+			return report.String(), fmt.Errorf("%s: %w", image.repository, err)
+		}
 	}
 
 	return report.String(), nil
@@ -429,11 +478,15 @@ func (m *Cpybkc) ReleaseNotes(
 // TagScheme is the half of the release decision this repository still makes,
 // executed rather than read.
 //
-// What it covers is what planRelease answers: whether a release is a release of
-// the image at all, and which version it is. The tag *family* that version
-// implies is the archetype's since #185, and is checked by its own table over
-// its own literals — restating it here would be a second copy of somebody else's
-// rule, which is exactly what this file exists to avoid having.
+// What it covers is what planRelease answers — whether a release is a release of
+// the image at all, and which version it is — and, since #180, where the
+// generator image that release publishes beside the base goes. Both are
+// decisions this repository makes and the archetype does not.
+//
+// The tag *family* that version implies is the archetype's since #185, and is
+// checked by its own table over its own literals — restating it here would be a
+// second copy of somebody else's rule, which is exactly what this file exists to
+// avoid having.
 // docs/container/SPEC.md's tag table says where each half is checked, so that a
 // reader concludes neither that the table is unenforced nor that this repository
 // enforces it.
@@ -549,6 +602,29 @@ func (m *Cpybkc) TagScheme() error {
 		}
 	}
 
+	// Where the generator image goes, which is the other half of the release
+	// decision since #180: a release states a version *and* the repositories that
+	// version is published to, and only one of the two is an argument.
+	//
+	// The literals matter more here than anywhere else in this function, because
+	// this rule is written down twice — daggerverse/cpybkc/internal/generator's
+	// Repository is the other spelling, in a Go module this one cannot import.
+	// Its TestRepository pins the same two answers. So the pair below is not a
+	// tautology over one line of code: it is one end of a drift guard whose other
+	// end is a test in another module, and the failure it rules out is a release
+	// publishing where the companion module's default never looks.
+	for _, c := range []struct{ repository, name, want string }{
+		{"zaba505/cpybkc", "go", "zaba505/cpybkc-gen-go"},
+		// A mirror redirects the whole family by moving the CLI image alone,
+		// which is the property that makes the rule derived rather than constant.
+		{"mirrors/cpybkc", "go", "mirrors/cpybkc-gen-go"},
+	} {
+		if got := generatorRepository(c.repository, c.name); got != c.want {
+			errs = append(errs, fmt.Errorf("the generator image for %q beside %q publishes to %q, want %q",
+				c.name, c.repository, got, c.want))
+		}
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -587,6 +663,11 @@ func (m *Cpybkc) ReleaseNotesContract() error {
 		"IR version 7",
 		"`v0.2.0`",
 		"ghcr.io/zaba505/cpybkc:v0.2.0",
+		// The generator image, named beside the base it is published with (#180).
+		// A literal rather than generatorRepository's answer, like every other
+		// expectation here: a check that derived it the way the block does would
+		// go green on a block that had stopped naming the generator at all.
+		"ghcr.io/zaba505/cpybkc-gen-go:v0.2.0",
 		notesOpen, notesClose,
 	} {
 		if !strings.Contains(block, want) {
@@ -900,6 +981,13 @@ func (m *Cpybkc) irVersion(ctx context.Context) (int, error) {
 // published, so ReleaseNotesContract can read it back without a registry, a git
 // checkout or a release.
 //
+// It names **both** images a release publishes (#180), and the generator's
+// reference is derived from the base's rather than passed in — one argument for
+// two images, so a mirror's release notes cannot name the mirror for one and
+// ghcr.io for the other. That the generator exists at all is the fact this half
+// of the block is for: `v0.0.0` published the base alone, and the one documented
+// way to get the generator was a reference that answered NAME_UNKNOWN.
+//
 // It names the version and no other tag. Which tags a version implies is the
 // shared pipeline's rule since #185, and a block enumerating them would be this
 // repository restating somebody else's table in the one artifact a reader cannot
@@ -920,11 +1008,17 @@ func releaseNotesBlock(version string, irVersion int, reference string) string {
 	var b strings.Builder
 
 	b.WriteString(notesOpen)
-	b.WriteString("\n## The image this release publishes\n\n")
+	b.WriteString("\n## The images this release publishes\n\n")
 
 	if reference != "" {
-		fmt.Fprintf(&b, "```console\n$ docker pull %s:%s\n```\n\n", reference, version)
+		fmt.Fprintf(&b, "```console\n$ docker pull %s:%s\n$ docker pull %s:%s\n```\n\n",
+			reference, version, generatorRepository(reference, ownGenerator), version)
 	}
+
+	fmt.Fprintf(&b, "Two images: the cpybkc CLI, and `cpybkc-gen-%s`, this project's own generator. The generator\n"+
+		"reaches you the way a stranger's does — an image to `COPY --from`, never something the base image\n"+
+		"carries — and it is published from this same release, over the same platforms and under the same\n"+
+		"tags.\n\n", ownGenerator)
 
 	fmt.Fprintf(&b, "**This image speaks IR version %d.** Every descriptor the `cpybkc` in it writes carries that\n"+
 		"version, and a generator that implements a lower one refuses the descriptor rather than guessing — so a\n"+

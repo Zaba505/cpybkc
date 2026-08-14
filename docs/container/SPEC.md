@@ -125,6 +125,16 @@ The base image holds **no** executable in the plugin directory (#55, #185).
 way a stranger's does: as an image built `FROM` the base, adding one executable at
 the path this section names and changing nothing else.
 
+It is **published**, and where is [named below](#where-this-projects-own-generators-are-published)
+(#180). That sentence used to describe an intention rather than a release: the
+first release published the base image alone, and the generator reference this
+document sent a reader to — the one the [companion Dagger
+module](#also-out-of-scope) resolves by default — answered `NAME_UNKNOWN`. So the
+one documented way to get `cpybkc-gen-go` was unavailable to everybody outside
+this repository, while three places in the tree said it existed. What closed the
+gap is the generator image being cut from the same release as the base, over the
+same platforms, under the same tags, signed and attested the same way.
+
 The CLI is not in there either. It used to be, and its path was never part of
 this contract — see [The CLI's own path is not part of the
 contract](#the-clis-own-path-is-not-part-of-the-contract), which is why the base
@@ -140,6 +150,59 @@ against a mechanism that had never been used.
 
 So the mechanism has a user before it has any, and the cost is one extra image
 reference in a consumer's Dockerfile.
+
+### Where this project's own generators are published
+
+A generator this project publishes for `<name>` is at the **base image's own
+repository with `-gen-<name>` appended**, in the same registry, under the same
+release's tags (#180). Today that is one image:
+
+| Image | Repository | Tags |
+| --- | --- | --- |
+| The cpybkc CLI | `<repository>` | [the family a release publishes](#tags-and-what-pinning-one-buys) |
+| The `go` generator | `<repository>-gen-go` | the same family, from the same release |
+
+So against the published release, and with `ghcr.io/zaba505/cpybkc` as the
+repository:
+
+```console
+$ docker pull ghcr.io/zaba505/cpybkc:v0
+$ docker pull ghcr.io/zaba505/cpybkc-gen-go:v0
+```
+
+The rule is **derived from the CLI image's repository and not from a constant**,
+which is what makes a mirror, an internal registry or an air-gapped copy redirect
+the whole family at once. Copy `<repository>` and `<repository>-gen-go` into
+`registry.internal/mirrors/`, point a build at
+`registry.internal/mirrors/cpybkc`, and the generator is where that rule says it
+is. A rule anchored to `ghcr.io` would instead send a build inside a network that
+cannot see it reaching back out on the second pull rather than the first.
+
+**This is a covered guarantee**, and that is a decision rather than an
+observation. Until #180 the derivation was described in the companion module's
+own source as "this project's publishing rule rather than anybody's contract" —
+which was true while nothing was published under it, and stopped being true the
+moment a release was. Two things now depend on it from outside this repository: a
+derived `Dockerfile` writing `COPY --from=<repository>-gen-go`, in a repository
+this project cannot see and cannot warn; and the [companion Dagger
+module](#also-out-of-scope)'s `with-generator`, whose default with no `--image`
+resolves exactly this reference and whose published module ref is public API for
+as long as it resolves. A rule two public things already rest on, documented as
+binding nobody, is the "private arrangement that resembles one" the section above
+exists to refuse — so it is written down here, where the [compatibility
+guarantees](#compatibility-guarantees) cover it and [How a covered thing would
+change](#how-a-covered-thing-would-change) applies to it.
+
+What is **not** covered is which registry any of it is in, exactly as for the
+base image: a mirror serving the same digests satisfies this identically. Nor is
+the *set* of generators this project publishes — `go` is the only one today, and
+another arriving beside it is not a breaking change, while moving or withdrawing
+one is.
+
+None of this makes a published generator a privileged kind of plugin. It is
+built, named and discovered by the same rules as a stranger's, which is the whole
+argument of the section above; what this section fixes is only the address, so
+that the address can be depended on.
 
 ### The CLI's own path is not part of the contract
 
@@ -1152,6 +1215,7 @@ change to any of them is a breaking change:
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
+| [This project's own generator images](#where-this-projects-own-generators-are-published) | `<repository>-gen-<name>`, in the same registry and under the same release's tags as the CLI image |
 | [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM per platform, as referrers |
 
 **Not covered**, and explicitly implementation detail. Depending on any of it is
@@ -1191,6 +1255,11 @@ depending on something that may change in a patch release, with no notice:
 - Anything else appearing under `/usr/local/share/cpybkc/`. The two paths named
   above are the contract; a third file arriving beside them is not one to depend
   on until this document names it.
+- **Which** generators this project publishes, beyond `go`. The [naming
+  rule](#where-this-projects-own-generators-are-published) is covered and the set
+  it is applied to is not: another generator appearing beside `cpybkc-gen-go` is
+  not a breaking change, and neither is one never appearing. Nothing here
+  promises a generator for any particular language will exist.
 
 ### Why the platform set is the two it is
 
@@ -1288,7 +1357,8 @@ Go install with no document that applies to them.
 | Section | Implemented by |
 |---|---|
 | [The plugin directory](#the-plugin-directory) | #54, #55 `container`; #185 `container` withdraws the promise that the directory exists in the base image |
-| [Why cpybkc's own generator is not in the base image](#why-cpybkcs-own-generator-is-not-in-the-base-image) | #55 `container` for the base holding none, #48–#53 `gen-go` for the generator that goes through the front door |
+| [Why cpybkc's own generator is not in the base image](#why-cpybkcs-own-generator-is-not-in-the-base-image) | #55 `container` for the base holding none, #48–#53 `gen-go` for the generator that goes through the front door, #180 `container` for the release that publishes it |
+| [Where this project's own generators are published](#where-this-projects-own-generators-are-published) | #180 `container` decides the rule is covered rather than internal, and publishes the first image under it |
 | [The CLI's own path is not part of the contract](#the-clis-own-path-is-not-part-of-the-contract) | #55 `container`; #185 `container` is where it was spent |
 | [The entrypoint](#the-entrypoint) | #55 `container` |
 | [The user](#the-user) | #55 `container` |

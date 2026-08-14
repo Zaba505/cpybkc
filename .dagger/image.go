@@ -201,6 +201,28 @@ const (
 	// adopter's compliance scan has to guess at.
 	contributionLicense = "MIT"
 
+	// generatorExecutable is what the CLI's PATH-based discovery looks for, and
+	// generatorPackage is what builds it.
+	//
+	// Both are assembled from worked_example.go's two constants rather than
+	// written out, so the executable a generator image installs is the one
+	// docs/plugin/SPEC.md's discovery rule names rather than a second spelling of
+	// it, and the command directory is not a third.
+	//
+	// They live here rather than beside the companion checks because the image
+	// this name goes into is published now (#180): it is a release's business
+	// alongside the base image, and the check that drives it is one caller among
+	// three.
+	generatorExecutable = generatorPrefix + ownGenerator
+	generatorPackage    = "./cmd/" + generatorExecutable
+
+	// generatorRepositorySuffix is what turns the CLI image's repository into the
+	// repository the generator image for one name is published to.
+	//
+	// It is a covered promise of docs/container/SPEC.md since #180 — see
+	// [generatorRepository] for what that costs and what it buys.
+	generatorRepositorySuffix = "-gen-"
+
 	// devVersion is the version every build that is not a release publishes
 	// under, and therefore the version every check builds.
 	//
@@ -316,6 +338,134 @@ func (m *Cpybkc) baseImage(platform dagger.Platform) *dagger.Container {
 	return m.baseApp(devVersion).Container(platform)
 }
 
+// generatorApp is the published generator image as the archetype's application:
+// the base image, wearing cpybkc's own generator in the plugin directory.
+//
+// This is the one construction of it, for baseApp's reason. CompanionModule
+// drives it, ImageContract checks it and Release publishes it, so the image a
+// check passed is the image somebody publishes and the extension mechanism the
+// pull request exercises is the one a release ships.
+//
+// # Composition rather than a second image recipe
+//
+// It is [dagger.Z5LabsApp.WithApp] onto the base App, which since #185 is the
+// only route an executable takes to the plugin directory: the archetype refuses
+// a contributed file there outright, on the grounds that content found on PATH
+// by name is how an arm64 image ends up running an amd64 executable. What that
+// buys here beyond the hand-rolled WithFile it replaces (#180) is three things
+// the old shape had to be trusted about — the variant sets are paired platform
+// by platform, so an arm64 base cannot acquire an amd64 generator; a collision
+// in the plugin directory is refused rather than layered over; and every
+// composed entry is exec'd in the finished image before the first byte is
+// pushed.
+//
+// The result is an ordinary App. It publishes, signs and attests exactly as the
+// base does, under the base's version, which is the whole of how #180's "the
+// same signature and attestations the base image carries" is satisfied: by being
+// published the same way rather than by a second arrangement here.
+func (m *Cpybkc) generatorApp(version string) *dagger.Z5LabsApp {
+	return m.baseApp(version).WithApp(m.ownGeneratorApp(version))
+}
+
+// ownGeneratorApp is cpybkc's own generator as an application of its own, before
+// it is composed onto anything.
+//
+// # Why the generic constructor and not the Go chain
+//
+// [dagger.Z5LabsGoChain.App] does not name the binary after the package it is
+// given. It reads go.mod's module directive and takes the basename, so for
+// module github.com/Zaba505/cpybkc the answer is `cpybkc` for *every* package in
+// the module — and this repository has two commands in one module. Building the
+// generator that way composes an executable named `cpybkc`, which nothing fails
+// on at build time: what fails is discovery, because docs/plugin/SPEC.md has
+// cpybkc find a generator on PATH by the exact name a layout asked for. The
+// image would ship the right bytes under a name nothing looks for, and — layered
+// onto a base whose own entry is also `cpybkc` — under a name something else
+// already answers to.
+//
+// So the name is stated rather than inferred, through the generic constructor's
+// WithVariant, which is the seam the chain does not have. The binary is still
+// built by the shared go module, one per platform, so this is the same build
+// with the name said out loud and not a second compiler invocation with flags of
+// its own. avroc#223 hit this first and wrote it down; the base image stays on
+// the Go chain because there the inferred name is the right one.
+//
+// # The document
+//
+// Each variant carries an SPDX document, because the archetype requires one for
+// every byte that enters an image and assembles the per-platform SBOM a release
+// attaches out of them. It is dag.Go().Spdx rather than Z5labs.FileDocument
+// because a Go binary's document is *derived* from the compiled artifact rather
+// than asserted about it — the publish checks that the document names the
+// SHA-256 of the executable it accompanies, and a derived document cannot
+// disagree with what it describes.
+func (m *Cpybkc) ownGeneratorApp(version string) *dagger.Z5LabsApp {
+	app := dag.Z5Labs().App(version)
+
+	for _, platform := range imagePlatforms() {
+		binary := m.generatorBinary(platform)
+
+		app = app.WithVariant(platform, binary, dag.Go().Spdx(binary, m.appSource()),
+			dagger.Z5LabsAppBuilderWithVariantOpts{Name: generatorExecutable})
+	}
+
+	return app.Build()
+}
+
+// generatorBinary builds cpybkc's own generator for one platform.
+//
+// It is [Cpybkc.binary] with a different package and name, and it carries the
+// same CGO and -trimpath switches for the same reasons: what a generator image
+// ships has to start in a scratch image, which is the requirement
+// docs/container/SPEC.md states as `CGO_ENABLED=0` and leaves to whoever builds
+// the generator.
+//
+// The source is appSource rather than m.Source, so the executable the published
+// generator image carries is compiled from the same tree — git metadata included
+// — as the CLI it is composed onto.
+func (m *Cpybkc) generatorBinary(platform dagger.Platform) *dagger.File {
+	return dag.Go().
+		Build(m.appSource(), dagger.GoBuildOpts{
+			Pkg:          generatorPackage,
+			ArtifactName: generatorExecutable,
+			Trimpath:     true,
+			DisableCgo:   true,
+			Platform:     string(platform),
+		}).
+		File(generatorExecutable)
+}
+
+// generatorImage is one platform's generator image, for the checks and for the
+// stages that drive it rather than publish it.
+//
+// It is an accessor onto the App, exactly as baseImage is, so a check reads the
+// container a publish would push.
+func (m *Cpybkc) generatorImage(platform dagger.Platform) *dagger.Container {
+	return m.generatorApp(devVersion).Container(platform)
+}
+
+// generatorRepository is where the generator image for name is published:
+// the CLI image's own repository with `-gen-<name>` appended.
+//
+// Derived from the caller's repository rather than from a constant, which is
+// what makes a mirror, an internal registry or an air-gapped copy redirect the
+// whole family at once. A caller who moved the CLI image and not its generators
+// would otherwise reach back to ghcr.io from inside a network that cannot see
+// it, on the second pull rather than the first.
+//
+// # This is the second spelling of one rule, and that is deliberate
+//
+// daggerverse/cpybkc/internal/generator.Repository is the first. The two are in
+// different Go modules and neither can import the other, so the rule is written
+// twice and pinned at both ends by a literal — that package's TestRepository,
+// and TagScheme here. #180 is what made the drift between them expensive: the
+// companion module's default with no --image resolves against its spelling, and
+// a release publishing under this one would leave that default pulling a
+// repository nothing pushes to.
+func generatorRepository(repository, name string) string {
+	return repository + generatorRepositorySuffix + name
+}
+
 // appChain is the Go chain an App is built from — the source with its git
 // metadata folded in, and nothing configured about the check stages.
 //
@@ -375,6 +525,11 @@ func (m *Cpybkc) irProtoTree() *dagger.Directory {
 //   - The entrypoint being the CLI, by running it — twice, as the image's own
 //     user and as an arbitrary other one.
 //
+// The generator image a release publishes beside the base is checked here too
+// (#180), on the same platforms and by the same reading of the same document:
+// it is the base's exhaustive listing plus exactly one file, at the name the
+// plugin contract resolves. See checkGeneratorImage.
+//
 // platform restricts the check to one of the published platforms; empty runs
 // every one of them, and every failure is reported rather than the first,
 // because "it holds on amd64 and not on arm64" is the finding.
@@ -401,6 +556,10 @@ func (m *Cpybkc) ImageContract(
 	for _, p := range platforms {
 		if err := errors.Join(m.checkBaseImage(ctx, m.baseImage(p), p)...); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", p, err))
+		}
+
+		if err := errors.Join(m.checkGeneratorImage(ctx, m.generatorImage(p))...); err != nil {
+			errs = append(errs, fmt.Errorf("%s: the generator image: %w", p, err))
 		}
 	}
 
@@ -436,6 +595,79 @@ func (m *Cpybkc) checkBaseImage(
 	errs = append(errs, m.checkImageIsTheCLI(ctx, image)...)
 
 	return errs
+}
+
+// checkGeneratorImage holds one platform's generator image to what a generator
+// image is allowed to be (#180).
+//
+// It is a function rather than a sequence inside ImageContract for
+// checkBaseImage's reason: Release runs it too, over the very containers it is
+// about to push, so a check added here is a check the release gate acquires.
+//
+// Three groups, and each rules out a way the composition could go wrong while
+// building, pushing and passing everything else:
+//
+//   - The OCI configuration, unchanged from the base's. A composed image keeps
+//     the base's entrypoint, user and environment, so an image whose Entrypoint
+//     had become the generator it carries is a different program wearing
+//     cpybkc's filesystem — the edit docs/container/SPEC.md forbids a derived
+//     image, applied here by this project's own pipeline.
+//   - The filesystem, as the base's exhaustive listing plus exactly one file. A
+//     second file, or one landing anywhere but the plugin directory, fails here
+//     rather than in a stranger's COPY --from.
+//   - The plugin directory holding that file under the name cpybkc searches PATH
+//     for, listed rather than inferred from the row above. This is the failure
+//     the generic App constructor exists to rule out — an image correct in every
+//     respect except the one the plugin contract reads — so it is asserted in
+//     the terms the contract reads it in, and not only as an entry in a map.
+func (m *Cpybkc) checkGeneratorImage(ctx context.Context, image *dagger.Container) []error {
+	protos, err := m.shippedProtos(ctx)
+	if err != nil {
+		return []error{err}
+	}
+
+	errs := m.checkImageConfig(ctx, image)
+	errs = append(errs, m.checkImageContents(ctx, image, generatorImageContents(baseImageContents(protos)))...)
+
+	if err := m.checkComposedImage(ctx, image); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errs
+}
+
+// generatorImageContents is the base image's listing plus the one executable a
+// generator image adds, which is the whole of what a generator image is.
+//
+// It is separate from derivedImageContents, which describes what a *stranger's*
+// Dockerfile produces, and the difference between the two is the point rather
+// than duplication. That one takes the copied path and the entry as arguments,
+// because the document states the owner and the mode of the COPY it hands an
+// adopter and the check reads both out of the committed text. This one states
+// them, because they are not anybody's choice: the archetype places a composed
+// application's entry itself.
+//
+// The mode and the owner are literals and not constants of this file's, and that
+// is deliberate. The nearest constant, derivedExecutableMode, is 0755 and
+// describes what an adopter's COPY --chown=65532:65532 --chmod=0755 writes —
+// which is what this image was built by before #180 and is not what the
+// archetype produces. Writing 0555 out here is what makes a check that would
+// otherwise have kept passing across that change say so.
+//
+// The plugin directory comes with it, because the base image does not have one:
+// since #185 nothing in the base creates it, so the composition is what does. It
+// arrives root-owned and 0755 — a directory the archetype made on the way to
+// somewhere else, exactly like the chain above the IR schema — and nothing may
+// depend on that. docs/container/SPEC.md holds the ownership and mode of this
+// directory out of the contract in as many words; the row is here because the
+// listing is exhaustive or it is nothing.
+func generatorImageContents(base map[string]imageEntry) map[string]imageEntry {
+	contents := maps.Clone(base)
+
+	contents[pluginDir] = imageEntry{kindDir, 0, 0, dirMode}
+	contents[pluginDir+"/"+generatorExecutable] = imageEntry{kindFile, imageUID, imageGID, 0o555}
+
+	return contents
 }
 
 // shippedProtos is every .proto the image carries, as a path relative to the
