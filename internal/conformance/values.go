@@ -239,7 +239,16 @@ func difference(path string, want, got any) []error {
 			return []error{fmt.Errorf("%s: %s, and the entry expects %s", path, described(got), rendered(want))}
 		}
 
-		if want != got {
+		// String equality over the written form, and deliberately not Go's !=
+		// on the two decoded values: != on an any holding a float64 is IEEE
+		// equality, under which a negative zero equals a positive one, so a
+		// generator that lost the sign of a zero would pass. Every scalar of
+		// the value language is a JSON string — a float included, in the
+		// hexadecimal form [FormatFloat] writes — precisely so that this
+		// comparison can be the one docs/conformance/SPEC.md's "Comparison is
+		// over the written form" requires, and rendering both sides keeps that
+		// true of anything a document carries that is not one (#194, #195).
+		if rendered(want) != rendered(got) {
 			return []error{fmt.Errorf("%s is %s and the entry expects %s", path, rendered(got), rendered(want))}
 		}
 
@@ -297,6 +306,22 @@ func arrayDifference(path string, want, got []any) []error {
 // rendered is a value as a report should quote it: the JSON it was written as,
 // so that a string and the decimal string of a number are told apart by the
 // quotes around them.
+//
+// It is also the comparison, since [difference] compares two scalars by what
+// each side wrote rather than by Go equality, so it carries an obligation a
+// helper that only composed prose would not: **distinct values must render
+// distinctly.** json.Marshal is what gives that — it writes the JSON kind along
+// with the content, so a string never renders as a number, a number never as a
+// bool, and nothing is elided or truncated — and
+// TestRenderedTellsTheScalarKindsApart is what holds it there, so that a change
+// made to this function for readability cannot quietly turn half the corpus
+// off. A change here that loses the quotes, lowercases, or shortens a long
+// value is a change that makes two different answers agree.
+//
+// The %v fallback is not injective and does not need to be: json.Marshal
+// refuses only values encoding/json cannot have produced in the first place —
+// a NaN or an infinity as a Go float64 — and every value reaching this function
+// came out of [ParseValues].
 func rendered(value any) string {
 	b, err := json.Marshal(value)
 	if err != nil {

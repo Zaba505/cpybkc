@@ -451,8 +451,14 @@ func occurrences(value reflect.Value, one func(reflect.Value) (any, error)) (any
 }
 
 // scalar is what an elementary item holds, written the way the corpus's value
-// language writes it: characters as text, a number as its decimal digits, and a
-// run of bytes as base64.
+// language writes it: characters as text, a number as its decimal digits, a
+// float in hexadecimal significand notation, and a run of bytes as base64.
+//
+// Every one of those is a JSON string. A float in particular is never a JSON
+// number: NaN and the infinities cannot be marshalled as one, so an honest
+// generator decoding an IEEE NaN would make this driver fail to write a
+// document at all — which the corpus format defines as the harness breaking,
+// the one outcome that is not a conformance failure.
 func scalar(value reflect.Value) (any, error) {
 	if held, ok := value.Interface().(*big.Int); ok {
 		if held == nil {
@@ -474,7 +480,9 @@ func scalar(value reflect.Value) (any, error) {
 		// and it is the decimal one.
 		return strconv.FormatUint(value.Uint(), 10), nil
 	case reflect.Float32, reflect.Float64:
-		return value.Float(), nil
+		// A float32 widens to a float64 exactly, so the hexadecimal form of the
+		// widened value is the hexadecimal form of what the item holds.
+		return conformance.FormatFloat(value.Float()), nil
 	case reflect.Slice:
 		if value.Type().Elem().Kind() == reflect.Uint8 {
 			return base64.StdEncoding.EncodeToString(value.Bytes()), nil
