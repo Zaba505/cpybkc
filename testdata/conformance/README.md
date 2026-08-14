@@ -76,7 +76,8 @@ reversal — this file said a `COMP-1` or `COMP-2` item was a JSON number, and t
 spec says it is a string in hexadecimal significand notation, exactly so that a
 NaN, an infinity and a negative zero can be written at all. The corpus's five
 float entries were migrated to it and `float-ieee754-special` was added beside
-them, which is where those three values now sit (#195).
+them, carrying the four values that were the argument for the change: a NaN,
+both infinities, and a negative zero (#195).
 
 `values.json` is one half of the comparison and a runner's answer document is
 the other, written in exactly the same language. What a runner is asked to do,
@@ -181,7 +182,10 @@ with four items in it.
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
 it came from (#67). Three are not derived from it — `float-ieee754-special`,
-`batch-fixed` and `batch-rdw` — and the next three subsections are why.
+`batch-fixed` and `batch-rdw` — and the last two subsections below say what each
+cites instead. The first of the three is about something else: which entries
+Appendix A's vectors are paired into, which is a question about the entries that
+*are* derived from it.
 
 ### Where "in both character sets" applies, and where it does not
 

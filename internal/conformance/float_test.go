@@ -115,6 +115,57 @@ func TestFormatFloatIsAlwaysTheGrammar(t *testing.T) {
 	}
 }
 
+// TestTheNormalizersCarryTheirOwnRules exercises the two helpers directly.
+//
+// Both hold rules that [FormatFloat] cannot reach them with today: Go's
+// shortest-exact rendering never writes a trailing zero in the fraction, and it
+// never writes an exponent of -0. Those branches exist because the canonical
+// form forbids both and this package is where the form is stated rather than
+// where somebody else's formatter is trusted — and code that exists to survive
+// a change in that formatter is exactly the code a table-driven test of
+// [FormatFloat] leaves uncovered, so it is covered here instead.
+func TestTheNormalizersCarryTheirOwnRules(t *testing.T) {
+	t.Run("the significand", func(t *testing.T) {
+		tests := map[string]string{
+			"1":      "1",
+			"1.2":    "1.2",
+			"1.20":   "1.2",
+			"1.000":  "1",
+			"1.":     "1",
+			"0":      "0",
+			"1.0a0b": "1.0a0b",
+		}
+
+		for significand, want := range tests {
+			if got := canonicalSignificand(significand); got != want {
+				t.Errorf("%q normalizes to %q and the form writes it %q", significand, got, want)
+			}
+		}
+	})
+
+	t.Run("the exponent", func(t *testing.T) {
+		tests := map[string]string{
+			"+0":    "+0",
+			"+00":   "+0",
+			"-0":    "+0",
+			"-00":   "+0",
+			"0":     "+0",
+			"+03":   "+3",
+			"-05":   "-5",
+			"+10":   "+10",
+			"+1023": "+1023",
+			"-1074": "-1074",
+			"":      "+0",
+		}
+
+		for exponent, want := range tests {
+			if got := canonicalExponent(exponent); got != want {
+				t.Errorf("%q normalizes to %q and the form writes it %q", exponent, got, want)
+			}
+		}
+	})
+}
+
 // TestFormatFloatSeparatesTheSignsOfZero is the defect the form was changed
 // for, asserted on its own rather than left to be inferred from the table.
 //

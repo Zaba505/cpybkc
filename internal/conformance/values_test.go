@@ -7,6 +7,7 @@ package conformance
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -128,6 +129,20 @@ func TestCompareIsOverTheWrittenForm(t *testing.T) {
 		"two zeros written as JSON numbers":  {want: `-0.0`, got: `0.0`},
 		"a float written as a JSON number":   {want: `"0x1p+0"`, got: `1.0`},
 		"an entry still carrying the number": {want: `1.0`, got: `"0x1p+0"`},
+
+		// The comparison changed for every scalar and not only for a float, so
+		// the kinds that changed as a side effect are here too: rendering both
+		// sides has to keep telling a JSON kind from the string that spells it.
+		"a number and the decimal string of it": {want: `"1"`, got: `1`},
+		"a bool and the string of it":           {want: `true`, got: `"true"`},
+		"the string of a bool and the bool":     {want: `"true"`, got: `true`},
+		"a null and the string of it":           {want: `null`, got: `"null"`},
+		"two nulls":                             {want: `null`, got: `null`, agree: true},
+		"two bools that differ":                 {want: `true`, got: `false`},
+		"two long base64 values that differ in the last character": {
+			want: `"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqaw=="`,
+			got:  `"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqbA=="`,
+		},
 	}
 
 	for name, test := range tests {
@@ -146,6 +161,46 @@ func TestCompareIsOverTheWrittenForm(t *testing.T) {
 					test.got, test.want)
 			}
 		})
+	}
+}
+
+// TestRenderedTellsTheScalarKindsApart pins the property [Compare] now rests
+// on: two values that are not the same value do not render as the same string.
+//
+// It is a test about a helper because the helper became load bearing. rendered
+// was written to quote a value in a report, and a report is judged by how it
+// reads — so without this, a later change made for readability could lose the
+// quotes around a string or shorten a long one, and the corpus would go on
+// passing while comparing two different answers as equal. That failure reports
+// nothing at all, which is the worst kind a conformance harness has.
+func TestRenderedTellsTheScalarKindsApart(t *testing.T) {
+	// One value per JSON kind a decoded scalar can be, beside the string that
+	// spells it — which is the collision that matters, because the value
+	// language writes a number and a run of bytes as strings.
+	values := []any{
+		nil, "null",
+		true, "true",
+		false, "false",
+		float64(1), "1",
+		float64(0), "0",
+		math.Copysign(0, -1), "-0",
+		"", "0x1p+0", "NaN", "Infinity", "-Infinity",
+		"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqaw==",
+		"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqbA==",
+	}
+
+	seen := make(map[string]any, len(values))
+
+	for _, value := range values {
+		form := rendered(value)
+
+		if first, ok := seen[form]; ok {
+			t.Errorf("%#v and %#v both render as %s, so the comparison cannot tell them apart", first, value, form)
+
+			continue
+		}
+
+		seen[form] = value
 	}
 }
 

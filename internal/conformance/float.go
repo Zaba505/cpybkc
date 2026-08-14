@@ -38,9 +38,17 @@ const (
 // positive one compare equal under IEEE equality, so a generator that lost the
 // sign of a zero would pass; an authored decimal is not a COMP-1 value, so an
 // entry's author would have to compute the double an implementation must print;
-// and HFP long carries more fraction bits than a double, so a form that went
-// through a decimal double could not state every value a correct HFP decoder
-// produces.
+// and a decimal detour is lossy in a way this one is not, since the hexadecimal
+// form is a transcription of the significand and the exponent rather than a
+// conversion between radices.
+//
+// What that last argument does not claim is full HFP precision. HFP long
+// carries a 56-bit fraction against a binary64's 53, so a value using the last
+// three is already rounded by the decoder that produced it — this function
+// takes a float64, and no spelling recovers a bit that was lost before it was
+// called. Stating those values would need a wider type here and a driver that
+// handed over something other than a float64; nothing generates them today, and
+// the day something does is the day to widen it.
 //
 // One value has exactly one spelling, which is what lets the comparison be
 // string equality. [strconv.FormatFloat] with 'x' writes the value exactly but
@@ -85,8 +93,20 @@ func FormatFloat(f float64) string {
 	// 'x' with a negative precision writes the smallest number of hexadecimal
 	// digits that represents the value exactly, and normalizes every non-zero
 	// value — including a subnormal one — to a significand of 1.
-	significand, exponent, _ := strings.Cut(
-		strings.TrimPrefix(strconv.FormatFloat(f, 'x', -1, 64), hexPrefix), hexExponentMarker)
+	written := strconv.FormatFloat(f, 'x', -1, 64)
+
+	significand, exponent, ok := strings.Cut(strings.TrimPrefix(written, hexPrefix), hexExponentMarker)
+	if !ok {
+		// Unreachable: 'x' always writes an exponent. It is handled rather than
+		// discarded because the two ways of getting this wrong are not
+		// comparable — canonicalising a string with no exponent would produce a
+		// well-formed spelling of a *different value*, which the grammar admits
+		// and every test would pass, where returning what strconv wrote states
+		// the right value in a spelling the canonical form visibly refuses. A
+		// comparison against an entry then fails, which is the outcome a
+		// formatter that has stopped behaving as documented deserves.
+		return sign + written
+	}
 
 	return sign + hexPrefix + canonicalSignificand(significand) +
 		hexExponentMarker + canonicalExponent(exponent)

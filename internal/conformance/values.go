@@ -306,6 +306,22 @@ func arrayDifference(path string, want, got []any) []error {
 // rendered is a value as a report should quote it: the JSON it was written as,
 // so that a string and the decimal string of a number are told apart by the
 // quotes around them.
+//
+// It is also the comparison, since [difference] compares two scalars by what
+// each side wrote rather than by Go equality, so it carries an obligation a
+// helper that only composed prose would not: **distinct values must render
+// distinctly.** json.Marshal is what gives that — it writes the JSON kind along
+// with the content, so a string never renders as a number, a number never as a
+// bool, and nothing is elided or truncated — and
+// TestRenderedTellsTheScalarKindsApart is what holds it there, so that a change
+// made to this function for readability cannot quietly turn half the corpus
+// off. A change here that loses the quotes, lowercases, or shortens a long
+// value is a change that makes two different answers agree.
+//
+// The %v fallback is not injective and does not need to be: json.Marshal
+// refuses only values encoding/json cannot have produced in the first place —
+// a NaN or an infinity as a Go float64 — and every value reaching this function
+// came out of [ParseValues].
 func rendered(value any) string {
 	b, err := json.Marshal(value)
 	if err != nil {
