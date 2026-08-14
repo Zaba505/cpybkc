@@ -13,7 +13,11 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/Zaba505/cpybkc/internal/emit"
 	"github.com/Zaba505/cpybkc/internal/layoutschema"
+	"github.com/Zaba505/cpybkc/irpb"
 )
 
 // TestTheShippedCorpusLoads holds the corpus this repository ships to its own
@@ -345,34 +349,53 @@ func rewriteValues(t *testing.T, dir, was, is string) {
 	write(t, path, rewritten)
 }
 
-// asIndexItem rewrites the named item's usage to USAGE_INDEX, which is one of
-// the three usages the value language writes as base64.
+// asIndexItem rewrites the named item into an INDEX item, which is one of the
+// three usages the value language writes as base64.
 //
-// The usage is written ahead of the names inside a field, so the one to rewrite
-// is the last one before the name — which is what makes this a change to the
-// named item and not to whichever item came first. The rendering stays
-// canonical, because only an enum's spelling changed and nothing about the
-// shape of the document did.
+// It decodes the descriptor, changes the two attributes that make an item one,
+// and writes back what this repository's own canonical renderer produces —
+// rather than rewriting the JSON as text. Text surgery would have to know where
+// the usage sits relative to the names and how the picture is indented, and a
+// case that broke on the rendering would fail with a descriptor's diagnostic
+// rather than the rule it is about.
+//
+// The PICTURE goes with the usage, because an INDEX item does not carry one and
+// an entry that paired them would be a descriptor nothing produces — which is
+// the shape of fixture that starts failing the day a validator learns the rule
+// and takes the case that depended on it down with it.
 func asIndexItem(t *testing.T, dir, name string) {
 	t.Helper()
 
-	const was = `"usage": "USAGE_DISPLAY"`
-
 	path := filepath.Join(dir, DescriptorName)
 
-	descriptor := read(t, path)
+	var descriptor irpb.Descriptor
+	if err := protojson.Unmarshal([]byte(read(t, path)), &descriptor); err != nil {
+		t.Fatalf("%v", err)
+	}
 
-	named := strings.Index(descriptor, `"original": "`+name+`"`)
-	if named < 0 {
+	found := false
+
+	for _, node := range descriptor.GetNodes() {
+		field := node.GetField()
+		if field == nil || field.GetNames().GetOriginal() != name {
+			continue
+		}
+
+		field.Usage = irpb.Usage_USAGE_INDEX
+		field.Picture = nil
+		found = true
+	}
+
+	if !found {
 		t.Fatalf("%s carries no item named %s", DescriptorName, name)
 	}
 
-	at := strings.LastIndex(descriptor[:named], was)
-	if at < 0 {
-		t.Fatalf("%s states no %s ahead of %s", DescriptorName, was, name)
+	canonical, err := emit.MarshalJSON(&descriptor)
+	if err != nil {
+		t.Fatalf("%v", err)
 	}
 
-	write(t, path, descriptor[:at]+`"usage": "USAGE_INDEX"`+descriptor[at+len(was):])
+	write(t, path, string(canonical))
 }
 
 // entryCopy is a copy of a shipped entry, in a directory of the test's own, so

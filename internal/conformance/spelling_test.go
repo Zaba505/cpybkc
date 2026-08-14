@@ -253,6 +253,92 @@ func TestTheSpellingWalkIsSilentAboutShape(t *testing.T) {
 	}
 }
 
+// TestTheWalkPassesOverANameTwoMembersShare holds the walk to the decision
+// [recordRoots] makes about a record name, one level down.
+//
+// One key cannot be two forms. Holding the value to both would refuse a
+// document that is correct about whichever of them the occurrence actually
+// holds — and would tell its author that their number carries a leading zero
+// when the item it belongs to is not a number at all. The value below is
+// correct as characters and wrong as a number, so a walk that checked either
+// arm rather than neither would refuse it.
+//
+// The format already says a group like this cannot be written down: two arms of
+// one name are one key. What is asserted here is only that the walk declines to
+// be the thing that reports it.
+func TestTheWalkPassesOverANameTwoMembersShare(t *testing.T) {
+	const descriptor = `{
+	  "version": "IR_VERSION_1",
+	  "nodes": [
+	    {"id": "1", "record": {"root_id": "2", "names": {"original": "TXN"}}},
+	    {"id": "2", "group": {
+	      "member_ids": ["3", "4"],
+	      "names": {"original": "TXN"},
+	      "repetition": {"constant": 1}
+	    }},
+	    {"id": "3", "variant": {"arms": [
+	      {"predicate_id": "30", "field_id": "5"},
+	      {"predicate_id": "30", "field_id": "6"}
+	    ]}},
+	    {"id": "4", "field": {
+	      "width": 1, "usage": "USAGE_DISPLAY",
+	      "picture": {"category": "CATEGORY_ALPHANUMERIC"},
+	      "names": {"original": "TAG"}
+	    }},
+	    {"id": "5", "field": {
+	      "width": 3, "usage": "USAGE_DISPLAY",
+	      "picture": {"category": "CATEGORY_NUMERIC", "digits": 3},
+	      "names": {"original": "CODE"}
+	    }},
+	    {"id": "6", "field": {
+	      "width": 3, "usage": "USAGE_DISPLAY",
+	      "picture": {"category": "CATEGORY_ALPHANUMERIC"},
+	      "names": {"original": "CODE"}
+	    }}
+	  ]
+	}`
+
+	const values = `{"records": [
+	  {"name": "TXN", "value": [{"CODE": "007", "TAG": "A"}]}
+	]}`
+
+	if err := parsed(t, values).check(descriptorOf(t, descriptor)); err != nil {
+		t.Fatalf("the document was refused — %v — and one key claimed by two items has no one form", err)
+	}
+}
+
+// TestEveryScalarIsAStringWhateverFormItHas holds the one rule the value
+// language states of every scalar rather than of a form.
+//
+// An item whose descriptor decides no form still may not be written as a JSON
+// number: the reason the rule exists is what a reader does with a number on the
+// way through — a PIC S9(18) item holds values a double does not — and that
+// happens before anything asks what form the item has.
+func TestEveryScalarIsAStringWhateverFormItHas(t *testing.T) {
+	const descriptor = `{
+	  "version": "IR_VERSION_1",
+	  "nodes": [
+	    {"id": "1", "record": {"root_id": "2", "names": {"original": "TXN"}}},
+	    {"id": "2", "group": {"member_ids": ["3"], "names": {"original": "TXN"}}},
+	    {"id": "3", "field": {"width": 4, "usage": "USAGE_DISPLAY", "names": {"original": "AMT"}}}
+	  ]
+	}`
+
+	if formOf(&irpb.Field{Usage: irpb.Usage_USAGE_DISPLAY}) != formUnstated {
+		t.Fatal("the item this case is about has a form, and the case is about one that has none")
+	}
+
+	err := parsed(t, `{"records": [{"name": "TXN", "value": {"AMT": 123456789012345678}}]}`).
+		check(descriptorOf(t, descriptor))
+	if err == nil {
+		t.Fatal("a JSON number was admitted, and every scalar of the value language is a string")
+	}
+
+	if !strings.Contains(err.Error(), scalarIsAString) {
+		t.Errorf("the refusal is %q, and it does not say %q", err, scalarIsAString)
+	}
+}
+
 // TestTheFormOfAnItemIsUsageThenCategory pins the order the two attributes are
 // read in.
 //

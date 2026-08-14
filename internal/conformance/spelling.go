@@ -167,13 +167,52 @@ func spelling(nodes map[uint64]*irpb.Node, node *irpb.Node, value any, path stri
 // A member the object does not carry is passed over rather than reported: an
 // arm the occurrence does not hold has no key by design, and a key that is
 // genuinely missing is a difference [Compare] states against an answer.
+//
+// A name two members share is passed over as well, for the reason [recordRoots]
+// passes over a record name two records share, and with more force: one key
+// would be two forms, and holding the value to both would refuse a document
+// that is correct about the one the occurrence actually holds. The format says
+// such a group cannot be written down at all — two arms of one name would be
+// one key — so this is the walk declining to be the thing that reports it, not
+// a case it supports.
 func groupSpellings(nodes map[uint64]*irpb.Node, group *irpb.Group, value any, path string) []error {
 	held, ok := value.(map[string]any)
 	if !ok {
 		return nil
 	}
 
+	items := groupItems(nodes, group)
+
+	claimed := make(map[string]int, len(items))
+	for _, item := range items {
+		claimed[original(item)]++
+	}
+
 	var faults []error
+
+	for _, item := range items {
+		name := original(item)
+
+		if claimed[name] != 1 {
+			continue
+		}
+
+		one, ok := held[name]
+		if !ok {
+			continue
+		}
+
+		faults = append(faults, spelling(nodes, item, one, path+"."+name)...)
+	}
+
+	return faults
+}
+
+// groupItems is everything a group contributes to the object written for it, in
+// member order — which is the order a report reads in, and the reason this is a
+// slice and the count above is taken from it rather than the other way round.
+func groupItems(nodes map[uint64]*irpb.Node, group *irpb.Group) []*irpb.Node {
+	var items []*irpb.Node
 
 	for _, id := range group.GetMemberIds() {
 		member, ok := nodes[id]
@@ -187,19 +226,10 @@ func groupSpellings(nodes map[uint64]*irpb.Node, group *irpb.Group, value any, p
 			continue
 		}
 
-		for _, item := range members(nodes, member) {
-			name := original(item)
-
-			one, ok := held[name]
-			if !ok {
-				continue
-			}
-
-			faults = append(faults, spelling(nodes, item, one, path+"."+name)...)
-		}
+		items = append(items, members(nodes, member)...)
 	}
 
-	return faults
+	return items
 }
 
 // members is what one member of a group contributes to the enclosing object: a
@@ -263,20 +293,26 @@ func occurrenceSpellings(value any, path string, one func(any, string) []error) 
 // way of writing a value that this format names and forbids in the same
 // sentence: a number written as one is read as a double, and a PIC S9(18) item
 // holds values a double does not.
+//
+// That rule is ahead of the form and not behind it. "Every scalar is a JSON
+// string" is stated of the language rather than of a form, and its reason —
+// what a JSON number does to a value on the way through a reader — holds for an
+// item whose descriptor decides no form just as it does for one that decides
+// the decimal grammar. Only the grammar itself is skipped there.
 func scalarSpelling(field *irpb.Field, value any, path string) []error {
 	switch value.(type) {
 	case map[string]any, []any:
 		return nil
 	}
 
-	form := formOf(field)
-	if form == formUnstated {
-		return nil
-	}
-
 	text, ok := value.(string)
 	if !ok {
 		return []error{fmt.Errorf("%s: %s is %s, and %s", ValuesName, path, rendered(value), scalarIsAString)}
+	}
+
+	form := formOf(field)
+	if form == formUnstated {
+		return nil
 	}
 
 	if fault := form.fault(text); fault != "" {

@@ -181,6 +181,15 @@ func floatFault(text string) string {
 // that is present exactly when there is one and never ends in a zero.
 func significandFault(significand string) string {
 	whole, fraction, pointed := strings.Cut(significand, ".")
+
+	// A significand that is not a hexadecimal number at all — 0xp+0, whose
+	// significand is nothing — is refused as a spelling rather than as a value
+	// that wants normalizing, which would be advice about a digit the author
+	// did not write.
+	if !lowerHex(whole) {
+		return floatIsWritten
+	}
+
 	if whole != "1" {
 		return floatIsNormalized
 	}
@@ -189,17 +198,37 @@ func significandFault(significand string) string {
 		return ""
 	}
 
-	if fraction == "" || strings.HasSuffix(fraction, "0") {
+	if fraction == "" {
 		return floatHasNoTrailing
 	}
 
-	for _, r := range fraction {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
-			return floatIsWritten
-		}
+	if !lowerHex(fraction) {
+		return floatIsWritten
+	}
+
+	if strings.HasSuffix(fraction, "0") {
+		return floatHasNoTrailing
 	}
 
 	return ""
+}
+
+// lowerHex is whether text is one or more lowercase hexadecimal digits and
+// nothing else, which is the LOWHEX of the grammar. An empty string is not one,
+// so a significand or a fraction that is missing is a spelling fault rather
+// than a value with a property.
+func lowerHex(text string) bool {
+	if text == "" {
+		return false
+	}
+
+	for _, r := range text {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // exponentFault holds an exponent to its one spelling: a sign always, a leading
@@ -218,16 +247,19 @@ func exponentFault(exponent string) string {
 		}
 	}
 
+	// Ahead of the leading-zero rule, so that an exponent which is not a decimal
+	// number at all — the +0p+0 a second p leaves behind — is refused as a
+	// spelling rather than as a well-formed exponent with a zero in front.
+	if !onlyDigits(digits) {
+		return floatIsWritten
+	}
+
 	if digits == "0" {
 		return ""
 	}
 
 	if strings.HasPrefix(digits, "0") {
 		return floatExponentSign
-	}
-
-	if !onlyDigits(digits) {
-		return floatIsWritten
 	}
 
 	return ""
