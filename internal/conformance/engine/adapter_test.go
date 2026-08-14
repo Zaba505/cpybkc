@@ -28,9 +28,18 @@ import (
 // costs a go build on every `go test` of this package and gives nothing back.
 const adapterEnv = "CPYBKC_CONFORMANCE_FAKE_ADAPTER"
 
-// TestMain is the fork in the road: with the variable set this process is an
-// adapter, and without it, it is the test binary.
+// TestMain is the fork in the road: this binary is a container runtime, an
+// adapter, or the tests, and each variable is set by whatever started it.
+//
+// The runtime is looked for first because it starts the adapter itself, in the
+// process it was given: a stub that re-exec'd would have to carry the adapter's
+// variable through it, and the point of the stub is that the image door hands
+// the container its own argument vector and nothing of the host's.
 func TestMain(m *testing.M) {
+	if record := os.Getenv(runtimeEnv); record != "" {
+		os.Exit(runAsRuntime(record))
+	}
+
 	if path := os.Getenv(adapterEnv); path != "" {
 		os.Exit(adapt(path))
 	}
@@ -342,6 +351,23 @@ func (f *fakeAdapter) record(line string) {
 func door(t *testing.T, told script) (*engine.Command, string) {
 	t.Helper()
 
+	path, transcript := scripted(t, told)
+
+	return &engine.Command{
+		Path: os.Args[0],
+		Env:  append(os.Environ(), adapterEnv+"="+path),
+	}, transcript
+}
+
+// scripted writes a fake adapter's script to a file of the test's own and
+// returns that path and the transcript the adapter will write to.
+//
+// It is separate from [door] because the image door reaches the same fake
+// adapter by a different route — through a stub runtime, as the container's own
+// argument vector — and the script is the half both doors share.
+func scripted(t *testing.T, told script) (string, string) {
+	t.Helper()
+
 	dir := t.TempDir()
 
 	transcript := filepath.Join(dir, "transcript.jsonl")
@@ -357,10 +383,7 @@ func door(t *testing.T, told script) (*engine.Command, string) {
 		t.Fatalf("failed to write the fake adapter's script: %v", err)
 	}
 
-	return &engine.Command{
-		Path: os.Args[0],
-		Env:  append(os.Environ(), adapterEnv+"="+path),
-	}, transcript
+	return path, transcript
 }
 
 // transcript is every request frame the adapter received, as text.

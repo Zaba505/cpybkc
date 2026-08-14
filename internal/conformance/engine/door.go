@@ -22,8 +22,8 @@ import (
 // the grounds that they are the door's rather than the contract's: one engine
 // runs a command and another spawns a container, and both drive one
 // implementation of the conversation precisely because the contract begins
-// after the process exists. This interface is that seam. [Command] is the door
-// this package ships, and the image door is a sibling of it (#203).
+// after the process exists. This interface is that seam, and [Command] and
+// [Image] are the two doors this package ships through it (#203).
 type Door interface {
 	// Open starts one adapter process. A door that cannot start one at all is
 	// an error, and it costs the run: there is no conversation to have.

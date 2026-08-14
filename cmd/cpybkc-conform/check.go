@@ -39,9 +39,16 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		corpus        = flags.String("corpus", defaultCorpus, "the unpacked corpus")
 		exec          = flags.String("exec", "", "the adapter executable, as a path")
 		dir           = flags.String("dir", "", "the adapter's working directory")
-		deadline      = flags.Duration("deadline", engine.DefaultDeadline, "bounds one operation")
-		buildDeadline = flags.Duration("build-deadline", engine.DefaultBuildDeadline, "bounds generate")
-		grace         = flags.Duration("grace", engine.DefaultGrace, "how long the adapter is given to exit")
+		image         = flags.String("image", "", "the adapter as a container image")
+		runtime       = flags.String("runtime", engine.DefaultRuntime, "the container runtime that runs --image")
+		imageDeadline = flags.Duration("image-deadline", engine.DefaultImageTimeout,
+			"bounds one containerised adapter, by the wall clock")
+		imageMemory    = flags.String("image-memory", engine.DefaultMemory, "the container's memory cap")
+		imageProcesses = flags.Int("image-processes", engine.DefaultProcesses, "the container's process cap")
+		imageScratch   = flags.String("image-scratch", engine.DefaultScratch, "the size of the container's /tmp")
+		deadline       = flags.Duration("deadline", engine.DefaultDeadline, "bounds one operation")
+		buildDeadline  = flags.Duration("build-deadline", engine.DefaultBuildDeadline, "bounds generate")
+		grace          = flags.Duration("grace", engine.DefaultGrace, "how long the adapter is given to exit")
 	)
 
 	if err := flags.Parse(args); err != nil {
@@ -59,12 +66,29 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("%w\n\n%s", err, usage)
 	}
 
-	path, err := adapterPath(*exec)
-	if err != nil {
+	if err := positive(*deadline, *buildDeadline, *grace); err != nil {
 		return err
 	}
 
-	if err := positive(*deadline, *buildDeadline, *grace); err != nil {
+	door, err := chooseDoor(flags, chosen{
+		exec:          *exec,
+		dir:           *dir,
+		image:         *image,
+		runtime:       *runtime,
+		memory:        *imageMemory,
+		scratch:       *imageScratch,
+		processes:     *imageProcesses,
+		timeout:       *imageDeadline,
+		deadline:      *deadline,
+		buildDeadline: *buildDeadline,
+		// Everything the flags did not consume, which is the adapter's own
+		// argument vector: docs/adapter/SPEC.md leaves it to the door precisely
+		// so that an adapter can be a script taking arguments of its own — or a
+		// container image taking them — without the contract growing a place to
+		// put them.
+		args: flags.Args(),
+	})
+	if err != nil {
 		return err
 	}
 
@@ -74,15 +98,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	report, err := (&engine.Engine{
-		Door: &engine.Command{
-			Path: path,
-			// Everything the flags did not consume, which is the adapter's own
-			// argument vector: docs/adapter/SPEC.md leaves it to the door
-			// precisely so that an adapter can be a script taking arguments of
-			// its own without the contract growing a place to put them.
-			Args: flags.Args(),
-			Dir:  *dir,
-		},
+		Door:          door,
 		Deadline:      *deadline,
 		BuildDeadline: *buildDeadline,
 		Grace:         *grace,

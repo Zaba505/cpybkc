@@ -37,6 +37,17 @@ It exits **0** when nothing failed, **1** when an entry disagreed or could not
 be asked, and **2** when the run could not be attempted at all. `--help` is the
 rest of the flags.
 
+If your adapter ships as a container image, name it instead and it runs behind
+one:
+
+```sh
+./bin/cpybkc-conform-linux-amd64 check --image ghcr.io/you/gen-rust-adapter:v1
+```
+
+That is the other door, and what it adds is in the last section. It needs a
+container runtime (`--runtime`, `docker` by default) and `--exec` does not,
+which is the whole reason both exist.
+
 ## Checking what you downloaded
 
 `corpus.sha256` holds a SHA-256 over `corpus/`. `check` verifies it before it
@@ -67,7 +78,23 @@ read-only root and no resource cap, and `cpybkc-conform` says so in every
 report it writes. A run through this door is **your own working result** — a
 fine thing to have and to publish, as long as it is labelled as one.
 
-It is also a self-report in a second sense: a run computed on your machine,
+`--image` runs it in a container with no network, a read-only root, a writable
+`/tmp`, a memory cap, a process cap and a wall-clock bound. Those are the
+door's properties and not the contract's, which is why the report quotes the
+door rather than assuming them of every run, and why a result produced through
+this one is **a result you can hand to somebody else**: nothing in it came from
+the network, and nothing it did outlived the container.
+
+Both doors drive the same contract with one implementation behind them, so the
+conversation, the entries and the comparison are identical and only the
+guarantees differ. Two things about the container are worth knowing before you
+build the image: `/tmp` is the only writable path in it, so point `TMPDIR`,
+`HOME`, `GOCACHE` or `CARGO_HOME` there if your toolchain needs a cache; and the
+memory and process caps are asked of your runtime, which warns on its own
+standard error when a kernel will not honour one. `cpybkc-conform` quotes that
+warning beside the report rather than claiming a cap it may not have had.
+
+Either way it is a self-report in a second sense: a run computed on your machine,
 against a corpus you downloaded, by a program you are holding. Nothing here is
 a conformance claim a third party should be asked to trust without
 qualification, and cpybkc awards no level, profile, score or badge.

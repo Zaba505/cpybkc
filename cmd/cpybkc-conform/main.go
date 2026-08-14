@@ -7,6 +7,7 @@
 // adapter and reports what came back.
 //
 //	cpybkc-conform check --exec <path> [--corpus <dir>] [-- args for the adapter...]
+//	cpybkc-conform check --image <ref> [--corpus <dir>] [-- args for the adapter...]
 //	cpybkc-conform digest [--corpus <dir>]
 //
 // It is [github.com/Zaba505/cpybkc/internal/conformance/engine] with a command
@@ -32,11 +33,28 @@
 // attached to every release beside the corpus, as cpybkc-conformance.tar.gz —
 // a download and an `--exec`, with no registry, no daemon and no image.
 //
-// A container door is the *other* door and is #203's. It is where the
-// properties that make a result believable live — no network, a read-only root,
-// a deadline — and this one has none of them: [engine.Command.Describe] says so
-// in as many words, and the report quotes it. A run through this door is the
-// author's own working result, and that is what it should be labelled.
+// # Two doors, and what each one is worth
+//
+// So `--exec` is the door that needs nothing: a download and a path. It also
+// provides nothing — no network namespace, no read-only root, no resource cap —
+// and [engine.Command.Describe] says so in as many words, which the report
+// quotes. A run through it is the author's own working result.
+//
+// `--image` is the other door, and is where the properties that make a result
+// believable to somebody else live: no network, a read-only root, a memory and
+// process cap, and a wall-clock bound on the container
+// ([engine.Image.Describe], again quoted). Both doors drive one implementation
+// of the conversation, because the contract begins after the process exists
+// (docs/adapter/SPEC.md, "A process is the unit, and a container is a door onto
+// it") — the image door is an argument vector and a container to take away
+// afterwards, and nothing about the conversation changes (#203).
+//
+// Which door a run went through is therefore a property of the result, and the
+// report records it. Neither door makes a run a conformance claim a third party
+// should be asked to trust without qualification: a run computed on the
+// claimant's machine, against a corpus they downloaded, by a program they are
+// holding, is a self-report either way. That is a fine thing to publish, as
+// long as it is labelled as one.
 //
 // # The exit status
 //
