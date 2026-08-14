@@ -31,10 +31,14 @@ const programName = "cpybkc"
 // archetype, which cross-compiles it stamped with `-X main.version=<version>`,
 // and a build nobody stamped keeps the value written here — which is
 // .dagger/image.go's devVersion, so a plain `go build` and an unreleased
-// pipeline build report the same thing. `dagger call image-contract` runs the
-// published image's own --version and holds the answer to the version the image
-// was built for, so a stamp that stopped landing fails on an ordinary pull
-// request rather than in a release.
+// pipeline build report the same thing.
+//
+// That collision is deliberate and it is also why proving the stamp lands takes
+// a third version: under devVersion a dropped stamp and a landed one write the
+// same line. `dagger call image-contract` builds one image under a version
+// nothing publishes and requires this variable to carry it, which is what makes
+// a `const` here — the #181 defect — fail on an ordinary pull request rather
+// than at a release, where the tag it disagrees with has already been pushed.
 //
 // # Stamped rather than moved by hand, which is the opposite of what this said
 //

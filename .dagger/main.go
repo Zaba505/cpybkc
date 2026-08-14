@@ -863,10 +863,16 @@ func (m *Cpybkc) versionLine(ctx context.Context) (string, error) {
 // stamping a version while --version kept printing whatever the tree said, and
 // v0.0.0 shipped identifying itself as an unreleased development build. Nothing
 // compared the two, because the only two readings of the line in this module
-// wanted its shape and its IR version. It runs on an ordinary pull request as
-// well as at a release — there devVersion is what the image was built for and
-// what it has to say — so the stamp is checked by every run rather than by the
-// one run that cannot be repeated.
+// wanted its shape and its IR version.
+//
+// What this catches under devVersion is narrower than it looks, and worth
+// stating exactly. devVersion is the same string the commands carry in their
+// tree, so a stamp that landed and a stamp the linker dropped write the same
+// line and both pass here. What fails is a reportedVersion that stopped
+// dropping the tag's leading `v`, and a release whose binaries disagree with its
+// tag. That the stamp lands *at all* is checked by building under a version
+// nothing publishes — see checkVersionIsStamped, which is where the collision is
+// escaped.
 func checkVersionLine(line, version string) error {
 	if !strings.HasPrefix(line, cliBinary+" ") || !strings.Contains(line, "IR version") {
 		return fmt.Errorf("cpybkc --version wrote %q, and the line names the program, its version and the IR "+

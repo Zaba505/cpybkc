@@ -508,9 +508,18 @@ entrypoint, and runs the generator out of the image on a descriptor stating no
 IR version so that the refusal names the generator's own, and holds both to the
 version the image was built for. `release` runs that same check as its gate,
 over the very containers it is about to push and under the release's tag, so
-nothing is published under a version its binaries disagree with. On a pull
-request the version being checked against is `devVersion` — so the stamp is
-checked by every run, rather than only by the one run that cannot be repeated.
+nothing is published under a version its binaries disagree with.
+
+On a pull request the version being checked against is `devVersion`, and that is
+the same string both commands carry in their tree — so a stamp that landed and a
+stamp the linker silently dropped write the same line, and neither of those
+assertions can tell them apart. What they do catch there is a version that
+stopped dropping the tag's leading `v`. Proving the stamp lands at all takes a
+version nothing publishes, which is why the contract builds one image under
+`v0.0.0-contract` and requires the two executables to report it: under a value
+that cannot collide with the tree's default, a `const` that `-X` cannot reach
+fails on an ordinary pull request instead of at a release, where the tag it
+disagrees with has already been pushed.
 
 `internal/assemble.Version` is a different number and is not stamped by
 anything: it is the IR version, and `--version` reports it beside the build's

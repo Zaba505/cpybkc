@@ -235,6 +235,25 @@ const (
 	// so that "which release is this" has an answer that is never wrong.
 	devVersion = "v0.0.0-dev"
 
+	// contractVersion is a version nothing publishes, built under once per run so
+	// that the version stamp is exercised rather than merely agreed with.
+	//
+	// It exists because devVersion cannot do this job. That value is deliberately
+	// the same string both commands carry in their tree — a build nobody stamped
+	// has to be indistinguishable from an unreleased one that was — and the
+	// consequence is that every check run under it passes whether the stamp
+	// landed or was silently dropped. Turning either `version` back into a const,
+	// or an upstream rename of the symbol the archetype stamps, would sail
+	// through a pull request and fail at a release, after a version tag is
+	// already pushed at HEAD and this project's contract forbids repointing it.
+	//
+	// A third value is the whole fix: built under it, a binary that was stamped
+	// says so and a binary that was not still says `0.0.0-dev`. It is not a
+	// release number and never becomes one — a tag it could be confused with is
+	// the one thing it must not be — and nothing is published from the images it
+	// builds. See checkVersionIsStamped.
+	contractVersion = "v0.0.0-contract"
+
 	// generatorVersionProbePackage is the Go package name checkGeneratorVersion
 	// hands the generator, and it names nothing that is ever written.
 	//
@@ -604,7 +623,65 @@ func (m *Cpybkc) ImageContract(
 		}
 	}
 
+	if err := errors.Join(m.checkVersionIsStamped(ctx)...); err != nil {
+		errs = append(errs, fmt.Errorf("the version stamp: %w", err))
+	}
+
 	return errors.Join(errs...)
+}
+
+// checkVersionIsStamped builds both images under a version nothing publishes and
+// requires the two executables to report it.
+//
+// # What the loop above cannot see
+//
+// Everything in this file that reads a version reads it out of an image built
+// under devVersion, and devVersion is the same string both commands carry in
+// their tree. So a binary the linker stamped and a binary whose stamp the linker
+// silently dropped produce the identical line, and every one of those
+// assertions passes either way. They are not worthless — a reportedVersion that
+// stopped dropping the tag's `v` fails them — but the fact this story exists for
+// is the one they cannot see, and a check that cannot fail on the defect it
+// names is worse than no check, because it is read as cover.
+//
+// The failures it leaves open are both live. `-X` writes only to a package-level
+// string var, and a var quietly returned to a const is exactly what #181 was:
+// the pipeline appears to stamp while the program reports the tree. The stamp
+// naming a symbol that is not there is the same outcome by a different route —
+// a typo in generatorBinary's `main.version`, or the archetype renaming what it
+// stamps upstream — and the linker reports neither.
+//
+// Building under contractVersion is what makes both observable, and it is the
+// only arrangement that does: no value the pipeline already uses can, because
+// the one it builds everything unreleased under is required to collide with the
+// tree's. A pull request stays green — the version being asserted is one this
+// check chose, not a release it has to agree with — which is the point.
+//
+// # One platform, and both routes into an image
+//
+// The engine's own, because this is the only group here that has to *execute*
+// both executables and a foreign platform would buy emulation for an answer that
+// does not vary by architecture. checkImageBuild is where per-platform claims
+// about these binaries are made.
+//
+// Both apps rather than one, because the two are stamped by different parties.
+// The CLI's comes from the shared archetype, with the flag and the symbol fixed
+// upstream; the generator's is passed by hand in generatorBinary, since it is
+// built through the generic constructor and has nobody upstream to stamp it. A
+// check of one says nothing about the other.
+func (m *Cpybkc) checkVersionIsStamped(ctx context.Context) []error {
+	platform, err := dag.DefaultPlatform(ctx)
+	if err != nil {
+		return []error{fmt.Errorf("resolving the engine's platform, which is the one this check runs on: %w", err)}
+	}
+
+	base := m.baseApp(contractVersion).Container(platform)
+
+	errs := m.checkImageIsTheCLI(ctx, base, contractVersion)
+
+	generator := m.generatorApp(contractVersion).Container(platform)
+
+	return append(errs, m.checkGeneratorVersion(ctx, generator, contractVersion)...)
 }
 
 // checkBaseImage holds one platform's base image to docs/container/SPEC.md.

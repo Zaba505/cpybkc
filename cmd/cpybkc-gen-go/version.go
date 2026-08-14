@@ -73,10 +73,12 @@ const (
 // "which build am I running" across both of this repository's commands is worth
 // more than a name that repeated what the package it lives in already says.
 //
-// `dagger call image-contract` runs this generator out of the published image
-// on a descriptor it must refuse and holds the version in that refusal to the
-// version the image was built for, so a stamp that stopped landing fails on an
-// ordinary pull request.
+// `dagger call image-contract` runs this generator out of the image on a
+// descriptor it must refuse and holds the version in that refusal to the version
+// the image was built for. One of those images is built under a version nothing
+// publishes, and that one is what proves the stamp lands: the version everything
+// unreleased is built under is the same string this file defaults to, so under
+// it a dropped stamp and a landed one give the identical refusal.
 var version = "v0.0.0-dev"
 
 // reportedVersion is the version a refusal carries.
