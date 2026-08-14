@@ -40,7 +40,7 @@ go.work.sum
 # leading underscore is what keeps it out of ./..., and so out of `go build`,
 # `go vet` and the linter; a run removes its own tree, and this covers the one a
 # killed run left behind. See testdata/conformance/README.md.
-/internal/conformance/gorunner/_scratch/
+/internal/conformance/goadapter/_scratch/
 
 # env file
 .env

@@ -96,23 +96,39 @@ does*](../../docs/conformance/SPEC.md#what-a-runner-does).
 
 `internal/conformance` is the corpus — the loader, the value language and the
 comparison — and every word of it is language-neutral.
-`internal/conformance/gorunner` is the Go runner: it invokes a generator through
-the same code path cpybkc invokes a plugin with, writes a driver beside the
-generated package, and builds and runs it with the Go toolchain.
+`internal/conformance/engine` asks a generator about it, by starting a process
+and speaking the frames [`docs/adapter/SPEC.md`](../../docs/adapter/SPEC.md)
+specifies over that process's standard input and standard output. The program on
+the other end is an **adapter**, and the engine has no idea which language is
+behind one.
 
-The driver reads the descriptor at run time and walks the generated structs
+`internal/conformance/goadapter` is this repository's own adapter, for
+`cpybkc-gen-go`. It is driven through the public contract exactly as a stranger's
+would be, and that is the point rather than a convenience: if the contract cannot
+carry this generator, it cannot carry a third party's either, and the cost of
+finding that out here is one refactor.
+
+It invokes the generator through the same code path cpybkc invokes a plugin with,
+writes a codec program beside the generated package, and compiles every entry's
+in one invocation of the Go toolchain — which is what `generate` carrying the
+whole corpus at once is for.
+
+A codec program reads the descriptor at run time and walks the generated structs
 beside it by reflection, rather than being emitted with the copybook's names
 already spelled into it. The names in a values document have to come from
 somewhere, and only two places have them: the descriptor, and a second copy of
 how `cpybkc-gen-go` munges an identifier out of one. A copy would agree with the
 generator exactly until the rule changed, and then compare the wrong fields
-without failing.
+without failing. Which Go type stands for which record is settled by folding both
+names down to their letters and digits and requiring exactly one match — the
+weakest property of the munging rule that can still pair them, and one that fails
+loudly rather than quietly when it does not hold.
 
-It hands the records the reader produced straight to the writer rather than
-rebuilding them from the values beside them, because a record built from a values
-document is a different record: *Slack survives a read* puts the bytes no item
-covers on the record a reader produced, and a constructed one has a writer fill
-them instead.
+The codec program outlives the `decode` it answered, holding the records its
+reader produced until a `roundtrip` asks for them, because a record built from a
+values document is a different record: *Slack survives a read* puts the bytes no
+item covers on the record a reader produced, and a constructed one has a writer
+fill them instead.
 
 `go test ./internal/conformance/...` runs the corpus against `cpybkc-gen-go`
 built from the tree under test, in both directions and over every entry (#68).

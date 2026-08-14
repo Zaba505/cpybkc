@@ -76,10 +76,10 @@ type Process interface {
 type Command struct {
 	// Path is the executable to run. It is a path rather than a name to look up,
 	// for the reason
-	// [github.com/Zaba505/cpybkc/internal/conformance/gorunner.Runner] takes
-	// one: a run is usually against something just built from the tree under
-	// test, and resolving a name would find whichever one the author happened to
-	// have installed.
+	// [github.com/Zaba505/cpybkc/internal/conformance/goadapter.Adapter] names
+	// its generator by one: a run is usually against something just built from
+	// the tree under test, and resolving a name would find whichever one the
+	// author happened to have installed.
 	Path string
 
 	// Args are the arguments after the executable, which are the door's and not

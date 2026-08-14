@@ -45,7 +45,7 @@ import (
 // The types hold it. internal/plugin.Runner has no field for a temporary
 // directory at all and puts each descriptor directory beside the output
 // directory the invocation cannot be run without; internal/generate.Runner and
-// internal/conformance/gorunner.Runner each refuse a run whose directory field
+// internal/conformance/goadapter.Adapter each refuse a run whose directory field
 // is empty, before a generator starts. Those are the three os.MkdirTemp call
 // sites in this repository, and every one of them passes a variable.
 //
