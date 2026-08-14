@@ -219,13 +219,14 @@ with four items in it.
 | [`mixed-record-converted`](mixed-record-converted) | The same record after a correct, copybook-aware conversion from EBCDIC. |
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
+| [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Three are not derived from it — `float-ieee754-special`,
-`batch-fixed` and `batch-rdw` — and the last two subsections below say what each
-cites instead. The first of the three is about something else: which entries
-Appendix A's vectors are paired into, which is a question about the entries that
-*are* derived from it.
+it came from (#67). Four are not derived from it — `float-ieee754-special`,
+`batch-fixed`, `batch-rdw` and `odo-sliding` — and the subsections below say
+what each of them cites instead. The first subsection is about something else:
+which entries Appendix A's vectors are paired into, which is a question about
+the entries that *are* derived from it.
 
 ### Where "in both character sets" applies, and where it does not
 
@@ -278,6 +279,38 @@ entry: framing is this repository's layer, so this repository's specs are where
 its right answer is written down. `batch-fixed` is in the same position, and both
 carry Appendix A.7's record inside them so that the bytes of a *record* stay
 traceable to a vector even where the bytes around it are not.
+
+### The variable-table entry cites the two specs that decide it
+
+`codec/SPEC.md` says of `OCCURS DEPENDING ON` only that it makes the record's
+length variable, and it says so while placing record formats out of scope. Where
+the items *behind* such a table go is therefore not a question Appendix A has a
+vector for, and `odo-sliding` is authored against
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *An item after a table slides, and
+the other reading is a fixed table* and
+[`docs/layout/SPEC.md`](../../docs/layout/SPEC.md)'s *The `OCCURS DEPENDING ON`
+reading is one statement per layout* — the fork, and the statement a layout
+carries to settle it. The bytes of its items are still `codec/SPEC.md`'s, which
+is what the entry cites beside them.
+
+It is the corpus's only entry whose records are not all the same length, and
+that is the point rather than a side effect. Every other entry's record extent is
+a constant a consumer could have hardcoded; here the item behind the table is
+six bytes further along in the second detail record than in the first — two
+occurrences of three bytes, at record offset 5 against 11 — so a consumer that
+resolved the table at its declared maximum, or at the first record's count,
+reads `DTL-TAIL` out of the wrong bytes. That is what
+[`packed-comp6`](packed-comp6) does for a one-byte overread, done for one whose
+size is data.
+
+It is also the corpus's only entry with a register in it. The header's count
+governs the records that follow it rather than the record it sits in, which is
+what makes it the automaton's memory — the register, the binding that writes it
+and the guards that read it, from *The automaton remembers, in registers* and the
+*Appendix: A counted run, as nodes* that names them. A file of two counts, one
+per kind, is what puts both in one entry: `HDR-DETAIL-COUNT` becomes a register
+because it counts records, and `DTL-LINE-COUNT` stays a field because it counts
+occurrences inside the record holding it.
 
 ### No row of Appendix A is deliberately absent, and two once were
 
