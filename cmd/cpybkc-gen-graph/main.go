@@ -47,11 +47,20 @@
 // each a consumer of a convenience no third-party generator has — which is the
 // one thing this command exists to avoid being.
 //
-// # What this command does not do yet
+// # What it draws, and what it does not draw yet
 //
-// Draw. It writes an empty document in the notation `--opt format=` asks for,
-// so that the executable is on the contract from the commit that creates it
-// rather than from the one that gives it something to say; see [document].
+// The sequencing automaton: every state the descriptor carries, the transitions
+// between them labelled with the record each admits, where a read begins and
+// where one may end, and the file's framing stated beside the diagram. The
+// descriptor is read into a [graph] once and an emitter is a function over
+// that, so a second notation is a second emitter and never a second walk; see
+// [document].
+//
+// Not yet drawn is what hangs off those states and edges — the predicates,
+// guards, bindings and registers that select a transition, and each record's
+// items with their offsets — and `--opt format=dot` is still an empty digraph.
+// Each is a story of its own, and each is a field on [graph] read by both
+// emitters rather than a read of the descriptor of its own.
 //
 // # The version check
 //

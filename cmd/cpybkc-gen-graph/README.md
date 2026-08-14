@@ -19,10 +19,11 @@ Like `cpybkc-gen-go` it imports `github.com/Zaba505/cpybkc/irpb` and the
 standard library and nothing else from this repository, so the surface it
 exercises is the one a third-party generator author has.
 
-> **It draws nothing yet.** This is the skeleton: the argument vector, the
-> version check, the diagnostics and the options below all work, and the
-> document it writes is an empty diagram in the format you asked for. What goes
-> inside it is the story after this one.
+> **It draws the automaton, and not yet what hangs off it.** The states, the
+> transitions between them and the record each admits are in the Mermaid
+> document today. The predicates, guards, bindings and registers that *choose* a
+> transition are not, and neither are each record's items with their offsets;
+> both are stories of their own. `format=dot` is still an empty digraph.
 
 ## Invocation
 
@@ -109,8 +110,57 @@ given the same descriptor and the same options produce byte-identical files:
 nothing in the output comes from the clock, the environment, the host, the user
 or the paths in the argument vector.
 
-Today that file holds the generated-by line and an empty diagram, and nothing
-else.
+### What the Markdown document holds
+
+A heading, the file's framing as a sentence, and a `mermaid` block holding the
+sequencing automaton as a `stateDiagram-v2`:
+
+```mermaid
+stateDiagram-v2
+    [*] --> s2
+    s2 --> s3: ORDER-HEADER
+    s3 --> s3: DETAIL-LINE
+    s3 --> s7: ORDER-TRAILER
+    s7 --> [*]
+```
+
+- **A state is `s` and its own IR node identifier.** States carry identifiers
+  and no names, and the identifier is what takes you to the same node in
+  `cpybkc --emit-ir` when the diagram is not enough.
+- **`[*] --> s2` is the start state**, which is the file node's
+  `start_state_id`, and **`s7 --> [*]` is an accepting state** — one where
+  reaching the end of the input is a complete file rather than a truncated one.
+- **An edge is labelled with the record its transition admits**, by the rename
+  your layout gave it where it gave one and by the copybook's own spelling
+  otherwise. It is not what *selects* the transition; that is a predicate, and
+  drawing those is a story of its own.
+- **Edges leave a state in the order the state carries them**, because that is
+  the order a consumer evaluates them in and the first one that matches wins.
+- **Every state the descriptor carries is drawn**, including one nothing
+  reaches. Those are marked *unreachable* and called out above the diagram: a
+  state no path arrives at is a bug in whatever compiled the automaton, and
+  leaving it out would make this document agree with a descriptor that is wrong.
+
+The framing is stated because it is the question a state machine cannot answer.
+What stands between two records — nothing, a descriptor word, segments, or a
+delimiter with a placement — is part of what you are checking, and the
+delimiter is printed as bytes (`0x0D 0x0A`) rather than named as a character,
+because [nothing names the byte that ends a
+record](../../docs/ir/SPEC.md#a-delimiter-is-bytes-not-a-character).
+
+A record name is escaped before it becomes a label. A letter, digit, space,
+`-`, `_` or `.` is written as it stands — COBOL names are full of hyphens and
+`ORDER#45;HEADER` is a diagram nobody reads — and every other character becomes
+Mermaid's `#<code point>;`. A renderer that decodes those shows the name; one
+that does not shows the escape. Neither can produce a block that fails to parse,
+which is the property being bought.
+
+An automaton admitting no record produces a document saying so, with the start
+state still drawn. It is a layout describing a file of no records, which is a
+thing to look at rather than nothing to draw.
+
+`--opt records=` has no effect yet: it governs the item tables, which are a
+story of their own.
 
 ## The IR version check
 
