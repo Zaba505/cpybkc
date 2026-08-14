@@ -132,8 +132,9 @@ pull request rather than one it describes.
 
 It is also the one project here that runs **two** generators, `go` and `graph`,
 which is what makes it the place the plugin contract's central equality can be
-tested rather than only stated: a run assembles one descriptor, and every
-generator in it — and `--emit-ir` — is handed the same bytes.
+tested rather than only stated: every generator in a run — and `--emit-ir` — is
+handed the same descriptor bytes. With one generator there is no second set of
+bytes for that to hold between.
 
 Its layout is deliberately a hard one, because a worked example is what an
 adopter reads to find out whether their own file is describable: six record

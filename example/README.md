@@ -44,10 +44,19 @@ than as a fact buried in an assertion. The diagram is the half of that a reviewe
 can read without reading Go: a change to what `cpybkc-gen-graph` draws shows up
 here as the picture changing.
 
-Which generators the test covers is read out of `cpybkc.json` rather than written
-down beside it — the names it builds, the executables it puts on `PATH` and the
-directories it walks all come from the manifest — so a third generator added to
-the example is covered by having been added.
+Which generators *that test* covers is read out of `cpybkc.json` rather than
+written down beside it — the names it builds, the executables it puts on `PATH`
+and the directories it walks all come from the manifest — so a third generator
+added here is covered by having been added, as long as it is a command in this
+repository's `cmd/`.
+
+Two things outside this directory do have to be told, and a third entry that
+skipped them would fail rather than go uncovered.
+[`.dagger/companion.go`](../.dagger/companion.go) composes the generators into an
+image by hand and requires the plugin directory to hold exactly them — it cannot
+read the manifest, because *how* a generator is installed is not in it: `go` has
+a published image and `graph` does not. And `cmd/cpybkc-gen-<name>` has to exist
+to be built.
 
 The generated code is a Go **package** rather than a fixture under `testdata/`,
 for the reason [the golden packages](../cmd/cpybkc-gen-go/internal/README.md)
@@ -228,9 +237,9 @@ other one.
 `docs/plugin/SPEC.md` says a run assembles **one** descriptor and hands every
 generator in it the same bytes — and that those bytes are what `--emit-ir`
 writes for the same inputs, which is what makes reproducing a failing generation
-by hand possible at all. With one generator in a manifest that statement is
-vacuous: any pipeline passes it, including one that assembled a descriptor per
-generator.
+by hand possible at all. With one generator in a manifest the equality has
+nothing to hold between: there is no second set of bytes, so it is satisfied by
+there being nothing to compare.
 
 This is the first project in the repository to run two, so
 [`regenerate_test.go`](regenerate_test.go)'s second test is the first place it
@@ -239,6 +248,12 @@ one that copies the file at `--descriptor` into its own `--out` and writes
 nothing else — runs cpybkc over this manifest, and requires the two copies that
 land in the project to be byte-identical to each other and to what
 `--emit-ir` writes for the same run.
+
+What it does not show is the *one* in "one descriptor". Assembly is
+deterministic, so a pipeline that assembled a fresh descriptor for each
+generator would hand both stubs identical bytes and pass. Counting assemblies
+would need them to be observable and nothing makes them so — and the equality,
+not the count, is what a reader reproducing a generation by hand depends on.
 
 Two more things a one-generator manifest could not show are covered beside it.
 

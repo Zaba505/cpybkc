@@ -135,15 +135,29 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 }
 
 // TestEveryGeneratorInTheRunIsHandedTheSameDescriptor asserts the equality the
-// plugin contract rests reproducibility on: a run assembles **one** descriptor,
-// every generator in it is handed those same bytes, and they are the bytes
-// `--emit-ir` writes for the same inputs.
+// plugin contract rests reproducibility on: every generator in a run is handed
+// the same descriptor bytes, and they are the bytes `--emit-ir` writes for the
+// same inputs.
 //
-// docs/plugin/SPEC.md states it and one generator could never show it — with a
-// single entry in the manifest, "every generator gets the same bytes" is
-// vacuously true and a pipeline that assembled a descriptor per generator would
-// pass. This example is the first project in the repository that runs two, so
-// it is the first place the statement can fail.
+// docs/plugin/SPEC.md states it and one generator could never show it: with a
+// single entry in the manifest there is no second set of bytes to be equal to,
+// and "every generator gets the same bytes" holds by there being nothing to
+// compare. This example is the first project in the repository that runs two, so
+// it is the first place the equality can fail.
+//
+// # What this does not show
+//
+// That the run assembled **one** descriptor. Assembly is deterministic over the
+// same inputs — the `--emit-ir` half below leans on exactly that, since it
+// compares against bytes a second cpybkc process produced — so a pipeline that
+// assembled a fresh descriptor per generator would hand both stubs identical
+// files and pass this unchanged. Telling those apart would need the number of
+// assemblies to be observable, and nothing in the contract makes it so.
+//
+// That is not a gap being tolerated quietly: the equality is the property the
+// contract states and the property a reader reproducing a failing generation
+// depends on, and it is what this asserts. How many times the bytes were
+// computed is not something anybody downstream can act on.
 //
 // It is asserted through the contract rather than through the packages behind
 // it. Real generators keep the bytes they were handed to themselves, so this
@@ -238,6 +252,15 @@ func TestEveryGeneratorInTheRunIsHandedTheSameDescriptor(t *testing.T) {
 // output directory and nothing else. Every one of them has to be gone
 // afterwards, and the record has to come out as the committed one — the run's
 // real output, recorded together and sorted across both generators.
+//
+// One of those stale files is in a directory **no** current generator writes
+// into, and it is the one that makes this an assertion about the record rather
+// than about the output directories. A pipeline that never read
+// `cpybkc.gen.json` at all — one that simply emptied each generator's `out`
+// before merging its scratch tree in — would pass on the other two and leave
+// this one where it stands. It is also the case the record exists for: a
+// generator removed from the manifest has an `out` nothing writes to any more,
+// and the record outliving the entry is the whole of what prunes it.
 func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
 	// No t.Parallel, for the reason the tests above give: PATH is process-wide.
 
@@ -256,24 +279,31 @@ func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
 		copyFile(t, name, filepath.Join(project, name))
 	}
 
-	// A stale file in each output directory, and a record that names them and
-	// nothing else. They are what the last run is being said to have generated,
-	// so this run has to prune every one of them.
-	const staleName = "stale.txt"
+	// A stale file in each output directory and one in a directory no generator
+	// in this manifest writes into, and a record that names them and nothing
+	// else. They are what the last run is being said to have generated, so this
+	// run has to prune every one of them.
+	const (
+		staleName = "stale.txt"
+
+		// retiredDir stands for the `out` of a generator that has since been
+		// taken out of the manifest. Nothing this run does goes near it.
+		retiredDir = "retired"
+	)
 
 	var stale []string
 
-	for _, out := range outputDirs(gens) {
-		if err := os.MkdirAll(filepath.Join(project, out), 0o755); err != nil {
-			t.Fatalf("making %s: %v", out, err)
+	for _, dir := range append(outputDirs(gens), retiredDir) {
+		if err := os.MkdirAll(filepath.Join(project, dir), 0o755); err != nil {
+			t.Fatalf("making %s: %v", dir, err)
 		}
 
-		path := filepath.Join(project, out, staleName)
+		path := filepath.Join(project, dir, staleName)
 		if err := os.WriteFile(path, []byte("what the last run is said to have written\n"), 0o644); err != nil {
 			t.Fatalf("writing %s: %v", path, err)
 		}
 
-		stale = append(stale, out+"/"+staleName)
+		stale = append(stale, dir+"/"+staleName)
 	}
 
 	writeRecord(t, filepath.Join(project, recordName), stale)
@@ -318,7 +348,7 @@ func writeRecord(t *testing.T, path string, files []string) {
 		Files   []string `json:"files"`
 	}{Version: 1, Files: files}, "", "  ")
 	if err != nil {
-		t.Fatalf("writing %s: %v", path, err)
+		t.Fatalf("encoding the record for %s: %v", path, err)
 	}
 
 	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
@@ -353,7 +383,7 @@ func difference(got, want string) string {
 
 	const regenerate = "\n\nRegenerate it with the commands in example/README.md and commit the result."
 
-	if len(gotLines) <= readable && len(wantLines) <= readable {
+	if lines(gotLines) <= readable && lines(wantLines) <= readable {
 		return fmt.Sprintf("\n--- generated ---\n%s\n--- checked in ---\n%s\n---%s", got, want, regenerate)
 	}
 
@@ -364,7 +394,21 @@ func difference(got, want string) string {
 	}
 
 	return fmt.Sprintf("\nthe first %d lines agree and the generated file has %d of them against the %d checked in%s",
-		min(len(gotLines), len(wantLines)), len(gotLines), len(wantLines), regenerate)
+		min(lines(gotLines), lines(wantLines)), lines(gotLines), lines(wantLines), regenerate)
+}
+
+// lines is how many lines a split file actually has.
+//
+// Every file cpybkc writes ends in a newline, and splitting one on "\n" leaves a
+// trailing empty element that is not a line. Counting it would put a 300-line
+// file at 301 and outside a [readable] budget the constant says admits it, and
+// would report every count in the message above one too high.
+func lines(split []string) int {
+	if n := len(split); n > 0 && split[n-1] == "" {
+		return n - 1
+	}
+
+	return len(split)
 }
 
 // generators is the manifest's `generators` array, read rather than written

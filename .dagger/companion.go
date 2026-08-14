@@ -589,6 +589,13 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	// directory holds what it should, so a with-generator-executable that
 	// installed a second copy under another name would pass every assertion
 	// above.
+	//
+	// The pair is written down rather than read out of example/cpybkc.json,
+	// because the manifest does not carry the thing this needs: *how* a generator
+	// is installed. `go` has a published image and goes in through with-generator;
+	// `graph` has none and goes in as a file. A third entry in that manifest has
+	// to be added here too, and fails this check loudly rather than going
+	// uncovered if it is not.
 	composed := []string{generatorExecutable, graphGeneratorExecutable}
 
 	if err := m.checkComposedImage(ctx, fromImage.Image(), composed); err != nil {
