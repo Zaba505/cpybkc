@@ -1203,6 +1203,39 @@ the code cannot drift apart. A change to what a value is written as is a change
 to `docs/conformance/SPEC.md` first, then to that table, and the test is what
 says the code followed.
 
+### The engine, and the adapter it drives
+
+The corpus above is half of what a third party needs; the other half is a
+program that asks a generator in another language the same question.
+[`internal/conformance/engine`](internal/conformance/engine) is that program.
+It starts a process, speaks the JSON frames
+[`docs/adapter/SPEC.md`](docs/adapter/SPEC.md) specifies over that process's
+standard input and standard output, and holds what came back against what each
+entry states. The program on the other end is an **adapter**, and a container
+image is one door onto it rather than the contract itself.
+
+What lives in the engine rather than in the adapter is not an organisational
+choice. The comparison is here because an adapter holding the expected answers
+is self-grading; the per-operation deadline is here because an adapter that gave
+up on a slow entry would turn one slow entry into a broken adapter and cost
+everything after it; and the fault isolation is here because a crashed adapter's
+stream cannot be resynchronised, so the run needs a fresh process on the entries
+that were left. No frame the engine writes carries any part of an entry's
+`values.json`, and `TestTheAdapterIsNeverGivenTheExpectedValues` asserts exactly
+that against every frame of a real run.
+
+A mismatch is followed by where the descriptor puts the item that disagreed —
+its offset within the record, its width, its usage and its charset — and by the
+bytes of `input.bin` it was read from, where the framing lets a record be
+placed. That is the position sum `docs/ir/SPEC.md` says every consumer runs, and
+the engine is the only thing in the system that can say it: the adapter was
+never told what was expected.
+
+`go test ./internal/conformance/engine/...` re-executes the test binary as a
+fake adapter — one process per case, over real pipes — so the crash, the hang,
+the greeting on standard output and the carriage return a receiver must refuse
+are each exercised against a real process rather than against a stub.
+
 ## Specs
 
 Seven of this project's interfaces are built against from outside it — the
