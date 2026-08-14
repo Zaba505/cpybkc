@@ -204,8 +204,8 @@ func Compare(want, got *Values) error {
 		path := fmt.Sprintf("record %d", i+1)
 
 		if wantRecord.Name != gotRecord.Name {
-			faults = append(faults, fmt.Errorf("%s is a %s and the entry expects a %s",
-				path, gotRecord.Name, wantRecord.Name))
+			faults = append(faults, at(path, fmt.Errorf("%s is a %s and the entry expects a %s",
+				path, gotRecord.Name, wantRecord.Name)))
 
 			continue
 		}
@@ -223,14 +223,14 @@ func difference(path string, want, got any) []error {
 	case map[string]any:
 		gotObject, ok := got.(map[string]any)
 		if !ok {
-			return []error{fmt.Errorf("%s: %s, and the entry expects a group", path, described(got))}
+			return []error{at(path, fmt.Errorf("%s: %s, and the entry expects a group", path, described(got)))}
 		}
 
 		return objectDifference(path, want, gotObject)
 	case []any:
 		gotArray, ok := got.([]any)
 		if !ok {
-			return []error{fmt.Errorf("%s: %s, and the entry expects %d occurrences", path, described(got), len(want))}
+			return []error{at(path, fmt.Errorf("%s: %s, and the entry expects %d occurrences", path, described(got), len(want)))}
 		}
 
 		return arrayDifference(path, want, gotArray)
@@ -241,7 +241,7 @@ func difference(path string, want, got any) []error {
 		// the item repeats at all.
 		switch got.(type) {
 		case map[string]any, []any:
-			return []error{fmt.Errorf("%s: %s, and the entry expects %s", path, described(got), rendered(want))}
+			return []error{at(path, fmt.Errorf("%s: %s, and the entry expects %s", path, described(got), rendered(want)))}
 		}
 
 		// String equality over the written form, and deliberately not Go's !=
@@ -254,11 +254,18 @@ func difference(path string, want, got any) []error {
 		// over the written form" requires, and rendering both sides keeps that
 		// true of anything a document carries that is not one (#194, #195).
 		if rendered(want) != rendered(got) {
-			return []error{fmt.Errorf("%s is %s and the entry expects %s", path, rendered(got), rendered(want))}
+			return []error{at(path, fmt.Errorf("%s is %s and the entry expects %s", path, rendered(got), rendered(want)))}
 		}
 
 		return nil
 	}
+}
+
+// at says where in the values document a disagreement is, in a form a caller
+// holding the descriptor can act on. See [PathError], which is the whole of why
+// it exists; the message is untouched.
+func at(path string, err error) error {
+	return &PathError{Path: path, Err: err}
 }
 
 // objectDifference compares two groups, member by member.
@@ -273,8 +280,8 @@ func objectDifference(path string, want, got map[string]any) []error {
 	for _, name := range slices.Sorted(maps.Keys(want)) {
 		gotValue, ok := got[name]
 		if !ok {
-			faults = append(faults, fmt.Errorf("%s: %s is not there, and the entry expects %s",
-				path, name, rendered(want[name])))
+			faults = append(faults, at(path+"."+name, fmt.Errorf("%s: %s is not there, and the entry expects %s",
+				path, name, rendered(want[name]))))
 
 			continue
 		}
@@ -284,8 +291,8 @@ func objectDifference(path string, want, got map[string]any) []error {
 
 	for _, name := range slices.Sorted(maps.Keys(got)) {
 		if _, ok := want[name]; !ok {
-			faults = append(faults, fmt.Errorf("%s: %s is %s, and the entry does not expect it at all",
-				path, name, rendered(got[name])))
+			faults = append(faults, at(path+"."+name, fmt.Errorf("%s: %s is %s, and the entry does not expect it at all",
+				path, name, rendered(got[name]))))
 		}
 	}
 
@@ -297,8 +304,8 @@ func arrayDifference(path string, want, got []any) []error {
 	var faults []error
 
 	if len(want) != len(got) {
-		faults = append(faults, fmt.Errorf("%s holds %d occurrences and the entry expects %d",
-			path, len(got), len(want)))
+		faults = append(faults, at(path, fmt.Errorf("%s holds %d occurrences and the entry expects %d",
+			path, len(got), len(want))))
 	}
 
 	for i := range min(len(want), len(got)) {

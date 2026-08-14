@@ -55,6 +55,36 @@ func (e *MismatchError) Error() string {
 
 func (e *MismatchError) Unwrap() error { return e.Err }
 
+// PathError is one disagreement [Compare] found, carrying the path through the
+// record it is at as well as the sentence a reader sees.
+//
+// The message is the sentence and nothing else: the path is already in it,
+// spelled for whoever is reading a report, and a wrapper that said it twice
+// would be a wrapper every report had to be edited around. What the type adds
+// is the same path in a form a caller can key on, so that a caller holding the
+// descriptor can say where the descriptor puts the item that disagreed — its
+// offset, its width, its usage and its charset — beside the disagreement
+// (#199).
+//
+// That caller is the engine, and it is the only thing in the system that can do
+// it: the adapter was never told what was expected, and this package compares
+// documents rather than bytes. Recovering the path by parsing the sentence back
+// out of an error string would work exactly until somebody improved the
+// sentence, which is the kind of coupling a type costs nothing to replace.
+type PathError struct {
+	// Path is where in the values document the disagreement is, in the spelling
+	// [Compare] uses throughout: `record 1 ORDER-RECORD.ORDER-ID`, with an
+	// occurrence written `[0]` and counted from zero as the document writes it.
+	Path string
+
+	// Err is the disagreement, whose message already names Path.
+	Err error
+}
+
+func (e *PathError) Error() string { return e.Err.Error() }
+
+func (e *PathError) Unwrap() error { return e.Err }
+
 // RunError is an entry a runner could not answer about at all: the generator
 // would not run, what it produced would not compile, or the runner could not be
 // driven.
