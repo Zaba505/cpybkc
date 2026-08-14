@@ -436,14 +436,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg notes", err))
 				}
 			}
-			var repository string
-			if inputArgs["repository"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["repository"]), &repository)
+			var reference string
+			if inputArgs["reference"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["reference"]), &reference)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repository", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg reference", err))
 				}
 			}
-			return (*Cpybkc).ReleaseNotes(&parent, ctx, tag, notes, repository)
+			return (*Cpybkc).ReleaseNotes(&parent, ctx, tag, notes, reference)
 		case "ReleaseNotesContract":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)

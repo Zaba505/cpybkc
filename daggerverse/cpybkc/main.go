@@ -146,14 +146,28 @@
 //
 // # The curated surface, and why it is not the flag table
 //
-// Generate takes a source directory and a manifest, and that is the whole of
-// what this module maps by name. It deliberately does not grow an argument per
-// entry in docs/cli/SPEC.md's flag table: a module argument is public API for as
-// long as the directory this module is published under exists, so a table
-// mapped one-to-one would make every change to that table a change to this
-// module's surface, and would have to express in Dagger arguments things a
-// command line says better — a flag that replaces the action rather than
-// configuring it, and a flag that may not appear beside another.
+// Two functions map a cpybkc command by name, and they are the two commands
+// there are. Generate takes a source directory and a manifest, and is the
+// default action — what cpybkc does when nothing else is asked of it. Init takes
+// a source directory and copybook paths and hands back the layout scaffold, which
+// is `cpybkc init`; it is curated because it is the run an adopter reaches first,
+// before there is a manifest or a layout for anything else to read, and so the one
+// invocation they have nothing to copy from.
+//
+// That is the whole of what this module maps by name. It deliberately does not
+// grow an argument per entry in docs/cli/SPEC.md's flag table: a module argument
+// is public API for as long as the directory this module is published under
+// exists, so a table mapped one-to-one would make every change to that table a
+// change to this module's surface, and would have to express in Dagger arguments
+// things a command line says better — a flag that replaces the action rather
+// than configuring it, and a flag that may not appear beside another.
+//
+// A curated function is also allowed to decline one spelling of a flag without
+// declining the flag. Init supplies --out itself, at a path inside the container
+// the caller never types, and hands back the File; `--out -` is not offered,
+// because a File-returning function cannot express a stream any more than it can
+// express --emit-ir's. That is not the command being out of reach — it is Run's,
+// below, exactly as --emit-ir is.
 //
 // Run is the other half of that decision, and the reason the first half can stay
 // small. It takes the argument vector verbatim and hands back the container, so
@@ -202,6 +216,30 @@ const executableMode = 0o755
 // this path, so it is written into that function's documentation rather than
 // left to be discovered.
 const projectDir = "/src"
+
+// scaffoldDir is where Init has cpybkc write the scaffold, and scaffoldPath is
+// the file inside it.
+//
+// It is deliberately **outside** [projectDir]. `cpybkc init` replaces nothing:
+// a destination that is occupied fails the run, whatever is in it
+// (docs/cli/SPEC.md, "Nothing at <dest> is ever replaced"), and that rule is the
+// one unrecoverable act this command could otherwise perform — the `discriminate`
+// forms and the `sequence` in an edited layout are the part no copybook holds.
+// Writing into a directory of this module's own, which nothing was mounted into,
+// is what makes the rule hold here without the module reasoning about the
+// caller's tree at all: there is nothing at the path, ever, whatever is in
+// theirs.
+//
+// The caller never types either constant. The file comes back as a
+// *dagger.File, and where it lands is what they name at export — which keeps
+// *where the file goes is the one thing the adopter knows and cpybkc does not*
+// true of this module as well as of the CLI. The name below is only what the
+// file is called on the way out; the manifest's `layout` field names the
+// adopter's copy, and this module has no business choosing that.
+const (
+	scaffoldDir  = "/scaffold"
+	scaffoldPath = scaffoldDir + "/layout.sexpr"
+)
 
 // contractUser is the UID:GID docs/container/SPEC.md pins the image to, used to
 // own the mounted project when the container cannot say who it runs as.
@@ -598,6 +636,115 @@ func (m *Cpybkc) Generate(
 		Directory(projectDir), nil
 }
 
+// Init scaffolds a layout from copybooks and hands back the file to edit:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  init --source . --copybook posting.cpy export --path ledger.sexpr
+//
+// It is the first thing an adopter runs, before there is a manifest, a layout or
+// a generator to speak of, and it is curated for that reason: the one invocation
+// somebody has nothing to copy from is a poor place to make them assemble an
+// argument vector by hand.
+//
+// What comes back is **not a valid layout** and is not meant to be. `init`
+// writes what the copybooks decide — a record per 01-level, an alternative per
+// REDEFINES — and leaves the half no copybook holds as commented forms for a
+// person to answer: which field discriminates, and in what order the records
+// come. docs/cli/SPEC.md's `init` section is what that file says and what it
+// deliberately does not.
+//
+// Nothing is written to the host, exactly as with Generate: the File that comes
+// back is a value, and exporting it is the caller's separate step. What it is
+// called is theirs — this module writes the scaffold to a path of its own inside
+// the container ([scaffoldPath]) that nothing was mounted into, so the run cannot
+// land on something the caller already has, and the name it takes in their tree
+// is the one they give `export`.
+//
+// *Where* it goes is theirs within one constraint, and it is the one thing here
+// a caller cannot infer from the signature. The scaffold names each copybook by
+// the path it was given, which is relative to the root of source, and a layout's
+// own paths are relative to the layout — so the file belongs at that root, beside
+// the copybooks it names. Exported into a subdirectory it is a layout whose
+// copybook paths resolve nowhere, and nothing at export time will say so. A
+// project that keeps its layout somewhere else moves the paths as it moves the
+// file; they are the adopter's to edit, like the rest of what `init` leaves
+// blank.
+//
+// The destination this module supplies is a file rather than a stream, so
+// `--out -` is not offered here. A caller who wants the scaffold on standard
+// output still has Run, which is the same arrangement --emit-ir has:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --source . --args=init,--copybook,posting.cpy,--out,- stdout
+func (m *Cpybkc) Init(
+	ctx context.Context,
+	// The project the copybooks are in: the directory their paths are relative
+	// to, mounted at /src and made the working directory.
+	//
+	// It is required, unlike Run's, because a scaffolding run reads files by
+	// definition. The whole directory is mounted rather than the named copybooks
+	// alone, because that is what makes the paths below resolve as the adopter
+	// typed them: --source is already how every other function on this module
+	// takes the caller's tree, and a mount holding only the named files would be
+	// a second, weaker answer to where a relative path points.
+	source *dagger.Directory,
+	// A copybook to read, as a path relative to the root of source. Repeat it
+	// once per copybook, in the order the scaffold should hold their records in.
+	//
+	// Paths rather than files, because the path is data: docs/cli/SPEC.md has
+	// the scaffold record each copybook's path *as it was typed*, and a layout's
+	// own paths are relative to the layout. A file handed over on its own would
+	// have cpybkc write a container path the adopter cannot find anywhere in
+	// their tree.
+	//
+	// At least one is required, and none may be "-": a copybook on a stream has
+	// no path for the scaffold to state. Everything else is the CLI's to refuse —
+	// a value naming a directory is a run that failed rather than a line that
+	// was wrong, and it says so with a diagnostic naming the path.
+	//
+	// One boundary belongs to the command line rather than to cpybkc: `dagger
+	// call` renders a list argument as `--copybook a.cpy --copybook b.cpy` or as
+	// one comma-separated `--copybook a.cpy,b.cpy`, so a copybook whose path
+	// contains a comma cannot be spelled here. That one is Run's, where the
+	// vector is passed through as written.
+	copybook []string,
+) (*dagger.File, error) {
+	args, err := argv.Init(copybook, scaffoldPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolved once and used for both the project mount and the scaffold
+	// directory below, which is the whole reason [Cpybkc.user] is a function:
+	// two answers to who this image is would be two answers.
+	user, err := m.user(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	project := m.mount(user, source)
+
+	// Emptied first, then an empty directory owned by whoever the container runs
+	// as.
+	//
+	// Emptied because WithDirectory *merges*: whatever the image already had
+	// here would survive it, and a caller may have passed --image, which this
+	// module is not entitled to have an opinion about the contents of. Without
+	// the removal, such a container carrying anything at [scaffoldPath] would
+	// fail the run on a destination its caller never named and cannot see in the
+	// call — which is the one failure this path is arranged to make impossible.
+	//
+	// Owned, because the scaffold is written through a temporary file created
+	// beside its destination and linked into place — the write is atomic or it
+	// does not happen — so the process needs a directory it can create in, not
+	// merely a path nothing occupies.
+	return project.
+		WithoutDirectory(scaffoldDir).
+		WithDirectory(scaffoldDir, dag.Directory(), dagger.ContainerWithDirectoryOpts{Owner: user}).
+		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		File(scaffoldPath), nil
+}
+
 // Run is the escape hatch: cpybkc invoked with an argument vector this module
 // has no opinion about, in a container handed back whole.
 //
@@ -662,25 +809,48 @@ func (m *Cpybkc) Run(
 
 // project mounts a caller's project at [projectDir] and stands in it.
 //
-// The mount is owned by whoever the container runs as, asked of the container
-// rather than assumed, so that a caller who passed --image built on a derived
-// image with its own user still gets a project their process can write into. A
-// container that reports no user at all falls back to [contractUser], which is
-// what the base-image contract pins and what an image satisfying it runs as; the
-// alternative, leaving the mount root-owned, is a run that fails on the first
-// file a generator writes.
+// The mount is owned by [Cpybkc.user], which is what keeps a run from failing on
+// the first file a generator writes.
 func (m *Cpybkc) project(ctx context.Context, source *dagger.Directory) (*dagger.Container, error) {
+	user, err := m.user(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return m.mount(user, source), nil
+}
+
+// mount is [Cpybkc.project] with the user already in hand, for a caller that
+// needs it for something else as well and should not ask twice.
+func (m *Cpybkc) mount(user string, source *dagger.Directory) *dagger.Container {
+	return m.Container.
+		WithDirectory(projectDir, source, dagger.ContainerWithDirectoryOpts{Owner: user}).
+		WithWorkdir(projectDir)
+}
+
+// user is who the container runs as, and it is the owner every directory this
+// module mounts or creates is given.
+//
+// It is asked of the container rather than assumed, so that a caller who passed
+// --image built on a derived image with its own user still gets directories
+// their process can write into. A container that reports no user at all falls
+// back to [contractUser], which is what the base-image contract pins and what an
+// image satisfying it runs as; the alternative, leaving a mount root-owned, is a
+// run that fails on the first file it writes.
+//
+// It is a function of its own because two things need it now: the project mount,
+// and the directory Init has the scaffold written into. A second copy of the
+// fallback would be a second answer to who this image is.
+func (m *Cpybkc) user(ctx context.Context) (string, error) {
 	user, err := m.Container.User(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("reading the user the cpybkc image runs as, which the mounted project has to be "+
-			"writable by: %w", err)
+		return "", fmt.Errorf("reading the user the cpybkc image runs as, which the directories this module "+
+			"mounts have to be writable by: %w", err)
 	}
 
 	if user == "" {
-		user = contractUser
+		return contractUser, nil
 	}
 
-	return m.Container.
-		WithDirectory(projectDir, source, dagger.ContainerWithDirectoryOpts{Owner: user}).
-		WithWorkdir(projectDir), nil
+	return user, nil
 }

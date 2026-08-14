@@ -731,9 +731,22 @@ companion exactly as it does to the root.
 ### The curated surface, and the check that keeps it honest
 
 `Generate` takes a source directory and a manifest and hands back a
-`Directory`; `Run` takes an argument vector verbatim and hands back a
-`Container`. Those two are the whole surface, and the split between them is a
-decision rather than a stopping point (#62).
+`Directory`; `Init` takes a source directory and copybook paths and hands back
+the layout scaffold as a `File`; `Run` takes an argument vector verbatim and
+hands back a `Container`. Those three are the whole surface, and the split
+between them is a decision rather than a stopping point (#62).
+
+The two curated ones are the two commands cpybkc has. `Init` is `cpybkc init`
+(#228), and it is curated for a reason the default action does not need: it is
+the run an adopter reaches **first**, before there is a manifest or a layout for
+anything else to read, so it is the one invocation they have nothing to copy
+from. It takes copybook *paths* into `--source` rather than files, because
+[`docs/cli/SPEC.md`](docs/cli/SPEC.md) has the scaffold record each path as it
+was typed and a layout's own paths are relative to the layout; and it supplies
+`--out` itself, at a path outside the mounted project, so *nothing at `<dest>`
+is ever replaced* holds without the module reasoning about the caller's tree at
+all. Where the file goes in that tree is what they name at `export`, which is
+the one thing the adopter knows and cpybkc does not.
 
 The module **does not** grow an argument per entry in
 [`docs/cli/SPEC.md`](docs/cli/SPEC.md)'s flag table. A module argument is public
@@ -751,6 +764,13 @@ invocations are exactly the ones whose answer is not a tree — `--emit-ir` may
 write to standard output, and `--version` and `--help` write nothing else at
 all.
 
+It is also what lets a curated function decline one *spelling* of a flag
+without declining the flag. `Init` does not offer `--out -`, which a
+`File`-returning function cannot express any more than it can express
+`--emit-ir`'s stream; the scaffold on standard output is
+`run --source . --args=init,--copybook,posting.cpy,--out,-`, exactly as it was
+before there was an `Init`.
+
 What a curated surface risks is the CLI quietly growing a flag the module can
 no longer express, which reads from out here exactly like a module that chose
 not to express it. `dagger call cli-surface` is the difference, and it is in
@@ -766,7 +786,7 @@ and fails when one of them is not recorded in `companionCoverage` in
 function `daggerverse/cpybkc` does not declare, or when an entry names a flag
 the CLI has stopped accepting. **So adding a flag to cpybkc fails CI until
 somebody says which side of the curation it falls on** — a curated argument on
-`Generate`, or `Run`.
+`Generate` or `Init`, or `Run`.
 
 Be exact about what an entry in that table claims, because it is less than it
 looks. It is a person's assertion that they thought about the flag and decided
@@ -786,10 +806,15 @@ can be written — package scope or a function body, one hyphen or two, a litera
 or one flag's spelling built from another's — because each of those was a hole
 found in review, and each is now a row in
 [`.dagger/internal/surface/`](.dagger/internal/surface/)'s tests rather than a
-sentence in a comment. And it is a **flag**-level check because
-`docs/cli/SPEC.md` fixes cpybkc as one command with no subcommands — there is no
-verb list for a module function to correspond to, so the surface that can drift
-is the flag table.
+sentence in a comment. And it is a **flag**-level check even though the CLI now
+has a verb (#183, #214): the set of subcommand names is closed at `init` by
+`docs/cli/SPEC.md`, so a second one is a change to that document rather than a
+constant somebody adds on the way past, and the reading would be unsound anyway
+— `internal/surface` keeps the constants shaped like a flag, and a verb is not
+one, so picking `init` out of them means knowing its spelling in advance. What
+the verb adds is two flags, `--copybook` and `--out`, and those reach the table
+through the same constants as everything else. The surface that can drift is the
+flag table.
 
 Two things stop it degrading quietly, which matters more here than for an
 ordinary check: a drift guard's failure mode is *staying green*. A read that
@@ -944,8 +969,20 @@ which is what makes the two
 rather than merely both present (#63). Both start from the base image, which
 carries the CLI and **no** generator — so a generation that succeeded did so with
 the generators these calls installed and not with something lying around in the
-image. `image` and `run` are checked too, since a check that exercised only what
-it needed would leave the rest of the module's surface covered by nothing.
+image. `image`, `run` and `init` are checked too, since a check that exercised
+only what it needed would leave the rest of the module's surface covered by
+nothing.
+
+**`init` is checked against the escape hatch, not against a second expectation.**
+The curated scaffolding function has to hand back the scaffold
+`run --args=init,…,--out,-` writes over the same three copybooks in
+[`example/`](example/), byte for byte (#228). That is cheap, it needs no second
+reading of what a scaffold should contain — `internal/scaffold`'s tests own that
+— and it is the property the escape-hatch entry in `companionCoverage` stood in
+for while there was no function: a caller who reached for `run` before it existed
+gets the same file from the function that replaced it. It runs against the base
+image with nothing composed into it, because `init` resolves no layout and runs
+no generator, which is also the state an adopter is in when they run it.
 
 **Two generators, because the example runs two.** Since #191 the committed
 example names `go` *and* `graph`, so each composition installs both and the
