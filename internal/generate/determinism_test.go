@@ -77,11 +77,13 @@ const emitsItsHostname = `echo "$HOSTNAME" > "$4/host"`
 // invocation's descriptor directory goes. Those are the two absolute paths this
 // package chooses, so they are what the comparison has to see differ.
 //
-// TMPDIR is still varied, and it is varied at a directory that does not exist.
-// Nothing reads it any more — that is the claim — and a claim is worth a check:
-// were either path put back on it, the run would fail outright on a parent that
-// is not there, rather than quietly passing because two runs agreed about a
-// directory neither of them was looking at.
+// TMPDIR is still varied, and it is varied at a path that is not a directory at
+// all. Nothing reads it any more — that is the claim — and a claim is worth a
+// check: a generator that took a path from it would fail outright rather than
+// quietly passing because two runs agreed about a directory neither of them was
+// looking at. What cpybkc itself would do with TMPDIR is the other half, and it
+// is scratch_test.go's TestARunNeedsNoTemporaryDirectoryOfTheSystems, which
+// states the variable in this process rather than in a generator's environment.
 //
 // Environment-visible throughout, which is the limit of what a run in this
 // process can vary; see the note at the top of this file for what covers the
@@ -109,11 +111,11 @@ func machine(t *testing.T, n int) *Runner {
 				"LOGNAME=person-" + id,
 				"HOME=/home/person-" + id,
 				"PWD=" + t.TempDir(),
-				// A directory that is not there, on purpose: see the note
-				// above. Nothing in cpybkc reads TMPDIR since #184, and a run
-				// that started reading it again would fail here rather than
-				// pass.
-				"TMPDIR=" + filepath.Join(t.TempDir(), "no-temporary-directory-"+id),
+				// Not a directory, on purpose: see the note above. The
+				// generators below never look at it, and one that started to
+				// would fail rather than agree with its neighbour about a
+				// directory neither had.
+				"TMPDIR=" + notADirectory(t, id),
 				"TZ=" + []string{"UTC", "Australia/Eucla"}[n%2],
 				"LANG=" + []string{"C", "tr_TR.UTF-8"}[n%2],
 				"SOURCE_DATE_EPOCH=1700000000",
@@ -206,4 +208,20 @@ func TestTheComparisonWouldSeeARunThatVariedWithItsMachine(t *testing.T) {
 	if maps.Equal(generate(t, 0, emitsItsHostname), generate(t, 1, emitsItsHostname)) {
 		t.Error("two runs whose machines disagree produced one tree from a generator that embeds its hostname")
 	}
+}
+
+// notADirectory is a path with a regular file at it, for TMPDIR to name.
+//
+// A file rather than a missing path because os.MkdirAll creates what is missing
+// and would carry on; nothing creates a directory over a file, so every way of
+// asking for one under this fails with ENOTDIR.
+func notADirectory(t *testing.T, id string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "not-a-temporary-directory-"+id)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+
+	return path
 }

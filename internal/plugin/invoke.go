@@ -54,8 +54,10 @@ const descriptorFile = "descriptor.bin"
 // It names cpybkc because the directory is made beside the invocation's output
 // directory rather than in a temporary directory the operating system would
 // eventually sweep, so a process killed outright leaves it where a person will
-// find it — and what a person finds has to say what left it.
-const descriptorDirPattern = "cpybkc-descriptor-"
+// find it — and what a person finds has to say what left it. The leading dot is
+// [github.com/Zaba505/cpybkc/internal/generate]'s scratch pattern's: a survivor
+// of a killed run is not something the go tool should try to compile.
+const descriptorDirPattern = ".cpybkc-descriptor-"
 
 // Option is one option a generator is invoked with, which reaches it as a
 // single `--opt k=v` argument.

@@ -7,6 +7,7 @@ package generate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -25,10 +26,17 @@ import (
 // It names cpybkc because the space is made under [Runner.Scratch] — for
 // cpybkc's own runs, the project's root — rather than in a temporary directory
 // the operating system would eventually sweep. A run killed outright, where the
-// deferred removal never happens, leaves this directory in somebody's tree and
-// in their `git status`, so the name has to say what left it and that it is
-// nobody's output.
-const scratchPattern = "cpybkc-scratch-"
+// deferred removal never happens, leaves this directory in somebody's tree, so
+// the name has to say what left it and that it is nobody's output.
+//
+// The leading dot is what keeps that survivor out of the way of everything
+// else. `go build ./...`, `go vet ./...` and the go tool generally skip a
+// directory whose name begins with a dot or an underscore, so a half-written
+// package left by a killed run is not a package the next build tries to
+// compile, and a build running in the tree while a run is in progress does not
+// see one either. It stays visible to `git status`, which is where a person
+// finds it.
+const scratchPattern = ".cpybkc-scratch-"
 
 // scratchMode is the mode a generator's own directory inside that space is
 // created with: this process's and nothing else's.
@@ -204,8 +212,14 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, generators []Gener
 	// with nowhere to make its scratch space is a caller that assembled a Runner
 	// it never finished, and there is no directory this package is entitled to
 	// pick on its behalf (#184).
+	//
+	// Worded for whoever reads it rather than for whoever wrote this file. It
+	// is not reachable from the command line — cmd/cpybkc passes the project's
+	// root, which is filepath.Dir of the manifest's path and so is never empty
+	// — so the only reader is a caller embedding this package, and what they
+	// need is what was not decided rather than which field spells it.
 	if r.Scratch == "" {
-		invalid.Fail(fmt.Errorf("this run has no directory to make its scratch space in; Scratch is required"))
+		invalid.Fail(errors.New("this run has nowhere to make its scratch space; it was given no project directory to make it in"))
 	}
 
 	for _, generator := range generators {

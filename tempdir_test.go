@@ -39,6 +39,30 @@ import (
 // would carry os.TempDir straight past a search for that text. Comments are not
 // parsed at all, which is why the prose above and the several comments in this
 // repository that name /tmp are not findings.
+//
+// # What holds the property, and what this only guards
+//
+// The types hold it. internal/plugin.Runner has no field for a temporary
+// directory at all and puts each descriptor directory beside the output
+// directory the invocation cannot be run without; internal/generate.Runner and
+// internal/conformance/gorunner.Runner each refuse a run whose directory field
+// is empty, before a generator starts. Those are the three os.MkdirTemp call
+// sites in this repository, and every one of them passes a variable.
+//
+// This scan cannot see any of them, and that is not a gap to be closed here:
+// deciding whether an arbitrary expression can be empty is a type-checker in a
+// test, and the three answers it would give are already given by the code. What
+// the scan guards is the next call site — source written naively, where the
+// ambient directory is asked for outright — and the ways of asking that a
+// search for `os.TempDir` would miss. It is a fence around a decision the types
+// have already made, not the decision itself.
+//
+// It does not resolve shadowing, does not follow a forbidden function used as a
+// value (`f := os.TempDir`), and does not read a variable passed to os.Getenv.
+// Generated files are scanned like any other, deliberately: a generated client
+// that reached a temporary directory would reach one at run time exactly as
+// hand-written source would, and an exemption written before anybody has seen
+// such a case is an exemption nobody would ever revisit.
 
 // searched is every tree held to the rule.
 //

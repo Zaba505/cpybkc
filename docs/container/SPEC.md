@@ -389,9 +389,14 @@ descriptor](../plugin/SPEC.md#the-descriptors-location-and-lifetime) and [each
 generator's empty output directory](../plugin/SPEC.md#the-output-directory)
 inside the project it was pointed at, so everything a run writes is in the tree
 the caller already mounted and already made writable. There is no `TMPDIR` to
-set and no `/tmp` to mount: every `docker run` this document prints is the
-whole of the arrangement, and each of them keeps working with a read-only root
-filesystem and under whatever UID the caller chooses.
+set and no `/tmp` to mount, so the `docker run` invocations this document
+prints are the whole of the arrangement, whatever UID they run as.
+
+Its **absence** is not covered either, and neither is anything about it. A
+generator that wants a temporary directory of its own is a derived image's
+business exactly as it was before: `COPY` one in, or have the deployment mount
+one. What changed is only that the base no longer needs one in order to
+generate.
 
 Keeping the shell out is the same decision as having no plugin registry: the
 image's contents are exactly the executables somebody deliberately put there,

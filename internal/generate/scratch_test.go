@@ -8,6 +8,7 @@ package generate
 import (
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,12 +179,19 @@ func TestARunNeedsNoTemporaryDirectoryOfTheSystems(t *testing.T) {
 	// reads TMPDIR.
 	project := t.TempDir()
 
-	// A path with nothing at it. Every way of reaching an ambient temporary
-	// directory ends at os.MkdirTemp or os.CreateTemp with no parent, and both
-	// fail outright on a parent that is not there — so a read put back anywhere
-	// in a run fails this test rather than passing quietly because two runs
-	// agreed about a directory neither was looking at.
-	t.Setenv("TMPDIR", filepath.Join(project, "no-such-temporary-directory"))
+	// A regular file, not a directory and not a path with nothing at it. A
+	// missing path is enough to fail os.MkdirTemp and os.CreateTemp, which are
+	// where the fallback used to be, but not enough to fail os.MkdirAll — and
+	// `os.MkdirAll(filepath.Join(os.TempDir(), …))` is an ordinary enough way
+	// to reintroduce the thing this test exists to keep out that it would
+	// otherwise pass here quietly. A file underneath fails all three with
+	// ENOTDIR, so any of them put back anywhere in a run fails this test.
+	trap := filepath.Join(project, "not-a-temporary-directory")
+	if err := os.WriteFile(trap, nil, 0o644); err != nil {
+		t.Fatalf("writing %s: %v", trap, err)
+	}
+
+	t.Setenv("TMPDIR", trap)
 
 	out := filepath.Join(project, "pkg")
 
@@ -213,8 +221,11 @@ func TestARunWithNowhereToMakeItsScratchSpaceIsRefusedBeforeAnythingRuns(t *test
 		t.Fatal("a run with no Scratch was accepted, want it refused")
 	}
 
-	if !strings.Contains(err.Error(), "Scratch") {
-		t.Errorf("the run failed with %v, which does not name the field that was not set", err)
+	// On what the diagnostic says rather than on the field's name: the message
+	// is for whoever reads it, and a test that pinned "Scratch" would make the
+	// Go identifier part of what a caller is shown.
+	if !strings.Contains(err.Error(), "nowhere to make its scratch space") {
+		t.Errorf("the run failed with %v, which does not say what was not decided", err)
 	}
 
 	if exists(t, marker) {
