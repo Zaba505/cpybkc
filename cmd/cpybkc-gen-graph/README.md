@@ -19,10 +19,6 @@ Like `cpybkc-gen-go` it imports `github.com/Zaba505/cpybkc/irpb` and the
 standard library and nothing else from this repository, so the surface it
 exercises is the one a third-party generator author has.
 
-> **`format=dot` is still an empty digraph.** Everything below describes the
-> Mermaid document, which is what `format=mermaid` — the default — writes. The
-> Graphviz rendering is a story of its own.
-
 ## Invocation
 
 ```
@@ -67,11 +63,38 @@ value outside a set is refused rather than rounded to the default for the same
 reason: `format=graphviz` names the notation you meant, and silently drawing
 Mermaid for it is a document that is wrong in a way nothing says.
 
-`format` defaults to `mermaid` because that document renders in place: an adopter
-checking a layout in is looking at the diagram in a pull request, and a `dot`
-there is a file they would have to run something over first. `dot` is for a
-build that turns diagrams into images, and for a layout large enough that
-Graphviz's layout engine is worth having.
+### Which rendering to reach for
+
+**Reach for `mermaid` — the default — for anywhere.** It renders where a person
+already is: a forge draws the diagram in a pull request, so an adopter checking a
+layout in sees it without running anything, and so does a reviewer. That is the
+whole of its advantage and it is a large one.
+
+**Reach for `dot` for a state with many outgoing edges.** Mermaid's layout is
+what gives up first, and it gives up on density: a state offering six
+alternatives — which a real posting file is — draws as six self-loops Mermaid
+stacks rather than fans, with the labels overrunning each other until the picture
+says less than the descriptor did. Graphviz lays that out properly, and it has
+two things Mermaid has no notation for at all: a label broken into its own lines
+and left-justified, so a transition's record, predicate, guards and bindings read
+down an edge you can follow; and the item tables as tables in the picture rather
+than as prose beneath it.
+
+The cost is that a `.dot` is a file somebody has to run something over. It is
+meant for a build that turns diagrams into images, and it renders nowhere on its
+own.
+
+Both are drawn from one read of the descriptor and neither says anything the
+other does not. What differs is how a thing is drawn — an accepting state is an
+edge to a pseudostate in one and a `doublecircle` in the other — so a project
+that wants both names this generator twice, with two `out` directories:
+
+```json
+"generators": [
+  {"name": "graph", "out": "docs", "options": {"format": "mermaid"}},
+  {"name": "graph", "out": "docs/dot", "options": {"format": "dot"}}
+]
+```
 
 `records` exists because the two questions this diagram answers are asked at
 different sizes. *Are these the right records, in the right order, told apart on
@@ -94,6 +117,9 @@ One file, written beneath `--out`, named for the format:
 | `mermaid` | `graph.md` — a Markdown document holding a `mermaid` block |
 | `dot` | `graph.dot` — a Graphviz `digraph` |
 
+One file, and one only: a run in `dot` writes `graph.dot` and no `graph.md`, and
+a run in `mermaid` the other way round. One invocation draws one document.
+
 The names are fixed and there is no option to change them. The descriptor
 carries no name for the layout it describes, and [the
 contract](../../docs/plugin/SPEC.md#the-descriptor) forbids deriving anything
@@ -107,6 +133,12 @@ project's tree only once every generator in the run has succeeded. Two runs
 given the same descriptor and the same options produce byte-identical files:
 nothing in the output comes from the clock, the environment, the host, the user
 or the paths in the argument vector.
+
+The four `####` sections beneath the next one — why an edge is taken, the
+register table, the item tables, and what happens when a reference does not
+resolve — are about the descriptor rather than about a notation, and both
+documents carry every one of those facts. What differs between them is only how a
+thing is drawn.
 
 ### What the Markdown document holds
 
@@ -358,6 +390,69 @@ thing to look at rather than nothing to draw — and there are no item tables
 beneath it either, since nothing is admitted to table. A record whose top level
 holds no item does get a heading, with a sentence in place of the table saying
 that it describes no bytes at all.
+
+### What the Graphviz document holds
+
+A `digraph` holding the same automaton, the same registers and the same item
+tables, drawn in the notation Graphviz has for each:
+
+```dot
+digraph cpybkc {
+	graph [rankdir="LR", nodesep="0.6", ranksep="1.2", labelloc="t", labeljust="l", label="The sequencing automaton\l..."]
+	node [shape="circle"]
+
+	start [shape="point"]
+	start -> s2
+
+	s2 [shape="circle"]
+	s3 [shape="doublecircle", xlabel="accepts if r20 = 0 and r21 is one of 0xD5 or 0x40\l"]
+
+	s2 -> s3 [label="HEADER-RECORD\lwhen TYPE-CODE = 0xC8\lthen r20 = DTL-COUNT and r21 = SUM-FLAG\l"]
+	s3 -> s3 [label="DETAIL-RECORD\lwhen TYPE-CODE = 0xC4\lif r20 greater than zero\lthen r20 = r20 - 1\l"]
+}
+```
+
+- **A state is a `circle` and an accepting state a `doublecircle`**, which is the
+  state-diagram convention rather than anything this generator invented. It
+  replaces Mermaid's `--> [*]` edge rather than adding to it: Graphviz has no end
+  pseudostate, and one edge per accepting state across the width of the diagram
+  is the density this notation was reached for.
+- **A `point` marks where a read begins**, which is Mermaid's `[*] --> s2` said
+  the way Graphviz says it.
+- **Conditional acceptance is an `xlabel` beside the state.** Acceptance may be
+  qualified by guards, and a circle grows to fit whatever is written inside it —
+  a guard written in the node draws a state larger than the rest of the diagram,
+  so it is written beside one. An unreachable state is marked in the node's own
+  label, where it is short enough to sit.
+- **An edge label is one left-justified line per section** — the record, the
+  `when`, the `if` and the `then` — ending in Graphviz's `\l`. That is the thing
+  Mermaid has no notation for at all, and it is why a state with six alternatives
+  stays readable here.
+- **The item tables are HTML-like `<TABLE>` labels on `shape=plaintext` nodes**,
+  grouped in a `cluster_records` subgraph, with the registers in a
+  `cluster_registers` beside them. **No edge runs into either.** An edge from the
+  transition that admits a record to that record's table would cross the whole
+  drawing, rank a page-high table among the states, and say what the edge's own
+  label already says — the record's name, which is how you find the table.
+- **Prose in a label is wrapped** at 96 columns. A Graphviz label is one line
+  unless something breaks it, and a paragraph on one line is a diagram as wide as
+  the paragraph with the automaton drawn small somewhere in the middle of it.
+
+A name is escaped before it reaches the file, in whichever of the two notations
+inside it the name lands. In a quoted label, `"` and `\` are backslash-escaped —
+the second because Graphviz reads `\N`, `\G` and `\L` as substitutions naming the
+node or graph, so `PATH\NAME` would otherwise draw as the node's own name, which
+is confidently wrong rather than broken. In an HTML-like table, `<`, `>`, `&` and
+`"` become entities. Nothing else is touched: `|`, `;`, `#` and `:` are ordinary
+characters here, and escaping one would put a backslash in front of you for a
+character that does nothing where it stands.
+
+**The output is valid Graphviz, and that is asserted rather than assumed.** A
+test runs `dot` over every checked-in golden and fails on a non-zero exit — a
+`.dot` Graphviz refuses is a failing test and not a rendering preference. It
+skips where `dot` is not on `PATH`, because Graphviz is a dependency of nothing
+in this repository: the whole point of the notation is that the file is yours to
+render.
 
 ## The IR version check
 

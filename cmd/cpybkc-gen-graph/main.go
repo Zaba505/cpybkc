@@ -47,20 +47,23 @@
 // each a consumer of a convenience no third-party generator has — which is the
 // one thing this command exists to avoid being.
 //
-// # What it draws, and what it does not draw yet
+// # What it draws
 //
 // The sequencing automaton: every state the descriptor carries, the transitions
-// between them labelled with the record each admits, where a read begins and
-// where one may end, and the file's framing stated beside the diagram. The
-// descriptor is read into a [graph] once and an emitter is a function over
-// that, so a second notation is a second emitter and never a second walk; see
-// [document].
+// between them labelled with the record each admits, the predicate, guards and
+// bindings that select and follow each transition, where a read begins and where
+// one may end, the registers the automaton carries between records, each
+// record's items with their offsets, and the file's framing stated beside the
+// diagram. The descriptor is read into a [graph] once and an emitter is a
+// function over that, so a second notation is a second emitter and never a
+// second walk; see [document].
 //
-// Not yet drawn is what hangs off those states and edges — the predicates,
-// guards, bindings and registers that select a transition, and each record's
-// items with their offsets — and `--opt format=dot` is still an empty digraph.
-// Each is a story of its own, and each is a field on [graph] read by both
-// emitters rather than a read of the descriptor of its own.
+// There are two notations, and `--opt format` chooses. [mermaid] writes a
+// Markdown document a forge renders where it stands, and [dot] a Graphviz
+// digraph that stays legible where Mermaid's layout gives up — a state offering
+// six alternatives, which Mermaid stacks as six self-loops with the labels
+// overrunning each other. Both draw the same graph and neither reads the
+// descriptor.
 //
 // # The version check
 //

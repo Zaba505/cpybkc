@@ -45,6 +45,15 @@ const goldenDir = "testdata"
 // what stands between two records, and a document that stated the wrong one
 // would be wrong about the bytes while being right about every record.
 //
+// # Why each is held in both notations
+//
+// Because the two renderings are two consumers of one [graph], and the way that
+// stops being true is silently: a change to the model shows up in the notation
+// somebody happened to look at, and the other drifts. Holding both over the same
+// descriptors puts the pair in front of a reviewer in one diff — a fact added to
+// the walk that reaches only one of them is a golden that changed and a golden
+// that did not.
+//
 // # Regenerating them
 //
 // The failure below prints the document that was generated. A golden is
@@ -57,22 +66,44 @@ func TestTheDocumentEachFramingProducesIsTheGolden(t *testing.T) {
 	t.Parallel()
 
 	for name, g := range goldens() {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		for _, written := range notations() {
+			t.Run(name+"/"+written.format, func(t *testing.T) {
+				t.Parallel()
 
-			path := filepath.Join(goldenDir, name+".md")
+				path := filepath.Join(goldenDir, name+written.extension)
 
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("reading the golden: %v", err)
-			}
+				want, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("reading the golden: %v", err)
+				}
 
-			got := writtenDocument(t, g.descriptor(), g.opts...)
+				got := writtenIn(t, written, g.descriptor(), g.opts...)
 
-			if got != string(want) {
-				t.Errorf("the document for %s is not %s\n got:\n%s\nwant:\n%s", name, path, got, want)
-			}
-		})
+				if got != string(want) {
+					t.Errorf("the document for %s is not %s\n got:\n%s\nwant:\n%s", name, path, got, want)
+				}
+			})
+		}
+	}
+}
+
+// notation is one of the renderings a golden is held in: the `format` option
+// that asks for it, the file the generator writes it to, and the extension the
+// golden beside this command carries.
+type notation struct {
+	format    string
+	file      string
+	extension string
+}
+
+// notations is the closed set of renderings, which is [formatOption]'s own.
+//
+// A list rather than a switch, so that a third notation added to that set lands
+// here as a golden nobody wrote — the same way a fifth framing does.
+func notations() []notation {
+	return []notation{
+		{format: formatMermaid, file: mermaidFile, extension: ".md"},
+		{format: formatDot, file: dotFile, extension: ".dot"},
 	}
 }
 
@@ -142,9 +173,20 @@ func goldens() map[string]golden {
 		},
 	}
 
-	for _, framing := range framings() {
-		file := framing.file
-		all[framing.name] = golden{descriptor: func() *irpb.Descriptor { return ordersAutomaton(file) }}
+	// The file node is built inside the closure rather than captured beside it,
+	// which is why the index is what the loop carries. [ordersAutomaton] writes
+	// the start state into the file node it is handed, and one golden is now
+	// drawn twice — once per notation, in two parallel subtests — so a captured
+	// `*irpb.File` would be written by both of them at once. That is a data race
+	// the `-race` build fails on, and it is a real one: the two documents this
+	// test compares would be drawn from one file node either of them may have
+	// half-built.
+	for at := range framings() {
+		framed := framings()[at]
+
+		all[framed.name] = golden{
+			descriptor: func() *irpb.Descriptor { return ordersAutomaton(framings()[at].file) },
+		}
 	}
 
 	return all
@@ -155,7 +197,9 @@ func goldens() map[string]golden {
 //
 // A fifth framing added to the schema advances the IR version and lands here as
 // a golden nobody wrote; a golden left behind by a framing that was renamed is a
-// file a reviewer would keep reading as though it described something.
+// file a reviewer would keep reading as though it described something. Both
+// notations are checked, so a document held in one and not the other is a
+// failure rather than a pair a reviewer has to notice is uneven.
 func TestThereIsAGoldenForEveryDocumentAndNoOthers(t *testing.T) {
 	t.Parallel()
 
@@ -164,14 +208,19 @@ func TestThereIsAGoldenForEveryDocumentAndNoOthers(t *testing.T) {
 		t.Fatalf("reading %s: %v", goldenDir, err)
 	}
 
-	// The invariant is "one `.md` per document", not "nothing but documents may
-	// live here". A directory or a checked-in fixture beside the goldens is not
-	// a document that went missing, and reporting it as one would send a reader
-	// looking for a rename that never happened.
+	// The invariant is "one file per document per notation", not "nothing but
+	// documents may live here". A directory or a checked-in fixture beside the
+	// goldens is not a document that went missing, and reporting it as one would
+	// send a reader looking for a rename that never happened.
+	extensions := map[string]bool{}
+	for _, written := range notations() {
+		extensions[written.extension] = true
+	}
+
 	checked := map[string]bool{}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+		if entry.IsDir() || !extensions[filepath.Ext(entry.Name())] {
 			continue
 		}
 
@@ -179,13 +228,15 @@ func TestThereIsAGoldenForEveryDocumentAndNoOthers(t *testing.T) {
 	}
 
 	for golden := range goldens() {
-		name := golden + ".md"
+		for _, written := range notations() {
+			name := golden + written.extension
 
-		if !checked[name] {
-			t.Errorf("%s is a golden and %s carries no file for it", golden, goldenDir)
+			if !checked[name] {
+				t.Errorf("%s is a golden in %s and %s carries no file for it", golden, written.format, goldenDir)
+			}
+
+			delete(checked, name)
 		}
-
-		delete(checked, name)
 	}
 
 	for name := range checked {

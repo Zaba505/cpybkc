@@ -149,8 +149,8 @@ type edge struct {
 	bindings []binding
 }
 
-// label is the whole of an edge's label: the record it admits, what selects it,
-// what makes it eligible and what it remembers.
+// sections are the parts of an edge's label: the record it admits, what selects
+// it, what makes it eligible and what it remembers, each as its own phrase.
 //
 // # The order, and why the record comes first
 //
@@ -162,15 +162,25 @@ type edge struct {
 // examined at all — and it is the order the sentence reads in, which is what a
 // label is for.
 //
+// # Why the sections are handed out rather than joined here
+//
+// Because a label is one line in one notation and several in the other. Mermaid
+// has no line break inside a transition label, so [edge.label] runs the sections
+// together with commas; a Graphviz label does, so [dotLabel] gives each section
+// a line of its own and left-justifies it — which is the whole reason #190
+// reached for Graphviz, since a state offering six alternatives is six labels
+// this long. Both are the same sections in the same order, composed once here,
+// so neither notation can end up saying something the other does not.
+//
 // # esc
 //
 // Every name here came out of somebody's copybook and every connecting word is
 // this generator's, so the escaping is applied to the first and not to the
-// second. Sections are separated by a comma and a space, guards and bindings
-// are joined by `and`, and a set of literals by `or` — three separators that
-// cannot be confused for one another, which is what keeps a label with all
-// three sections readable as three.
-func (e edge) label(esc func(string) string) string {
+// second. Guards and bindings are joined by `and`, and a set of literals by
+// `or` — separators that cannot be confused for the comma [edge.label] puts
+// between sections, which is what keeps a label with all three sections
+// readable as three.
+func (e edge) sections(esc func(string) string) []string {
 	said := []string{esc(e.record), e.predicate.phrase(esc)}
 
 	if len(e.guards) != 0 {
@@ -186,7 +196,13 @@ func (e edge) label(esc func(string) string) string {
 		said = append(said, "then "+strings.Join(printed, " and "))
 	}
 
-	return strings.Join(said, ", ")
+	return said
+}
+
+// label is the whole of an edge's label on one line, which is what a notation
+// with no line break inside a label can carry.
+func (e edge) label(esc func(string) string) string {
+	return strings.Join(e.sections(esc), ", ")
 }
 
 // admits reports whether any state offers a transition, which is whether this
