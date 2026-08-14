@@ -79,16 +79,16 @@ func write(descriptor *irpb.Descriptor, out string, opts options) error {
 // # What it draws today
 //
 // The sequencing automaton: the states the descriptor carries, the transitions
-// between them labelled with the record each admits, where a read begins and
-// where one may end. The descriptor is read once, by [read], into a [graph] —
-// and an emitter is a function over that, so #190's `dot` rendering is a second
-// arm below rather than a second walk.
+// between them, where a read begins and where one may end — and, on each
+// transition, the record it admits, the predicate that selects it, the guards
+// that make it eligible and the bindings it applies, with a table of the
+// registers those bindings write. The descriptor is read once, by [read], into
+// a [graph] — and an emitter is a function over that, so #190's `dot` rendering
+// is a second arm below rather than a second walk.
 //
-// What it does not draw yet is what hangs off those states and edges: the
-// predicates, guards, bindings and registers that choose a transition (#188),
-// and each record's items with their offsets (#189). Each is a field on [graph]
-// and a few lines in each emitter when it lands, which is what the model is
-// shaped for.
+// What it does not draw yet is each record's items with their offsets (#189).
+// That is a field on [graph] and a few lines in each emitter when it lands,
+// which is what the model is shaped for and how everything above arrived.
 //
 // # Why the default arm is a failure rather than a notation
 //

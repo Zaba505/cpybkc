@@ -18,13 +18,25 @@ import (
 // a pull request, and a file they would have to run something over first is a
 // file they do not look at.
 const (
-	mermaidHeading = "# The sequencing automaton"
+	mermaidHeading   = "# The sequencing automaton"
+	mermaidRegisters = "## Registers"
 
 	mermaidFenceOpen  = "```mermaid"
 	mermaidFenceClose = "```"
 
 	mermaidDiagram = "stateDiagram-v2"
 )
+
+// mermaidRegistersSaid is what the register section says before its table.
+//
+// The sentence is the emitter's and not the model's, unlike the two beside the
+// diagram: it explains a table, and a notation with nowhere to put a table has
+// nothing to explain. What it has to say is why the first column is an
+// identifier — an `r20` in an edge label is not a name anybody wrote, and
+// without this table it is not a thing a reader can follow either.
+const mermaidRegistersSaid = "A register is what the automaton remembers between records: a binding on a transition writes one," +
+	" a guard reads one, and nothing else does either. Registers carry identifiers and no names, so each is `r` and its own" +
+	" node identifier — the name the edge labels above give it."
 
 // mermaidIndent is what a line inside the diagram is indented by. Mermaid does
 // not require it; a person reading the document does.
@@ -46,10 +58,10 @@ func mermaid(g *graph) string {
 	// person is verifying and appears nowhere in a state machine.
 	b.WriteString("**Framing:** " + g.framing.String() + ".\n")
 
-	// Both sentences are the model's, not this emitter's: they are prose about
-	// the descriptor, they read the same in either notation, and each is the
-	// empty string when there is nothing to say.
-	for _, said := range []string{g.admitsNothing(), g.stranded()} {
+	// All three sentences are the model's, not this emitter's: they are prose
+	// about the descriptor, they read the same in either notation, and each is
+	// the empty string when there is nothing to say.
+	for _, said := range []string{g.admitsNothing(), g.stranded(), g.unbound()} {
 		if said != "" {
 			b.WriteString("\n" + said + "\n")
 		}
@@ -60,7 +72,67 @@ func mermaid(g *graph) string {
 	b.WriteString(mermaidBody(g))
 	b.WriteString(mermaidFenceClose + "\n")
 
+	b.WriteString(mermaidRegisterTable(g))
+
 	return b.String()
+}
+
+// mermaidRegisterTable is the register section, and the empty string for a
+// descriptor carrying no register.
+//
+// Omitted rather than written empty. A layout whose sequencing needs no memory
+// carries no register node at all, and a heading over a table with no rows
+// would be a section about nothing on the document every such layout produces —
+// which is most of them.
+func mermaidRegisterTable(g *graph) string {
+	if len(g.registers) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+
+	b.WriteString("\n" + mermaidRegisters + "\n\n")
+	b.WriteString(mermaidRegistersSaid + "\n\n")
+	b.WriteString("| Register | Holds | Bound by |\n")
+	b.WriteString("| --- | --- | --- |\n")
+
+	for _, r := range g.registers {
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", registerName(r.id), r.holds, mermaidBinders(r.boundBy))
+	}
+
+	return b.String()
+}
+
+// mermaidBinders is a register's third column: every transition that writes it,
+// as the edge the diagram above draws.
+//
+// The edge and the record rather than the transition node's identifier, because
+// the reader's next move is to look at the picture: `s2 --> s3` is a line they
+// can find there and `t10` is not drawn anywhere.
+func mermaidBinders(bound []binder) string {
+	if len(bound) == 0 {
+		// A word rather than an empty cell, which reads as a table this
+		// generator failed to fill in. [graph.unbound] is where it is explained.
+		return "nothing"
+	}
+
+	printed := make([]string, 0, len(bound))
+	for _, one := range bound {
+		printed = append(printed,
+			fmt.Sprintf("`%s --> %s` (%s)", stateName(one.from), stateName(one.to), markdownCell(one.record)))
+	}
+
+	return strings.Join(printed, ", ")
+}
+
+// markdownCell is a name as a table cell may carry it.
+//
+// A record name is the copybook's and may hold anything, and the one character
+// a GitHub-flavoured Markdown table reacts to is `|`, which ends the cell. A
+// newline would end the row; no name from a copybook carries one, and escaping
+// it costs a line here rather than a malformed table if one ever does.
+func markdownCell(name string) string {
+	return strings.NewReplacer("|", `\|`, "\n", " ", "\r", " ").Replace(name)
 }
 
 // mermaidBody is the diagram's lines, after `stateDiagram-v2` and before the
@@ -83,15 +155,23 @@ func mermaidBody(g *graph) string {
 
 	for _, s := range g.states {
 		for _, e := range s.edges {
-			line(&b, "%s --> %s: %s", stateName(s.id), stateName(e.to), mermaidLabel(e.record))
+			// The label is composed by the model and escaped by this emitter,
+			// which is what [mermaidLabel] is passed in for: the wording is the
+			// same in either notation and the escaping is not.
+			line(&b, "%s --> %s: %s", stateName(s.id), stateName(e.to), e.label(mermaidLabel))
 		}
 
 		// Acceptance as an edge to the end pseudostate, for the same reason:
 		// `s --> [*]` is how a state diagram says that a read may finish here,
-		// and docs/ir/SPEC.md's accepting state is exactly that. The guards
-		// that may qualify it are #188's, and they hang off this edge.
+		// and docs/ir/SPEC.md's accepting state is exactly that. Its guards
+		// hang off that edge, labelling it the way a guarded transition is
+		// labelled — because that is what conditional acceptance is.
 		if s.accepts {
-			line(&b, "%s --> [*]", stateName(s.id))
+			if said := s.accepted(); said != "" {
+				line(&b, "%s --> [*]: %s", stateName(s.id), said)
+			} else {
+				line(&b, "%s --> [*]", stateName(s.id))
+			}
 		}
 	}
 

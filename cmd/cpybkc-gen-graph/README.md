@@ -19,11 +19,12 @@ Like `cpybkc-gen-go` it imports `github.com/Zaba505/cpybkc/irpb` and the
 standard library and nothing else from this repository, so the surface it
 exercises is the one a third-party generator author has.
 
-> **It draws the automaton, and not yet what hangs off it.** The states, the
-> transitions between them and the record each admits are in the Mermaid
-> document today. The predicates, guards, bindings and registers that *choose* a
-> transition are not, and neither are each record's items with their offsets;
-> both are stories of their own. `format=dot` is still an empty digraph.
+> **It draws the automaton, and not yet each record's items.** The states, the
+> transitions between them, the record each admits and everything that *chooses*
+> a transition — its predicate, its guards and its bindings, with a table of the
+> registers those bindings write — are in the Mermaid document today. Each
+> record's items with their offsets are not; that is a story of its own.
+> `format=dot` is still an empty digraph.
 
 ## Invocation
 
@@ -112,34 +113,101 @@ or the paths in the argument vector.
 
 ### What the Markdown document holds
 
-A heading, the file's framing as a sentence, and a `mermaid` block holding the
-sequencing automaton as a `stateDiagram-v2`:
+A heading, the file's framing as a sentence, a `mermaid` block holding the
+sequencing automaton as a `stateDiagram-v2`, and — where the layout has any — a
+table of the registers the automaton carries between records:
 
 ```mermaid
 stateDiagram-v2
     [*] --> s2
-    s2 --> s3: ORDER-HEADER
-    s3 --> s3: DETAIL-LINE
-    s3 --> s7: ORDER-TRAILER
-    s7 --> [*]
+    s2 --> s3: HEADER-RECORD, when TYPE-CODE = 0xC8, then r20 = DTL-COUNT and r21 = SUM-FLAG
+    s3 --> s3: DETAIL-RECORD, when TYPE-CODE = 0xC4, if r20 greater than zero, then r20 = r20 - 1
+    s3 --> s4: SUMMARY-RECORD, when TYPE-CODE = 0xE2, if r20 = 0 and r21 = 0xE8
+    s3 --> [*]: if r20 = 0 and r21 is one of 0xD5 or 0x40
+    s4 --> [*]
 ```
 
 - **A state is `s` and its own IR node identifier.** States carry identifiers
   and no names, and the identifier is what takes you to the same node in
   `cpybkc --emit-ir` when the diagram is not enough.
 - **`[*] --> s2` is the start state**, which is the file node's
-  `start_state_id`, and **`s7 --> [*]` is an accepting state** — one where
+  `start_state_id`, and **`s4 --> [*]` is an accepting state** — one where
   reaching the end of the input is a complete file rather than a truncated one.
-- **An edge is labelled with the record its transition admits**, by the rename
+- **An edge label opens with the record its transition admits**, by the rename
   your layout gave it where it gave one and by the copybook's own spelling
-  otherwise. It is not what *selects* the transition; that is a predicate, and
-  drawing those is a story of its own.
+  otherwise.
 - **Edges leave a state in the order the state carries them**, because that is
   the order a consumer evaluates them in and the first one that matches wins.
 - **Every state the descriptor carries is drawn**, including one nothing
   reaches. Those are marked *unreachable* and called out above the diagram: a
   state no path arrives at is a bug in whatever compiled the automaton, and
   leaving it out would make this document agree with a descriptor that is wrong.
+
+#### Why an edge is taken
+
+Behind the record name an edge label reads as a sentence, in three sections,
+each of which is left out when the transition carries nothing for it:
+
+| Section | What it is |
+|---|---|
+| `when …` | The **predicate**: the field whose bytes select this transition, named by its path within the record, and the test made of it — `= <literal>` or `is one of <literal> or <literal>`. |
+| `if …` | The **guards**: what makes the transition eligible at all, before the record in front of the reader is examined. All of them must hold, so they are joined with `and`. |
+| `then …` | The **bindings**: what the transition writes into the register file once it is taken. |
+
+`no predicate` stands where `when …` would, because [a transition may carry
+none](../../docs/ir/SPEC.md#a-transition-may-carry-no-predicate) and that is a
+meaning rather than a gap: such a transition matches every record, is selected
+by its guards alone, and gives up the undescribed-record diagnostic at the state
+that offers it. It is not the same as a predicate whose literal happens to be
+trivial, and the document does not draw the two alike.
+
+**An accepting state's guards are on its `--> [*]` edge.** Acceptance may be
+conditional — `s3 --> [*]: if r20 = 0` is a state where end of input is a
+complete file *only* with the counter run down — and that is what makes a file
+two records short detectable. An accepting state drawn without them would say
+the opposite.
+
+**A literal is bytes unless the field it is tested against is ASCII.** `0x40` is
+`@` in ASCII and a space in cp037, so a document that read a printable byte as
+text because it happened to be printable would print `"@"` for a literal that is
+a space in your file. Where the target field's charset *is* ASCII the literal is
+quoted text, and the quotes are there so that the padding the producer applied
+is visible: whether a literal is `"Y"` or `"Y "` is exactly the kind of thing you
+are reading this document to check. A guard's literal is always bytes, because a
+guard reads a register and a register declares its kind and no charset.
+
+#### The register table
+
+Registers are how the automaton [remembers between
+records](../../docs/ir/SPEC.md#the-automaton-remembers-in-registers) — a header's
+count governing the run of details behind it, a header's flag governing whether
+a summary appears. A binding writes one, a guard reads one, and nothing else
+does either.
+
+A register carries an identifier and no name, so an `r20` in an edge label means
+nothing on its own. The table is what turns it into something you can follow:
+
+| Register | Holds | Bound by |
+| --- | --- | --- |
+| r20 | an integer | `s2 --> s3` (HEADER-RECORD), `s3 --> s3` (DETAIL-RECORD) |
+| r21 | bytes | `s2 --> s3` (HEADER-RECORD) |
+
+Every register node is listed, including one no transition binds — that is
+either a node nothing needed or a guard reading a value nothing put there, and
+the second is a [malformed
+descriptor](../../docs/ir/SPEC.md#the-automaton-remembers-in-registers) rather
+than an empty cell. The section is left out entirely for a layout whose
+sequencing needs no memory, which carries no register node at all.
+
+#### When a reference does not resolve
+
+Every reference this document draws is resolved by identifier and by the kind
+its position admits — a predicate, a guard, a binding, a register, and the field
+a predicate tests or a binding reads. One that does not resolve, or that resolves
+to a node of the wrong kind, is an `error:` naming the identifier, and no
+document is written. A field a predicate names and the record does not carry is
+the same: a diagram is a thing somebody is about to trust, and a blank where a
+test should be reads as a transition that tests nothing.
 
 The framing is stated because it is the question a state machine cannot answer.
 What stands between two records — nothing, a descriptor word, segments, or a

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Zaba505/cpybkc/irpb"
 )
 
 // goldenDir is where the documents this generator is pinned to are checked in.
@@ -54,33 +56,69 @@ const goldenDir = "testdata"
 func TestTheDocumentEachFramingProducesIsTheGolden(t *testing.T) {
 	t.Parallel()
 
-	for _, testCase := range framings() {
-		t.Run(testCase.name, func(t *testing.T) {
+	for name, d := range goldens() {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(goldenDir, testCase.name+".md")
+			path := filepath.Join(goldenDir, name+".md")
 
 			want, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("reading the golden: %v", err)
 			}
 
-			got := writtenDocument(t, ordersAutomaton(testCase.file))
+			got := writtenDocument(t, d())
 
 			if got != string(want) {
-				t.Errorf("the document for %s is not %s\n got:\n%s\nwant:\n%s", testCase.name, path, got, want)
+				t.Errorf("the document for %s is not %s\n got:\n%s\nwant:\n%s", name, path, got, want)
 			}
 		})
 	}
 }
 
-// TestThereIsAGoldenForEveryFramingAndNoOthers keeps testdata/ and the closed
-// set in step from both directions.
+// countedGolden is the name of the one golden that is not a framing.
+//
+// The four above are one automaton under four framings, so what they hold
+// constant is everything the automaton says and what they vary is the sentence
+// above the diagram. This one is the other way round: one framing, and an
+// automaton carrying every part of the half of it that chooses a transition —
+// docs/ir/SPEC.md's "Appendix: A counted run, as nodes", which is also the
+// descriptor cmd/cpybkc-gen-go/internal/counted is generated from.
+//
+// It earns a golden of its own for the reason the framings do. A predicate's
+// literal, a guard's conjunction, a decrement and a register table are things
+// somebody reads, an assertion that each appears somewhere would pass through
+// most of the changes that make them unreadable, and holding the whole file is
+// what puts "this still reads well" in front of a reviewer instead of behind a
+// command they would have to run.
+const countedGolden = "counted"
+
+// goldens is every document checked in beneath testdata/, by the name of the
+// file holding it.
+//
+// One list, so that "there is a golden for each of these and nothing else"
+// stays a question with one place to answer it — a fifth framing added to the
+// schema lands here as a golden nobody wrote, and a file left behind by a
+// rename is one a reviewer would otherwise keep reading as though it described
+// something.
+func goldens() map[string]func() *irpb.Descriptor {
+	all := map[string]func() *irpb.Descriptor{countedGolden: countedAutomaton}
+
+	for _, framing := range framings() {
+		file := framing.file
+		all[framing.name] = func() *irpb.Descriptor { return ordersAutomaton(file) }
+	}
+
+	return all
+}
+
+// TestThereIsAGoldenForEveryDocumentAndNoOthers keeps testdata/ and [goldens]
+// in step from both directions.
 //
 // A fifth framing added to the schema advances the IR version and lands here as
 // a golden nobody wrote; a golden left behind by a framing that was renamed is a
 // file a reviewer would keep reading as though it described something.
-func TestThereIsAGoldenForEveryFramingAndNoOthers(t *testing.T) {
+func TestThereIsAGoldenForEveryDocumentAndNoOthers(t *testing.T) {
 	t.Parallel()
 
 	entries, err := os.ReadDir(goldenDir)
@@ -88,9 +126,9 @@ func TestThereIsAGoldenForEveryFramingAndNoOthers(t *testing.T) {
 		t.Fatalf("reading %s: %v", goldenDir, err)
 	}
 
-	// The invariant is "one `.md` per framing", not "nothing but framings may
+	// The invariant is "one `.md` per document", not "nothing but documents may
 	// live here". A directory or a checked-in fixture beside the goldens is not
-	// a framing that went missing, and reporting it as one would send a reader
+	// a document that went missing, and reporting it as one would send a reader
 	// looking for a rename that never happened.
 	checked := map[string]bool{}
 
@@ -102,17 +140,17 @@ func TestThereIsAGoldenForEveryFramingAndNoOthers(t *testing.T) {
 		checked[entry.Name()] = true
 	}
 
-	for _, testCase := range framings() {
-		name := testCase.name + ".md"
+	for golden := range goldens() {
+		name := golden + ".md"
 
 		if !checked[name] {
-			t.Errorf("%s is a framing and %s carries no golden for it", testCase.name, goldenDir)
+			t.Errorf("%s is a golden and %s carries no file for it", golden, goldenDir)
 		}
 
 		delete(checked, name)
 	}
 
 	for name := range checked {
-		t.Errorf("%s holds the golden %s, and no framing produces it", goldenDir, name)
+		t.Errorf("%s holds the golden %s, and nothing produces it", goldenDir, name)
 	}
 }

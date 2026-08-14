@@ -675,12 +675,24 @@ func recordNode(id uint64, original, override string) *irpb.Node {
 	}}}
 }
 
-// group is a record's top level, which nothing in this story reads and every
-// record node points at. It is here so that the fixtures are descriptors rather
-// than the part of one this story happens to walk.
-func groupNode(id uint64, original string) *irpb.Node {
+// recordOf is a record node whose top level the test names, which is what a
+// fixture carrying a path within a record needs: [recordNode]'s derived
+// identifier is a convenience for the fixtures that never walk into one.
+func recordOf(id, root uint64, original string) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Record{Record: &irpb.Record{
+		RootId: root,
+		Names:  &irpb.Names{Original: original},
+	}}}
+}
+
+// groupNode is a group: a record's top level, or an item beneath one holding
+// other items. Members where a fixture walks into it, and none where it is
+// there so that the fixture is a descriptor rather than the part of one a test
+// happens to read.
+func groupNode(id uint64, original string, members ...uint64) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Group{Group: &irpb.Group{
-		Names: &irpb.Names{Original: original},
+		MemberIds: members,
+		Names:     &irpb.Names{Original: original},
 	}}}
 }
 

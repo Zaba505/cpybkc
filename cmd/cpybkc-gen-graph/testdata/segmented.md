@@ -7,8 +7,8 @@
 ```mermaid
 stateDiagram-v2
     [*] --> s2
-    s2 --> s3: ORDER-HEADER
-    s3 --> s3: DETAIL-LINE
-    s3 --> s7: ORDER-TRAILER
+    s2 --> s3: ORDER-HEADER, no predicate
+    s3 --> s3: DETAIL-LINE, no predicate
+    s3 --> s7: ORDER-TRAILER, no predicate
     s7 --> [*]
 ```
