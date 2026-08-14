@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 jobs:
-  # The three contract artifacts, attached to the release.
+  # The four contract artifacts, attached to the release.
   #
   # ir.binpb is the protobuf FileDescriptorSet describing cpybkc.ir.v1.Descriptor
   # (#19), so that a plugin author whose language has no protobuf code generation
@@ -50,6 +50,16 @@ jobs:
   # generator targets and cpybkc's own validator reads — and it carries its
   # version inside it rather than in its name, so that a file downloaded on its
   # own still says which version of the format it describes.
+  #
+  # cpybkc-conformance.tar.gz is the fourth, and the only one that is a program
+  # rather than a description of an interface: the conformance corpus, a digest
+  # of it, and cpybkc-conform built for every platform this project builds it for
+  # (#202). It is here because conformance is what an outsider runs once, on a
+  # whim, before they are invested — and the container image that would otherwise
+  # be the way to get it is a procurement ticket for anyone whose builders have
+  # no egress. A download and an `--exec` is the offline path, with no registry,
+  # no daemon and no image; the container door is #203's and is where the
+  # properties that make a result believable live.
   #
   # The same ir.binpb bytes ship inside the published image, at
   # /usr/local/share/cpybkc/ir.binpb, and the same sources ship unpacked beside
@@ -85,7 +95,7 @@ jobs:
               BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # The same three functions `dagger call ci` builds on every pull request
+      # The same four functions `dagger call ci` builds on every pull request
       # and a contributor runs locally, so the released assets are produced by a
       # recipe that has already been exercised rather than by one that only ever
       # runs at release time.
@@ -94,6 +104,7 @@ jobs:
           dagger call ir-descriptor-set export --path "$RUNNER_TEMP/ir.binpb"
           dagger call ir-protos export --path "$RUNNER_TEMP/ir-protos.tar.gz"
           dagger call layout-schema export --path "$RUNNER_TEMP/layout-schema.sexpr"
+          dagger call conformance-bundle export --path "$RUNNER_TEMP/cpybkc-conformance.tar.gz"
 
       # --clobber so that re-running a failed release job replaces the assets
       # instead of failing on a name that is already taken. Every artifact is a
@@ -106,6 +117,7 @@ jobs:
             "$RUNNER_TEMP/ir.binpb" \
             "$RUNNER_TEMP/ir-protos.tar.gz" \
             "$RUNNER_TEMP/layout-schema.sexpr" \
+            "$RUNNER_TEMP/cpybkc-conformance.tar.gz" \
             --clobber
 
   # The published base image (#55) — the one docs/container/SPEC.md describes and

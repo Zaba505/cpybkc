@@ -345,14 +345,17 @@ kept in step by hand.
 
 ## The release artifacts
 
-Every published release carries three files. Two describe the IR, for the plugin
+Every published release carries four files. Two describe the IR, for the plugin
 authors who are not importing `irpb`; the third is the layout schema, for the
-shop generating layout files rather than writing them:
+shop generating layout files rather than writing them; the fourth is the
+conformance corpus and the engine that runs it, for the generator author
+checking their own work:
 
 ```sh
 dagger call ir-descriptor-set export --path=ir.binpb
 dagger call ir-protos export --path=ir-protos.tar.gz
 dagger call layout-schema export --path=layout-schema.sexpr
+dagger call conformance-bundle export --path=cpybkc-conformance.tar.gz
 ```
 
 `ir.binpb` is the protobuf `FileDescriptorSet` describing
@@ -371,7 +374,23 @@ text. [The published schema](docs/layout/SPEC.md#the-published-schema) is the
 document to change if what it declares changes — including the version it
 carries, which moves with the format and not with the document.
 
-Three properties are worth knowing before you touch any of them:
+`cpybkc-conformance.tar.gz` is the odd one out, and deliberately: it is a
+program rather than a description of an interface. It carries the conformance
+corpus, a SHA-256 over it, and `cpybkc-conform` cross-compiled for five
+platforms, all under one directory an adopter unpacks and works in. [The
+published corpus](docs/conformance/SPEC.md#the-published-corpus) is the contract
+— the layout, and the digest rule stated precisely enough for somebody to
+recompute it without running anything of ours.
+
+It exists because conformance is what an outsider runs once, on a whim, before
+they are invested, and the obvious alternative — a container image — is a
+procurement ticket for anybody whose builders have no egress and whose registry
+runs an allowlist (#202). A download and an `--exec` is the offline path. The
+container door is #203's, and it is where the properties that make a result
+believable live: `--exec` provides no isolation of any kind, and
+`cpybkc-conform` says so in every report it writes.
+
+Four properties are worth knowing before you touch any of them:
 
 - **Neither IR artifact is committed.** `ir.binpb` is computed from the
   descriptors `protoc-gen-go` compiled into `irpb`, so it cannot drift from the
@@ -380,17 +399,31 @@ Three properties are worth knowing before you touch any of them:
   schema is the other way round — it is a source file a person writes, so it is
   committed, and `layout-schema` publishes it unchanged after checking that it
   loads.
-- **All three are reproducible.** Two builds of one commit produce byte-identical
+  The conformance corpus is committed and its digest is not, for the first of
+  those reasons: the digest is a function of the corpus, so a checked-in copy
+  would be a second statement of it for the next entry to be added without.
+- **All four are reproducible.** Two builds of one commit produce byte-identical
   files — the encoding is deterministic, every tar field the filesystem could
   have supplied is a constant, and the schema is copied rather than reformatted —
   because an artifact that moved on a rebuild would make a rebuild
-  indistinguishable from a change to the contract.
-- **`dagger call ci` builds them.** `ir-artifacts` and `layout-artifact` are in
-  the pipeline so that the recipe a release runs is exercised on every pull
-  request, rather than for the first time on a tag. What is in them is asserted
-  by Go tests, in `irpb` and beside each tool under `internal/tools/`; the
-  pipeline stages only check that the commands run to completion and leave a file
-  behind.
+  indistinguishable from a change to the contract. The conformance archive's
+  *wrapper* is reproducible on the same terms; the executables inside it are the
+  Go toolchain's, and are CGO-free and `-trimpath` for that reason among others.
+- **`dagger call ci` builds them.** `ir-artifacts`, `layout-artifact` and
+  `conformance-artifact` are in the pipeline so that the recipe a release runs is
+  exercised on every pull request, rather than for the first time on a tag. What
+  is in them is asserted by Go tests, in `irpb` and beside each tool under
+  `internal/tools/`; the pipeline stages only check that the commands run to
+  completion and leave a file behind.
+
+  `conformance-artifact` asserts more than that, and the extra is the part the Go
+  tests cannot reach. Which platforms the engine is built for is decided in
+  `.dagger/main.go`, so `internal/tools/conformance-bundle`'s tests run against a
+  stand-in — building five executables in a unit test would make it a
+  cross-compilation. Whether each of them compiled, and landed in the archive at
+  the path the archive's own README tells somebody to run, is a question only a
+  run of the pipeline can answer, and a platform that silently produced nothing
+  would otherwise arrive as a downloader on a machine there is no engine for.
 - **Both IR artifacts also ship inside the image**, at
   `/usr/local/share/cpybkc/ir.binpb` and `/usr/local/share/cpybkc/proto/`, so
   that a plugin author building `FROM` the image needs no download at all. They
@@ -407,8 +440,8 @@ That is deliberate: the IR is one message and everything in `proto/` is reachabl
 from it, so a file that is not is a mistake in the schema rather than something
 to exclude.
 
-`.github/workflows/release.yaml` attaches all three to a release when one is
-published, building them with the same three calls above at the release's tag.
+`.github/workflows/release.yaml` attaches all four to a release when one is
+published, building them with the same four calls above at the release's tag.
 
 ## Signing a release
 
@@ -449,7 +482,7 @@ Three things are worth knowing:
 ## Making a release
 
 Publish a GitHub release whose tag is a canonical `vX.Y.Z`.
-`.github/workflows/release.yaml` does the rest: it attaches the three artifacts
+`.github/workflows/release.yaml` does the rest: it attaches the four artifacts
 above, pushes the image, signs the digest, and writes into the release's notes
 which IR version that image speaks.
 
@@ -1245,6 +1278,23 @@ through the public contract exactly as a stranger's would be, so every gap
 between what the engine needs and what an adapter can supply surfaces here, where
 the only people inconvenienced are us. A second generator, in any language, is a
 second executable behind `--exec` and no change to anything in this repository.
+
+[`cmd/cpybkc-conform`](cmd/cpybkc-conform) is where that `--exec` lives: the
+engine with a command line on it, and the program every release ships in
+`cpybkc-conformance.tar.gz`. It holds no rule of its own — the corpus is
+`internal/conformance`'s, the conversation is the engine's, and the comparison
+is the engine's too — so what is in it is the flags, the corpus digest check
+and an exit status. Running it against this repository's own tree needs the
+corpus named, because the default is where the archive unpacks one:
+
+```sh
+go run ./cmd/cpybkc-conform check \
+  --corpus testdata/conformance \
+  --exec ./bin/adapter -- --root "$PWD" --generator ./bin/cpybkc-gen-go
+```
+
+The bare `--` is not optional where an adapter takes flags of its own: without
+it they are read as `cpybkc-conform`'s and refused.
 
 Two of its decisions are load-bearing rather than incidental. The codec program
 it builds per entry **stays alive after the `decode` it answered**, holding the
