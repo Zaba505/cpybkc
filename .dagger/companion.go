@@ -170,7 +170,7 @@ const cliPackageDir = "cmd/cpybkc"
 
 // companionCoverage is what the companion module answers each of the CLI's
 // flags with. It is the record the curation of #62 is worth having: the module
-// maps the run a caller almost always wants and hands the rest to one escape
+// maps the two runs a caller asks for by name and hands the rest to one escape
 // hatch, and without a written record of which flag went where, "curated" and
 // "forgotten" are the same thing to read.
 //
@@ -185,10 +185,10 @@ const cliPackageDir = "cmd/cpybkc"
 // accident.
 //
 // Every value names a function on daggerverse/cpybkc's own type, checked to
-// exist rather than taken on trust. Run appears six times over because it is the
+// exist rather than taken on trust. Run appears five times over because it is the
 // escape hatch and that is what an escape hatch looks like when it is working; a
 // flag moving from Run to a curated argument is an edit here in the same commit
-// that adds the argument.
+// that adds the argument, which is what happened to `init`'s two below.
 //
 // This is a table in the pipeline rather than a list in the module because it is
 // this repository's opinion about the module, in the file that already holds the
@@ -221,28 +221,29 @@ var companionCoverage = map[string]string{
 	// and an entry costs one line.
 	"-h": "Run",
 
-	// `init`'s two flags (#183, #214). The module expresses a scaffolding run
-	// through the escape hatch and does not curate one, and that is the answer
-	// rather than a gap left for later.
+	// `init`'s two flags (#183, #214), curated onto one function (#228). This is
+	// the move this table was kept for: they were recorded against Run while the
+	// module expressed a scaffolding run through the escape hatch alone, and
+	// they came off it in the commit that added the function.
 	//
-	// A curated function would have to be `Scaffold(copybooks []*dagger.File,
-	// out string) *dagger.File`, and every part of that is wrong here. `init`
-	// writes what a copybook decides and deliberately leaves the adopter's half
-	// blank, so its output is a file somebody edits once and commits — not an
-	// artifact a pipeline rebuilds, which is what every other function on this
-	// module returns. Its destination may be standard output, which a
-	// File-returning function cannot express any more than it can express
-	// --emit-ir's. And a scaffold is generated once per project against
-	// copybooks that are already in the caller's tree; a Dagger function is
-	// worth having for what a pipeline runs on every commit, and this is not
-	// that.
+	// The name is the CLI's verb rather than the `Scaffold` this comment used to
+	// name in prose. #62 is *map cpybkc commands to dagger functions*, there are
+	// two commands, and mapping the second one's name straight through is what
+	// lets somebody who read docs/cli/SPEC.md find it here — a second name for
+	// one command would be this module's own vocabulary, which is exactly what
+	// the curation is trying not to grow.
 	//
-	// So `dagger call run --args=init,--copybook,posting.cpy,--out,-` is how it
-	// is reached, and the entrypoint takes the vector exactly as a person would
-	// type it. If a scaffolding function is ever curated, these two entries move
-	// to it in the same commit that adds it, which is what this table is for.
-	"--copybook": "Run",
-	"--out":      "Run",
+	// Init takes copybook *paths* into --source rather than files, because
+	// docs/cli/SPEC.md has the scaffold record each path as it was typed and a
+	// layout's paths are relative to the layout; and it supplies --out itself, at
+	// a path outside the mounted project, so *nothing at <dest> is ever replaced*
+	// holds without the module reasoning about the caller's tree. The one
+	// spelling it does not offer is `--out -`, which a File-returning function
+	// cannot express — that stays Run's, as --emit-ir's is:
+	//
+	//	dagger call run --source . --args=init,--copybook,posting.cpy,--out,-
+	"--copybook": "Init",
+	"--out":      "Init",
 }
 
 // CliSurface checks that every flag the CLI accepts is one the companion module
@@ -466,7 +467,42 @@ const (
 	// for the same reason, and overriding it would only add a second unused
 	// value to read.
 	neverPulledRepository = "cpybkc.invalid/never-pulled"
+
+	// scaffoldName is what the two scaffolds are called while they are being
+	// compared. It is a name for the diff and nothing else: the curated call
+	// hands back a File the caller names at export, and the hand-typed one hands
+	// back bytes on standard output, so neither side has a name of its own here.
+	scaffoldName = "scaffold.sexpr"
 )
+
+// exampleCopybooks are the copybooks in [companionExampleDir], as the paths a
+// person would type them, and they are all three of them.
+//
+// All three because the check that would pass on one is not the check worth
+// having: `init` derives a record per 01-level across every copybook it was
+// given, in the order it was given them, so a single input says nothing about
+// whether the module preserved that order or dropped a repetition of the flag.
+//
+// They are written down rather than globbed out of the example for the reason
+// the composed generators are: a fourth copybook added to that directory is a
+// decision about what this check covers, and it should fail here loudly rather
+// than widen silently.
+var exampleCopybooks = []string{"header.cpy", "posting.cpy", "trailer.cpy"}
+
+// exampleInitVector is the hand-typed escape-hatch spelling of the same
+// scaffolding run, `--out -` and all.
+//
+// It is written out here rather than assembled from the module's internal/argv,
+// which is the whole point of the comparison below: two statements of one run
+// that were arrived at independently, so that a vector this module got wrong
+// disagrees with itself instead of agreeing with its own mistake.
+var exampleInitVector = []string{
+	"init",
+	"--copybook", "header.cpy",
+	"--copybook", "posting.cpy",
+	"--copybook", "trailer.cpy",
+	"--out", "-",
+}
 
 // CompanionModule drives the companion module's functions over the image this
 // pipeline just built, and requires what comes out to be the committed worked
@@ -517,11 +553,13 @@ const (
 // ships no image for with-generator to take one out of — see [graphGenerator].
 // The pair being compared is still the `go` half, which is what varies.
 //
-// Then the two functions that are not part of that pair, because a check that
+// Then the functions that are not part of that pair, because a check that
 // exercised only what it needed would leave the rest of the module's surface
 // covered by nothing: image, whose plugin directory has to hold the generator
-// the CLI resolves on PATH, and run, the escape hatch, asked the one question
-// docs/cli/SPEC.md requires to succeed against nothing at all.
+// the CLI resolves on PATH; run, the escape hatch, asked the one question
+// docs/cli/SPEC.md requires to succeed against nothing at all; and init, the
+// curated scaffolding run (#228), required to hand back the same scaffold the
+// escape hatch writes over the same copybooks — see [Cpybkc.checkInit].
 //
 // Both compositions start from the base image this pipeline built, which carries
 // the CLI and no generator — so a generation that succeeded did so with the
@@ -609,6 +647,10 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 				"generators in: %w", err))
 	}
 
+	if err := m.checkInit(ctx, platform); err != nil {
+		errs = append(errs, err)
+	}
+
 	// --version through the escape hatch, with no project: it is the one
 	// invocation docs/cli/SPEC.md requires to succeed touching nothing, so a
 	// failure here is run failing to reach the CLI rather than anything about a
@@ -623,6 +665,60 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// checkInit requires the curated scaffolding function and the hand-typed escape
+// hatch to be the same run, over [companionExampleDir]'s copybooks.
+//
+// # What is asserted, and why it is not what a scaffold should contain
+//
+// The scaffold `init --source . --copybook …` hands back has to be byte-identical
+// to what `run --args=init,--copybook,…,--out,-` writes on standard output over
+// the same copybooks. That is cheap, it needs no second reading of
+// docs/cli/SPEC.md's `init` section — what a record is derived from, which forms
+// are commented, what a note says — and it is exactly the property the escape
+// hatch entry in [companionCoverage] used to stand in for: a caller who reached
+// for `run` before this function existed should get the same file from the
+// function that replaced it.
+//
+// What the scaffold *contains* is checked where it is decided:
+// internal/scaffold's tests and cmd/cpybkc's. A second expectation here would be
+// this pipeline's own reading of that document, and the two would drift.
+//
+// # No generator, deliberately
+//
+// This drives the base image with nothing composed into it, where the
+// compositions above install two. `init` resolves no layout and runs no
+// generator (docs/cli/SPEC.md, "`init` reads no manifest"), and the state it
+// runs in is the one an adopter is actually in: before there is a manifest, let
+// alone a generator to name in one. A check that reached for a composed image
+// would be asserting less while costing more.
+//
+// The two sides are compared as trees rather than as strings so that a
+// disagreement arrives as a diff naming the line, through the same helper the
+// tree comparisons above use.
+func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error {
+	bare := m.companion(platform)
+	example := m.Source.Directory(companionExampleDir)
+
+	handTyped, err := bare.Run(exampleInitVector, dagger.CompanionRunOpts{Source: example}).Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("run --args=init,… over %s/'s copybooks did not reach the CLI: %w",
+			companionExampleDir, err)
+	}
+
+	curated := dag.Directory().WithFile(scaffoldName, bare.Init(example, exampleCopybooks))
+	typed := dag.Directory().WithNewFile(scaffoldName, handTyped)
+
+	if err := m.diffTrees(ctx, typed, curated, "/companion-module/init"); err != nil {
+		return fmt.Errorf(
+			"init over %s/'s copybooks did not hand back the scaffold `run --args=init,…` writes over the same "+
+				"copybooks (or did not get that far — the wrapped error says which): the curated function and the "+
+				"escape hatch are the same run spelled two ways, so a difference is one of them being wrong: %w",
+			companionExampleDir, err)
+	}
+
+	return nil
 }
 
 // companion is the module bound to the image this pipeline built, and it is the

@@ -234,6 +234,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Cpybkc).Image(&parent), nil
+		case "Init":
+			var parent Cpybkc
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			var copybook []string
+			if inputArgs["copybook"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["copybook"]), &copybook)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg copybook", err))
+				}
+			}
+			return (*Cpybkc).Init(&parent, ctx, source, copybook)
 		case "Run":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)

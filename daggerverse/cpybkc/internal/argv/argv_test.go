@@ -1,9 +1,12 @@
-// These tests cover the vector Generate hands the CLI, which is public API in
-// the same way imageref's default reference is: a caller who passes no manifest
-// gets an invocation of no arguments, and what that means — the mounted
-// project's own cpybkc.json, read from the working directory — is a promise
-// docs/cli/SPEC.md makes and this module relies on rather than restates. Pinning
-// the vector here turns a later accidental flag into a red build.
+// These tests cover the vectors the curated functions hand the CLI, which are
+// public API in the same way imageref's default reference is: a caller who
+// passes no manifest gets an invocation of no arguments, and what that means —
+// the mounted project's own cpybkc.json, read from the working directory — is a
+// promise docs/cli/SPEC.md makes and this module relies on rather than restates.
+// A scaffolding run's vector carries two more of them: that the subcommand
+// leads, and that the copybooks reach cpybkc in the order they were given, which
+// is the order the scaffold then holds their records in. Pinning the vectors here
+// turns a later accidental flag, or a quietly reordered list, into a red build.
 //
 // What is not tested here is anything needing an engine: whether the exec
 // succeeds, whether the project mounted at the working directory has a manifest
@@ -63,6 +66,123 @@ func TestGenerateWithAManifest(t *testing.T) {
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("Generate(%q) = %q, want %q", tc.manifest, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInitAssemblesTheVector(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		copybooks []string
+		out       string
+		want      []string
+	}{
+		{
+			// The subcommand leads, because docs/cli/SPEC.md reads a subcommand
+			// name at the first argument and nowhere else.
+			name:      "one copybook",
+			copybooks: []string{"posting.cpy"},
+			out:       "/scaffold/layout.sexpr",
+			want:      []string{"init", "--copybook", "posting.cpy", "--out", "/scaffold/layout.sexpr"},
+		},
+		{
+			// The order is pinned rather than incidental: the scaffold holds one
+			// record per 01-level in the order the copybooks were read, so a
+			// vector that reordered them would reorder somebody's layout.
+			name:      "three copybooks, in the order they were given",
+			copybooks: []string{"header.cpy", "posting.cpy", "trailer.cpy"},
+			out:       "/scaffold/layout.sexpr",
+			want: []string{
+				"init",
+				"--copybook", "header.cpy",
+				"--copybook", "posting.cpy",
+				"--copybook", "trailer.cpy",
+				"--out", "/scaffold/layout.sexpr",
+			},
+		},
+		{
+			// A path below the project root, resolved by the CLI against the
+			// mounted project because that is its working directory, and written
+			// into the scaffold as it was typed.
+			name:      "a path below the project root",
+			copybooks: []string{"copybooks/posting.cpy"},
+			out:       "/scaffold/layout.sexpr",
+			want: []string{
+				"init", "--copybook", "copybooks/posting.cpy", "--out", "/scaffold/layout.sexpr",
+			},
+		},
+		{
+			// Separated rather than joined, so a value carrying an equals sign
+			// needs no thought about which one cpybkc cuts on.
+			name:      "a path carrying an equals sign",
+			copybooks: []string{"odd=name/posting.cpy"},
+			out:       "/scaffold/layout.sexpr",
+			want: []string{
+				"init", "--copybook", "odd=name/posting.cpy", "--out", "/scaffold/layout.sexpr",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Init(tc.copybooks, tc.out)
+			if err != nil {
+				t.Fatalf("Init(%q, %q): unexpected error: %v", tc.copybooks, tc.out, err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("Init(%q, %q) = %q, want %q", tc.copybooks, tc.out, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInitRefusesNoCopybooksAtAll(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		copybooks []string
+	}{
+		{name: "nil", copybooks: nil},
+		{name: "empty", copybooks: []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Init(tc.copybooks, "/scaffold/layout.sexpr")
+			if err == nil {
+				t.Fatalf("Init(%q, …) = %q, want an error", tc.copybooks, got)
+			}
+			if got != nil {
+				t.Errorf("Init(%q, …) returned %q beside its error, want no vector", tc.copybooks, got)
+			}
+			// Checked for saying what a scaffold is derived from rather than
+			// merely for being non-nil: the caller has to learn that the
+			// copybooks are the input and not an optional narrowing of one.
+			if !strings.Contains(err.Error(), "01-levels") {
+				t.Errorf("Init(%q, …) error = %q, want it to say what a scaffold is derived from", tc.copybooks, err)
+			}
+		})
+	}
+}
+
+func TestInitRefusesTheDashAmongTheCopybooks(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		copybooks []string
+	}{
+		{name: "alone", copybooks: []string{"-"}},
+		{name: "beside real paths", copybooks: []string{"header.cpy", "-", "trailer.cpy"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Init(tc.copybooks, "/scaffold/layout.sexpr")
+			if err == nil {
+				t.Fatalf("Init(%q, …) = %q, want an error", tc.copybooks, got)
+			}
+			if got != nil {
+				t.Errorf("Init(%q, …) returned %q beside its error, want no vector", tc.copybooks, got)
+			}
+			// The reason, for [TestGenerateRefusesTheDash]'s reason: a caller who
+			// reached for the dash was thinking of a stream, and why a copybook
+			// cannot arrive on one is the whole of what the message has to teach.
+			if !strings.Contains(err.Error(), "has none to state") {
+				t.Errorf("Init(%q, …) error = %q, want it to say why a copybook cannot arrive on a stream",
+					tc.copybooks, err)
 			}
 		})
 	}
