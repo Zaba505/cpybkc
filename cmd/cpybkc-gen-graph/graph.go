@@ -28,10 +28,10 @@ import (
 // the `dot` emitter of #190 as a second consumer of exactly this, with no walk
 // of its own.
 //
-// It is deliberately smaller than the automaton. Predicates, guards, bindings
-// and registers (#188) and each record's items (#189) hang off these states and
-// edges in the stories after this one, and each is a field added here and read
-// by both emitters rather than a second read of the descriptor.
+// It is still smaller than the automaton. Each record's items (#189) hang off
+// these states and edges in the story after this one, as a field added here and
+// read by both emitters rather than a second read of the descriptor — which is
+// how the predicates, guards, bindings and registers below arrived.
 type graph struct {
 	// framing is the file node's framing, which the document states because
 	// what stands between two records is part of what a person reading this
@@ -50,6 +50,15 @@ type graph struct {
 	// this diagram can see only if it is drawn; dropping it silently would make
 	// the diagram agree with a descriptor that is wrong.
 	states []state
+
+	// registers is every register node the descriptor carries, in ascending
+	// identifier order, each with the transitions that write it.
+	//
+	// Every one, and not the ones something reads. A register nothing binds is
+	// a bug in whatever compiled the automaton — docs/ir/SPEC.md makes reading
+	// one malformed — and it is another one nobody sees unless the document
+	// draws it.
+	registers []register
 }
 
 // state is one state of the automaton, as the diagram draws it.
@@ -63,6 +72,16 @@ type state struct {
 	// accepts is whether reaching end of input here is a complete file.
 	accepts bool
 
+	// acceptance are the guards qualifying that acceptance, empty where it is
+	// unconditional.
+	//
+	// Drawn rather than dropped, because guarded acceptance is what makes the
+	// last iteration of a count detectable: a state that accepts only with the
+	// counter at zero is how a file two details short is told from a complete
+	// one, and an accepting state drawn as unconditional would tell a reader
+	// the opposite of the truth.
+	acceptance []guard
+
 	// reachable is whether the walk from the start state arrives here.
 	reachable bool
 
@@ -70,6 +89,16 @@ type state struct {
 	// gives them — which is the order a consumer evaluates them in, so a
 	// diagram that reordered them would misdescribe which one wins.
 	edges []edge
+}
+
+// accepted is the phrase qualifying an accepting state's acceptance, and the
+// empty string where acceptance is unconditional.
+func (s state) accepted() string {
+	if len(s.acceptance) == 0 {
+		return ""
+	}
+
+	return "if " + conjunction(s.acceptance)
 }
 
 // edge is one transition: exactly one record consumed, and the state that
@@ -86,6 +115,59 @@ type edge struct {
 	// differently and a model carrying one notation's escaping would be a model
 	// the other could not use.
 	record string
+
+	// predicate is what selects this transition on the bytes in front of the
+	// reader, and says so where the transition carries none.
+	predicate predicate
+
+	// guards are what make it eligible at all, in the order the transition
+	// carries them. All of them must hold, so their order is not significant
+	// and the descriptor's is the only one there is to keep.
+	guards []guard
+
+	// bindings are what it writes into the register file when it is taken, in
+	// the order the transition carries them.
+	bindings []binding
+}
+
+// label is the whole of an edge's label: the record it admits, what selects it,
+// what makes it eligible and what it remembers.
+//
+// # The order, and why the record comes first
+//
+// A person reading this diagram is following a file, so the record is the thing
+// they are looking for and it is what a label opens with. Behind it the label
+// reads in the order a consumer evaluates: `when` is the bytes, `if` is the
+// register file, `then` is what the transition leaves behind. That is not quite
+// the order the read loop runs in — guards are checked before the record is
+// examined at all — and it is the order the sentence reads in, which is what a
+// label is for.
+//
+// # esc
+//
+// Every name here came out of somebody's copybook and every connecting word is
+// this generator's, so the escaping is applied to the first and not to the
+// second. Sections are separated by a comma and a space, guards and bindings
+// are joined by `and`, and a set of literals by `or` — three separators that
+// cannot be confused for one another, which is what keeps a label with all
+// three sections readable as three.
+func (e edge) label(esc func(string) string) string {
+	said := []string{esc(e.record), e.predicate.phrase(esc)}
+
+	if len(e.guards) != 0 {
+		said = append(said, "if "+conjunction(e.guards))
+	}
+
+	if len(e.bindings) != 0 {
+		printed := make([]string, 0, len(e.bindings))
+		for _, b := range e.bindings {
+			printed = append(printed, b.phrase(esc))
+		}
+
+		said = append(said, "then "+strings.Join(printed, " and "))
+	}
+
+	return strings.Join(said, ", ")
 }
 
 // admits reports whether any state offers a transition, which is whether this
@@ -224,7 +306,88 @@ func read(d *irpb.Descriptor) (*graph, error) {
 		g.states = append(g.states, s)
 	}
 
+	// Last, because the register table's third column is the edges above: it is
+	// read off the graph rather than off the descriptor, so the table and the
+	// diagram cannot disagree about which transition binds what.
+	if err := g.readRegisters(nodes); err != nil {
+		return nil, err
+	}
+
 	return g, nil
+}
+
+// readRegisters is every register node the descriptor carries, with the
+// transitions the walk above found writing it.
+func (g *graph) readRegisters(nodes nodeSet) error {
+	at := map[uint64]int{}
+
+	for _, node := range nodes.order {
+		kind, ok := node.GetKind().(*irpb.Node_Register)
+		if !ok {
+			continue
+		}
+
+		holds, err := holdsOf(kind.Register, node.GetId())
+		if err != nil {
+			return err
+		}
+
+		at[node.GetId()] = len(g.registers)
+		g.registers = append(g.registers, register{id: node.GetId(), holds: holds})
+	}
+
+	for _, s := range g.states {
+		for _, e := range s.edges {
+			for _, b := range e.bindings {
+				// Every binding's register resolved on the way in, so this
+				// lookup is expected to find one. It is read comma-ok anyway,
+				// because a missing key answers zero and zero is a valid index:
+				// the failure of that expectation would not be a crash but a
+				// binding credited to whichever register happens to be first,
+				// in a table that looks perfectly well formed.
+				held, ok := at[b.register]
+				if !ok {
+					return unresolved(b.register, "the register a transition's binding writes")
+				}
+
+				g.registers[held].boundBy = append(g.registers[held].boundBy,
+					binder{from: s.id, to: e.to, record: e.record})
+			}
+		}
+	}
+
+	return nil
+}
+
+// unbound is the sentence a document states about the registers no transition
+// writes, and the empty string where every register is written.
+//
+// Here rather than in an emitter for the reason [graph.stranded] is: it is
+// prose about the descriptor and the same in either notation. It says the same
+// kind of thing, too — docs/ir/SPEC.md's "A register is read only where it has
+// been written" makes reading a register nothing has bound a malformed
+// descriptor, so a register with an empty third column is either a producer bug
+// or a node nothing needed, and both are worth a reader's eye.
+func (g *graph) unbound() string {
+	named := []string{}
+
+	for _, r := range g.registers {
+		if len(r.boundBy) == 0 {
+			named = append(named, registerName(r.id))
+		}
+	}
+
+	if len(named) == 0 {
+		return ""
+	}
+
+	subject, read := fmt.Sprintf("Registers %s are", strings.Join(named, ", ")), "each"
+	if len(named) == 1 {
+		subject, read = fmt.Sprintf("Register %s is", named[0]), "it"
+	}
+
+	return subject + " written by no transition. A register is read only where it has been written, so " + read +
+		" is either a node nothing needed or a guard reading a value nothing put there — which is a malformed descriptor rather than an empty one."
 }
 
 // walk appends every state reachable from id to the graph, in the order it
@@ -285,6 +448,27 @@ func stateAt(nodes nodeSet, id uint64, reachable bool) (state, error) {
 
 	s := state{id: id, accepts: node.GetAccepts(), reachable: reachable}
 
+	// Acceptance guards on a state that does not accept are refused rather than
+	// dropped. docs/ir/SPEC.md carries them "empty where acceptance is
+	// unconditional — which, on a state that does not accept at all, it is", so
+	// a state carrying them and no acceptance is a producer that meant one of
+	// the two and wrote the other. Drawing them nowhere would be the blank cell
+	// this generator refuses everywhere else.
+	if len(node.GetAcceptanceGuardIds()) != 0 && !node.GetAccepts() {
+		return state{}, malformed(
+			fmt.Sprintf("state %d does not accept and carries %d acceptance guards", id, len(node.GetAcceptanceGuardIds())),
+			"a state's acceptance guards are empty where acceptance is unconditional, which on a state that does not accept at all it is; see docs/ir/SPEC.md, \"The sequencing automaton\"")
+	}
+
+	for _, guardID := range node.GetAcceptanceGuardIds() {
+		g, err := guardAt(nodes, guardID, fmt.Sprintf("an acceptance guard of state %d", id))
+		if err != nil {
+			return state{}, err
+		}
+
+		s.acceptance = append(s.acceptance, g)
+	}
+
 	for _, transition := range node.GetTransitionIds() {
 		e, err := edgeAt(nodes, transition)
 		if err != nil {
@@ -299,12 +483,12 @@ func stateAt(nodes nodeSet, id uint64, reachable bool) (state, error) {
 
 // edgeAt is one transition node as the diagram draws it.
 //
-// The label is the record the transition admits, which is what a person
+// The label opens with the record the transition admits, which is what a person
 // verifying a layout is reading the diagram for. That is not the record-name
 // label docs/ir/SPEC.md's "The sequencing automaton" forbids: what it forbids is
-// a transition *selected* by a record name, a test no consumer can run, and
-// this is a drawing of what the transition produces once its predicate — #188's
-// — has already chosen it.
+// a transition *selected* by a record name, a test no consumer can run, and this
+// is a drawing of what the transition produces once its predicate — resolved
+// below, and drawn behind the name — has already chosen it.
 func edgeAt(nodes nodeSet, id uint64) (edge, error) {
 	node, ok := nodes.transition(id)
 	if !ok {
@@ -331,7 +515,34 @@ func edgeAt(nodes nodeSet, id uint64) (edge, error) {
 		return edge{}, unresolved(node.GetNextStateId(), fmt.Sprintf("the state transition %d moves to", id))
 	}
 
-	return edge{to: node.GetNextStateId(), record: name}, nil
+	e := edge{to: node.GetNextStateId(), record: name}
+
+	p, err := predicateOf(nodes, node, record)
+	if err != nil {
+		return edge{}, err
+	}
+
+	e.predicate = p
+
+	for _, guardID := range node.GetGuardIds() {
+		g, err := guardAt(nodes, guardID, fmt.Sprintf("a guard of transition %d", id))
+		if err != nil {
+			return edge{}, err
+		}
+
+		e.guards = append(e.guards, g)
+	}
+
+	for _, bindingID := range node.GetBindingIds() {
+		b, err := bindingAt(nodes, bindingID, record)
+		if err != nil {
+			return edge{}, err
+		}
+
+		e.bindings = append(e.bindings, b)
+	}
+
+	return e, nil
 }
 
 // nameOf is the name a diagram gives a node: the rename an adopter asked for

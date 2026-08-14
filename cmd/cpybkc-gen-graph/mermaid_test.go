@@ -89,7 +89,10 @@ func TestARecordNameCarryingAMermaidMetacharacterDoesNotBreakTheDiagram(t *testi
 			want := []string{
 				mermaidDiagram,
 				mermaidIndent + "[*] --> s2",
-				mermaidIndent + "s2 --> s2: " + mermaidLabel(testCase.named),
+				// The record's name, escaped, and behind it the rest of what the
+				// transition carries — which here is a transition carrying no
+				// predicate saying so.
+				mermaidIndent + "s2 --> s2: " + mermaidLabel(testCase.named) + ", " + noPredicate,
 				mermaidIndent + "s2 --> [*]",
 			}
 
