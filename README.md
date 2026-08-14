@@ -56,6 +56,12 @@ published](docs/container/SPEC.md#where-this-projects-own-generators-are-publish
 is the rule those addresses follow — derived from the CLI image's repository, so
 a mirror moves the whole family by moving one.
 
+**Until the first release under that rule is cut, those two references resolve
+to nothing.** They are written here ahead of it deliberately, because the rule
+they follow is what the release is built against; a reader arriving before it
+should build from source, as [the worked example](example/README.md#regenerating)
+does.
+
 A plugin written in anything else takes one of the two IR artifacts attached to
 every release: `ir.binpb`, the protobuf `FileDescriptorSet` that lets any
 runtime decode a descriptor with no code generation in the build, or

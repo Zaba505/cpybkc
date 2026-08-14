@@ -285,8 +285,8 @@ Each generator is found on `PATH` by name, which is the whole of how a generator
 is identified — the manifest names `go` and `graph`, and cpybkc looks for
 `cpybkc-gen-go` and `cpybkc-gen-graph`.
 
-The two `go build` lines are what a contributor to *this* repository runs, since
-they are working from the source anyway. Working from a release instead, both
+The two `go build` lines are what a contributor to *this* repository runs, and
+they are the route that works today. Working from a release instead, both
 generators are published as images and neither needs a Go toolchain:
 
 ```console
@@ -302,6 +302,12 @@ published](../docs/container/SPEC.md#where-this-projects-own-generators-are-publ
 is the rule they follow, and [adding a
 generator](../docs/container/SPEC.md#worked-example-adding-a-generator) is the
 `COPY --from` it takes.
+
+**Until the first release under that rule is cut, those references resolve to
+nothing**, exactly as [the container contract
+says](../docs/container/SPEC.md#where-this-projects-own-generators-are-published).
+Before it, the two `go build` lines above are the way to regenerate this
+example; they stay the way a contributor does it afterwards.
 
 Then commit what changed. `go test ./example/...` is what fails if you do not:
 it makes the same run into a temporary directory and holds the result against

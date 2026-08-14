@@ -28,6 +28,12 @@ func TestExecutable(t *testing.T) {
 		// rebuilt the name the way Executable does would agree with it however
 		// wrong both were.
 		{name: "go", want: "cpybkc-gen-go"},
+		// The other name this project publishes an image for. Both are spelled
+		// out because both are what the root pipeline installs into a published
+		// image and what cpybkc then resolves on PATH; a name that only this
+		// module got right would produce an image that builds and pushes and
+		// then reports the generator missing.
+		{name: "graph", want: "cpybkc-gen-graph"},
 		{name: "hello", want: "cpybkc-gen-hello"},
 		// docs/plugin/SPEC.md's SHOULD is lowercase ASCII, digits and hyphens; a
 		// name using all three has to survive unchanged, prefix and nothing else.

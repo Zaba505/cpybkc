@@ -627,11 +627,17 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	// installed a second copy under another name would pass every assertion
 	// above.
 	//
-	// The pair is written down rather than read out of example/cpybkc.json or out
-	// of [publishedGenerators], because an expectation derived from what the
-	// compositions above were built from would agree with them however wrong they
-	// were. A third entry in that manifest has to be added here too, and fails
-	// this check loudly rather than going uncovered if it is not.
+	// What the pair being written down buys is the **set**, and not the spelling.
+	// The two entries are the same constants the compositions above were built
+	// from, so a constant changed to a wrong spelling moves both together and this
+	// would not notice; what it does notice is a generator arriving or leaving. A
+	// third entry in example/cpybkc.json, or a third generator in
+	// [publishedGenerators], has to be added here too, and fails this check loudly
+	// rather than going uncovered if it is not.
+	//
+	// The spelling is pinned where it is a promise instead:
+	// daggerverse/cpybkc/internal/generator's TestExecutable, against the same
+	// discovery rule and in a module that cannot import this one.
 	composed := []string{generatorExecutable, graphGeneratorExecutable}
 
 	if err := m.checkComposedImage(ctx, fromImage.Image(), composed); err != nil {
