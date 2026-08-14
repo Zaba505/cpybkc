@@ -39,9 +39,11 @@
 //     bytes into the entry's values — and writes those records back into a file
 //     that decodes to the entry's values again. That is a claim about a
 //     *consumer*, in both directions, it is what
-//     [github.com/Zaba505/cpybkc/internal/conformance/gorunner] checks for the
-//     Go generator, and it is what makes the corpus useful to a third party who
-//     has neither this repository's resolver nor its language. [Answer] carries
+//     [github.com/Zaba505/cpybkc/internal/conformance/engine] asks an adapter
+//     for — including the one this repository ships for its own generator,
+//     [github.com/Zaba505/cpybkc/internal/conformance/goadapter] — and it is
+//     what makes the corpus useful to a third party who has neither this
+//     repository's resolver nor its language. [Answer] carries
 //     both answers and says why the writing direction is checked by reading
 //     rather than by comparing bytes (#68).
 //

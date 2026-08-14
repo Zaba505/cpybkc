@@ -31,8 +31,8 @@ import (
 // integer, a float or a run of bytes.
 //
 // It lives here, beside the reader of the same language, rather than in the
-// driver [github.com/Zaba505/cpybkc/internal/conformance/gorunner] writes, for
-// the reason docs/conformance/GRAMMAR.md exists at all: a values document that
+// codec program [github.com/Zaba505/cpybkc/internal/conformance/goadapter] writes,
+// for the reason docs/conformance/GRAMMAR.md exists at all: a values document that
 // is written wrongly presents as a generator that decoded wrongly, which is the
 // most expensive way there is to learn about a formatting mistake. Code inside
 // a template is checked by compiling a scratch program per corpus entry and by

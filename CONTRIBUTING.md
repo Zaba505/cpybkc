@@ -1170,11 +1170,13 @@ each was derived from, and how to add one.
 go test ./internal/conformance/...
 ```
 
-That generates Go for every entry with `cpybkc-gen-go` built from the tree,
-compiles it, reads each entry's bytes with it, writes those records back out with
-it, reads that file too, and holds both answers against what the entry says.
-`dagger call ci` runs it too, like every other test; the call above is for
-narrowing down what it reported.
+That starts this repository's own adapter as a process, asks it — through the
+contract in [`docs/adapter/SPEC.md`](docs/adapter/SPEC.md) and nothing else —
+to generate Go for every entry with `cpybkc-gen-go` built from the tree, read
+each entry's bytes with it, write those records back out with it and read that
+file too, and holds both answers against what the entry says. `dagger call ci`
+runs it too, like every other test; the call above is for narrowing down what it
+reported.
 
 Being an ordinary test is what makes it a gate on every platform in the CI
 matrix: the matrix is a matrix of `dagger call ci`, and a conformance job of its
@@ -1235,6 +1237,28 @@ never told what was expected.
 fake adapter — one process per case, over real pipes — so the crash, the hang,
 the greeting on standard output and the carriage return a receiver must refuse
 are each exercised against a real process rather than against a stub.
+
+[`internal/conformance/goadapter`](internal/conformance/goadapter) is the real
+one, for `cpybkc-gen-go`, and the engine has no code path that knows it. That is
+deliberate and is the thing worth protecting: cpybkc's own generator is driven
+through the public contract exactly as a stranger's would be, so every gap
+between what the engine needs and what an adapter can supply surfaces here, where
+the only people inconvenienced are us. A second generator, in any language, is a
+second executable behind `--exec` and no change to anything in this repository.
+
+Two of its decisions are load-bearing rather than incidental. The codec program
+it builds per entry **stays alive after the `decode` it answered**, holding the
+records its own reader produced, because `roundtrip` carries no records and
+cannot: a values document is a rendering of a record and not the record, and
+*Slack survives a read* puts bytes on the record that never appear in one — so
+records rebuilt from a document are missing exactly the bytes the writing
+direction is being asked about. And a **Go type is paired with a record node by
+folding both names down to their letters and digits**, case and separators
+dropped, requiring exactly one match. That replaced a parse of the generated
+source that paired the structs with the record nodes by *position*, resting on a
+sentence in `cmd/cpybkc-gen-go`'s README about the order they are emitted in: a
+promise that was load-bearing, unenforced, and would have compared each record
+against the wrong node without anything saying so.
 
 ## Specs
 
