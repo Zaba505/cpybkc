@@ -239,7 +239,16 @@ func difference(path string, want, got any) []error {
 			return []error{fmt.Errorf("%s: %s, and the entry expects %s", path, described(got), rendered(want))}
 		}
 
-		if want != got {
+		// String equality over the written form, and deliberately not Go's !=
+		// on the two decoded values: != on an any holding a float64 is IEEE
+		// equality, under which a negative zero equals a positive one, so a
+		// generator that lost the sign of a zero would pass. Every scalar of
+		// the value language is a JSON string — a float included, in the
+		// hexadecimal form [FormatFloat] writes — precisely so that this
+		// comparison can be the one docs/conformance/SPEC.md's "Comparison is
+		// over the written form" requires, and rendering both sides keeps that
+		// true of anything a document carries that is not one (#194, #195).
+		if rendered(want) != rendered(got) {
 			return []error{fmt.Errorf("%s is %s and the entry expects %s", path, rendered(got), rendered(want))}
 		}
 

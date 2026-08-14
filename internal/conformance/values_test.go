@@ -6,6 +6,7 @@
 package conformance
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -94,6 +95,55 @@ func TestCompareReportsEveryDisagreement(t *testing.T) {
 				if !strings.Contains(err.Error(), says) {
 					t.Errorf("the report is %q, and it does not say %q", err, says)
 				}
+			}
+		})
+	}
+}
+
+// TestCompareIsOverTheWrittenForm asserts that the comparison is string
+// equality over what each side wrote, and never a comparison of two decoded
+// numbers.
+//
+// The case that matters is the negative zero. The comparison used to be Go's !=
+// on an any, which for a JSON number holding a float64 is IEEE equality — and
+// under IEEE equality -0.0 equals 0.0, so a generator that lost the sign of a
+// zero passed silently over an entry that stated one. Both spellings of zero
+// are here as the strings the value language now writes them as, and as the
+// JSON numbers it no longer does, because the defect was in the comparison and
+// would come back if only the writing side had been changed.
+func TestCompareIsOverTheWrittenForm(t *testing.T) {
+	const document = `{"records": [{"name": "FLOAT-RECORD", "value": {"F-SHORT": %s}}]}`
+
+	tests := map[string]struct {
+		want, got string
+		agree     bool
+	}{
+		"the same float":                     {want: `"0x1p+0"`, got: `"0x1p+0"`, agree: true},
+		"a float that differs":               {want: `"0x1p+0"`, got: `"0x1.2p+3"`},
+		"a negative zero read as a zero":     {want: `"-0x0p+0"`, got: `"0x0p+0"`},
+		"a zero read as a negative zero":     {want: `"0x0p+0"`, got: `"-0x0p+0"`},
+		"the same NaN":                       {want: `"NaN"`, got: `"NaN"`, agree: true},
+		"an infinity read as a NaN":          {want: `"Infinity"`, got: `"NaN"`},
+		"both infinities":                    {want: `"Infinity"`, got: `"-Infinity"`},
+		"two zeros written as JSON numbers":  {want: `-0.0`, got: `0.0`},
+		"a float written as a JSON number":   {want: `"0x1p+0"`, got: `1.0`},
+		"an entry still carrying the number": {want: `1.0`, got: `"0x1p+0"`},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := Compare(
+				parsed(t, fmt.Sprintf(document, test.want)),
+				parsed(t, fmt.Sprintf(document, test.got)),
+			)
+
+			if test.agree && err != nil {
+				t.Fatalf("the comparison reported %v, and the two wrote the same thing", err)
+			}
+
+			if !test.agree && err == nil {
+				t.Fatalf("the comparison passed, and one side wrote %s where the other wrote %s",
+					test.got, test.want)
 			}
 		})
 	}

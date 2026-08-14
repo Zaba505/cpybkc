@@ -1,0 +1,114 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "unframed": {},
+        "start_state_id": "7"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "FLOAT-RECORD"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4",
+          "5",
+          "6"
+        ],
+        "names": {
+          "original": "FLOAT-RECORD"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_COMP_1",
+        "names": {
+          "original": "F-NAN"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_COMP_1",
+        "names": {
+          "original": "F-POS-INF"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_COMP_1",
+        "names": {
+          "original": "F-NEG-INF"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_COMP_1",
+        "names": {
+          "original": "F-NEG-ZERO"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "8"
+        ]
+      }
+    },
+    {
+      "id": "8",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "7"
+      }
+    }
+  ]
+}

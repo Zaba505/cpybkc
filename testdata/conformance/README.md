@@ -75,8 +75,8 @@ negative zero is one, and which base64 alphabet and padding. The fourth is a
 reversal — this file said a `COMP-1` or `COMP-2` item was a JSON number, and the
 spec says it is a string in hexadecimal significand notation, exactly so that a
 NaN, an infinity and a negative zero can be written at all. The corpus's five
-float entries still carry the old form and are migrated by #195, which the spec
-says in full.
+float entries were migrated to it and `float-ieee754-special` was added beside
+them, which is where those three values now sit (#195).
 
 `values.json` is one half of the comparison and a runner's answer document is
 the other, written in exactly the same language. What a runner is asked to do,
@@ -172,15 +172,16 @@ with four items in it.
 | [`float-hfp`](float-hfp) | The same two items in IBM hexadecimal floating point. |
 | [`float-hfp-read-as-ieee`](float-hfp-read-as-ieee) | HFP 1.0 read as IEEE, which is 9.0 and is not an error. |
 | [`float-ieee-read-as-hfp`](float-ieee-read-as-hfp) | IEEE 1.0 read as HFP, which is 0.03125 and is not an error. |
+| [`float-ieee754-special`](float-ieee754-special) | IEEE 754's special values in four `COMP-1` items: a NaN, both infinities, and a negative zero. |
 | [`mixed-record-ebcdic`](mixed-record-ebcdic) | Appendix A.7's mixed record as an IBM Enterprise COBOL file. |
 | [`mixed-record-ascii`](mixed-record-ascii) | The same record as a Micro Focus ASCII file, little-endian. |
 | [`mixed-record-converted`](mixed-record-converted) | The same record after a correct, copybook-aware conversion from EBCDIC. |
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
 
-Every entry above `batch-fixed` is derived from `cobol-go`'s `codec/SPEC.md`
-Appendix A and cites the rows it came from (#67). The two below it are not, and
-the next two subsections are why.
+Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
+it came from (#67). Three are not derived from it — `float-ieee754-special`,
+`batch-fixed` and `batch-rdw` — and the next three subsections are why.
 
 ### Where "in both character sets" applies, and where it does not
 
@@ -200,6 +201,22 @@ no row. So the pairing follows the axis the vector actually varies along:
 - **A.5 varies by byte order** and **A.6 by float format**, not by charset. Their
   pairs are `binary-big-endian`/`binary-little-endian` and
   `float-ieee754`/`float-hfp`.
+
+### The special-values entry cites IEEE 754, not Appendix A
+
+A.6 gives one vector per float format at the value 1.0. A NaN, an infinity and a
+negative zero are properties of the format rather than values anybody would
+tabulate at, so there is no row to derive `float-ieee754-special` from and it is
+authored fresh against IEEE 754-2019's binary32 interchange format. What it
+states about the *corpus* — that each of the four is written as one of the
+sentinels or as a hexadecimal significand, and that the negative zero is not the
+zero — is [`docs/conformance/SPEC.md`](../../docs/conformance/SPEC.md)'s, which
+is the section it cites beside the standard (#195).
+
+It is `ieee-754` and has no HFP pair, which is the one place a float entry does
+not pair. HFP has no encoding for a NaN or an infinity at all, so the bytes that
+would make the pair do not exist; `codec/SPEC.md` says so, and it is why that
+format is a weak signal for telling the two apart in the first place.
 
 ### The framing entry cites this repository, not Appendix A
 

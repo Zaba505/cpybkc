@@ -1,5 +1,5 @@
 {
   "records": [
-    {"name": "FLOAT-RECORD", "value": {"F-SHORT": 9.0}}
+    {"name": "FLOAT-RECORD", "value": {"F-SHORT": "0x1.2p+3"}}
   ]
 }

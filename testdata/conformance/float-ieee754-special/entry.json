@@ -1,0 +1,4 @@
+{
+  "description": "Four COMP-1 items holding IEEE 754's special values: a quiet NaN, both infinities, and a negative zero.",
+  "source": "IEEE 754-2019 section 3.4, the binary32 interchange format; docs/conformance/SPEC.md, \"A float is written exactly, and never as a JSON number\" for how each is written"
+}

@@ -1,0 +1,13 @@
+{
+  "records": [
+    {
+      "name": "FLOAT-RECORD",
+      "value": {
+        "F-NAN": "NaN",
+        "F-POS-INF": "Infinity",
+        "F-NEG-INF": "-Infinity",
+        "F-NEG-ZERO": "-0x0p+0"
+      }
+    }
+  ]
+}

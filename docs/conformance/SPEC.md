@@ -408,18 +408,6 @@ writable. The pattern goes in `input.bin`, and what it decodes to is `"0"`.
 A `COMP-1` or `COMP-2` item is written as a JSON string: either one of three
 sentinels, or the exact value in hexadecimal significand notation (#194, #195).
 
-> **The corpus does not carry this form yet.** Five entries of
-> [`testdata/conformance/`](../../testdata/conformance) hold a float —
-> `float-ieee754`, `float-ieee754-little-endian`, `float-hfp`,
-> `float-hfp-read-as-ieee` and `float-ieee-read-as-hfp` — and each of their
-> `values.json` still carries the JSON number this section
-> forbids, which is the form that was specified before this one. #195 migrates
-> them and makes the comparison stop being IEEE equality. Until it lands, a
-> runner writing `"0x1p+0"` will be reported as differing from those five
-> entries and from no others; nothing else in the corpus holds a float. This is
-> the one place where the corpus and this document disagree, and it is named
-> here rather than left to be discovered.
-
 ```abnf
 float       = %s"NaN" / infinity / hex
 infinity    = [ "-" ] %s"Infinity"
@@ -489,8 +477,16 @@ one run of bytes is read two ways on purpose — as HFP it is 1, as IEEE it is 9
 and a form that echoed the bytes would make both readings identical and the
 entry vacuous.
 
-The migration of the five entries that predate this form is #195's, and it is
-called out in full at the top of this section.
+The five entries that predate this form —
+[`float-ieee754`](../../testdata/conformance/float-ieee754),
+[`float-ieee754-little-endian`](../../testdata/conformance/float-ieee754-little-endian),
+[`float-hfp`](../../testdata/conformance/float-hfp), `float-hfp-read-as-ieee`
+and [`float-ieee-read-as-hfp`](../../testdata/conformance/float-ieee-read-as-hfp)
+— carry it, and
+[`float-ieee754-special`](../../testdata/conformance/float-ieee754-special)
+carries the four values that were the argument for it: a NaN and the two
+infinities, which a JSON number cannot state at all, and a negative zero, which
+it can state and cannot be told from a zero by (#195).
 
 ### `INDEX`, `POINTER` and `NATIONAL` are base64
 

@@ -1,0 +1,22 @@
+;; IEEE 754's four special values, which Appendix A has no row for: it gives
+;; one vector per float format at the value 1.0, and a NaN, an infinity and a
+;; negative zero are properties of the format rather than of a value anybody
+;; would tabulate. The float format is ieee-754 and not ibm-hfp because HFP has
+;; no encoding for a NaN or an infinity at all — a bit pattern that read back as
+;; one does not exist — which is exactly why this entry pairs with nothing.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 16))
+
+(record FLOAT
+  (copybook "float.cpy" FLOAT-RECORD))
+
+(discriminate FLOAT single-record-type)
+
+(sequence (* FLOAT))
