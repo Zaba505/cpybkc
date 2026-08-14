@@ -30,6 +30,13 @@ the same argument vector a third-party generator is, and it imports `irpb` and
 the standard library and nothing else from this repository, so the contract has
 a consumer rather than only readers. Its README is the options it takes.
 
+[`cpybkc-gen-graph`](cmd/cpybkc-gen-graph/) is the second, and it is built the
+same way for the same reason — the argument that a generator of this project's
+own must not reach into `internal/` is only a demonstration once two generators
+live under it. It draws the sequencing automaton a descriptor describes as a
+Mermaid or Graphviz diagram, which is how you check that a layout describes the
+records you meant, in the order you meant, told apart on the bytes you meant.
+
 A plugin written in anything else takes one of the two IR artifacts attached to
 every release: `ir.binpb`, the protobuf `FileDescriptorSet` that lets any
 runtime decode a descriptor with no code generation in the build, or
