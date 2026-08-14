@@ -47,7 +47,8 @@ func TestHelpIsWrittenToStandardOutputAndSucceeds(t *testing.T) {
 }
 
 // TestUsageNamesTheSettledCommandSet holds the help text to the surface
-// docs/cli/SPEC.md fixes: the three forms, the five flags, and no sixth.
+// docs/cli/SPEC.md fixes: the four forms, the one subcommand, and no flag this
+// command does not have.
 //
 // The wording is explicitly not a covered guarantee, so this asserts what is
 // named rather than how it reads.
@@ -56,25 +57,200 @@ func TestUsageNamesTheSettledCommandSet(t *testing.T) {
 
 	stdout, _, _ := invoke(helpFlag)
 
+	// The verb is named now, and the two flags that reach it are named with it.
+	// #214 implements the subcommand this document specified at #183, so a usage
+	// text that omitted it would hide a command that runs — which is the inverse
+	// of the fault the omission was avoiding while the parsing did not exist.
+	// The synopsis carries the second form for the same reason: the forms are
+	// the command set, so all four lines are the document's, line for line.
 	for _, want := range []string{
 		manifestFlag, emitIRFlag, emitIRFormatFlag, versionFlag, helpFlag, shortHelpFlag,
 		binaryFormat, jsonFormat, defaultManifest,
+		initSubcommand, copybookFlag, outFlag,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("usage does not name %s:\n%s", want, stdout)
 		}
 	}
 
-	// No verb line yet. Generating is what the command does when nothing else
-	// is asked of it, and that keeps the bare form whatever else the set gains
-	// — but docs/cli/SPEC.md now specifies one subcommand, `init`, which this
-	// build does not implement. A usage text spelling it would document a
-	// command nobody can run; #214 lands both together and flips this
-	// assertion.
-	for _, refused := range []string{"--out", "--include", "--jobs", "--verbose", "--config", "Commands:"} {
+	// The bare form still leads, because generating keeps it: it is what every
+	// command line already written and every published image whose entrypoint is
+	// this CLI already means by `cpybkc`.
+	if !strings.Contains(stdout, "  cpybkc [--manifest") {
+		t.Errorf("the synopsis does not lead with the bare form:\n%s", stdout)
+	}
+
+	// The at-most-once rule is stated with its one exception. --copybook is the
+	// flag that repeats, and a summary asserting the rule without it would be
+	// telling the reader the second synopsis line is a usage error.
+	if strings.Contains(stdout, "at most once.") {
+		t.Errorf("usage states the at-most-once rule without naming %s's exception:\n%s", copybookFlag, stdout)
+	}
+
+	// The flags docs/cli/SPEC.md's "Out of Scope" refuses by name, each with its
+	// reason. A usage text offering one would document a flag the parser has no
+	// case for.
+	for _, refused := range []string{"--include", "--jobs", "--verbose", "--config"} {
 		if strings.Contains(stdout, refused) {
 			t.Errorf("usage offers %s, which cpybkc does not have:\n%s", refused, stdout)
 		}
+	}
+}
+
+// TestInitHasItsOwnUsage is docs/cli/SPEC.md's rule about which usage --help
+// writes: the named subcommand's where the first argument is one, and the whole
+// command's otherwise.
+//
+// A reader who has typed a verb has narrowed what they are asking about, so the
+// answer is `init`'s flags and not an action they are not running.
+func TestInitHasItsOwnUsage(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := invoke(initSubcommand, helpFlag)
+
+	if code != statusOK {
+		t.Errorf("`cpybkc %s %s` exited %d, want %d", initSubcommand, helpFlag, code, statusOK)
+	}
+
+	if stderr != "" {
+		t.Errorf("`cpybkc %s %s` wrote %q to standard error, and usage that was asked for is not a diagnostic",
+			initSubcommand, helpFlag, stderr)
+	}
+
+	if stdout != initUsage {
+		t.Errorf("`cpybkc %s %s` wrote %q, want init's usage", initSubcommand, helpFlag, stdout)
+	}
+
+	for _, want := range []string{initSubcommand, copybookFlag, outFlag} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("init's usage does not name %s:\n%s", want, stdout)
+		}
+	}
+
+	// The default action's input flags are usage errors under init, so offering
+	// them here would document a line that is refused.
+	for _, refused := range []string{manifestFlag, emitIRFlag, emitIRFormatFlag} {
+		if strings.Contains(stdout, refused) {
+			t.Errorf("init's usage offers %s, which is a usage error under %s:\n%s", refused, initSubcommand, stdout)
+		}
+	}
+
+	// The whole command's usage is unchanged by the subcommand existing.
+	if whole, _, _ := invoke(helpFlag); whole != usage {
+		t.Errorf("`cpybkc %s` wrote %q, want the whole command's usage", helpFlag, whole)
+	}
+
+	// And it says what this build does, which is read the line and fail. A help
+	// text promising a written scaffold while [scaffold] cannot write one would
+	// be documenting a command nobody can run — the fault the usage text avoided
+	// by omitting the verb entirely while it did not parse. #215 deletes the
+	// line and this assertion together, in the commit that makes the promise
+	// true.
+	if !strings.Contains(stdout, "Not implemented in this build") {
+		t.Errorf("init's usage promises a scaffold this build cannot write:\n%s", stdout)
+	}
+}
+
+// TestAnUnknownVerbIsStillAnsweredByHelp is the courtesy docs/cli/SPEC.md
+// extends to a reader who is in the middle of getting the line wrong, at the
+// position an unrecognised verb is the commonest way to arrive at it: the
+// question is answered, with the top-level usage, and the verb is not
+// complained about.
+func TestAnUnknownVerbIsStillAnsweredByHelp(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := invoke("bogus", helpFlag)
+
+	if code != statusOK {
+		t.Errorf("`cpybkc bogus %s` exited %d, want %d", helpFlag, code, statusOK)
+	}
+
+	if stdout != usage {
+		t.Errorf("`cpybkc bogus %s` wrote %q, want the whole command's usage", helpFlag, stdout)
+	}
+
+	if stderr != "" {
+		t.Errorf("`cpybkc bogus %s` wrote %q to standard error", helpFlag, stderr)
+	}
+}
+
+// TestVersionIgnoresASubcommand is the other half of that rule. A build has one
+// version whichever action was going to run, so --version does not vary with the
+// head the way --help does.
+func TestVersionIgnoresASubcommand(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := invoke(initSubcommand, versionFlag)
+
+	if code != statusOK {
+		t.Errorf("`cpybkc %s %s` exited %d, want %d", initSubcommand, versionFlag, code, statusOK)
+	}
+
+	if stderr != "" {
+		t.Errorf("`cpybkc %s %s` wrote %q to standard error", initSubcommand, versionFlag, stderr)
+	}
+
+	if want := versionLine() + "\n"; stdout != want {
+		t.Errorf("`cpybkc %s %s` wrote %q, want %q", initSubcommand, versionFlag, stdout, want)
+	}
+}
+
+// TestAUsageErrorUnderInitIsAnsweredWithInitsUsage holds the other half of
+// docs/cli/SPEC.md's rule about which usage is written: usage accompanies a
+// usage error on standard error, and the one a reader needs is the one whose
+// flags they were using.
+func TestAUsageErrorUnderInitIsAnsweredWithInitsUsage(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := invoke(initSubcommand, copybookFlag, "posting.cpy")
+
+	if code != statusUsage {
+		t.Errorf("`cpybkc %s` with no %s exited %d, want %d", initSubcommand, outFlag, code, statusUsage)
+	}
+
+	if stdout != "" {
+		t.Errorf("a usage error wrote %q to standard output", stdout)
+	}
+
+	if !strings.Contains(stderr, initUsage) {
+		t.Errorf("a usage error under %s was answered with %q, want init's usage", initSubcommand, stderr)
+	}
+
+	if strings.Contains(stderr, emitIRFlag) {
+		t.Errorf("a usage error under %s was answered with the default action's flags: %q", initSubcommand, stderr)
+	}
+}
+
+// TestInitUnderstoodCannotYetBePerformed is the exit status this build owes a
+// line it read and cannot carry out.
+//
+// docs/cli/SPEC.md's status 2 promises the vector was not understood and that
+// cpybkc did nothing at all; status 0 promises a scaffold was written. This line
+// is neither, so it is the 1 the document keeps for the faults in the work
+// ([scaffold], #215). Exiting 0 over a scaffold nobody wrote would be the worst
+// of the three: silence is success for a run, and a person would go looking for
+// a file that is not there.
+func TestInitUnderstoodCannotYetBePerformed(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := invoke(initSubcommand, copybookFlag, "posting.cpy", outFlag, "layout.sexpr")
+
+	if code != statusFailed {
+		t.Errorf("an understood %s line exited %d, want %d", initSubcommand, code, statusFailed)
+	}
+
+	if stdout != "" {
+		t.Errorf("`cpybkc %s` wrote %q to standard output, and no scaffold was written", initSubcommand, stdout)
+	}
+
+	if !strings.HasPrefix(stderr, severityError+severitySeparator) {
+		t.Errorf("the diagnostic reads %q, want an %s%s line", stderr, severityError, severitySeparator)
+	}
+
+	// A failure of the work is not a failure of the vector, so the command set
+	// is not what the reader needs in front of them.
+	if strings.Contains(stderr, "Usage:") {
+		t.Errorf("`cpybkc %s` was answered with usage, and the vector was understood: %q", initSubcommand, stderr)
 	}
 }
 
@@ -132,10 +308,15 @@ func TestVersionCarriesNoBuildProvenance(t *testing.T) {
 // TestAUsageErrorExitsTwoAndSaysSoOnStandardError is the status a caller can
 // act on without knowing anything about the project, and the stream the
 // diagnostic owes.
+//
+// The flag is one no action carries. `--out` used to stand here, and it is a
+// real flag now — `init`'s — so it is a usage error for a different reason and
+// reads differently; the two refusals are told apart in args_test.go, and this
+// test wants the plain one.
 func TestAUsageErrorExitsTwoAndSaysSoOnStandardError(t *testing.T) {
 	t.Parallel()
 
-	stdout, stderr, code := invoke("--out", "gen")
+	stdout, stderr, code := invoke("--nope", "gen")
 
 	if code != statusUsage {
 		t.Errorf("an unrecognised flag exited %d, want %d", code, statusUsage)
@@ -152,7 +333,7 @@ func TestAUsageErrorExitsTwoAndSaysSoOnStandardError(t *testing.T) {
 		t.Errorf("the diagnostic reads %q, want an %s%s line", stderr, severityError, severitySeparator)
 	}
 
-	if !strings.Contains(stderr, "--out") {
+	if !strings.Contains(stderr, "--nope") {
 		t.Errorf("the diagnostic does not name the flag that was refused: %q", stderr)
 	}
 
@@ -223,6 +404,13 @@ func TestEveryEnumeratedStatusIsReachable(t *testing.T) {
 		{"--nope"},
 		{"an-operand"},
 		{emitIRFormatFlag, jsonFormat},
+
+		// The subcommand reaches the same three and no fourth: a line it
+		// understood and cannot yet perform is the run failing, and a flag
+		// written under the wrong action is the vector.
+		{initSubcommand, copybookFlag, "posting.cpy", outFlag, standardOutput},
+		{initSubcommand, manifestFlag, defaultManifest},
+		{copybookFlag, "posting.cpy"},
 	} {
 		_, _, code := invoke(args...)
 		reached[code] = append(reached[code], strings.Join(args, " "))
