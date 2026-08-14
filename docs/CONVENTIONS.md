@@ -1,15 +1,15 @@
 # Spec conventions
 
-Five of cpybkc's interfaces are things other people build against rather than
+Six of cpybkc's interfaces are things other people build against rather than
 things it is free to change: the command line itself, the file layout format,
-the resolved IR, the generator plugin CLI contract, and the container
-base-image contract. Each is harder to change than the code behind it, so each
-gets a `SPEC.md` under this directory. They are linked from the
-[README](../README.md), which is the only list of them — a second list here
-would be a second answer to what the specs are, and two answers drift.
+the resolved IR, the generator plugin CLI contract, the container base-image
+contract, and the conformance corpus format. Each is harder to change than the
+code behind it, so each gets a `SPEC.md` under this directory. They are linked
+from the [README](../README.md), which is the only list of them — a second list
+here would be a second answer to what the specs are, and two answers drift.
 
 This document is what those specs agree on. It exists because the alternative is
-five documents that each invent a shape and each define **MUST** in their own
+six documents that each invent a shape and each define **MUST** in their own
 wording, so that having read one teaches you nothing about how to read the next.
 
 The model throughout is [`cobol-go`'s `codec/SPEC.md`][codec-spec] — the spec
@@ -29,9 +29,14 @@ That is the whole test, and it excludes more than it admits:
   `ir/SPEC.md`. A second document describing how it computes that would drift
   from the code the first time an optimisation landed, and nobody outside this
   repository builds against it.
-- **Test infrastructure documents itself where it lives.** The conformance
-  corpus is a `testdata/` format, run by a harness here and by third-party
-  generators against their own output. It is documented with the corpus.
+- **Test infrastructure documents itself where it lives — until a third party
+  implements it.** A `testdata/` format read only by a harness here is
+  documented with the fixtures. The conformance corpus stopped being one: a
+  generator author in another language implements its value language to be
+  compared at all, so the *format* is a spec (`conformance/SPEC.md`) while the
+  corpus's own entries, their derivations and how to add one stay with the
+  corpus. The test is who has to implement it, never which directory it sits
+  in.
 - **Conveniences over a contract are not contracts.** The Dagger module that
   runs cpybkc for a caller wraps the container contract; what it needs to say is
   said by its module comment and `dagger call --help`.

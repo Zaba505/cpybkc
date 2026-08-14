@@ -3,7 +3,7 @@ A modular code generator for files composed COBOL copybook records
 
 ## Specs
 
-Five interfaces are built against from outside this repository, so each is
+Six interfaces are built against from outside this repository, so each is
 specified rather than merely implemented:
 
 - [The command-line interface](docs/cli/SPEC.md) — what a person types, where
@@ -16,9 +16,11 @@ specified rather than merely implemented:
   `cpybkc-gen-<name>` has to implement.
 - [The container base-image contract](docs/container/SPEC.md) — what a
   Dockerfile building `FROM` the published image may rely on.
+- [The conformance corpus format](docs/conformance/SPEC.md) — what a generator
+  in any language is held to, and the language the answer is written in.
 
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md) defines the conformance language all
-five use, and what else they have in common.
+six use, and what else they have in common.
 
 A generator plugin written in Go imports the resolved IR from
 [`irpb`](irpb/) — `github.com/Zaba505/cpybkc/irpb`, a module of its own, so that

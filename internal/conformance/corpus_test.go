@@ -6,8 +6,10 @@
 package conformance
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -203,6 +205,68 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 				t.Errorf("the refusal is %q, and it does not say %q", err, test.says)
 			}
 		})
+	}
+}
+
+// TestTheReservedMemberIsAdmittedAndReadByNothing holds [OffsetsName] to what
+// reserving a name means: the entry loads with it there, and loads to exactly
+// what it loads to without it.
+//
+// The content is deliberately not a document. Nothing specifies what is in this
+// member (#194), so an entry carrying JSON would pass whether the loader
+// ignores the file, parses it, or holds it to some shape somebody added later —
+// and only the third of those is a change to what was reserved. Bytes no reader
+// could accept fail the day the member acquires a consumer without acquiring a
+// specification first, which is the direction this reservation has to be
+// defended in.
+func TestTheReservedMemberIsAdmittedAndReadByNothing(t *testing.T) {
+	dir := entryCopy(t)
+
+	without, err := LoadEntry(dir)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	write(t, filepath.Join(dir, OffsetsName), "not a document {")
+
+	with, err := LoadEntry(dir)
+	if err != nil {
+		t.Fatalf("an entry carrying the reserved %s: %v", OffsetsName, err)
+	}
+
+	if !slices.Equal(with.Copybooks, without.Copybooks) {
+		t.Errorf("the entry's copybooks are %v with %s beside them and %v without it",
+			with.Copybooks, OffsetsName, without.Copybooks)
+	}
+
+	if with.Layout != without.Layout || with.Description != without.Description ||
+		with.Source != without.Source || !bytes.Equal(with.Input, without.Input) {
+		t.Errorf("the entry loaded differently with %s beside it, and nothing reads it", OffsetsName)
+	}
+}
+
+// TestNoShippedEntryCarriesTheReservedMember is the half of the reservation
+// that decays quietly.
+//
+// The member has no content specified and no consumer, so an entry that started
+// carrying one would carry a file whose meaning nothing had agreed — which is
+// exactly what reserving the name postpones. It is a test of its own because it
+// is a claim about the corpus rather than about the loader, and a failure here
+// sends its reader somewhere else entirely.
+func TestNoShippedEntryCarriesTheReservedMember(t *testing.T) {
+	entries, err := Load(CorpusPath(repoRoot(t)))
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	for _, entry := range entries {
+		switch _, err := os.Stat(filepath.Join(entry.Dir, OffsetsName)); {
+		case err == nil:
+			t.Errorf("%s carries %s, and the member is reserved with nothing specified to be in it",
+				entry.Name, OffsetsName)
+		case !os.IsNotExist(err):
+			t.Errorf("%s: %v", entry.Name, err)
+		}
 	}
 }
 

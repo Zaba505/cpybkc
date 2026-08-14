@@ -16,37 +16,35 @@ Every entry here is authored by hand. Slower growth is the trade, and what it
 buys is that each entry is traceable to the section it was derived from rather
 than to a run of the code it is supposed to be checking (#67).
 
-## Why the format is documented here and not under `docs/`
+## Where the format is written down, and what is written down here
 
-[`docs/CONVENTIONS.md`](../../docs/CONVENTIONS.md), *What belongs here*, admits a
-document under `docs/` when it specifies an interface a third party builds
-against and the interface is harder to change than the code behind it. Test
-infrastructure documents itself where it lives, and this is that document: the
-corpus is a `testdata/` format, run by a harness in this repository and by
-third-party generators against their own output.
+The format is [`docs/conformance/SPEC.md`](../../docs/conformance/SPEC.md): what
+an entry is made of, the value language a decoded record is written in, and the
+answer document a runner writes. It is a spec under `docs/` rather than a
+section of this file because a third-party generator author has to implement it,
+which is the test [`docs/CONVENTIONS.md`](../../docs/CONVENTIONS.md), *What
+belongs here*, applies — while this repository held the only reader of the
+format, prose here was enough, and the day a second implementation exists every
+unstated rule becomes a coordinated migration (#194).
 
-So there are no bolded conformance keywords below. The four specs use them; this
-file describes a directory of files, and a rule here is enforced by the loader
-rather than by a reader deciding what a **MUST** binds.
+What stays here is the corpus rather than the format: why it exists, why every
+entry is hand-authored, which entries there are and what each was derived from,
+and how to add one. Those change every time an entry is added and are nobody
+else's interface.
+
+So there are no bolded conformance keywords below. The specs use them; this file
+describes a directory of entries, and where it says what a member holds it is
+recalling the spec rather than defining it.
 
 ## An entry
 
-One directory per entry, named for what it is about. The directory holds five
-members and the copybooks the layout names, and nothing else — a file the format
-has no place for is refused rather than ignored, for the reason the project
-manifest refuses an unknown field.
+One directory per entry, named for what it is about. It holds five members and
+the copybooks the layout names; that list, the one reserved name it may also
+carry, and what each member is held to are [*An
+entry*](../../docs/conformance/SPEC.md#an-entry).
 
-| File | What it is |
-|---|---|
-| `entry.json` | What the entry is about, and the section its expected answer came from. |
-| `layout.sexpr` | The [layout](../../docs/layout/SPEC.md) the file is laid out by. |
-| `*.cpy` | The copybooks that layout names, at the paths it spells them. |
-| `ir.json` | The [IR](../../docs/ir/SPEC.md) the layout and those copybooks resolve to. |
-| `input.bin` | The bytes of one file laid out that way. |
-| `values.json` | What those bytes decode to. |
-
-An entry therefore states two independent things, and they are checked by
-different readers:
+An entry states two independent things, and they are checked by different
+readers:
 
 - **The layout and its copybooks resolve to `ir.json`.** That is a claim about a
   producer. The descriptor is hand-authored, so it is an oracle rather than a
@@ -63,174 +61,28 @@ disagrees with cpybkc about what a *layout* means and one who disagrees about
 what a *descriptor* means have different bugs, and an entry carrying three of the
 four members could not tell them apart.
 
-### `entry.json`
+### The members, and the value language
 
-```json
-{
-  "description": "A fixed-length dataset of one record type: ...",
-  "source": "cobol-go codec/SPEC.md, \"Storage Widths\"; docs/ir/SPEC.md, \"Physical framing\""
-}
-```
+What each member holds, and the language a decoded record is written in — a
+group, a table, a variant, characters, a number, a float, a run of bytes, and a
+file the reader refused — are [*An
+entry*](../../docs/conformance/SPEC.md#an-entry) and [*The value
+language*](../../docs/conformance/SPEC.md#the-value-language). Four rules moved
+with it and are now decided (#194). Three were never written here at all, which
+is the argument for the move rather than a slip: whether trailing spaces on an
+alphanumeric item survive, how a decimal string may be spelled and whether a
+negative zero is one, and which base64 alphabet and padding. The fourth is a
+reversal — this file said a `COMP-1` or `COMP-2` item was a JSON number, and the
+spec says it is a string in hexadecimal significand notation, exactly so that a
+NaN, an infinity and a negative zero can be written at all. The corpus's five
+float entries still carry the old form and are migrated by #195, which the spec
+says in full.
 
-Both are required and there is no third key. `source` is what a failing run
-prints beside the entry's name: whoever reads the report has to decide whether
-the generator is wrong or the entry is, and that decision starts at where the
-expected answer came from.
-
-### `ir.json`
-
-The descriptor, in the canonical JSON rendering — protobuf's own field names,
-field-number order, two-space indent — which is exactly what
-`cpybkc --emit-ir --emit-ir-format json` writes and what
-`internal/emit.MarshalJSON` produces. The loader re-renders what it read and
-refuses a file that is not byte for byte the same, so an entry is reviewed as a
-diff of its content rather than of its whitespace.
-
-JSON rather than the binary form because an entry is written and reviewed by
-hand. A runner that would rather have the bytes a plugin is handed encodes what
-it read: the binary encoding is canonical for a *plugin*, and any protobuf
-runtime turns one into the other with the schema, which every release attaches as
-`ir.binpb` and `ir-protos.tar.gz`.
-
-### `values.json`
-
-The records the file holds, in file order.
-
-```json
-{
-  "records": [
-    {
-      "name": "ORDER-RECORD",
-      "value": {
-        "ORDER-ID": "A001",
-        "ORDER-QTY": "42",
-        "ORDER-LINE": [
-          {"LINE-SKU": "SK1"},
-          {"LINE-SKU": "SK2"}
-        ]
-      }
-    }
-  ]
-}
-```
-
-`name` is the record's name as the copybook spells it — the `original` of the
-record node's names, never an identifier a generator munged out of it. `value` is
-what the record's top-level node holds.
-
-The value language is small, and every part of it is language-neutral on purpose:
-
-| The node | Written as |
-|---|---|
-| A group | An object, one key per member, keyed by the copybook's name for it. |
-| An item that repeats | An array, one element per occurrence, in order. |
-| Alphabetic, alphanumeric and both edited categories | A JSON string of the characters, after the charset has been applied. |
-| Any numeric item — zoned, packed or binary | A JSON string of the decimal digits, with a leading `-` where it is negative, and no leading zeros. |
-| `COMP-1` and `COMP-2` | A JSON number. |
-| `INDEX`, `POINTER` and `NATIONAL` | A JSON string of the bytes in base64. |
-| A variant | One key per arm in the enclosing object, of which the occurrence carries exactly one; an arm the occurrence does not hold has no key at all. |
-| A slack node | Nothing. Its bytes travel with the record and are not a value anybody decoded. |
-
-A number is a string rather than a JSON number because JSON numbers are doubles
-in most readers, and a `PIC S9(18)` item holds values a double cannot represent.
-The digits are the *unscaled* ones — an implied decimal point is not applied, for
-the same reason a generated accessor does not apply one: the point is in the
-descriptor, and applying it here would apply it twice by the time a caller saw
-the value.
-
-A file the generated reader refuses carries a `failure` beside the records it did
-read:
-
-```json
-{
-  "records": [ ... ],
-  "failure": "the sign nibble is not one of the four the convention admits"
-}
-```
-
-What is compared is that reading failed, and that it failed after the records
-listed. The text is a note for whoever reads the report and is deliberately not
-compared: a diagnostic is a generator's own wording in its own language, so an
-entry demanding particular words would be an entry only one generator could pass.
-
-## What a runner does
-
-A runner is the language-specific half, and there is one per generator language.
-Given an entry it:
-
-1. hands `ir.json` — as the binary encoding, which is what
-   [`docs/plugin/SPEC.md`](../../docs/plugin/SPEC.md) says a plugin is given — to
-   the generator under test, with whatever options that generator needs;
-2. compiles what came back;
-3. reads `input.bin` with it, top to bottom;
-4. where that read reached the end of the file, writes those records back out
-   with the generated writer and reads *that* file with the generated reader;
-5. writes an answer document on standard output, carrying a values document for
-   each direction.
-
-The comparison is then a comparison of values documents and needs neither the
-descriptor nor a decoder, which is what makes a runner for a language this
-repository has never seen comparable by the same rules.
-
-Two things a runner is not asked for. It is not asked to explain a difference —
-that is the comparison's — and it does not exit non-zero for a file the generated
-reader refused, or for a record the generated writer refused: those are answers,
-written as `failure`, because an entry is allowed to expect one and only the
-comparison knows whether this entry did. A non-zero exit means the runner itself
-failed: the generator would not run, its output would not compile, or the runner
-could not write a document.
-
-### The answer document
-
-```json
-{
-  "decoded": {
-    "records": [ ... ]
-  },
-  "written": {
-    "records": [ ... ]
-  }
-}
-```
-
-`decoded` is what the generated reader made of `input.bin`. `written` is what the
-generated reader makes of the file the generated *writer* produced from those
-records. Both are values documents, in exactly the form `values.json` is written
-in, and both are compared against `values.json` — against the entry rather than
-against each other, because a reader and a writer that are wrong the same way
-agree with each other and only the entry knows what the file holds.
-
-`written` is absent in two cases: where the read did not reach the end of the
-file, since a run that stopped at a failure holds no complete set of records to
-write back; and where the generator emits no writer at all, which
-[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *Writing a file* leaves to the
-generator. It is present and carries a `failure` where the writer refused a
-record it was given.
-
-### Why the writing direction is checked by reading, and not by comparing bytes
-
-The obvious check is that the bytes the writer produced are `input.bin` again,
-and it is the wrong check twice over.
-
-*Writing a file* makes byte identity a claim about a **record** and deliberately
-not about a file: under an optional terminator a writer emits a final delimiter
-the input need not have carried, and under segmented framing it lays a record
-into as few segments as the largest allows, whatever the input did. A corpus
-demanding the input's bytes back would fail two of the four framings by design.
-
-It is wrong at the field level too, and this corpus already holds the case:
-[`packed-ascii`](packed-ascii) carries the lenient sign nibble `A`, which a
-reader admits as positive and a writer has no reason to emit — it writes the `C`
-the convention prescribes. The same goes for every encoding that admits more than
-one spelling of one value. Demanding the bytes back would make those entries
-unpassable by a correct generator, and dropping them would cost the corpus
-exactly the vectors it was seeded from.
-
-What *Writing a file* does make normative of a file is that a file a writer
-produces is one that a reader built from the same descriptor reads back as the
-records the writer was given. That holds for all four framings and every
-encoding, it is what `written` states, and it needs nothing of a runner that the
-reading direction did not already need.
+`values.json` is one half of the comparison and a runner's answer document is
+the other, written in exactly the same language. What a runner is asked to do,
+what it is deliberately not asked to do, and why the writing direction is
+checked by reading rather than by comparing bytes are [*What a runner
+does*](../../docs/conformance/SPEC.md#what-a-runner-does).
 
 ## What this repository runs
 
