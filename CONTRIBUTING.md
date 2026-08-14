@@ -1205,14 +1205,15 @@ says the code followed.
 
 ## Specs
 
-Six of this project's interfaces are built against from outside it — the command
-line, the file layout format, the resolved IR, the plugin CLI contract, the
-container base-image contract and the conformance corpus format — and each is
-far harder to change than the code behind it. Each has a `SPEC.md` under
+Seven of this project's interfaces are built against from outside it — the
+command line, the file layout format, the resolved IR, the plugin CLI contract,
+the container base-image contract, the conformance corpus format and the
+conformance adapter contract — and each is far harder to change than the code
+behind it. Each has a `SPEC.md` under
 [`docs/`](docs/), linked from [README.md](README.md), which is the only list of
 them.
 
-[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is what those six agree on: the
+[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) is what those seven agree on: the
 conformance language, the section set every spec carries, how sources are cited
 and how requirements are traced back to stories. It is defined there once and
 referenced, never restated — the same argument this file already makes about the
@@ -1222,12 +1223,12 @@ pipeline and the lint configuration, applied to the word **MUST**.
 
 [`cobol-go`](https://github.com/Zaba505/cobol-go) puts `codec/SPEC.md` next to
 package `codec`, and it is the model these specs follow in every other respect.
-It is not followed here because five of the six specify things that are not Go
+It is not followed here because six of the seven specify things that are not Go
 packages: a command line, a text file format, a CLI contract for executables
-that may be shell scripts, an OCI image, and a directory of test fixtures.
-Package-adjacency would have conjured an empty `container/` package into
-existence to hold one markdown file, and would have
-scattered six documents that are peers — a reader comparing what the plugin
+that may be shell scripts, an OCI image, a directory of test fixtures, and a
+process spoken to over two pipes. Package-adjacency would have conjured an empty
+`container/` package into existence to hold one markdown file, and would have
+scattered seven documents that are peers — a reader comparing what the plugin
 contract promises against what the image provides should not have to know the
 package tree to find both.
 

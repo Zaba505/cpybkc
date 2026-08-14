@@ -14,18 +14,21 @@ middle.
 
 This document specifies the files that question and its answer are written in:
 what an entry is made of, the value language a decoded record is written in, and
-the answer document a runner writes on standard output. It is the half a third
-party implements. It is deliberately language-neutral throughout — a comparison
-of two answers needs neither the descriptor nor a decoder, which is what makes a
-runner for a language this repository has never seen comparable by exactly the
-same rules as its own.
+the answer document a runner returns. It is one of the two halves a third party
+implements; the other is the [adapter contract](../adapter/SPEC.md), which is
+how a runner is asked. It is deliberately language-neutral throughout — a
+comparison of two answers needs neither the descriptor nor a decoder, which is
+what makes a runner for a language this repository has never seen comparable by
+exactly the same rules as its own.
 
 What a value *means* is not here. How wide a `PIC S9(5) COMP-3` item is, which
 nibble carries its sign, where one record ends and the next begins, and which
 record type a run of bytes is are the [resolved IR](../ir/SPEC.md)'s and, below
 it, [`cobol-go`'s `codec/SPEC.md`][codec-spec]'s. How a generator is found and
-invoked is the [plugin contract](../plugin/SPEC.md)'s. Which entries the corpus
-holds, why each of them is there and how to add one are the corpus's own, in
+invoked is the [plugin contract](../plugin/SPEC.md)'s, and how the process that
+answers is started and spoken to is the [adapter
+contract](../adapter/SPEC.md)'s. Which entries the corpus holds, why each of
+them is there and how to add one are the corpus's own, in
 [`testdata/conformance/README.md`](../../testdata/conformance/README.md), which
 is where the corpus documents itself.
 
@@ -40,7 +43,7 @@ In scope: the directory an entry is, the members it holds and the one member
 that is reserved; the value language every decoded record is written in, down to
 the admissible spelling of each scalar; how a file the generated reader refused
 is reported; what a runner is asked to do and what it is deliberately not asked
-to do; and the answer document it writes.
+to do; and the answer document it returns.
 
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
@@ -559,8 +562,9 @@ to disagree with them.
 
 ## What a runner does
 
-A runner is the language-specific half, and there is one per generator language.
-Given an entry it:
+A runner — an **adapter**, in the vocabulary of the contract it is driven
+through — is the language-specific half, and there is one per generator
+language. Given an entry it:
 
 1. hands `ir.json` — as the binary encoding, which is what
    [`plugin/SPEC.md`](../plugin/SPEC.md) says a plugin is given — to the
@@ -569,17 +573,19 @@ Given an entry it:
 3. reads `input.bin` with it, top to bottom;
 4. where that read reached the end of the file, writes those records back out
    with the generated writer and reads *that* file with the generated reader;
-5. writes an answer document on standard output.
+5. answers with the two values documents that make up an answer.
 
-A runner **MUST** write exactly one JSON document on standard output and nothing
-else on that stream.
+*What* it is asked is the list above and is this document's. *How* it is
+started, asked and answered — the process, the framing, the operations, the
+capabilities it declares before it is asked anything, and what its exit status
+may and may not mean — is the [adapter contract](../adapter/SPEC.md)'s (#198),
+and none of it is restated here.
 
-A runner **MUST NOT** exit non-zero because the generated reader refused the
-file, or because the generated writer refused a record: those are answers, an
-entry is allowed to expect one, and only the comparison knows whether this entry
-did. A runner **MUST** exit non-zero when it could not produce an answer at all
-— the generator would not run, its output would not compile, or the document
-could not be written.
+One requirement of that contract is restated, because it is a property of the
+answer rather than of the transport: a runner **MUST NOT** report a failure as
+anything but an answer. The generated reader refusing the file, and the
+generated writer refusing a record, are answers an entry is allowed to expect,
+and only the comparison knows whether this entry did.
 
 A runner is not asked to explain a difference. That is the comparison's job, and
 a runner that argued its own case would be a runner whose report had to be
@@ -613,6 +619,13 @@ of the file, since a run that stopped at a failure holds no complete set of
 records to write back; and where the generator emits no writer at all, which
 [*Writing a file*](../ir/SPEC.md#writing-a-file) leaves to the generator. It is
 present and carries a `failure` where the writer refused a record it was given.
+
+A harness **MUST NOT** report an entry as failing because `written` is absent
+for the second of those reasons. It is told which case it is in before it asks
+anything: the [adapter contract](../adapter/SPEC.md#capabilities-because-a-read-only-generator-is-a-legal-generator)
+has a runner declare whether its generator emits a writer at all, so a
+read-only generator is a smaller claim rather than thirty missing answers
+(#198, #199).
 
 ### Why the writing direction is checked by reading, and not by comparing bytes
 
@@ -684,6 +697,20 @@ invokes a generator through that contract like any other caller, and a second
 description of it here would be one a plugin author could find and follow into
 disagreement.
 
+### How a runner is started and spoken to
+
+The process a runner is, the framing its frames are written in, the operations
+it serves, the kind and capabilities it declares, and what its exit status means
+are **not specified here**.
+
+Reason: they are the [adapter contract](../adapter/SPEC.md)'s (#198). The two
+documents divide along a line worth stating: this one specifies what the answer
+is written in, and is useful to somebody who never runs a process at all — the
+[grammar corpus](GRAMMAR.md) checks a values-document writer before an entry is
+run — while that one specifies how the question is put. A second description of
+the conversation here would be one an adapter author could find and follow into
+disagreement, and the conversation is the half that changes.
+
 ### Also out of scope
 
 - **A test framework.** Nothing here says how a runner is built, what a harness
@@ -692,9 +719,6 @@ disagreement.
   among many.
 - **A conformance level or a badge.** There is no partial conformance, no
   profile and no score. An entry either compares equal or it does not.
-- **A wire protocol between a harness and a runner.** A runner is a process that
-  writes a document on standard output, for the same reason a plugin is an
-  executable rather than a server.
 - **A descriptive generator's oracle.** A generator that never reads bytes has
   no values document to write, and what it should be held to instead is #193's.
 
@@ -735,8 +759,9 @@ to every row.
 | [`INDEX`, `POINTER` and `NATIONAL` are base64](#index-pointer-and-national-are-base64) | #66 `conformance` for base64; #194 `conformance` for the alphabet and the padding; #196 `conformance` for enforcing them |
 | [A file the reader refused](#a-file-the-reader-refused) | #66 `conformance` |
 | [Comparison is over the written form](#comparison-is-over-the-written-form) | #68 `conformance` for the comparison; #195 and #196 `conformance` for it being over the written form |
-| [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it |
-| [The answer document](#the-answer-document) | #68 `conformance` |
+| [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it; #198 `conformance` for the split between what a runner is asked and how it is asked, which moved the second half to [`adapter/SPEC.md`](../adapter/SPEC.md) |
+| [The answer document](#the-answer-document) | #68 `conformance`; #198 `conformance` for a read-only generator's absent `written` being declared rather than discovered, and #199 for the engine that honours it |
+| [How a runner is started and spoken to](#how-a-runner-is-started-and-spoken-to) | #198 `conformance` specifies it in [`adapter/SPEC.md`](../adapter/SPEC.md); no section here |
 | [Why the writing direction is checked by reading](#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes) | #68 `conformance`; the rule it rests on, *Writing a file*, #17 `ir` |
 | [The grammar corpus](#appendix-the-grammar-corpus) | #197 `conformance` for [GRAMMAR.md](GRAMMAR.md), the writer it holds to it, and the test that reads one against the other |
 | The corpus's entries, and what each covers | #67 `conformance`, and one story per entry since |

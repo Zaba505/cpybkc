@@ -1,15 +1,16 @@
 # Spec conventions
 
-Six of cpybkc's interfaces are things other people build against rather than
+Seven of cpybkc's interfaces are things other people build against rather than
 things it is free to change: the command line itself, the file layout format,
 the resolved IR, the generator plugin CLI contract, the container base-image
-contract, and the conformance corpus format. Each is harder to change than the
-code behind it, so each gets a `SPEC.md` under this directory. They are linked
+contract, the conformance corpus format, and the conformance adapter contract.
+Each is harder to change than the code behind it, so each gets a `SPEC.md` under
+this directory. They are linked
 from the [README](../README.md), which is the only list of them — a second list
 here would be a second answer to what the specs are, and two answers drift.
 
 This document is what those specs agree on. It exists because the alternative is
-six documents that each invent a shape and each define **MUST** in their own
+seven documents that each invent a shape and each define **MUST** in their own
 wording, so that having read one teaches you nothing about how to read the next.
 
 The model throughout is [`cobol-go`'s `codec/SPEC.md`][codec-spec] — the spec
