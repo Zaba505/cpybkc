@@ -233,6 +233,34 @@ func TestTheDefaultFormatIsTheOneAManifestGetsWithoutAskingForIt(t *testing.T) {
 	}
 }
 
+// TestAFormatWithNoDocumentIsAFailureRatherThanTheDefaultOne is the arm no
+// argument vector reaches, and the reason it is written as a failure.
+//
+// A format added to the closed set [parse] admits, with no arm added to
+// [document] beside it, would otherwise write the Mermaid document under the
+// Mermaid filename and report success — the "silently rounded to a default"
+// outcome the option vocabulary refuses on the way in.
+func TestAFormatWithNoDocumentIsAFailureRatherThanTheDefaultOne(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	err := write(descriptorAt(supportedIRVersion), out, options{format: "svg", records: defaultRecords})
+	if err == nil {
+		t.Fatal("a format with no document wrote one anyway")
+	}
+
+	if !strings.Contains(err.Error(), "svg") {
+		t.Errorf("the failure reads %q and does not name the format it is about", err)
+	}
+
+	if entries, err := os.ReadDir(out); err != nil {
+		t.Fatalf("reading the output directory: %v", err)
+	} else if len(entries) != 0 {
+		t.Errorf("a format with no document left %d files beneath --out", len(entries))
+	}
+}
+
 // TestRunReadsTheDescriptorFromStandardInput covers the `-` form, which cpybkc
 // never emits and a plugin MUST accept: it is what makes this generator
 // drivable from a pipeline holding a descriptor and nowhere to put it.

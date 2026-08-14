@@ -57,7 +57,10 @@ const (
 // generator that wrote as it went would hand cpybkc a directory it is entitled
 // to merge, holding half a document.
 func write(descriptor *irpb.Descriptor, out string, opts options) error {
-	name, content := document(descriptor, opts)
+	name, content, err := document(descriptor, opts)
+	if err != nil {
+		return err
+	}
 
 	// Written directly beneath out, and beneath it only: docs/plugin/SPEC.md
 	// gives this program an empty, writable directory of its own and forbids it
@@ -93,18 +96,33 @@ func write(descriptor *irpb.Descriptor, out string, opts options) error {
 // The descriptor is a parameter for the same reason: it is what the diagram is
 // read out of, and a signature that took only the options would have to change
 // in the same commit that gives this something to draw.
-func document(descriptor *irpb.Descriptor, opts options) (string, string) {
-	if opts.format == formatDot {
+//
+// # Why the default arm is a failure rather than a notation
+//
+// [parse] admits exactly the two formats below and defaults the option, so the
+// last arm cannot be reached from an argument vector. It is a failure anyway,
+// because the way it *would* be reached is a third format added to the closed
+// set with no arm added here — and the alternative to failing is writing a
+// Mermaid document under the Mermaid filename for a caller who asked for
+// something else. That is the "silently rounded to a default" outcome the
+// option vocabulary refuses on the way in, and it would be worse arriving on
+// the way out, where nothing is left to say it happened.
+func document(descriptor *irpb.Descriptor, opts options) (string, string, error) {
+	switch opts.format {
+	case formatDot:
 		// The graph is named for this project rather than for the layout,
 		// because the descriptor states no name for the layout and the two paths
 		// this generator can see are ones it may not read a name out of. `dot`
 		// requires a name-or-nothing here and an anonymous digraph is one a
 		// reader cannot refer to from a document that embeds it.
-		return dotFile, dotGeneratedBy + "\n\ndigraph cpybkc {\n}\n"
+		return dotFile, dotGeneratedBy + "\n\ndigraph cpybkc {\n}\n", nil
+	case formatMermaid:
+		// Markdown rather than a bare `.mmd`, because the notation's whole
+		// advantage is that a forge renders it in a diff, and what a forge
+		// renders is a fenced block in a document.
+		return mermaidFile, mermaidGeneratedBy + "\n\n```mermaid\nstateDiagram-v2\n```\n", nil
+	default:
+		return "", "", fmt.Errorf("this generator has no document for %s=%q, which is a bug in %s",
+			formatOption, opts.format, pluginName)
 	}
-
-	// Markdown rather than a bare `.mmd`, because the notation's whole
-	// advantage is that a forge renders it in a diff, and what a forge renders
-	// is a fenced block in a document.
-	return mermaidFile, mermaidGeneratedBy + "\n\n```mermaid\nstateDiagram-v2\n```\n"
 }

@@ -90,6 +90,37 @@ func TestParseReadsEveryValueEachOptionAdmits(t *testing.T) {
 	}
 }
 
+// TestParseReadsEveryOptionOneVectorCarries is the `--opt` repetition
+// docs/plugin/SPEC.md admits: the flag MAY appear any number of times, and
+// cpybkc emits one for every entry of a manifest's `options` object, in the
+// order the object writes them.
+//
+// Every other accepting test here passes at most one, so without this the only
+// vectors in the suite carrying two are the duplicate-key ones that must fail —
+// and an implementation that took the first `--opt` and dropped the rest would
+// pass all of them.
+func TestParseReadsEveryOptionOneVectorCarries(t *testing.T) {
+	t.Parallel()
+
+	inv, err := parse([]string{
+		descriptorFlag, "/tmp/one",
+		outFlag, "/tmp/two",
+		optFlag, formatOption + "=" + formatDot,
+		optFlag, recordsOption + "=" + recordsNone,
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if inv.options.format != formatDot {
+		t.Errorf("%s is %q, want %q", formatOption, inv.options.format, formatDot)
+	}
+
+	if inv.options.records != recordsNone {
+		t.Errorf("%s is %q, want %q", recordsOption, inv.options.records, recordsNone)
+	}
+}
+
 // TestParseAcceptsTheStandardInputForm covers `--descriptor -`, which cpybkc
 // never emits and a plugin MUST accept.
 func TestParseAcceptsTheStandardInputForm(t *testing.T) {

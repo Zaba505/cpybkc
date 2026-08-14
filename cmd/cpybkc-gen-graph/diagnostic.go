@@ -57,9 +57,32 @@ func report(w io.Writer, err error) {
 
 	lines := strings.Split(message, "\n")
 
-	diagnostic(w, severityError, lines[0])
+	// The `error:` line is the first line [diagnostic] would actually write,
+	// rather than the first line there is. They differ for a message opening
+	// with a newline or with a line of spaces: that line is dropped, and taking
+	// it as the error line would leave a failure whose diagnostics open with
+	// `note:` while the process still exits non-zero — which is the one shape
+	// docs/plugin/SPEC.md forbids, since cpybkc would file the whole failure at
+	// info.
+	//
+	// Nothing in this program composes such a message today. It is guarded
+	// anyway for the reason the empty message above is: a message is a wrapped
+	// error away from being a shape this function did not choose.
+	first := 0
+	for first < len(lines) && blank(lines[first]) {
+		first++
+	}
 
-	for _, line := range lines[1:] {
+	// Unreachable: the message has something on it, checked above, so some line
+	// is not blank. Written as a condition rather than as an index because the
+	// alternative is a panic in a failure path.
+	if first == len(lines) {
+		first = 0
+	}
+
+	diagnostic(w, severityError, lines[first])
+
+	for _, line := range lines[first+1:] {
 		diagnostic(w, severityNote, line)
 	}
 
@@ -83,10 +106,19 @@ func report(w io.Writer, err error) {
 // failure to write to the diagnostic channel — the exit status is what the
 // caller reads, and it is already about to say the run failed.
 func diagnostic(w io.Writer, severity, message string) {
-	message = strings.TrimRight(message, " \t")
-	if message == "" {
+	if blank(message) {
 		return
 	}
 
-	_, _ = fmt.Fprint(w, severity+severitySeparator+message+"\n")
+	_, _ = fmt.Fprint(w, severity+severitySeparator+strings.TrimRight(message, " \t")+"\n")
+}
+
+// blank reports whether a line is one [diagnostic] would drop.
+//
+// It is the trailing whitespace [diagnostic] strips and nothing more, so that
+// "the line report chose" and "the line diagnostic wrote" cannot come apart —
+// a looser test here would pick an error line that was then dropped, which is
+// the failure this pair is written to avoid.
+func blank(line string) bool {
+	return strings.TrimRight(line, " \t") == ""
 }

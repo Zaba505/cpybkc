@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/Zaba505/cpybkc/irpb"
 )
@@ -135,6 +136,42 @@ func TestBytesThatAreNotAProtobufMessageAreReported(t *testing.T) {
 
 	if _, err := versionOf([]byte{0xff, 0xff, 0xff, 0xff}); err == nil {
 		t.Error("versionOf read a version out of bytes that are not a message")
+	}
+}
+
+// TestAVersionFieldOfAnotherWireTypeReadsAsTheDecoderReadsIt pins the claim
+// [versionOf]'s comment makes: skipping a version field that carries some other
+// wire type is the decoder's own rule rather than a rule of this reader's, so
+// the two cannot disagree about the same bytes.
+//
+// protobuf hands a known field arriving under the wrong wire type to the
+// unknown-field set rather than failing, which is why the descriptor below
+// decodes cleanly and states no version — the same answer this reader gives, and
+// a refusal rather than a generation either way.
+func TestAVersionFieldOfAnotherWireTypeReadsAsTheDecoderReadsIt(t *testing.T) {
+	t.Parallel()
+
+	// The version field, carrying a string where a varint belongs.
+	message := protowire.AppendTag(nil, versionField, protowire.BytesType)
+	message = protowire.AppendString(message, "one")
+
+	got, err := versionOf(message)
+	if err != nil {
+		t.Fatalf("versionOf: %v", err)
+	}
+
+	var decoded irpb.Descriptor
+	if err := proto.Unmarshal(message, &decoded); err != nil {
+		t.Fatalf("proto.Unmarshal: %v", err)
+	}
+
+	if got != decoded.GetVersion() {
+		t.Errorf("this reader reads IR version %d out of the bytes and the decoder reads %d",
+			int32(got), int32(decoded.GetVersion()))
+	}
+
+	if got != irpb.IrVersion_IR_VERSION_UNSPECIFIED {
+		t.Errorf("a version field of another wire type reads as IR version %d, want unspecified", int32(got))
 	}
 }
 
