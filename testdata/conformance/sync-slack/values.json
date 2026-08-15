@@ -1,0 +1,24 @@
+{
+  "records": [
+    {
+      "name": "SYNC-RECORD",
+      "value": {
+        "SYN-KEY": "K01",
+        "SYN-SEQ": "1234",
+        "SYN-CODE": "ABC",
+        "SYN-AMOUNT": "123456789",
+        "SYN-TAIL": "END1"
+      }
+    },
+    {
+      "name": "SYNC-RECORD",
+      "value": {
+        "SYN-KEY": "K02",
+        "SYN-SEQ": "-1",
+        "SYN-CODE": "XYZ",
+        "SYN-AMOUNT": "0",
+        "SYN-TAIL": "END2"
+      }
+    }
+  ]
+}

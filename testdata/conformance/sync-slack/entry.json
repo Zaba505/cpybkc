@@ -1,0 +1,4 @@
+{
+  "description": "A fixed-length dataset whose SYNCHRONIZED items leave bytes no item covers: two runs of slack of different widths, each with items in front of it and behind it. Twenty bytes a record, sixteen of them covered by an item. What a comparison of values can hold a generator to here is each run's width, through a read and through a write -- a dropped run moves the items behind it, and a run handed back at the other run's length is one a writer refuses. That the retained bytes are the same bytes is not something a values document can state; see the corpus README.",
+  "source": "cobol-go codec/SPEC.md, \"Group items, OCCURS, and SYNCHRONIZED\" and \"Storage Widths\"; the binary bytes are its Appendix A, A.5, the big-endian column; docs/ir/SPEC.md, \"Slack is a node, not a rule\" and \"Slack survives a read\"; docs/layout/SPEC.md, \"lrecl and blksize describe the dataset, not the stream\""
+}
