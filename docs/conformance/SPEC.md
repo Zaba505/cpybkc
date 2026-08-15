@@ -148,11 +148,11 @@ parsing something else first.
 ```
 
 `description` and `source` are required and are non-empty strings. `status` is
-optional, and where it is written it **MUST** be `"normative"` or
-`"provisional"` — see [*A provisional entry*](#a-provisional-entry). An entry
-that carries no `status` is normative. There is no fourth member, and an unknown
-member **MUST** be refused, as **MUST** a `status` outside those two spellings
-(#207).
+optional, and where it is written it **MUST** be the string `"normative"` or the
+string `"provisional"` — see [*A provisional entry*](#a-provisional-entry). An
+entry that carries no `status` is normative. There is no fourth member, and an
+unknown member **MUST** be refused, as **MUST** a `status` outside those two
+spellings — including `null`, which is written and is neither (#207).
 
 Absent meaning normative is what keeps every entry written before the member
 existed saying exactly what it said, without an edit and without moving the

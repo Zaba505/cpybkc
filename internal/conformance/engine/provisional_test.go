@@ -6,7 +6,10 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"maps"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -185,6 +188,96 @@ func TestARunOfNothingButProvisionalEntriesSaysSo(t *testing.T) {
 	if said := report.String(); !strings.Contains(said, "states nothing about conformance") {
 		t.Errorf("the report is\n%s\nand it does not say that nothing it asked about is corroborated", said)
 	}
+}
+
+// TestAnEntryThatDeclaresItselfProvisionalOnDiskIsExempt is the one path the
+// tests above take a short cut around.
+//
+// They set the status in Go, which is the readable way to write them and leaves
+// exactly one link untested: entry.json to the verdict. A regression that
+// dropped the status while loading — a renamed member, a metadata struct that
+// stopped carrying it — would leave every one of them passing, because they
+// never read the file. So this one declares it where an author declares it, in
+// entry.json, and asserts the far end: the run does not fail.
+func TestAnEntryThatDeclaresItselfProvisionalOnDiskIsExempt(t *testing.T) {
+	entry, err := conformance.LoadEntry(declaredProvisional(t, "packed-ebcdic"))
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if !entry.IsProvisional() {
+		t.Fatalf("%s declares itself provisional in %s and did not load as one", entry.Name, conformance.MetadataName)
+	}
+
+	entries := []*conformance.Entry{entry}
+
+	open, _ := door(t, script{Entries: map[string]entryScript{
+		entry.Name: {Decoded: wrong(t, entry, "P-SIGNED-POS")},
+	}})
+
+	report, err := (&engine.Engine{Door: open}).Run(t.Context(), entries)
+	if err != nil {
+		t.Fatalf("the run could not be made: %v", err)
+	}
+
+	if report.Failed() {
+		t.Errorf("an entry that declares itself provisional in %s disagreed and the run failed:\n%v",
+			conformance.MetadataName, report)
+	}
+
+	if !report.StatesNothing() {
+		t.Errorf("the run asked about nothing but a provisional entry and does not say it states nothing:\n%v", report)
+	}
+}
+
+// declaredProvisional is a copy of a shipped entry with "provisional" written
+// into its entry.json, in a directory of the test's own.
+//
+// A copy rather than a fixture of its own: what the case is about is the
+// status, and an entry written for this test would be a second author's reading
+// of every other member. The corpus's own entries are all normative and a test
+// holds them that way, so the status has to be put there by the case that needs
+// it.
+func declaredProvisional(t *testing.T, name string) string {
+	t.Helper()
+
+	source := filepath.Join(conformance.CorpusPath(repoRoot(t)), name)
+
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	listing, err := os.ReadDir(source)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	for _, item := range listing {
+		b, err := os.ReadFile(filepath.Join(source, item.Name()))
+		if err != nil {
+			t.Fatalf("%v", err)
+		}
+
+		if item.Name() == conformance.MetadataName {
+			var held map[string]any
+			if err := json.Unmarshal(b, &held); err != nil {
+				t.Fatalf("%s: %v", conformance.MetadataName, err)
+			}
+
+			held["status"] = string(conformance.Provisional)
+
+			if b, err = json.Marshal(held); err != nil {
+				t.Fatalf("%s: %v", conformance.MetadataName, err)
+			}
+		}
+
+		if err := os.WriteFile(filepath.Join(dir, item.Name()), b, 0o600); err != nil {
+			t.Fatalf("%v", err)
+		}
+	}
+
+	return dir
 }
 
 // wrong is the entry's own answer with one named item changed, which is a

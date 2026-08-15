@@ -181,6 +181,24 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 			},
 			says: `omit it to mean "normative"`,
 		},
+		// null is written, and a member that is written is held to the two
+		// spellings. Folded in with absent it would read as normative without a
+		// word, which is the one way of writing nothing that would slip past
+		// the case above.
+		"metadata carrying a null status": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b", "status": null}`)
+			},
+			says: `omit it to mean "normative"`,
+		},
+		"metadata carrying a status that is not a string": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b", "status": 1}`)
+			},
+			says: "status is 1",
+		},
 		"a descriptor that is not the canonical rendering": {
 			breaks: func(t *testing.T, dir string) {
 				write(t, filepath.Join(dir, DescriptorName), `{"version":"IR_VERSION_1","nodes":[`+
@@ -357,6 +375,11 @@ func TestAnEntryDeclaresItselfProvisional(t *testing.T) {
 			if entry.IsProvisional() != test.provisional {
 				t.Errorf("IsProvisional is %t for an entry that loaded as %q", entry.IsProvisional(), entry.Status)
 			}
+
+			if entry.IsNormative() == test.provisional {
+				t.Errorf("IsNormative is %t for an entry that loaded as %q, and the two readings disagree",
+					entry.IsNormative(), entry.Status)
+			}
 		})
 	}
 }
@@ -371,7 +394,7 @@ func TestAnEntryDeclaresItselfProvisional(t *testing.T) {
 func TestAnEntryNothingLoadedIsNormative(t *testing.T) {
 	var entry Entry
 
-	if entry.IsProvisional() {
+	if entry.IsProvisional() || !entry.IsNormative() {
 		t.Error("an entry nothing filled in is provisional, and a status nobody wrote must not exempt one")
 	}
 

@@ -158,6 +158,13 @@ type Report struct {
 	Restarts int
 
 	// Results are the entries, in the order they were asked about.
+	//
+	// Normative and provisional entries are both in here, so a reading of this
+	// slice has to consult [Result.Provisional]: len(Results) is not the sum of
+	// [Report.Counts], and the obvious loop testing Outcome != Passed counts a
+	// provisional entry as a failure — which is exactly what [Report.Failed]
+	// stopped doing. Ask [Report.Failed] and the two count methods rather than
+	// summing this.
 	Results []*Result
 
 	// Notes are what happened to the run rather than to an entry: an adapter
@@ -216,6 +223,27 @@ func (r *Report) Counts() (passed, mismatched, faulted int) {
 // would have been dropped into those sums by whoever updated the call.
 func (r *Report) ProvisionalCounts() (agreed, disagreed, unanswered int) {
 	return r.count(true)
+}
+
+// StatesNothing is whether the run asked about entries and none of them was
+// one the corpus stands behind.
+//
+// It is the one shape a reader must not take for a pass: [Report.Failed] is
+// false, [Report.Counts] is three zeros and the process exits zero, and every
+// line of the report agrees, because nothing disagreed and nothing faulted. A
+// caller that has to act on it — a job that fails a build on a result that
+// learned nothing — should ask this rather than match the report's text, which
+// is prose and may be reworded.
+//
+// A run of no entries at all is not this. A descriptive generator is asked
+// about nothing by design ([Report.NotApplicable]), and calling that a run that
+// states nothing would fail the one case the engine goes out of its way not to
+// score.
+func (r *Report) StatesNothing() bool {
+	passed, mismatched, faulted := r.Counts()
+	agreed, disagreed, unanswered := r.ProvisionalCounts()
+
+	return passed+mismatched+faulted == 0 && agreed+disagreed+unanswered > 0
 }
 
 // count is either half of the corpus, by whether the entry was provisional.
@@ -284,10 +312,13 @@ func (r *Report) String() string {
 			"%d agreed, %d disagreed, %d could not be asked\n",
 			agreed+disagreed+unanswered, agreed, disagreed, unanswered)
 
-		if normative == 0 {
+		if r.StatesNothing() {
 			// Said out loud, because every other line of this report would
 			// otherwise read as a clean run: nothing disagreed, nothing
-			// faulted, and nothing was asked that anybody stands behind.
+			// faulted, and nothing was asked that anybody stands behind. The
+			// condition is [Report.StatesNothing] rather than a second reading
+			// of the counts, so that the sentence and the accessor cannot come
+			// to disagree.
 			said.WriteString("every entry asked about was provisional, so this run states nothing about conformance\n")
 		}
 	}

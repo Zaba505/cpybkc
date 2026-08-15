@@ -7,6 +7,7 @@ package conformance
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -196,16 +197,28 @@ type Entry struct {
 // status, and every reading of it has to agree that it is normative.
 func (e *Entry) IsProvisional() bool { return e != nil && e.Status == Provisional }
 
+// IsNormative is whether the corpus stands behind the entry's expected answer,
+// and so whether it counts and can fail a run.
+//
+// It exists so that the positive question has a guarded reader too. [Status] is
+// a string type whose zero value is neither of its constants, so a caller
+// switching on the field directly would match nothing for an [Entry] nothing
+// loaded — and the direction that silently matches nothing is the direction
+// this whole member has to fall the right way in.
+func (e *Entry) IsNormative() bool { return !e.IsProvisional() }
+
 // metadata is entry.json as it is written.
 //
-// Status is a pointer because absent and empty are different mistakes: an entry
-// that says nothing about its status is the ordinary normative entry, and one
-// that writes "" is an author who meant something and wrote nothing, which is
-// the typo the rest of this format refuses rather than reads past.
+// Status is raw because absent, null and empty are three different things and
+// only one of them is admissible: an entry that says nothing about its status
+// is the ordinary normative entry, and one that writes null or "" is an author
+// who meant something and wrote nothing, which is the typo the rest of this
+// format refuses rather than reads past. A pointer would fold null in with
+// absent and read as normative without a word.
 type metadata struct {
-	Description string  `json:"description"`
-	Source      string  `json:"source"`
-	Status      *string `json:"status"`
+	Description string          `json:"description"`
+	Source      string          `json:"source"`
+	Status      json.RawMessage `json:"status"`
 }
 
 // Load reads every entry of the corpus rooted at dir, in ascending name order.
@@ -392,12 +405,23 @@ func (e *Entry) readMetadata() error {
 	e.Status = Normative
 
 	if read.Status != nil {
-		switch held := Status(*read.Status); held {
-		case Normative, Provisional:
-			e.Status = held
+		// Unmarshalled into a string rather than declared as one, so that a
+		// status written as a number or an object is refused as the wrong shape
+		// rather than failing the whole document to parse — which would report
+		// one mistaken member as an unreadable entry.json. JSON null leaves the
+		// string empty and falls into the refusal below with every other way of
+		// writing nothing.
+		var spelled string
+
+		switch err := json.Unmarshal(read.Status, &spelled); {
+		case err != nil:
+			faults = append(faults, fmt.Errorf("%s: status is %s, and it is one of the strings %q and %q",
+				MetadataName, read.Status, Normative, Provisional))
+		case Status(spelled) == Normative, Status(spelled) == Provisional:
+			e.Status = Status(spelled)
 		default:
 			faults = append(faults, fmt.Errorf("%s: status is %q, and an entry is either %q or %q; omit it to mean %q",
-				MetadataName, *read.Status, Normative, Provisional, Normative))
+				MetadataName, spelled, Normative, Provisional, Normative))
 		}
 	}
 

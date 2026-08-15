@@ -76,6 +76,13 @@
 // One and two are separate because a script that treats them alike cannot tell
 // a generator that failed the corpus from a corpus that never ran, and only the
 // first is a fact about the generator.
+//
+// The report's text does not partition the same way, deliberately: a
+// provisional entry that disagreed is printed as PROVISIONAL FAIL, so the word
+// FAIL appears in the output of a run that exits 0. The status is what a person
+// reading the report needs to see, and the exit code is the machine's answer; a
+// script that greps for a verdict rather than reading the status is a script
+// that was going to disagree with one of the two.
 package main
 
 import (
