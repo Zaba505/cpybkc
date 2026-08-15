@@ -86,7 +86,7 @@ jobs:
       # `git log -1` can still answer from but which nothing else about a build
       # should have to reason about.
       - name: Check out the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
