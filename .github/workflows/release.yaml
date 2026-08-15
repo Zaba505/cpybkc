@@ -80,7 +80,7 @@ jobs:
       # artifacts are a function of the source, so an asset built from a
       # different commit would describe an IR that release never shipped.
       - name: Check out the release's tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.release.tag_name }}
 
@@ -187,7 +187,7 @@ jobs:
       # version tag pointing at HEAD, so the release step would correctly conclude
       # there is nothing to publish and push nothing at all.
       - name: Check out the release's tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
