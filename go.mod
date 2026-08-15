@@ -8,7 +8,7 @@ go 1.26.2
 // irpb/module_test.go fails if that ever stops being true.
 require github.com/Zaba505/cpybkc/irpb v0.0.0
 
-require google.golang.org/protobuf v1.36.11
+require google.golang.org/protobuf v1.36.12
 
 // The COBOL underneath everything this project resolves. `picture` parses a
 // PICTURE character-string into the attributes that follow from it and

@@ -16,4 +16,4 @@ module github.com/Zaba505/cpybkc/irpb
 // 1.23 — is what it may not fall below.
 go 1.24.0
 
-require google.golang.org/protobuf v1.36.11
+require google.golang.org/protobuf v1.36.12
