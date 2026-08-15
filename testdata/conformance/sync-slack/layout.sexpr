@@ -1,0 +1,29 @@
+;; A fixed-length dataset of one record type whose SYNCHRONIZED items leave
+;; bytes no item covers. Nothing in this file says so: SYNCHRONIZED is a
+;; copybook clause, and where the slack falls is the compiler's answer rather
+;; than a statement a layout carries. What the layout does say is `lrecl 20`,
+;; and that is what makes the slack checkable from here -- every record type
+;; MUST account for all of LRECL, so a reading that dropped either run would
+;; leave four bytes this dataset has no place for.
+;;
+;; The framing is the smallest there is, which is deliberate. Under `recfm F` a
+;; record's bytes are its extent and the next record begins at the byte after
+;; it, so nothing in the file agrees or disagrees about where a record ends: a
+;; consumer that wrote a record back without its slack would put the second
+;; record four bytes early, and the round trip would read it as something else.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 20))
+
+(record SYNC
+  (copybook "sync.cpy" SYNC-RECORD))
+
+(discriminate SYNC single-record-type)
+
+(sequence (* SYNC))

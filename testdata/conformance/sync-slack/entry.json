@@ -1,0 +1,4 @@
+{
+  "description": "A fixed-length dataset whose SYNCHRONIZED items leave bytes no item covers: two runs of slack of different widths, each with items in front of it and behind it, in two records whose retained bytes differ. Twenty bytes a record, sixteen of them covered by an item.",
+  "source": "cobol-go codec/SPEC.md, \"Group items, OCCURS, and SYNCHRONIZED\" and \"Storage Widths\"; the binary bytes are its Appendix A, A.5, the big-endian column; docs/ir/SPEC.md, \"Slack is a node, not a rule\" and \"Slack survives a read\"; docs/layout/SPEC.md, \"lrecl and blksize describe the dataset, not the stream\""
+}

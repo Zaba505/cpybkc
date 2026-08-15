@@ -210,8 +210,14 @@ means the completeness this file claims is checked rather than asserted: a usage
 or a category the IR gains, and this table does not cover, fails the test that
 every one of them is named by some row.
 
-The corpus's own entries do not cover a variant arm, a slack node, `INDEX`,
-`POINTER`, `NATIONAL` or either edited category — every entry in
+The corpus's own entries do not cover a variant arm, `INDEX`, `POINTER`,
+`NATIONAL` or either edited category — every entry in
 [`testdata/conformance/`](../../testdata/conformance) is derived from a real
 file layout and none of those has needed one yet. This table is where those
 constructs are written down, which is the other half of why it exists.
+
+A slack node was on that list and is not any more:
+[`sync-slack`](../../testdata/conformance/sync-slack) carries two, so the
+`slack-omitted` row above is now stated by an entry as well as by this file. The
+`group-only-slack` row is still this file's alone — a group whose every byte is
+slack is a group no copybook has yet wanted.

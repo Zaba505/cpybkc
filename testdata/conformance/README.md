@@ -220,13 +220,14 @@ with four items in it.
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
+| [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Four are not derived from it — `float-ieee754-special`,
-`batch-fixed`, `batch-rdw` and `odo-sliding` — and the subsections below say
-what each of them cites instead. The first subsection is about something else:
-which entries Appendix A's vectors are paired into, which is a question about
-the entries that *are* derived from it.
+it came from (#67). Five are not derived from it — `float-ieee754-special`,
+`batch-fixed`, `batch-rdw`, `odo-sliding` and `sync-slack` — and the subsections
+below say what each of them cites instead. The first subsection is about
+something else: which entries Appendix A's vectors are paired into, which is a
+question about the entries that *are* derived from it.
 
 ### Where "in both character sets" applies, and where it does not
 
@@ -311,6 +312,60 @@ and the guards that read it, from *The automaton remembers, in registers* and th
 per kind, is what puts both in one entry: `HDR-DETAIL-COUNT` becomes a register
 because it counts records, and `DTL-LINE-COUNT` stays a field because it counts
 occurrences inside the record holding it.
+
+### The slack entry cites a warning rather than a vector
+
+`codec/SPEC.md` is where `SYNCHRONIZED` is written down, and what it says about
+it is a warning to a *reader*: a record is not the simple sum of its fields'
+widths, because slack bytes are inserted ahead of an aligned item and move
+everything after them. There is no vector to derive from that, and there could
+not be — a vector states the bytes a value is written as, and COBOL says nowhere
+what is in an alignment gap. So `sync-slack` is authored against the warning and
+against the two sections that turn it into something a descriptor carries,
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *Slack is a node, not a rule* and
+*Slack survives a read*. The bytes of its items are still `codec/SPEC.md`'s,
+which is what the entry cites beside them.
+
+It is the corpus's first entry to carry a `Slack` node, and the last of the
+twelve node kinds to reach one. The record is twenty bytes and its items cover
+sixteen: one byte ahead of a halfword-aligned `COMP` item and three ahead of a
+fullword-aligned one, with items in front of each run and behind it. That is
+what makes a misplaced run visible rather than merely present — a consumer that
+drops the three-byte run reads `SYN-AMOUNT` from bytes belonging to the run and
+to `SYN-CODE`, and the file it is reading has nothing in it to disagree with,
+which is the failure `lrecl` exists to catch on the producing side.
+
+The two runs are of **different widths** on purpose. Retention pairs runs to
+nodes by position and nothing else — a slack node has no name and the IR gives a
+caller no offset to recognise one by — so a consumer that retains both runs and
+hands them back in the other order is wrong in a way no value can show. Because
+the widths differ it is caught anyway: a writer emits a node's width exactly and
+reports a run of any other length rather than truncating or padding it, so the
+swap arrives as a refused record.
+
+What the round trip states here is that the records the reader produced went
+back through the writer unchanged, that the writer emitted a run of exactly each
+node's width for both nodes, and that the file it produced reads back as the
+same two records. Under `recfm F` that is a real claim about the bytes: a record
+written without its slack is four bytes short, and the second record of the file
+is then read from the wrong place. It is also the first time the harness's own
+decision to hand the reader's record objects to the writer, rather than
+rebuilding them from a values document, has had anything riding on it.
+
+What it does **not** state is that the retained bytes are the *same* bytes. A
+consumer that keeps each run's width and fills it with zero writes a file that
+differs from the one it read and decodes to these values all the same, and
+[*Slack survives a read*](../../docs/ir/SPEC.md#slack-survives-a-read) says as
+much in as many words: what makes retention worth a requirement is that nothing
+fails while that happens. A values document cannot see it either, by
+construction — [*Slack is not a
+value*](../../docs/conformance/SPEC.md#slack-is-not-a-value) keeps those bytes
+out of one so that two generators are held to agreeing about data rather than
+about padding. The two records here carry different bytes in each of their four
+runs, so the difference is at least visible to somebody reading `input.bin`
+beside a file a generator wrote; holding a generator to it is `cpybkc-gen-go`'s
+own `internal/orders` round trip, which can reach the unexported runs this
+corpus deliberately cannot.
 
 ### No row of Appendix A is deliberately absent, and two once were
 
