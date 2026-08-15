@@ -23,12 +23,14 @@ require google.golang.org/protobuf v1.36.11
 // about, and this is a dependency of the module `go install` builds the CLI
 // from.
 //
-// This commit is the one that added COMP-6 — the usage-type, its storage width,
-// and the codec accessors that read and write a field with no sign nibble in it
-// (#162). Before it the copybook reader refused `COMP-6` outright and codec
-// offered nothing that fit, so the IR could name a usage no part of this
-// repository could resolve or emit code for.
-require github.com/Zaba505/cobol-go v0.0.0-20260812022219-b6beeac1efe8
+// This commit is the one that taught the parser the listing-control statements
+// — `EJECT`, `SKIP1`/`SKIP2`/`SKIP3` and `TITLE` (Zaba505/cobol-go#106). They
+// direct a compiler's source listing and say nothing about the data, so nothing
+// downstream of the parse changes; before it, a copybook out of a real mainframe
+// library that carried one failed to read at all, and `cpybkc init` reported it
+// as "this is not a copybook this build can read". That is the whole of what
+// this repository gets from the move — no code here changed for it.
+require github.com/Zaba505/cobol-go v0.0.0-20260815031026-444b99aad1b5
 
 // The grammar underneath the layout format. docs/layout/SPEC.md delegates the
 // lexis and the parse of a layout file to it — what a symbol is, where a number
