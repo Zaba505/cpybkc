@@ -652,6 +652,13 @@ are here because an argument resting on two framings that no entry exercised is
 an argument a byte-comparing runner would have passed the whole corpus without
 meeting.
 
+Neither entry states what a *wrong* writer does, and neither could: both files
+are well-formed, so a writer that left the final delimiter off or copied its
+input's segmentation would still write records that read back. Those byte counts
+are properties of the entries rather than assertions the corpus makes. What the
+two catch is a runner comparing bytes, which is what this section needed
+exercising.
+
 It is wrong at the field level too, and the corpus already holds the case:
 [`packed-ascii`](../../testdata/conformance/packed-ascii) carries the lenient
 sign nibble `A`, which a reader admits as positive and a writer has no reason to

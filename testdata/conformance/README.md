@@ -221,7 +221,7 @@ with four items in it.
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
 | [`delimited-terminator`](delimited-terminator) | A line-sequential file whose records end with `0x15`, two of them holding a packed amount whose own bytes are `0x15`. |
 | [`delimited-optional-terminator`](delimited-optional-terminator) | The same three records in a file whose last record carries no delimiter, which a writer supplies: twenty-three bytes written back as twenty-four. |
-| [`segmented-spanning`](segmented-spanning) | `RECFM=VBS`: a record laid into the segments a writer would choose, and one laid into more than it would, both spanning. |
+| [`segmented-spanning`](segmented-spanning) | `RECFM=VBS`: a record laid into as few segments as the largest allows, and one laid into more than it allows a writer, both spanning. |
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 | [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
 
@@ -301,19 +301,39 @@ ends without the delimiter the placement lets a file end without, and a writer
 under that placement **MUST** emit it rather than choosing whether to, so
 twenty-three bytes come back as twenty-four. `segmented-spanning` lays its second
 record into three segments where the largest segment allows two, and a writer
-**MUST** use as few as it allows, so sixty bytes come back as fifty-six. In both
-the records are the same records, which is the property the corpus checks.
+**MUST** use as few as it allows, so sixty bytes come back as fifty-six. How a
+writer spreads a record's bytes across that number of segments is not something
+either specification decides, and neither entry holds it to one. In both the
+records are the same records, which is the property the corpus checks.
 
 `delimited-terminator` is the control on the pair: its file *is* what a writer
 produces, so it is the delimited entry that would still pass a byte comparison,
 and what it adds instead is a record whose data holds the delimiter. A
 `PIC S9(3)V99 COMP-3` item holding +152.50 is the bytes `15 25 0C`, which is the
-vector *A delimiter is bytes, not a character* names, and `0x15` is what ends a
-record in that file. A consumer that searched for the delimiter would cut that
-record after four bytes; one that counts the extent reads them as the number they
-are. That there are three delimited placements and only two entries is
-deliberate — `separator` is exercised by neither, and the placement the corpus
-was missing is the one whose *writer* diverges from its input.
+vector *The extent governs, and framing is checked against it* names, and `0x15`
+is what ends a record in that file. That is the section carrying the rule the
+record is aimed at — a consumer **MUST NOT** determine a record's end by
+searching the input for a delimiter — so it is what both delimited entries cite.
+A consumer that searched would cut that record after four bytes; one that counts
+the extent reads them as the number they are.
+
+What none of the three states is what a **wrong** consumer does. All three are
+well-formed files, so a writer that omitted the final delimiter under
+`optional-terminator`, or that copied its input's segmentation instead of
+relaying it, would still write a file that reads back as these records and would
+still pass. The byte counts above are properties of the entries rather than
+assertions the corpus makes, and what these three actually catch is a runner that
+compares bytes — which is the claim `docs/conformance/SPEC.md` makes for them and
+the whole of it.
+
+Three cases are named here because they are known gaps rather than covered
+ground. `separator` has no entry, and neither does the trailing delimiter that
+announces a record which is not there under it, nor the missing one that makes a
+file truncated under `terminator`; each is an error-path entry, which is a
+different claim from these and belongs with the other refusals. And a segment
+control code of `0` — a complete, unspanned record inside a spanned dataset —
+cannot occur in `segmented-spanning`, because its one record type is longer than
+its largest segment; a second record type is what would reach it.
 
 ### The variable-table entry cites the two specs that decide it
 

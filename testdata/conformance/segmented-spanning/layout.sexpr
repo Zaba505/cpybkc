@@ -3,12 +3,16 @@
 ;; concatenation of its segments' data, and a consumer reassembles that before
 ;; anything else in either specification applies.
 ;;
-;; The largest segment is sixteen bytes and four of those are the descriptor
-;; word, so no segment carries more than twelve bytes of a record and a
-;; twenty-byte record can never arrive in one piece. That is the point of the
-;; number rather than a property of any real dataset: `max-segment` is the one
-;; framing fact a writer needs and cannot compute, and an entry that could be
-;; satisfied by a single segment would not hold a writer to it.
+;; The largest segment is sixteen bytes, which no specification here says is
+;; measured with the four-byte descriptor word inside it or beside it. This
+;; entry does not decide that: at either reading a twenty-byte record needs two
+;; segments and no more, so its file is the same length whichever a writer
+;; takes. The bytes below count the word in, which is how the word's own length
+;; field counts and what a writer that rejects a largest segment of four or
+;; fewer must mean. That the number is small is the point of it rather than a
+;; property of any real dataset -- `max-segment` is the one framing fact a
+;; writer needs and cannot compute, and an entry a single segment could satisfy
+;; would not hold a writer to it.
 ;;
 ;; `lrecl` is a maximum under this spelling rather than a requirement, since
 ;; every segment states its own length. Twenty is the record's whole extent.
