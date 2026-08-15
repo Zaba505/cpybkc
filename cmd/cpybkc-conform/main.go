@@ -64,8 +64,12 @@
 //
 //   - 0 — the run happened and nothing failed. A descriptive generator's run,
 //     which the corpus has nothing to ask, is one of these.
-//   - 1 — the run happened and something failed: an entry disagreed, or one
-//     could not be asked at all.
+//   - 1 — the run happened and something failed: a normative entry disagreed,
+//     or one could not be asked at all. An entry that declared itself
+//     provisional is reported and is in neither figure, which is
+//     docs/conformance/SPEC.md's "A provisional entry" rather than this
+//     command's — the corpus does not yet stand behind its expected answer, so
+//     a disagreement with one is not a fact about the generator.
 //   - 2 — the run could not be attempted: the arguments were wrong, the corpus
 //     could not be read, or it did not match the digest published beside it.
 //

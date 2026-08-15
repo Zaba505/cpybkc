@@ -91,6 +91,52 @@ func CorpusPath(root string) string {
 	return filepath.Join(root, filepath.FromSlash(CorpusFile))
 }
 
+// Status is how much authority an entry's expected answer carries.
+//
+// Every other member of an entry is a claim about a file; this one is a claim
+// about the entry itself, and it exists because the rule that an entry is
+// authored from a specification and never recorded from a run of the code it
+// checks (#67) has a mirror. An entry recorded from its subject passes forever,
+// including through the bug it was written to catch — and an entry authored
+// from a misreading fails forever, telling every implementation it is wrong.
+// The exposure is worst where the corpus is most valuable: an entry covering a
+// construct no implementation handles yet has nothing to disagree with it, so
+// review of a hand-computed byte string is the only defence and review of one
+// is weak.
+//
+// A status is not part of the question. A runner is asked about a provisional
+// entry in exactly the words it is asked about a normative one and is never
+// told which it was given, because an adapter that could tell would be an
+// adapter whose answers to the uncorroborated half of the corpus are worth
+// less than its answers to the rest.
+type Status string
+
+const (
+	// Normative is an entry the corpus stands behind: it counts, and a
+	// disagreement with it is a failure.
+	//
+	// It is what an entry declaring no status is, which is the safe direction
+	// for the default to fall in — a status somebody forgot to write, or one a
+	// reader of this package never set, leaves the entry counting rather than
+	// exempt. The other default would let an entry drop out of the verdict by
+	// omission, and nothing in a passing run would say so.
+	Normative Status = "normative"
+
+	// Provisional is an entry whose expected answer nothing has corroborated
+	// yet: it runs, its result is reported, and it counts in no total and
+	// produces no failure verdict.
+	//
+	// What promotes one is written down in docs/conformance/SPEC.md, "A
+	// provisional entry", and it is a fact about the world rather than
+	// anything this package can check — a second implementation agreeing, or a
+	// second person re-deriving the answer from the specification. Promotion is
+	// therefore an edit to entry.json and a reviewer, which is the point: the
+	// corpus gains somewhere to put an entry whose expected answer is contested
+	// rather than the two options of shipping it as normative or not shipping
+	// it at all.
+	Provisional Status = "provisional"
+)
+
 // Entry is one corpus entry: the tuple, loaded, and the metadata saying what it
 // is for.
 //
@@ -116,6 +162,12 @@ type Entry struct {
 	// with it (#68).
 	Source string
 
+	// Status is whether the corpus stands behind the expected answer. An entry
+	// that declares none is [Normative]; read it through
+	// [Entry.IsProvisional] rather than comparing it, so that an Entry nothing
+	// loaded is normative rather than exempt.
+	Status Status
+
 	// Layout is the path to the entry's layout file.
 	Layout string
 
@@ -135,10 +187,25 @@ type Entry struct {
 	Values *Values
 }
 
+// IsProvisional is whether the entry's expected answer is uncorroborated, and
+// so whether a disagreement with it is reportable rather than a failure.
+//
+// It is a method rather than a comparison at each of its callers so that one
+// place decides what an unwritten status means. An [Entry] that never went
+// through [LoadEntry] — a zero value, or one a test built — carries the empty
+// status, and every reading of it has to agree that it is normative.
+func (e *Entry) IsProvisional() bool { return e != nil && e.Status == Provisional }
+
 // metadata is entry.json as it is written.
+//
+// Status is a pointer because absent and empty are different mistakes: an entry
+// that says nothing about its status is the ordinary normative entry, and one
+// that writes "" is an author who meant something and wrote nothing, which is
+// the typo the rest of this format refuses rather than reads past.
 type metadata struct {
-	Description string `json:"description"`
-	Source      string `json:"source"`
+	Description string  `json:"description"`
+	Source      string  `json:"source"`
+	Status      *string `json:"status"`
 }
 
 // Load reads every entry of the corpus rooted at dir, in ascending name order.
@@ -293,7 +360,11 @@ func (e *Entry) readListing(listing []os.DirEntry) error {
 //
 // An unknown field is refused, for the reason the project manifest refuses one:
 // a key somebody wrote expecting it to mean something is a typo they want told
-// about rather than a line that reads as metadata and does nothing.
+// about rather than a line that reads as metadata and does nothing. A status
+// outside the closed set of two is refused for the same reason and one more of
+// its own: an unknown status read as normative would fail an entry nobody
+// stands behind, and one read as provisional would drop an entry out of the
+// verdict on a typo.
 func (e *Entry) readMetadata() error {
 	b, err := os.ReadFile(filepath.Join(e.Dir, MetadataName))
 	if err != nil {
@@ -313,6 +384,21 @@ func (e *Entry) readMetadata() error {
 
 	if read.Source == "" {
 		faults = append(faults, fmt.Errorf("%s: source cites the section the expected answer came from, and is required", MetadataName))
+	}
+
+	// Set before the status is read, and left at Normative wherever it is not a
+	// status this format knows: an entry the loader refused carries no
+	// authority to be exempt from a verdict either.
+	e.Status = Normative
+
+	if read.Status != nil {
+		switch held := Status(*read.Status); held {
+		case Normative, Provisional:
+			e.Status = held
+		default:
+			faults = append(faults, fmt.Errorf("%s: status is %q, and an entry is either %q or %q; omit it to mean %q",
+				MetadataName, *read.Status, Normative, Provisional, Normative))
+		}
 	}
 
 	e.Description = read.Description

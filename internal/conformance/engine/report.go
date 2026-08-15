@@ -70,6 +70,17 @@ type Result struct {
 
 	Outcome Outcome
 
+	// Provisional is whether the entry it is about declared itself provisional
+	// — an entry whose expected answer nothing has corroborated yet
+	// ([github.com/Zaba505/cpybkc/internal/conformance.Provisional]).
+	//
+	// It sits beside the outcome rather than replacing one of its values,
+	// because what happened to the entry and how much the corpus stands behind
+	// the entry are two facts and a reader of a report wants both: an
+	// implementation that disagrees with a provisional entry has learned
+	// something worth reading even though it has not failed.
+	Provisional bool
+
 	// Err is the disagreement or the fault, and is nil where the entry passed.
 	// It is a
 	// [github.com/Zaba505/cpybkc/internal/conformance.MismatchError] or a
@@ -154,15 +165,28 @@ type Report struct {
 	Notes []string
 }
 
-// Failed is whether anything went wrong: an entry that disagreed, or one that
-// could not be asked at all.
+// Failed is whether anything went wrong: a normative entry that disagreed, or
+// one that could not be asked at all.
 //
 // A run that could not ask is a failed run and not an empty one. An entry lost
 // to a broken adapter has told nobody anything about the generator, and a
 // caller that read "nothing mismatched" as "everything passed" would report a
 // conformant generator on the strength of never having asked it.
+//
+// A provisional entry produces no failure verdict, whatever became of it. The
+// corpus does not yet stand behind its expected answer, so a run that failed on
+// one would be telling an implementation it is wrong on the authority of a byte
+// string one person computed by hand — and the failure that guards against is
+// not a red mark, it is a generator author who trusts the corpus, changes
+// correct code to match a wrong oracle and ships it (#207). What became of it
+// is in [Report.Results] and in the report's text either way; it is reported
+// and it is not a verdict.
 func (r *Report) Failed() bool {
 	for _, result := range r.Results {
+		if result.Provisional {
+			continue
+		}
+
 		if result.Outcome != Passed {
 			return true
 		}
@@ -171,9 +195,36 @@ func (r *Report) Failed() bool {
 	return false
 }
 
-// Counts is how many entries passed, disagreed and could not be asked.
+// Counts is how many normative entries passed, disagreed and could not be
+// asked.
+//
+// Provisional entries are in none of the three and are counted by
+// [Report.ProvisionalCounts] instead, which is what "counts in no total" means:
+// a corpus that grew an uncorroborated entry must not move the number an
+// implementation reports, in either direction, or the entry has scored a
+// generator nobody agreed it could score.
 func (r *Report) Counts() (passed, mismatched, faulted int) {
+	return r.count(false)
+}
+
+// ProvisionalCounts is how many provisional entries agreed with what they
+// state, disagreed with it, and could not be asked.
+//
+// It is a second set of three rather than an extra value on the first, so that
+// a caller adding up a total cannot accidentally include them: every existing
+// reading of [Report.Counts] means normative entries, and a fourth return value
+// would have been dropped into those sums by whoever updated the call.
+func (r *Report) ProvisionalCounts() (agreed, disagreed, unanswered int) {
+	return r.count(true)
+}
+
+// count is either half of the corpus, by whether the entry was provisional.
+func (r *Report) count(provisional bool) (passed, mismatched, faulted int) {
 	for _, result := range r.Results {
+		if result.Provisional != provisional {
+			continue
+		}
+
 		switch result.Outcome {
 		case Passed:
 			passed++
@@ -181,8 +232,9 @@ func (r *Report) Counts() (passed, mismatched, faulted int) {
 			mismatched++
 		case Faulted, Unknown:
 			// An outcome nobody set is counted with the faults rather than
-			// dropped, so that the three numbers always sum to the entries and
-			// a result that was never filled in cannot go missing from a total.
+			// dropped, so that the three numbers always sum to the entries of
+			// their half and a result that was never filled in cannot go
+			// missing from a total.
 			faulted++
 		}
 	}
@@ -218,9 +270,27 @@ func (r *Report) String() string {
 	}
 
 	passed, mismatched, faulted := r.Counts()
+	normative := passed + mismatched + faulted
 
 	fmt.Fprintf(&said, "%d entries: %d passed, %d disagreed, %d could not be asked\n",
-		len(r.Results), passed, mismatched, faulted)
+		normative, passed, mismatched, faulted)
+
+	if agreed, disagreed, unanswered := r.ProvisionalCounts(); agreed+disagreed+unanswered > 0 {
+		// A line of its own, and outside the total above rather than added to
+		// it. The number a run reports is the number of entries the corpus
+		// stands behind, and a provisional entry that moved it would have
+		// scored a generator on an answer nothing has corroborated.
+		fmt.Fprintf(&said, "%d provisional entries, in no total above and in no verdict: "+
+			"%d agreed, %d disagreed, %d could not be asked\n",
+			agreed+disagreed+unanswered, agreed, disagreed, unanswered)
+
+		if normative == 0 {
+			// Said out loud, because every other line of this report would
+			// otherwise read as a clean run: nothing disagreed, nothing
+			// faulted, and nothing was asked that anybody stands behind.
+			said.WriteString("every entry asked about was provisional, so this run states nothing about conformance\n")
+		}
+	}
 
 	if r.Restarts == 1 {
 		said.WriteString("a fresh adapter was started after one broke\n")
@@ -236,39 +306,61 @@ func (r *Report) String() string {
 
 	for _, result := range r.Results {
 		if result.Err == nil {
-			fmt.Fprintf(&said, "%s %s\n", result.Outcome, result.Entry)
+			fmt.Fprintf(&said, "%s %s\n", result.mark(), result.Entry)
 
 			continue
 		}
 
-		fmt.Fprintf(&said, "%s %v\n", result.Outcome, result.Err)
+		fmt.Fprintf(&said, "%s %v\n", result.mark(), result.Err)
 	}
 
 	return said.String()
 }
 
+// mark is how a result's line opens: the outcome, and for a provisional entry
+// the word that says the line is a report rather than a verdict.
+//
+// The outcome is kept and prefixed rather than replaced, because a reader
+// scanning for FAIL wants to find a provisional disagreement too — it is the
+// one that most needs looking at, since either the implementation or the entry
+// is wrong and nothing yet says which.
+func (r *Result) mark() string {
+	if r.Provisional {
+		return "PROVISIONAL " + r.Outcome.String()
+	}
+
+	return r.Outcome.String()
+}
+
 // pass records an entry whose answer is what the entry states.
 func (r *Report) pass(entry *conformance.Entry) {
-	r.Results = append(r.Results, &Result{Entry: entry.Name, Source: entry.Source, Outcome: Passed})
+	r.Results = append(r.Results, &Result{
+		Entry:       entry.Name,
+		Source:      entry.Source,
+		Outcome:     Passed,
+		Provisional: entry.IsProvisional(),
+	})
 }
 
 // mismatch records an entry the adapter answered and disagreed about.
 func (r *Report) mismatch(entry *conformance.Entry, err error) {
 	r.Results = append(r.Results, &Result{
-		Entry:   entry.Name,
-		Source:  entry.Source,
-		Outcome: Mismatched,
-		Err:     &conformance.MismatchError{Entry: entry.Name, Source: entry.Source, Err: err},
+		Entry:       entry.Name,
+		Source:      entry.Source,
+		Outcome:     Mismatched,
+		Provisional: entry.IsProvisional(),
+		Err:         &conformance.MismatchError{Entry: entry.Name, Source: entry.Source, Err: err},
 	})
 }
 
 // fault records an entry nothing was learned about.
 func (r *Report) fault(entry *conformance.Entry, err error) {
 	r.Results = append(r.Results, &Result{
-		Entry:   entry.Name,
-		Source:  entry.Source,
-		Outcome: Faulted,
-		Err:     &conformance.RunError{Entry: entry.Name, Source: entry.Source, Err: err},
+		Entry:       entry.Name,
+		Source:      entry.Source,
+		Outcome:     Faulted,
+		Provisional: entry.IsProvisional(),
+		Err:         &conformance.RunError{Entry: entry.Name, Source: entry.Source, Err: err},
 	})
 }
 

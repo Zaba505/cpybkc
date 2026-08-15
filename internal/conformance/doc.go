@@ -56,7 +56,8 @@
 // # What Load checks, and what it declines to
 //
 // Loading an entry parses every member and holds it to what the format
-// requires: entry.json carries a description and a source and nothing else,
+// requires: entry.json carries a description, a source, at most a [Status] and
+// nothing else,
 // ir.json is a descriptor that passes
 // [github.com/Zaba505/cpybkc/internal/assemble.Validate] and is written in the
 // canonical rendering [github.com/Zaba505/cpybkc/internal/emit.MarshalJSON]

@@ -40,11 +40,12 @@ written down belongs here.
 ### Scope
 
 In scope: the directory an entry is, the members it holds and the one member
-that is reserved; the value language every decoded record is written in, down to
-the admissible spelling of each scalar; how a file the generated reader refused
-is reported; what a runner is asked to do and what it is deliberately not asked
-to do; the answer document it returns; and how the corpus is published, down to
-the digest a downloader checks it against.
+that is reserved; how much authority an entry's expected answer carries, and
+what promotes one that carries none yet; the value language every decoded
+record is written in, down to the admissible spelling of each scalar; how a file
+the generated reader refused is reported; what a runner is asked to do and what
+it is deliberately not asked to do; the answer document it returns; and how the
+corpus is published, down to the digest a downloader checks it against.
 
 Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 
@@ -114,7 +115,7 @@ else is.
 
 | File | What it is | Required |
 |---|---|---|
-| `entry.json` | What the entry is about, and the section its expected answer came from. | yes |
+| `entry.json` | What the entry is about, the section its expected answer came from, and how much the corpus stands behind it. | yes |
 | `layout.sexpr` | The [layout](../layout/SPEC.md) the file is laid out by. | yes |
 | `*.cpy` | The copybooks that layout names, at the paths it spells them. | one or more |
 | `ir.json` | The [IR](../ir/SPEC.md) the layout and those copybooks resolve to. | yes |
@@ -146,8 +147,18 @@ parsing something else first.
 }
 ```
 
-Both members are required, both are non-empty strings, and there is no third
-member. An unknown member **MUST** be refused.
+`description` and `source` are required and are non-empty strings. `status` is
+optional, and where it is written it **MUST** be `"normative"` or
+`"provisional"` — see [*A provisional entry*](#a-provisional-entry). An entry
+that carries no `status` is normative. There is no fourth member, and an unknown
+member **MUST** be refused, as **MUST** a `status` outside those two spellings
+(#207).
+
+Absent meaning normative is what keeps every entry written before the member
+existed saying exactly what it said, without an edit and without moving the
+corpus digest. It is also the safe direction for the default to fall in: a
+status is the one thing that can take an entry out of a verdict, so the value
+nobody wrote has to be the one that leaves it counting.
 
 `source` is what a failing run prints beside the entry's name. Whoever reads
 that report has to decide whether the generator is wrong or the entry is, and
@@ -255,6 +266,70 @@ the same position sum a decoder runs and gets it wrong in the same way, so there
 is a plausible second oracle here whose shape is an offset table. Whether the
 corpus is where that oracle belongs is open, and that discussion is #193's, not
 this document's.
+
+### A provisional entry
+
+An entry whose expected answer nothing has corroborated declares itself:
+
+```json
+{
+  "description": "A record whose table slides under an ODO count of zero.",
+  "source": "cobol-go codec/SPEC.md, \"OCCURS DEPENDING ON\"",
+  "status": "provisional"
+}
+```
+
+A harness **MUST** ask about a provisional entry exactly as it asks about a
+normative one, and **MUST** report what became of it. It **MUST NOT** count it
+in any total it reports of the corpus, and it **MUST NOT** report a run as
+failed on account of one — whether that entry disagreed, or could not be asked
+about at all (#207).
+
+A runner is not told which it was given. The status is a property of the corpus
+and not of the question, and it appears nowhere in the [adapter
+contract](../adapter/SPEC.md): an adapter that could tell would be an adapter
+whose answers about the uncorroborated half of the corpus are worth less than
+its answers about the rest.
+
+#### Why the corpus needs one
+
+An entry is derived from a specification and never recorded from a run of the
+code it checks, because an entry recorded from its subject passes forever —
+including through the bug it was written to catch (#67). That rule has a mirror:
+**an entry authored from a misreading fails forever**, and every implementation
+is told it is wrong.
+
+The exposure is worst exactly where the corpus is most valuable. An entry
+covering a construct no implementation handles yet has no cross-check at all —
+nothing disagrees with it, so review is the only defence, and review of a
+hand-computed EBCDIC or hexadecimal-floating-point byte string is weak. What
+that costs is not a red mark on a report. It is a generator author who trusts
+the corpus, changes correct code to match a wrong oracle, and ships it.
+
+It also gives the corpus somewhere to put an entry whose expected answer is
+contested, rather than the two options of shipping it as normative or not
+shipping it at all.
+
+#### What promotes an entry to normative
+
+A provisional entry becomes normative when either of these has happened:
+
+- **two independent implementations agree with it** — two generators, written
+  by different authors and not derived from one another, each answering what
+  the entry states; or
+- **a second person has re-derived its expected answer from the specification**
+  — from the sections `source` cites, without reading the entry's own bytes
+  first, and reached the same answer.
+
+Neither is something a harness can check, so promotion is an edit: the `status`
+member is removed, or written as `"normative"`, and the change says in its
+description which of the two happened and names the implementation or the
+person. That is the whole mechanism, and it is deliberately a review rather than
+a computation — what makes an entry an oracle is that somebody stands behind it.
+
+A provisional entry that turns out to be **wrong** is corrected or withdrawn,
+and neither needs this section: it never counted, so nothing that ran against it
+has to be re-stated.
 
 ## The value language
 
@@ -853,7 +928,8 @@ to every row.
 | Section | Implemented by |
 |---|---|
 | [An entry](#an-entry) | #66 `conformance` for the format and the loader that holds a directory to it |
-| [`entry.json`](#entryjson) | #66 `conformance` |
+| [`entry.json`](#entryjson) | #66 `conformance`; the `status` member, #207 `conformance` |
+| [A provisional entry](#a-provisional-entry) | #207 `conformance` for the status, the rule a harness follows and what promotes an entry; the authoring rule it mirrors is #67 |
 | [`ir.json`](#irjson) | #66 `conformance`; the canonical rendering it is held to, #20 `ir` |
 | [`values.json`](#valuesjson) | #66 `conformance` |
 | [`offsets.json` is reserved](#offsetsjson-is-reserved) | #194 `conformance` for the reservation; the discussion it comes from is #193, and no story specifies its content |
