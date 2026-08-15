@@ -2,9 +2,12 @@
 ;; bytes no item covers. Nothing in this file says so: SYNCHRONIZED is a
 ;; copybook clause, and where the slack falls is the compiler's answer rather
 ;; than a statement a layout carries. What the layout does say is `lrecl 20`,
-;; and that is what makes the slack checkable from here -- every record type
-;; MUST account for all of LRECL, so a reading that dropped either run would
-;; leave four bytes this dataset has no place for.
+;; and that belongs to this entry's *producer* claim rather than to the run a
+;; generator is put through: every record type MUST account for all of LRECL, so
+;; a reading that dropped a run would leave that run's bytes with no place in
+;; this dataset -- one of them, or three, or four if it dropped both. Nothing
+;; downstream re-checks it, because a record length is not something a
+;; descriptor carries: `ir.json` says `unframed` and no number beside it.
 ;;
 ;; The framing is the smallest there is, which is deliberate. Under `recfm F` a
 ;; record's bytes are its extent and the next record begins at the byte after

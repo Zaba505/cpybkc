@@ -326,14 +326,15 @@ against the two sections that turn it into something a descriptor carries,
 *Slack survives a read*. The bytes of its items are still `codec/SPEC.md`'s,
 which is what the entry cites beside them.
 
-It is the corpus's first entry to carry a `Slack` node, and the last of the
-twelve node kinds to reach one. The record is twenty bytes and its items cover
-sixteen: one byte ahead of a halfword-aligned `COMP` item and three ahead of a
-fullword-aligned one, with items in front of each run and behind it. That is
-what makes a misplaced run visible rather than merely present — a consumer that
-drops the three-byte run reads `SYN-AMOUNT` from bytes belonging to the run and
-to `SYN-CODE`, and the file it is reading has nothing in it to disagree with,
-which is the failure `lrecl` exists to catch on the producing side.
+It is the corpus's first entry to carry a `Slack` node. The record is twenty
+bytes and its items cover sixteen: one byte ahead of a halfword-aligned `COMP`
+item and three ahead of a fullword-aligned one, with items in front of each run
+and behind it. That is what makes a dropped run visible rather than merely
+present — a consumer that leaves the three-byte run out reads `SYN-AMOUNT` from
+bytes 9 to 12, which is the three bytes of the run and then `SYN-AMOUNT`'s own
+first byte, and `SYN-TAIL` behind it moves with it. Neither is a byte of
+`SYN-CODE`, which ends at 8 and is read correctly either way: it is the items
+*behind* a run that a dropped one moves, which is why both runs have one.
 
 The two runs are of **different widths** on purpose. Retention pairs runs to
 nodes by position and nothing else — a slack node has no name and the IR gives a
@@ -361,11 +362,23 @@ fails while that happens. A values document cannot see it either, by
 construction — [*Slack is not a
 value*](../../docs/conformance/SPEC.md#slack-is-not-a-value) keeps those bytes
 out of one so that two generators are held to agreeing about data rather than
-about padding. The two records here carry different bytes in each of their four
-runs, so the difference is at least visible to somebody reading `input.bin`
-beside a file a generator wrote; holding a generator to it is `cpybkc-gen-go`'s
+about padding. Holding a generator to the bytes themselves is `cpybkc-gen-go`'s
 own `internal/orders` round trip, which can reach the unexported runs this
 corpus deliberately cannot.
+
+What this entry can do is make the difference *legible*, and that is why the
+four runs are written down here as well as laid into `input.bin`. `input.bin` is
+the one member of an entry a diff cannot show, so a claim about its bytes is a
+claim nobody reviewing a change can check unless it is also in text:
+
+| | run at 3 (1 byte) | run at 9 (3 bytes) |
+|---|---|---|
+| record 1, `K01` | `e7` | `5a 6b 7c` |
+| record 2, `K02` | `1f` | `c3 d4 e5` |
+
+All four differ, none is zero and none is a space, so a generator that filled
+them instead of keeping them is visible to somebody holding a written file
+against this one — which is the most a corpus that compares values can offer.
 
 ### No row of Appendix A is deliberately absent, and two once were
 
