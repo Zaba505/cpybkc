@@ -162,7 +162,10 @@ platform they are run.
    not from what a generator printed. An entry recorded from the code it checks
    passes forever, including through the bug it was written to catch.
 4. Cite the section in `entry.json`.
-5. `go test ./internal/conformance/...`. The loader reports what is wrong with
+5. Decide whether the entry is normative or provisional — see below. Most are
+   normative and say nothing; an entry nothing can cross-check yet writes
+   `"status": "provisional"`.
+6. `go test ./internal/conformance/...`. The loader reports what is wrong with
    the entry, and the run reports what the generated code decoded where it
    differs from what you wrote.
 
@@ -176,6 +179,32 @@ appearing to disagree with you about a number.
 
 The rendering of `ir.json` is the one thing worth generating: write the content
 by hand, then let the canonicalisation check tell you where the whitespace goes.
+
+### A new entry may be provisional
+
+Hand-authoring is what makes an entry an oracle, and it is also the one way an
+entry goes wrong that nothing here can catch. An entry recorded from the code it
+checks passes forever; an entry authored from a *misreading* fails forever, and
+tells every implementation it is wrong. Nothing in a run distinguishes that from
+a generator with a bug, and the entries where it is likeliest are the ones worth
+most — a construct no implementation handles yet has nothing to disagree with
+it, so the only defence is somebody reviewing a byte string computed by hand.
+
+So an entry may declare `"status": "provisional"`, and then it runs, its result
+is reported, and it counts in no total and fails nothing. The rule a harness
+follows and the two things that promote one — two independent implementations
+agreeing with it, or a second person re-deriving its answer from the
+specification — are [*A provisional
+entry*](../../docs/conformance/SPEC.md#a-provisional-entry).
+
+**Every entry here is normative**, and a test says so, because an entry that
+became provisional would stop counting and stop being able to fail a run without
+any other test noticing. The status is for a *new* entry that cannot be
+cross-checked yet, and today nothing is in that position: the corpus predates a
+second implementation, and every entry in it was reviewed as normative. When one
+is added provisionally, promoting it is an ordinary pull request — remove the
+member, and say in the description which of the two things happened and who or
+what did it.
 
 ## The entries
 

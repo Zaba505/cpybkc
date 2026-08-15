@@ -167,6 +167,38 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 			},
 			says: "source cites the section",
 		},
+		"metadata carrying a status outside the two": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b", "status": "draft"}`)
+			},
+			says: `status is "draft"`,
+		},
+		"metadata carrying an empty status": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b", "status": ""}`)
+			},
+			says: `omit it to mean "normative"`,
+		},
+		// null is written, and a member that is written is held to the two
+		// spellings. Folded in with absent it would read as normative without a
+		// word, which is the one way of writing nothing that would slip past
+		// the case above.
+		"metadata carrying a null status": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b", "status": null}`)
+			},
+			says: `omit it to mean "normative"`,
+		},
+		"metadata carrying a status that is not a string": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, MetadataName),
+					`{"description": "a", "source": "b", "status": 1}`)
+			},
+			says: "status is 1",
+		},
 		"a descriptor that is not the canonical rendering": {
 			breaks: func(t *testing.T, dir string) {
 				write(t, filepath.Join(dir, DescriptorName), `{"version":"IR_VERSION_1","nodes":[`+
@@ -299,6 +331,98 @@ func TestTheReservedMemberIsAdmittedAndReadByNothing(t *testing.T) {
 	if with.Layout != without.Layout || with.Description != without.Description ||
 		with.Source != without.Source || !bytes.Equal(with.Input, without.Input) {
 		t.Errorf("the entry loaded differently with %s beside it, and nothing reads it", OffsetsName)
+	}
+}
+
+// TestAnEntryDeclaresItselfProvisional is the whole of what an entry can say
+// about how much the corpus stands behind it, and what each spelling means.
+//
+// The three cases are the three an author writes: nothing, which is the
+// ordinary entry and has to stay normative or every entry shipped before the
+// member existed would change meaning; the word written out, which is the same
+// thing said aloud; and provisional, which is the one that changes anything.
+func TestAnEntryDeclaresItselfProvisional(t *testing.T) {
+	tests := map[string]struct {
+		status      string
+		want        Status
+		provisional bool
+	}{
+		"an entry that says nothing about its status": {status: "", want: Normative},
+		"an entry that writes normative out":          {status: `, "status": "normative"`, want: Normative},
+		"an entry that declares itself provisional": {
+			status:      `, "status": "provisional"`,
+			want:        Provisional,
+			provisional: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := entryCopy(t, "orders-fixed")
+
+			write(t, filepath.Join(dir, MetadataName),
+				`{"description": "an entry", "source": "docs/conformance/SPEC.md"`+test.status+`}`)
+
+			entry, err := LoadEntry(dir)
+			if err != nil {
+				t.Fatalf("%v", err)
+			}
+
+			if entry.Status != test.want {
+				t.Errorf("the entry loaded as %q, and it declares %q", entry.Status, test.want)
+			}
+
+			if entry.IsProvisional() != test.provisional {
+				t.Errorf("IsProvisional is %t for an entry that loaded as %q", entry.IsProvisional(), entry.Status)
+			}
+
+			if entry.IsNormative() == test.provisional {
+				t.Errorf("IsNormative is %t for an entry that loaded as %q, and the two readings disagree",
+					entry.IsNormative(), entry.Status)
+			}
+		})
+	}
+}
+
+// TestAnEntryNothingLoadedIsNormative pins the direction the default falls in.
+//
+// A status is the one member of an entry that can exempt it from a verdict, so
+// the value nobody set has to be the one that does not: an [Entry] a test built,
+// or one whose metadata the loader never reached, counts and can fail. The other
+// default would let an entry drop out of a run by omission, and nothing in a
+// passing report would say so.
+func TestAnEntryNothingLoadedIsNormative(t *testing.T) {
+	var entry Entry
+
+	if entry.IsProvisional() || !entry.IsNormative() {
+		t.Error("an entry nothing filled in is provisional, and a status nobody wrote must not exempt one")
+	}
+
+	if (*Entry)(nil).IsProvisional() {
+		t.Error("no entry at all is provisional")
+	}
+}
+
+// TestEveryShippedEntryIsNormative holds the corpus to the promise the
+// provisional status was added under: it is somewhere to put an entry nothing
+// has corroborated, and not a status anything already shipped acquires.
+//
+// It is a test of its own because it is a claim about the corpus rather than
+// about the loader. An entry that became provisional would stop counting and
+// stop being able to fail a run, which is a change to what this repository's own
+// conformance result means — and it would make that change silently, since every
+// other test would go on passing.
+func TestEveryShippedEntryIsNormative(t *testing.T) {
+	entries, err := Load(CorpusPath(repoRoot(t)))
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsProvisional() {
+			t.Errorf("%s is provisional, so it counts in no total and can fail nothing; promoting it is "+
+				"docs/conformance/SPEC.md's \"A provisional entry\"", entry.Name)
+		}
 	}
 }
 

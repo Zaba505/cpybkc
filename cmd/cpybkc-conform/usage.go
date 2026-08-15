@@ -20,8 +20,9 @@ const usage = `cpybkc-conform runs the cpybkc conformance corpus against a gener
   cpybkc-conform help
 
 check drives the adapter through the contract and reports every entry. It exits
-0 when nothing failed, 1 when an entry disagreed or could not be asked, and 2
-when the run could not be attempted at all.
+0 when nothing failed, 1 when a normative entry disagreed or could not be asked,
+and 2 when the run could not be attempted at all. A provisional entry is
+reported and is in neither: it counts in no total and fails nothing.
 
   --exec <path>              the adapter executable, as a path and not a name to
                              find on PATH
