@@ -1,0 +1,130 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "segmented": {
+          "max_segment_size": 16
+        },
+        "start_state_id": "7"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "SEG-RECORD"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4",
+          "5",
+          "6"
+        ],
+        "names": {
+          "original": "SEG-RECORD"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 6,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "S-KEY"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 8,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "S-TEXT"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "field": {
+        "width": 3,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_PACKED_DECIMAL",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 5,
+          "signed": true
+        },
+        "names": {
+          "original": "S-COUNT"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "field": {
+        "width": 3,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "S-FLAG"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "8"
+        ]
+      }
+    },
+    {
+      "id": "8",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "7"
+      }
+    }
+  ]
+}

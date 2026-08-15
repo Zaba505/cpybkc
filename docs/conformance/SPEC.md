@@ -640,6 +640,25 @@ under segmented framing it lays a record into as few segments as the largest
 allows, whatever the input did. A corpus demanding the input's bytes back would
 fail two of the four framings by design.
 
+The corpus holds both of those cases, and it holds them as files rather than as
+this sentence (#206).
+[`delimited-optional-terminator`](../../testdata/conformance/delimited-optional-terminator)
+ends without the delimiter its placement lets a file end without, and comes back
+one byte longer;
+[`segmented-spanning`](../../testdata/conformance/segmented-spanning) lays a
+record into three segments where the largest segment allows two, and comes back
+four bytes shorter. Both decode to their `values.json` in either direction. They
+are here because an argument resting on two framings that no entry exercised is
+an argument a byte-comparing runner would have passed the whole corpus without
+meeting.
+
+Neither entry states what a *wrong* writer does, and neither could: both files
+are well-formed, so a writer that left the final delimiter off or copied its
+input's segmentation would still write records that read back. Those byte counts
+are properties of the entries rather than assertions the corpus makes. What the
+two catch is a runner comparing bytes, which is what this section needed
+exercising.
+
 It is wrong at the field level too, and the corpus already holds the case:
 [`packed-ascii`](../../testdata/conformance/packed-ascii) carries the lenient
 sign nibble `A`, which a reader admits as positive and a writer has no reason to
@@ -849,7 +868,7 @@ to every row.
 | [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it; #198 `conformance` for the split between what a runner is asked and how it is asked, which moved the second half to [`adapter/SPEC.md`](../adapter/SPEC.md) |
 | [The answer document](#the-answer-document) | #68 `conformance`; #198 `conformance` for a read-only generator's absent `written` being declared rather than discovered, and #199 for the engine that honours it |
 | [How a runner is started and spoken to](#how-a-runner-is-started-and-spoken-to) | #198 `conformance` specifies it in [`adapter/SPEC.md`](../adapter/SPEC.md); no section here |
-| [Why the writing direction is checked by reading](#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes) | #68 `conformance`; the rule it rests on, *Writing a file*, #17 `ir` |
+| [Why the writing direction is checked by reading](#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes) | #68 `conformance`; the rule it rests on, *Writing a file*, #17 `ir`; the two entries that exercise it, #206 `conformance` |
 | [The published corpus](#the-published-corpus) | #202 `conformance` for the release asset, the engine that ships in it and the pipeline that builds it |
 | [The corpus digest](#the-corpus-digest) | #202 `conformance` |
 | [The grammar corpus](#appendix-the-grammar-corpus) | #197 `conformance` for [GRAMMAR.md](GRAMMAR.md), the writer it holds to it, and the test that reads one against the other |

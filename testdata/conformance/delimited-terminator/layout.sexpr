@@ -1,0 +1,30 @@
+;; A line-sequential file in cp037, its records ended by 0x15 — the byte a
+;; mainframe line-delimited file ends a record with, and one of the two that
+;; cp037 and cp1047 disagree about the name of. Under `terminator` a delimiter
+;; follows every record, the last included, so a file of three records carries
+;; three of them and a final record with nothing behind it is a file that was
+;; cut short.
+;;
+;; Nothing in Appendix A describes a delimiter — codec/SPEC.md places record
+;; formats out of scope in as many words — so this entry's framing is derived
+;; from the two specifications this repository publishes rather than from
+;; cobol-go's. Its records are the same three that delimited-optional-terminator
+;; carries; the two entries differ in the placement and in what stands behind
+;; the last record, which is the whole of what they are about.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm line-sequential)
+  (delimiter (bytes "15"))
+  (placement terminator))
+
+(record LINE
+  (copybook "line.cpy" LINE-RECORD))
+
+(discriminate LINE single-record-type)
+
+(sequence (* LINE))

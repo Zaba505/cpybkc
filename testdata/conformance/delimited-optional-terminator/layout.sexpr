@@ -1,0 +1,32 @@
+;; delimited-terminator's three records, in a file whose last record carries no
+;; delimiter at all.
+;;
+;; `optional-terminator` is the placement that admits both days of the shop's
+;; extract: a delimiter follows every record, except that the file may end after
+;; the last record without one. A reader is not lenient about it — it is what
+;; the file node says the file does — and a writer is not lenient about it
+;; either: under this placement a writer MUST emit the final delimiter rather
+;; than choosing whether to, because two writers left to decide produce two
+;; files from one descriptor.
+;;
+;; That is why this entry's input.bin is twenty-three bytes and the file its
+;; records are written back into is twenty-four. The two are not the same bytes
+;; and they decode to the same records, which is the property the corpus checks
+;; the writing direction by.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm line-sequential)
+  (delimiter (bytes "15"))
+  (placement optional-terminator))
+
+(record LINE
+  (copybook "line.cpy" LINE-RECORD))
+
+(discriminate LINE single-record-type)
+
+(sequence (* LINE))
