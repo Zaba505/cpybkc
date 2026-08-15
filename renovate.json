@@ -1,0 +1,87 @@
+{
+    "extends": [
+        "config:best-practices"
+    ],
+    "ignorePaths": ["docs/**"],
+    "osvVulnerabilityAlerts": true,
+    "schedule": [
+        "before 4am"
+    ],
+    "baseBranchPatterns": [
+        "main"
+    ],
+    "labels": [
+        "dependencies"
+    ],
+    "packageRules": [
+        {
+            "description": "Automerge non-major updates",
+            "matchUpdateTypes": ["minor", "patch"],
+            "automerge": true
+        },
+        {
+            "matchManagers": [
+                "gomod"
+            ],
+            "matchDepTypes": [
+                "indirect"
+            ],
+            "enabled": true
+        },
+        {
+            "groupName": "opentelemetry-go and opentelemetry-go-contrib monorepos",
+            "matchSourceUrls": [
+                "https://github.com/open-telemetry/opentelemetry-go",
+                "https://github.com/open-telemetry/opentelemetry-go-contrib"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch",
+                "minor",
+                "major"
+            ]
+        },
+        {
+            "groupName": "google.golang.org/genproto/googleapis monorepo",
+            "matchDatasources": [
+                "go"
+            ],
+            "matchPackageNames": [
+                "google.golang.org/genproto/googleapis/**"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch",
+                "minor",
+                "major"
+            ]
+        },
+        {
+            "groupName": "golang.org/x monorepo",
+            "matchDatasources": [
+                "go"
+            ],
+            "matchPackageNames": [
+                "golang.org/x/**"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch",
+                "minor",
+                "major"
+            ]
+        },
+        {
+            "description": "The dagger modules' go.mod files are codegen output, not dependency declarations: `dagger develop` rewrites them wholesale from the Go SDK's template for dagger.json's engineVersion, so anything Renovate raises here is lowered again by the next regeneration. The engine version is the lever that actually moves these requires. Scoped to the generated go.mod files by name, not to the directories holding them: nothing else in .dagger is Renovate-managed today, but a rule that names a directory is one that silently switches off whatever gets added to it, and the custom regex manager this exclusion had to leave running until #217 is the precedent.",
+            "matchFileNames": [
+                ".dagger/go.mod",
+                "daggerverse/**/go.mod"
+            ],
+            "enabled": false
+        }
+    ],
+    "postUpdateOptions": [
+        "gomodTidy",
+        "gomodUpdateImportPaths"
+    ]
+}
