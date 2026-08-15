@@ -219,12 +219,17 @@ with four items in it.
 | [`mixed-record-converted`](mixed-record-converted) | The same record after a correct, copybook-aware conversion from EBCDIC. |
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
+| [`delimited-terminator`](delimited-terminator) | A line-sequential file whose records end with `0x15`, two of them holding a packed amount whose own bytes are `0x15`. |
+| [`delimited-optional-terminator`](delimited-optional-terminator) | The same three records in a file whose last record carries no delimiter, which a writer supplies: twenty-three bytes written back as twenty-four. |
+| [`segmented-spanning`](segmented-spanning) | `RECFM=VBS`: a record laid into the segments a writer would choose, and one laid into more than it would, both spanning. |
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 | [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Five are not derived from it — `float-ieee754-special`,
-`batch-fixed`, `batch-rdw`, `odo-sliding` and `sync-slack` — and the subsections
+it came from (#67). Eight are not derived from it — `float-ieee754-special`,
+`batch-fixed`, `batch-rdw`, `delimited-terminator`,
+`delimited-optional-terminator`, `segmented-spanning`, `odo-sliding` and
+`sync-slack` — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
 question about the entries that *are* derived from it.
@@ -264,7 +269,7 @@ not pair. HFP has no encoding for a NaN or an infinity at all, so the bytes that
 would make the pair do not exist; `codec/SPEC.md` says so, and it is why that
 format is a weak signal for telling the two apart in the first place.
 
-### The framing entry cites this repository, not Appendix A
+### The framing entries cite this repository, not Appendix A
 
 Appendix A is entirely field- and record-level — A.1 to A.6 are single fields and
 A.7 is one 15-byte record with no framing bytes — and `codec/SPEC.md` places
@@ -280,6 +285,35 @@ entry: framing is this repository's layer, so this repository's specs are where
 its right answer is written down. `batch-fixed` is in the same position, and both
 carry Appendix A.7's record inside them so that the bytes of a *record* stay
 traceable to a vector even where the bytes around it are not.
+
+`delimited-terminator`, `delimited-optional-terminator` and `segmented-spanning`
+are the other three, authored against the same two documents plus
+[`docs/conformance/SPEC.md`](../../docs/conformance/SPEC.md)'s *Why the writing
+direction is checked by reading, and not by comparing bytes*. They are here
+because that section rests on them: it says a corpus demanding the input's bytes
+back would fail two of the four framings by design, and until these arrived
+neither of those two framings had an entry, so a runner that byte-compared would
+have passed the whole corpus.
+
+Two of the three are what the section describes, and each one's `input.bin` is
+chosen to be a file no correct writer would produce. `delimited-optional-terminator`
+ends without the delimiter the placement lets a file end without, and a writer
+under that placement **MUST** emit it rather than choosing whether to, so
+twenty-three bytes come back as twenty-four. `segmented-spanning` lays its second
+record into three segments where the largest segment allows two, and a writer
+**MUST** use as few as it allows, so sixty bytes come back as fifty-six. In both
+the records are the same records, which is the property the corpus checks.
+
+`delimited-terminator` is the control on the pair: its file *is* what a writer
+produces, so it is the delimited entry that would still pass a byte comparison,
+and what it adds instead is a record whose data holds the delimiter. A
+`PIC S9(3)V99 COMP-3` item holding +152.50 is the bytes `15 25 0C`, which is the
+vector *A delimiter is bytes, not a character* names, and `0x15` is what ends a
+record in that file. A consumer that searched for the delimiter would cut that
+record after four bytes; one that counts the extent reads them as the number they
+are. That there are three delimited placements and only two entries is
+deliberate — `separator` is exercised by neither, and the placement the corpus
+was missing is the one whose *writer* diverges from its input.
 
 ### The variable-table entry cites the two specs that decide it
 

@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "name": "LINE-RECORD",
+      "value": {"L-KEY": "A001", "L-AMT": "15250"}
+    },
+    {
+      "name": "LINE-RECORD",
+      "value": {"L-KEY": "B002", "L-AMT": "15150"}
+    },
+    {
+      "name": "LINE-RECORD",
+      "value": {"L-KEY": "C003", "L-AMT": "-25100"}
+    }
+  ]
+}

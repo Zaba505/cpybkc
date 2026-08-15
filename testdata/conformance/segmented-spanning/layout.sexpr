@@ -1,0 +1,35 @@
+;; A spanned dataset: RECFM VBS, whose records are laid into segments and each
+;; segment behind the segment descriptor word DFSMS defines. A record is the
+;; concatenation of its segments' data, and a consumer reassembles that before
+;; anything else in either specification applies.
+;;
+;; The largest segment is sixteen bytes and four of those are the descriptor
+;; word, so no segment carries more than twelve bytes of a record and a
+;; twenty-byte record can never arrive in one piece. That is the point of the
+;; number rather than a property of any real dataset: `max-segment` is the one
+;; framing fact a writer needs and cannot compute, and an entry that could be
+;; satisfied by a single segment would not hold a writer to it.
+;;
+;; `lrecl` is a maximum under this spelling rather than a requirement, since
+;; every segment states its own length. Twenty is the record's whole extent.
+;;
+;; Nothing in Appendix A describes a segment descriptor word, so this entry's
+;; framing is derived from the two specifications this repository publishes
+;; rather than from cobol-go's.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm VBS)
+  (lrecl 20)
+  (max-segment 16))
+
+(record SEG
+  (copybook "seg.cpy" SEG-RECORD))
+
+(discriminate SEG single-record-type)
+
+(sequence (* SEG))

@@ -1,0 +1,22 @@
+{
+  "records": [
+    {
+      "name": "SEG-RECORD",
+      "value": {
+        "S-KEY": "ACCT01",
+        "S-TEXT": "SEGMENTS",
+        "S-COUNT": "12345",
+        "S-FLAG": "OK"
+      }
+    },
+    {
+      "name": "SEG-RECORD",
+      "value": {
+        "S-KEY": "ACCT02",
+        "S-TEXT": "SPANNING",
+        "S-COUNT": "-6789",
+        "S-FLAG": "XX"
+      }
+    }
+  ]
+}
