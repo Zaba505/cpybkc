@@ -1025,12 +1025,14 @@ plugged; it is the boundary of what a check reading Go source can see, and under
 the mirroring stance it matters, because the module's obligation is every
 capability rather than every flag.
 
-There is one such capability today and it is the worked case. cpybkc passes its
+There has been one such capability and it is the worked case. cpybkc passes its
 whole environment through to a generator — that pass-through **is** how
 [`docs/plugin/SPEC.md`](docs/plugin/SPEC.md) propagates `SOURCE_DATE_EPOCH` —
-and the companion module offers no way to state an environment at all, so a
-promise that document makes to every generator author does not reach a Dagger
-caller (#252). No check here noticed, and none could have.
+and the companion module offered no way to state an environment at all, so a
+promise that document makes to every generator author did not reach a Dagger
+caller (#252). No check here noticed, and none could have. `with-env-variable`
+is the answer, and [The environment a generation runs
+with](#the-environment-a-generation-runs-with) is what it decided.
 
 So the answer to how the next one is caught is a person, at the document that
 promises it: **a change to
@@ -1040,12 +1042,23 @@ in the same review.** That is a weaker guarantee than `cli-surface`, and saying
 so plainly is the point — a reader who believes the check covers the whole
 surface will not go looking.
 
-The mechanical version was considered and is not worth having. Anything that
-could notice "`docs/cli/SPEC.md` changed" is a check comparing a document
-against a copy of itself, which is precisely [the shape #65 was closed for
-being](#65-is-closed-rather-than-left-open): it fails on every edit to that
-document and on nothing else, so it is answered by updating the copy, and a
-check whose remedy is *tell it what happened* has taught nobody anything.
+What #252 adds is the other half of the answer, and it is the half that is
+mechanical after all: **a capability that arrives this way is covered afterwards
+by a run rather than by a reading.** `companion-module` drives
+`with-env-variable` end to end and requires the value to come back out of a
+generator *process*, so the module losing the capability again fails CI even
+though nothing can read it out of the source. The rule to follow when the next
+one lands is therefore two-part — answer the document in the same review, and
+add a call to `CompanionModule`, because the coverage table can only ever hold
+flags.
+
+The mechanical version of the *first* half was considered and is not worth
+having. Anything that could notice "`docs/cli/SPEC.md` changed" is a check
+comparing a document against a copy of itself, which is precisely [the shape #65
+was closed for being](#65-is-closed-rather-than-left-open): it fails on every
+edit to that document and on nothing else, so it is answered by updating the
+copy, and a check whose remedy is *tell it what happened* has taught nobody
+anything.
 
 ### Composing a generator is `COPY --from`, split across two methods
 
@@ -1102,6 +1115,74 @@ it, and a dynamically linked generator fails at exec time with the kernel's
 message rather than cpybkc's. That is the same requirement the worked example
 states as `CGO_ENABLED=0`, and it is said in both methods' documentation rather
 than enforced in either.
+
+### The environment a generation runs with
+
+`WithEnvVariable` states one variable every run through the module is started
+with, and therefore one every generator it starts is handed:
+
+```sh
+dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+  with-env-variable --name SOURCE_DATE_EPOCH --value "$SOURCE_DATE_EPOCH" \
+  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+  generate --source . export --path .
+```
+
+It exists for one variable and takes any. `SOURCE_DATE_EPOCH` is the reason:
+cpybkc passes its own environment through unchanged, and that pass-through **is**
+how [`docs/plugin/SPEC.md`](docs/plugin/SPEC.md) propagates the timestamp
+[determinism](docs/plugin/SPEC.md#determinism) rests on, so *"a build that sets
+`SOURCE_DATE_EPOCH` for its other tools has already set it for every generator
+cpybkc runs"* was a sentence that had been false for every build going through
+this module (#252). It was not reachable by composition either — `Image()` hands
+back a container, `WithEnvVariable` is on that container, and the only way back
+into the module is `New --image`, which is not a chain `dagger call` can express.
+
+**Any variable rather than that one**, and this is the decision #252 records.
+The narrow shape — a typed `--source-date-epoch` — was the recommendation the
+plugin contract suggested, on the grounds that it is the only variable that
+document says legitimately reaches a generator and changes its output, and that
+a plugin **MUST NOT** require another one to do its normal work. The wide shape
+is what [the mirroring stance](#the-module-mirrors-the-cli-and-the-check-that-holds-it-to-it)
+implies, and that is what settled it: the CLI has no flag here, it reads its
+*whole* environment and hands it on, so the capability to mirror is an
+environment and not a timestamp. A single typed argument would have been the
+module deciding which variables may reach a generator — a reading of
+`docs/plugin/SPEC.md` kept out here where it would drift, which is the same
+reason `emit-ir`'s `--format` passes an unknown encoding through to be refused by
+the parser that decides encodings rather than screening it first.
+
+It would not have been the narrower thing it looks like, either. A caller who
+wants a second variable still has `--image` and a container of their own; what
+the typed argument buys is not that the door is shut but that the ordinary route
+through it is missing. And the prohibition it appears to enforce is not the
+module's to enforce: *a plugin must not require an environment variable to do its
+normal work* binds generator authors, the manifest is the reviewable record, and
+cpybkc has passed the whole environment through since before this module existed
+— so refusing to offer the door makes no generator more compliant and the mirror
+less honest.
+
+**It reaches every function**, because it is set on the container they all run
+in, which is the CLI's own arrangement: cpybkc is started with an environment,
+not a command. `generate` is where it matters, since it is the one that starts a
+generator; `init` runs none, `emit-ir` resolves none because an emission is
+terminal, and `run` starts one exactly when its vector asks for a generation. The
+three where nothing reads it are not carved out — a builder that refused to set a
+variable for a run that would not have read it would be inventing a rule the CLI
+does not have, and a caller would have to know which functions resolve generators
+to predict it.
+
+**The check is a run, not a reading**, and it has to be. This is a pass-through
+with three hops in it — the module sets the variable on a container, the
+container starts cpybkc with it, cpybkc hands its environment to the generator —
+and only the last one is the promise. So `companion-module` composes a generator
+that reports what it was started with
+([`internal/tools/cpybkc-gen-env/`](internal/tools/cpybkc-gen-env/), a fixture
+rather than anything a release publishes) over the worked example's copybooks and
+layout, and requires the value back out of the generator's own output. The same
+generation **without** the builder has to fail, which is the half that makes the
+other half evidence: an engine's containers carry an environment of their own, so
+a check that only ran the positive case would pass on a builder that did nothing.
 
 ### Multi-platform is one composition per platform
 
