@@ -491,6 +491,44 @@ which IR version that image speaks.
 Nothing else is a step, after the first one. There is no version to bump by hand
 and no tag to push beyond the one the release object carries.
 
+### Which number a breaking change takes
+
+Choosing the tag is the only judgment left in a release, and it is not a free
+one. A change breaking a covered thing in [the CLI
+contract](docs/cli/SPEC.md#compatibility-guarantees) or [the base-image
+contract](docs/container/SPEC.md#compatibility-guarantees) takes a **new major
+version**, and below 1.0.0 the only release that is one is
+[**1.0.0**](docs/container/SPEC.md#below-100-the-rule-produces-100) (#213). A
+`0.y.z` is additive, always; the first release that is not additive is 1.0.0.
+
+The two contracts share one number, which is why one of them decides for both:
+the image's major version [tracks the CLI's covered surface as well as its
+own](docs/container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
+so nothing that breaks either can ride a moving tag a derived Dockerfile pinned
+in order to pick up fixes.
+
+**Nothing in the pipeline checks this**, and that is worth knowing before going
+looking for the check that would. Whether a change is breaking is a property of
+the change and not of the tag: `dagger call tag-scheme` can say that `v0.3.0` is
+a canonical version pointing at HEAD, and that the family it implies is the
+archetype's, and it cannot say that the diff under it withdrew a rejection. The
+reading is the releaser's, and the release notes are where the announcement it
+obliges goes — written by hand, above the [generated
+block](#whether-a-commit-is-a-release-is-a-function-not-a-step), which is
+spliced in rather than appended and so leaves what somebody wrote alone.
+
+The next release is where this first bites. `init` is on `main` and unreleased,
+and [the CLI contract requires the release that first carries it to be
+1.0.0](docs/cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it).
+
+That release is also when [the companion module's `v0`
+default](#the-default-image-tag-is-the-moving-major-tag) stops picking anything
+up: `v0` receives no release after the last `0.y.z`, and the argument that the
+default cannot go stale holds within a major and not across one. What to do
+about it — move the default to `v1`, or keep a moving default at all — is a
+decision for the module and not one this section makes; what this section says
+is that 1.0.0 is when it has to be made rather than noticed.
+
 ### The version a release publishes is the version it was cut from
 
 Both binaries learn their own version at link time, from the release. The shared
@@ -1067,6 +1105,17 @@ asserts that a constant equals the git tag, and the release runbook grows no
 step that could be forgotten. A caller who pins nothing picks up every fix in
 the major version without editing anything — which is what a moving tag is for,
 and what the container contract already recommends to a derived Dockerfile.
+
+**Within a major**, and that bound is now dated rather than theoretical. A break
+in either contract takes [a new major
+version](docs/container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
+and [below 1.0.0 the release that is
+one](docs/container/SPEC.md#below-100-the-rule-produces-100) is 1.0.0 — so `v0`
+stops receiving releases at 1.0.0 and this default stops picking fixes up on the
+same day. It does not go stale in the sense the paragraph above rules out (no
+constant to forget, no release step to miss); it goes stale by the image moving
+on without it, which is [a decision for that
+release](#which-number-a-breaking-change-takes) rather than a bug to fix now.
 
 ### What pinning the module ref buys, and what it does not
 
