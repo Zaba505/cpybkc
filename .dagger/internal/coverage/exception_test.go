@@ -29,8 +29,9 @@ func TestCheckAcceptsTheTwoShapesOfException(t *testing.T) {
 		},
 		{
 			// A curated function is coming and the story writing it is named, so a
-			// reader can tell this from a flag nobody thought about. --emit-ir is
-			// this shape.
+			// reader can tell this from a flag nobody thought about. --emit-ir was
+			// this shape until #251 curated it, and no flag is today — which is why
+			// the shape is pinned here rather than only in the pipeline's table.
 			name:      "tracked, with a reason and an issue",
 			exception: Exception{Reason: "a Directory return cannot express a stream", Tracking: "#251"},
 		},

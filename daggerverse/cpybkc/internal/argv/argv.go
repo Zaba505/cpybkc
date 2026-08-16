@@ -39,6 +39,17 @@ const copybookFlag = "--copybook"
 // not of the vector.
 const outFlag = "--out"
 
+// emitIRFlag names where the run's resolved descriptor goes, and it is what
+// makes a run an emitting one: docs/cli/SPEC.md has it replace generation
+// outright, so this flag being in the vector is the whole of what [EmitIR]
+// asks for.
+const emitIRFlag = "--emit-ir"
+
+// emitIRFormatFlag selects the encoding of that descriptor. It is a usage error
+// without [emitIRFlag], which is a rule this package cannot break rather than
+// one it enforces: it is only ever written beside it, three lines from here.
+const emitIRFormatFlag = "--emit-ir-format"
+
 // standardOutput is the dash cpybkc reads as "a stream" wherever it accepts
 // one. --manifest is the one flag that refuses it.
 const standardOutput = "-"
@@ -137,4 +148,51 @@ func Init(copybooks []string, out string) ([]string, error) {
 	}
 
 	return append(args, outFlag, out), nil
+}
+
+// EmitIR is the vector for an emitting run over a project mounted at the
+// container's working directory, with the resolved descriptor written to dest.
+//
+// It is a generating run's vector plus the flag that replaces the generating,
+// which is why [Generate] builds the front of it rather than this function
+// restating the manifest rule. Which descriptor is emitted follows from which
+// manifest was read (docs/cli/SPEC.md, "Which descriptor is emitted"), so a
+// project keeping its manifest somewhere else says so here exactly as it does
+// for a generating run — and the dash is refused here for the same reason and
+// with the same message, because it is the same argument.
+//
+// dest is the caller's rather than a constant here, for the reason [Init]'s out
+// is: where the descriptor lands inside the container is a property of how the
+// module mounts things. It is not examined. The one value that would be worth
+// refusing is the dash, and no caller of this package can pass it — a
+// File-returning function has no stream to hand back, so `--emit-ir -` stays
+// the escape hatch's spelling and never reaches here.
+//
+// An empty format is no --emit-ir-format at all, which leaves the CLI applying
+// its own default. That is the [Generate] treatment of an empty manifest and it
+// is chosen for the same reason: the default encoding is docs/cli/SPEC.md's to
+// name, and a vector spelling it out here would be this module's second reading
+// of it, drifting the moment that document changed.
+//
+// A format that is not one of the spellings that document fixes is passed
+// through unexamined, and the refusal is the CLI's. It has one to give —
+// `"xml" is not a format; write "binary" or "json"` — and it names the
+// alternatives from the parser that decides them, which is a better answer than
+// this package could assemble from out here. The two refusals above are
+// different in the way [Generate] gives: a stream is wrong for every state of
+// every filesystem, and paying for a pull and an exec to be told so buys
+// nothing, whereas the set of formats is a thing the CLI is entitled to grow.
+func EmitIR(manifest, dest, format string) ([]string, error) {
+	args, err := Generate(manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	args = append(args, emitIRFlag, dest)
+
+	if format == "" {
+		return args, nil
+	}
+
+	return append(args, emitIRFormatFlag, format), nil
 }

@@ -7,6 +7,10 @@
 // leads, and that the copybooks reach cpybkc in the order they were given, which
 // is the order the scaffold then holds their records in. Pinning the vectors here
 // turns a later accidental flag, or a quietly reordered list, into a red build.
+// An emitting run's vector carries one more: that a caller who names no format
+// gets no --emit-ir-format at all, so the encoding a descriptor arrives in is
+// the CLI's default rather than a spelling this module would have to keep in
+// step with it.
 //
 // What is not tested here is anything needing an engine: whether the exec
 // succeeds, whether the project mounted at the working directory has a manifest
@@ -183,6 +187,98 @@ func TestInitRefusesTheDashAmongTheCopybooks(t *testing.T) {
 			if !strings.Contains(err.Error(), "has none to state") {
 				t.Errorf("Init(%q, …) error = %q, want it to say why a copybook cannot arrive on a stream",
 					tc.copybooks, err)
+			}
+		})
+	}
+}
+
+func TestEmitIRAssemblesTheVector(t *testing.T) {
+	const dest = "/ir/descriptor"
+
+	for _, tc := range []struct {
+		name     string
+		manifest string
+		format   string
+		want     []string
+	}{
+		{
+			// The ordinary case, and the one a bug report is built out of: the
+			// project's own cpybkc.json, the CLI's own default encoding, and one
+			// flag saying the run emits rather than generates.
+			name: "no manifest and no format",
+			want: []string{"--emit-ir", dest},
+		},
+		{
+			// No --emit-ir-format naming the default, for the reason
+			// [TestGenerateWithNoManifest] gives about --manifest: which encoding
+			// a run writes when nobody says is docs/cli/SPEC.md's, and a second
+			// statement of it here would drift.
+			name:   "the format named by name",
+			format: "binary",
+			want:   []string{"--emit-ir", dest, "--emit-ir-format", "binary"},
+		},
+		{
+			name:   "the JSON a person pastes into an issue",
+			format: "json",
+			want:   []string{"--emit-ir", dest, "--emit-ir-format", "json"},
+		},
+		{
+			// Passed through rather than refused, so the diagnostic is the CLI's:
+			// it names the spellings there are, from the parser that decides them.
+			name:   "a format this package does not recognise",
+			format: "xml",
+			want:   []string{"--emit-ir", dest, "--emit-ir-format", "xml"},
+		},
+		{
+			// Which descriptor is emitted follows from which manifest was read,
+			// so a project keeping its manifest below its root can still emit one.
+			name:     "a manifest below the project root",
+			manifest: "build/cpybkc.json",
+			want:     []string{"--manifest", "build/cpybkc.json", "--emit-ir", dest},
+		},
+		{
+			// The manifest leads, exactly as it does for a generating run: this is
+			// that vector plus the flag that replaces the generating.
+			name:     "a manifest and a format together",
+			manifest: "build/cpybkc.json",
+			format:   "json",
+			want: []string{
+				"--manifest", "build/cpybkc.json",
+				"--emit-ir", dest,
+				"--emit-ir-format", "json",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := EmitIR(tc.manifest, dest, tc.format)
+			if err != nil {
+				t.Fatalf("EmitIR(%q, %q, %q): unexpected error: %v", tc.manifest, dest, tc.format, err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("EmitIR(%q, %q, %q) = %q, want %q", tc.manifest, dest, tc.format, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEmitIRRefusesTheDashAsAManifest(t *testing.T) {
+	// Every format, because the refusal is about the manifest and a vector that
+	// escaped it for one spelling of an unrelated argument would be exactly the
+	// kind of hole a table stops.
+	for _, format := range []string{"", "binary", "json"} {
+		t.Run("format "+format, func(t *testing.T) {
+			got, err := EmitIR("-", "/ir/descriptor", format)
+			if err == nil {
+				t.Fatalf("EmitIR(\"-\", …, %q) = %q, want an error", format, got)
+			}
+			if got != nil {
+				t.Errorf("EmitIR(\"-\", …, %q) returned %q beside its error, want no vector", format, got)
+			}
+			// The same reason [TestGenerateRefusesTheDash] checks for, because it
+			// is the same rule read once rather than a second copy of it here.
+			if !strings.Contains(err.Error(), "in no directory") {
+				t.Errorf("EmitIR(\"-\", …, %q) error = %q, want it to say why a manifest cannot arrive on a stream",
+					format, err)
 			}
 		})
 	}

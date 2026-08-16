@@ -165,6 +165,17 @@
 // CLI's rather than this module's: somebody who read docs/cli/SPEC.md should
 // find what they read about here, under the name they read it under.
 //
+// A flag that replaces the default action outright gets a function of its own
+// under the flag's own name, on the same grounds. EmitIr is `--emit-ir`: it
+// takes the project and the manifest Generate takes, plus the encoding, and
+// hands back the resolved descriptor rather than a generated tree. That is not a
+// third command and it is not this module inventing a verb — it is where the
+// mapping puts a flag whose whole meaning is that no generating happens
+// (docs/cli/SPEC.md, "Emitting replaces generation"), and it is the same move
+// #228 made for `init`. It also makes an illegal pairing unstateable rather than
+// enforced: --emit-ir-format is a usage error without --emit-ir, and as this
+// function's argument there is no call that names one without the other.
+//
 // That is a stance rather than an observation, and it replaced a good argument
 // (#62, #253). This module used to curate deliberately — two functions, an
 // escape hatch, and the reasoning that a module argument is public API for as
@@ -183,21 +194,24 @@
 // flag. A flag that reaches a caller through Run is recorded as an exception in
 // this repository's pipeline, with the argument for it and, where it is a gap
 // rather than a decision, the issue curating it — and `dagger call cli-surface`
-// fails on one that is neither. Today that is --emit-ir and --emit-ir-format,
-// which #251 is curating, and --version, --help and -h, which stay: `dagger call
-// --help` and the per-function documentation are the Dagger-native form of that
-// question, and which release runs is something a caller states at New's
-// --version rather than asks the CLI afterwards.
+// fails on one that is neither. Today that is --version, --help and -h, and all
+// three stay: `dagger call --help` and the per-function documentation are the
+// Dagger-native form of that question, and which release runs is something a
+// caller states at New's --version rather than asks the CLI afterwards. No flag
+// is on this function today for want of somebody curating it, which is the
+// state that table is kept in order to be able to say.
 //
 // A function is still allowed to decline one *spelling* of a flag without
 // declining the flag, and that stays deliberately. Init supplies --out itself,
 // at a path inside the container the caller never types, and hands back the
 // File; `--out -` is not offered, because a File-returning function cannot
-// express a stream. A stream destination is the whole of that class — --emit-ir
-// will have the same one when it is curated — and the spelling stays Run's,
-// which is the command being reachable rather than out of reach:
+// express a stream. EmitIr supplies --emit-ir's destination on the same terms
+// and declines `--emit-ir -` for the same reason. A stream destination is the
+// whole of that class, and both spellings stay Run's, which is the command being
+// reachable rather than out of reach:
 //
 //	dagger call run --source . --args=init,--copybook,posting.cpy,--out,- stdout
+//	dagger call run --source . --args=--emit-ir,- stdout
 //
 // One thing the flag table cannot say, and this comment therefore should. cpybkc
 // passes its whole environment through to a generator, which is how
@@ -270,6 +284,29 @@ const projectDir = "/src"
 const (
 	scaffoldDir  = "/scaffold"
 	scaffoldPath = scaffoldDir + "/layout.sexpr"
+)
+
+// descriptorDir is where EmitIr has cpybkc write the run's resolved descriptor,
+// and descriptorPath is the file inside it.
+//
+// Outside [projectDir] on [scaffoldDir]'s grounds, and the argument is the same
+// one twice: a destination inside the mounted project is a path this module
+// would have to reason about the caller's tree to choose safely, and an emitting
+// run over a project that already holds a file at the chosen path is not a run
+// anybody asked about. Nothing in the caller's tree is written either way — an
+// emission is terminal, so nothing is merged or pruned (docs/cli/SPEC.md,
+// "Emitting replaces generation") — and writing into a directory nothing was
+// mounted into is what keeps that true of the emission as well.
+//
+// The name carries no extension, deliberately. Which encoding is in the file is
+// the format argument's to say and both encodings land at this one path, so a
+// name claiming one of them would be wrong for the other run. It is only what
+// the file is called on the way out in any case: what it is called in the
+// caller's tree is what they name at export, which is the same arrangement the
+// scaffold has.
+const (
+	descriptorDir  = "/ir"
+	descriptorPath = descriptorDir + "/descriptor"
 )
 
 // contractUser is the UID:GID docs/container/SPEC.md pins the image to, used to
@@ -754,27 +791,130 @@ func (m *Cpybkc) Init(
 		return nil, err
 	}
 
-	project := m.mount(user, source)
-
-	// Emptied first, then an empty directory owned by whoever the container runs
-	// as.
-	//
-	// Emptied because WithDirectory *merges*: whatever the image already had
-	// here would survive it, and a caller may have passed --image, which this
-	// module is not entitled to have an opinion about the contents of. Without
-	// the removal, such a container carrying anything at [scaffoldPath] would
-	// fail the run on a destination its caller never named and cannot see in the
-	// call — which is the one failure this path is arranged to make impossible.
-	//
-	// Owned, because the scaffold is written through a temporary file created
-	// beside its destination and linked into place — the write is atomic or it
-	// does not happen — so the process needs a directory it can create in, not
-	// merely a path nothing occupies.
-	return project.
-		WithoutDirectory(scaffoldDir).
-		WithDirectory(scaffoldDir, dag.Directory(), dagger.ContainerWithDirectoryOpts{Owner: user}).
+	return m.writable(m.mount(user, source), user, scaffoldDir).
 		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
 		File(scaffoldPath), nil
+}
+
+// EmitIr writes the run's resolved descriptor and hands back the file:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  emit-ir --source . --format json export --path descriptor.json
+//
+// It is `cpybkc --emit-ir`, and the name is that flag rather than a word of this
+// module's own for the reason Init's is the CLI's verb: somebody who read
+// docs/cli/SPEC.md should find what they read about here, under the name they
+// read it under.
+//
+// The descriptor is what to attach to a bug report, against cpybkc or against
+// any generator. It is exactly the bytes a plugin was handed — the equality the
+// plugin contract rests reproducibility on — so reading it settles in one step
+// whether a fault is the producer's or the consumer's. It is also available from
+// the run that is broken: an emission is terminal, so no generator is resolved,
+// nothing is merged into the project's tree and nothing is pruned from it
+// (docs/cli/SPEC.md, "Emitting replaces generation"), which is why a project
+// whose `generate` fails inside a generator can still emit the descriptor that
+// generator was given.
+//
+// Nothing is written to the host, exactly as with Init: the File that comes back
+// is a value, and exporting it is the caller's separate step. This module writes
+// it to a path of its own inside the container ([descriptorPath]) that nothing
+// was mounted into, so the run cannot land on something the caller already has.
+//
+// The one spelling this does not offer is `--emit-ir -`, which stays Run's for
+// the reason `--out -` does — a File-returning function has no stream to hand
+// back — and which is a spelling rather than a flag:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  run --source . --args=--emit-ir,- stdout
+//
+// The illegal pairing docs/cli/SPEC.md names — `--emit-ir-format` without
+// `--emit-ir` — is unstateable here rather than enforced. This function *is* the
+// emission and the format is its argument, so there is no call that names a
+// format without asking for one, and there is nothing left for the module to
+// check.
+func (m *Cpybkc) EmitIr(
+	ctx context.Context,
+	// The project to emit the descriptor of: the directory holding the manifest,
+	// the layout it names and the copybooks that layout names.
+	//
+	// It is mounted whole rather than filtered down to what the run reads, for
+	// Generate's reason: which copybooks are read is a property of the layout, and
+	// a module guessing at that set would be a second, weaker answer to a question
+	// docs/cli/SPEC.md answers exactly.
+	source *dagger.Directory,
+	// The project manifest to read, relative to the root of source.
+	//
+	// It is taken the way Generate takes it, and it is not a convenience: a run
+	// resolves one descriptor, from the layout the manifest names and the
+	// copybooks that layout names (docs/cli/SPEC.md, "Which descriptor is
+	// emitted"), so *which* descriptor is emitted is exactly which manifest was
+	// read. A project keeping its manifest somewhere else would otherwise be able
+	// to generate through this module and not to emit what it generated from.
+	//
+	// It defaults to nothing, which leaves cpybkc reading `cpybkc.json` at the
+	// root of the mounted project — the CLI's own default, applied by the CLI. A
+	// relative path resolves against that project root, and it cannot be "-",
+	// because a manifest's own paths are relative to the directory holding it and
+	// a manifest arriving on a stream is in no directory.
+	// +optional
+	manifest string,
+	// The encoding the descriptor is written in: `binary`, the canonical protobuf
+	// wire encoding a generator is handed, or `json`, the normalized rendering a
+	// person reads and pastes into an issue.
+	//
+	// It defaults to nothing, which is not a third encoding: an unnamed format
+	// reaches the CLI as no --emit-ir-format at all, so what arrives is whatever
+	// docs/cli/SPEC.md's default is — `binary` today — decided there rather than
+	// restated here where the two could drift.
+	//
+	// A value that is neither spelling is passed through and refused by the CLI,
+	// which names the spellings there are from the parser that decides them. That
+	// is deliberate for the reason Run validates nothing: a second reading of that
+	// contract out here is one that drifts, and this one would drift the day a
+	// third encoding landed.
+	// +optional
+	format string,
+) (*dagger.File, error) {
+	args, err := argv.EmitIR(manifest, descriptorPath, format)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := m.user(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return m.writable(m.mount(user, source), user, descriptorDir).
+		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		File(descriptorPath), nil
+}
+
+// writable hands back container with dir emptied and owned by user, which is
+// what a curated function supplies the CLI when it chooses the destination
+// itself.
+//
+// Emptied because WithDirectory *merges*: whatever the image already had there
+// would survive it, and a caller may have passed --image, which this module is
+// not entitled to have an opinion about the contents of. Without the removal,
+// such a container carrying anything at the destination would fail the run on a
+// path its caller never named and cannot see in the call — which for `init` is
+// the one failure this path is arranged to make impossible, since a destination
+// that is occupied fails a scaffolding run whatever is in it.
+//
+// Owned, because both files are written through a temporary file created beside
+// the destination and linked into place — the write is atomic or it does not
+// happen — so the process needs a directory it can create in, not merely a path
+// nothing occupies.
+//
+// It is one function rather than two copies for the reason [Cpybkc.user] is:
+// Init and EmitIr are making the same arrangement for the same reasons, and two
+// statements of it would be two things to keep in step.
+func (m *Cpybkc) writable(container *dagger.Container, user, dir string) *dagger.Container {
+	return container.
+		WithoutDirectory(dir).
+		WithDirectory(dir, dag.Directory(), dagger.ContainerWithDirectoryOpts{Owner: user})
 }
 
 // Run is the fallback: cpybkc invoked with an argument vector this module has no
