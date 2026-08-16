@@ -319,7 +319,7 @@ func (f *filer) transitionsOf(state *irpb.State) ([]transition, error) {
 				"every transition consumes exactly one record; see docs/ir/SPEC.md, \"The sequencing automaton\"")
 		}
 
-		typ, err := identifier("record", record.GetNames())
+		typ, err := recordName(record.GetNames())
 		if err != nil {
 			return nil, err
 		}

@@ -120,6 +120,12 @@ type scope struct {
 	// record is the record node's COBOL name, which opens every message.
 	record string
 
+	// group is the innermost named group the walk is inside, as the copybook
+	// names it. It is what a refusal about an item with no name of its own has
+	// to point at, and it is carried here so that every part of this generator
+	// points at the same one.
+	group string
+
 	// rw is the *codec.Reader or *codec.Writer in scope. It is the method's own
 	// argument outside a buffered occurrence and a sub-reader or sub-writer
 	// over that occurrence's bytes inside one.
@@ -195,7 +201,7 @@ func codecMethods(d *irpb.Descriptor, opts options) (string, error) {
 			continue
 		}
 
-		name, err := identifier("record", record.GetNames())
+		name, err := recordName(record.GetNames())
 		if err != nil {
 			return "", err
 		}
@@ -359,6 +365,8 @@ func (c *coder) decodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		return err
 	}
 
+	s.group = group.GetNames().GetOriginal()
+
 	members, err := c.flattened(id)
 	if err != nil {
 		return err
@@ -381,7 +389,7 @@ func (c *coder) decodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		// retained for it, the way a slack node is: it has no field, because it
 		// has no name for one. See [emitter.flattened].
 		if field := member.GetField(); field != nil && anonymous(field.GetNames()) {
-			width, err := fillerRun(field, group.GetNames().GetOriginal())
+			width, err := fillerRun(field, s.group)
 			if err != nil {
 				return err
 			}
@@ -624,6 +632,8 @@ func (c *coder) encodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		return err
 	}
 
+	s.group = group.GetNames().GetOriginal()
+
 	members, err := c.flattened(id)
 	if err != nil {
 		return err
@@ -647,7 +657,7 @@ func (c *coder) encodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		// was read, zero bytes where the record was never read, and a report
 		// rather than a truncation where the run is the wrong length.
 		if field := member.GetField(); field != nil && anonymous(field.GetNames()) {
-			width, err := fillerRun(field, group.GetNames().GetOriginal())
+			width, err := fillerRun(field, s.group)
 			if err != nil {
 				return err
 			}
@@ -995,6 +1005,13 @@ func (c *coder) encodeVariant(b *strings.Builder, v *irpb.Variant, expr string, 
 // than derived and stored. It runs behind the whole occurrence because a
 // target may sit behind the variant.
 func (c *coder) checkArms(b *strings.Builder, id uint64, expr string, s scope) error {
+	in, err := c.groupName(id)
+	if err != nil {
+		return err
+	}
+
+	s.group = in
+
 	members, err := c.flattened(id)
 	if err != nil {
 		return err
@@ -1090,7 +1107,7 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 			return nil, err
 		}
 
-		if err := namedArm(body, c.record); err != nil {
+		if err := namedArm(body, s.group); err != nil {
 			return nil, err
 		}
 

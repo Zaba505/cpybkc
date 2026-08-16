@@ -150,6 +150,14 @@ func orderBytes(t *testing.T, enc codec.Encoding, details int) []byte {
 			if err := w.WriteBytes([]byte{byte(0xe0 + i)}); err != nil {
 				return err
 			}
+
+			// The FILLER of this occurrence of LINE-ITEM, a different byte in
+			// each: a run retained once for the whole table rather than once
+			// per occurrence writes the same byte back three times and fails
+			// here.
+			if err := w.WriteBytes([]byte{byte(0xf0 + i)}); err != nil {
+				return err
+			}
 		}
 
 		// The FILLER item, and then the FILLER group's one named member.

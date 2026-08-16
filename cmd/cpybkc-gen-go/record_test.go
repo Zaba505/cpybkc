@@ -236,43 +236,80 @@ func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T)
 	repeating := fillerItem(3, 4)
 	repeating.GetField().Repetition = depending(5, 0, 4)
 
-	for name, d := range map[string]*irpb.Descriptor{
+	// The group each refusal has to name is the innermost one the copybook
+	// *does* name, and it is asserted exactly. A test satisfied by any of the
+	// names in the descriptor would pass whichever part of this generator
+	// reached the item first, which is the same as not checking: the whole
+	// point of the message is that an adopter can go and search for the word in
+	// it.
+	for name, tc := range map[string]struct {
+		descriptor *irpb.Descriptor
+		in         string
+	}{
 		"a FILLER group that repeats": {
-			Version: supportedIRVersion,
-			Nodes: []*irpb.Node{
-				record(1, "ORDER-RECORD", 2),
-				group(2, "ORDER-RECORD", nil, 3),
-				repeated(fillerGroup(3, 4), constant(2)),
-				alphanumeric(4, "NOTE-CODE", 2),
+			in: "ORDER-RECORD",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					repeated(fillerGroup(3, 4), constant(2)),
+					alphanumeric(4, "NOTE-CODE", 2),
+				},
 			},
 		},
 		"a FILLER item counted by another": {
-			Version: supportedIRVersion,
-			Nodes: []*irpb.Node{
-				record(1, "ORDER-RECORD", 2),
-				group(2, "ORDER-RECORD", nil, 5, 3),
-				repeating,
-				zoned(5, "NOTE-COUNT", 2, 2, 0, false),
+			in: "ORDER-RECORD",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 5, 3),
+					repeating,
+					zoned(5, "NOTE-COUNT", 2, 2, 0, false),
+				},
 			},
 		},
+		// The item is inside ENTRY and ENTRY is inside ORDER-RECORD, so this is
+		// the case that says which of the two the message names: the group the
+		// adopter would find the item under, not the record it is somewhere in.
 		"a FILLER standing as one alternative of an alternation": {
-			Version: supportedIRVersion,
-			Nodes: []*irpb.Node{
-				record(1, "ORDER-RECORD", 2),
-				group(2, "ORDER-RECORD", nil, 3),
-				group(3, "ENTRY", constant(2), 4, 5),
-				alphanumeric(4, "ENTRY-TYPE", 1),
-				variant(5, armOf(6, 7), armOf(8, 9)),
-				equals(6, 4, "\xc4"),
-				equals(8, 4, "\xe2"),
-				alphanumeric(7, "ENTRY-DETAIL", 4),
-				fillerItem(9, 4),
+			in: "ENTRY",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					group(3, "ENTRY", constant(2), 4, 5),
+					alphanumeric(4, "ENTRY-TYPE", 1),
+					variant(5, armOf(6, 7), armOf(8, 9)),
+					equals(6, 4, "\xc4"),
+					equals(8, 4, "\xe2"),
+					alphanumeric(7, "ENTRY-DETAIL", 4),
+					fillerItem(9, 4),
+				},
+			},
+		},
+		// A FILLER inside a FILLER: the members of both are lifted to the one
+		// named level, so the group the refusal names is that level rather than
+		// either of the two anonymous ones between.
+		"a FILLER group that repeats inside another FILLER group": {
+			in: "ORDER-RECORD",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					fillerGroup(3, 4),
+					repeated(fillerGroup(4, 5), constant(2)),
+					alphanumeric(5, "NOTE-CODE", 2),
+				},
 			},
 		},
 	} {
 		out := t.TempDir()
 
-		err := generate(d, out, options{packageName: goldenPackage})
+		err := generate(tc.descriptor, out, options{packageName: goldenPackage})
 
 		var refusal *fillerError
 		if !errors.As(err, &refusal) {
@@ -286,8 +323,14 @@ func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T)
 			t.Errorf("%s is reported as a malformed descriptor, and the descriptor says what docs/ir/SPEC.md admits", name)
 		}
 
-		if !strings.Contains(refusal.Error(), "ORDER-RECORD") && !strings.Contains(refusal.Error(), "ENTRY") {
-			t.Errorf("%s is refused as %q, which names nothing an adopter can go and look at", name, refusal.Error())
+		if refusal.In != tc.in {
+			t.Errorf("%s is refused in %q, want %q — the innermost group the copybook names", name, refusal.In, tc.in)
+		}
+
+		// "a item of ..." is what a hard-coded article produces, and this
+		// message is the one the whole story is about.
+		if !strings.HasPrefix(refusal.Error(), "a group ") && !strings.HasPrefix(refusal.Error(), "an item ") {
+			t.Errorf("%s reads %q, which opens with neither article", name, refusal.Error())
 		}
 
 		if entries, err := os.ReadDir(out); err != nil {
@@ -295,6 +338,195 @@ func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T)
 		} else if len(entries) != 0 {
 			t.Errorf("%s left %d files beneath --out, want none", name, len(entries))
 		}
+	}
+}
+
+// TestAFillerGroupInsideAFillerGroupIsFlattenedToTheNamedLevel is the recursive
+// half of the flattening rule, and the one that says what "the enclosing level"
+// means when there is more than one anonymous level to skip.
+//
+// COBOL qualification skips *every* unnamed group between an item and the name
+// it is qualified by, so two levels of FILLER lift a member exactly as far as
+// one does. The struct is the assertion: NOTE-CODE is a field of the record and
+// there is no intermediate type between them.
+func TestAFillerGroupInsideAFillerGroupIsFlattenedToTheNamedLevel(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 7),
+			fillerGroup(3, 4),
+			fillerGroup(4, 5, 6),
+			alphanumeric(5, "NOTE-CODE", 2),
+			fillerItem(6, 3),
+			alphanumeric(7, "ORDER-ID", 4),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsFile]
+
+	// Both members reach the record's own struct, in record order, and the
+	// FILLER two levels down contributes to the record's own run.
+	for _, want := range []string{"NoteCode string", "OrderId string", fillerField + " [1][]byte"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not contain %q", recordsFile, want)
+		}
+	}
+
+	// One struct: the record's. An anonymous group that produced a type of its
+	// own would be a type named after an item the copybook did not name.
+	if got := strings.Count(source, "struct {"); got != 1 {
+		t.Errorf("%s declares %d struct types, want 1", recordsFile, got)
+	}
+}
+
+// TestAnUnnamedGroupThatContainsItselfIsRefused is the cycle the flattening
+// walk can meet before any other guard does.
+//
+// An unnamed group is expanded in place, so one containing itself would be
+// expanded for ever — and it would do so before the containment guard over
+// struct types is reached, because no struct is emitted for it.
+func TestAnUnnamedGroupThatContainsItselfIsRefused(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3),
+			fillerGroup(3, 4),
+			fillerGroup(4, 3),
+		},
+	}
+
+	var refusal *malformedError
+	if err := generate(d, t.TempDir(), options{packageName: goldenPackage}); !errors.As(err, &refusal) {
+		t.Fatalf("a FILLER group containing itself generated %v, want a malformed descriptor", err)
+	}
+}
+
+// TestAMemberLiftedOutOfAFillerGroupCollidesLikeAnyOther is the cost of
+// flattening, and the thing that has to be reported rather than resolved.
+//
+// Lifting a FILLER group's members into the enclosing struct can bring two
+// names to one Go identifier that the copybook keeps at two levels. COBOL is
+// content — the two are qualified differently there — and Go is not, so it is
+// refused with the same diagnostic every other collision gets, naming both
+// items.
+func TestAMemberLiftedOutOfAFillerGroupCollidesLikeAnyOther(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			alphanumeric(3, "NOTE-CODE", 2),
+			fillerGroup(4, 5),
+			alphanumeric(5, "NOTE_CODE", 2),
+		},
+	}
+
+	err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+	var collision *collisionError
+	if !errors.As(err, &collision) {
+		t.Fatalf("two names lifted to one level generated %v, want a collision", err)
+	}
+
+	for _, want := range []string{"NOTE-CODE", "NOTE_CODE", "NoteCode"} {
+		if !strings.Contains(collision.Error(), want) {
+			t.Errorf("the collision reads %q and never names %s", collision.Error(), want)
+		}
+	}
+}
+
+// TestAFillerAloneDeclaresTheZeroFillItsWriterNeeds is the copybook this story
+// is actually about: one with FILLER in it and no slack anywhere.
+//
+// Every golden package that carries a FILLER also carries a slack node, so the
+// helper a writer emits zero bytes from is already declared in each of them for
+// another reason. A record whose only retained run is a FILLER has to declare
+// it on its own account, and it has to be wide enough for that run.
+func TestAFillerAloneDeclaresTheZeroFillItsWriterNeeds(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			alphanumeric(3, "ORDER-ID", 4),
+			fillerItem(4, 6),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if source := written(t, out)[codecFile]; !strings.Contains(source, "var zeroFill = make([]byte, 6)") {
+		t.Errorf("a record whose only retained run is a FILLER of 6 bytes declares no zeroFill wide enough for it:\n%s", source)
+	}
+}
+
+// TestAFillerInsideAnArmOfAnAlternationIsRetainedLikeAnyOther is the last place
+// a FILLER can stand that the golden does not reach: inside the body of one arm
+// of a variant.
+//
+// An arm's body is a group like any other, so its struct is emitted by the same
+// walk and its FILLER is retained in that struct's own run — per arm, and per
+// occurrence of the table the variant is in.
+func TestAFillerInsideAnArmOfAnAlternationIsRetainedLikeAnyOther(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ENTRY-RECORD", 2),
+			group(2, "ENTRY-RECORD", nil, 3),
+			group(3, "ENTRY", constant(2), 4, 5),
+			alphanumeric(4, "ENTRY-TYPE", 1),
+			variant(5, armOf(6, 8), armOf(7, 10)),
+			equals(6, 4, "\xc4"),
+			equals(7, 4, "\xe2"),
+			group(8, "ENTRY-DETAIL", nil, 9, 12),
+			alphanumeric(9, "DETAIL-SKU", 4),
+			group(10, "ENTRY-SUMMARY", nil, 11),
+			alphanumeric(11, "SUMMARY-TEXT", 6),
+			fillerItem(12, 2),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	// The run belongs to the arm's own struct, so it is declared inside the
+	// arm and the record itself carries none.
+	source := written(t, out)[recordsFile]
+
+	if got := strings.Count(source, fillerField+" [1][]byte"); got != 1 {
+		t.Errorf("%s declares %d FILLER runs, want 1 — the one in the arm that carries it", recordsFile, got)
+	}
+
+	// And the two arms still cover the same bytes, which is what says the
+	// FILLER was counted into the width of the arm holding it.
+	codec := written(t, out)[codecFile]
+	if !strings.Contains(codec, "ReadBytes(7)") {
+		t.Errorf("%s reads an occurrence of ENTRY that is not 7 bytes wide:\n%s", codecFile, codec)
 	}
 }
 
@@ -1052,7 +1284,7 @@ func ordersDescriptor() *irpb.Descriptor {
 			alphanumeric(13, "CUSTOMER-NAME", 20),
 			slack(14, 2),
 			packed(15, "ORDER-TOTAL", 4, 7, 2, true),
-			group(16, "LINE-ITEM", constant(3), 17, 18, 19),
+			group(16, "LINE-ITEM", constant(3), 17, 18, 19, 26),
 			alphanumeric(17, "SKU", 8),
 			binary(18, "QUANTITY", 2, 4, true),
 			slack(19, 1),
@@ -1070,6 +1302,11 @@ func ordersDescriptor() *irpb.Descriptor {
 			group(23, "DETAIL", depending(22, 0, 12), 24),
 			alphanumeric(24, "DETAIL-TEXT", 10),
 			alphanumeric(25, "NOTE-CODE", 2),
+
+			// A FILLER inside a group that repeats, which is what says the
+			// retained run is per occurrence: LINE-ITEM's struct is the
+			// element type, so each of the three elements holds its own.
+			fillerItem(26, 1),
 
 			record(30, "TRAILER-RECORD", 31),
 			group(31, "TRAILER-RECORD", nil, 32, 33, 34, 35),

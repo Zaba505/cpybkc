@@ -132,6 +132,10 @@ func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 		if x.LineItem[i0].slack[0], err = r.ReadBytes(1); err != nil {
 			return fmt.Errorf("ORDER-RECORD: reading the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0, err)
 		}
+
+		if x.LineItem[i0].filler[0], err = r.ReadBytes(1); err != nil {
+			return fmt.Errorf("ORDER-RECORD: reading the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0, err)
+		}
 	}
 
 	if x.filler[0], err = r.ReadBytes(4); err != nil {
@@ -218,6 +222,19 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 		default:
 			if err = w.WriteBytes(x.LineItem[i0].slack[0]); err != nil {
 				return fmt.Errorf("ORDER-RECORD: writing the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0, err)
+			}
+		}
+
+		switch {
+		case x.LineItem[i0].filler[0] == nil:
+			if err = w.WriteBytes(zeroFill[:1]); err != nil {
+				return fmt.Errorf("ORDER-RECORD: writing 1 zero byte for an item the copybook gives no data-name and this record carries none for in occurrence %d of LINE-ITEM: %w", i0, err)
+			}
+		case len(x.LineItem[i0].filler[0]) != 1:
+			return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for an item of 1 byte the copybook gives no data-name is %d in occurrence %d of LINE-ITEM", len(x.LineItem[i0].filler[0]), i0)
+		default:
+			if err = w.WriteBytes(x.LineItem[i0].filler[0]); err != nil {
+				return fmt.Errorf("ORDER-RECORD: writing the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0, err)
 			}
 		}
 	}

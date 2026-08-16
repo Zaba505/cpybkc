@@ -81,7 +81,7 @@ func records(d *irpb.Descriptor, opts options) (string, error) {
 			continue
 		}
 
-		name, err := identifier("record", record.GetNames())
+		name, err := recordName(record.GetNames())
 		if err != nil {
 			return "", err
 		}
@@ -367,7 +367,7 @@ func (e *emitter) flatten(id uint64, in string, seen map[uint64]struct{}) ([]uin
 		}
 
 		if inner.GetRepetition() != nil {
-			return nil, &fillerError{Kind: "group", In: in, Because: "repeats"}
+			return nil, &fillerError{Kind: "a group", In: in, Because: "repeats"}
 		}
 
 		// A group with no name that contains itself would otherwise be expanded
@@ -409,6 +409,38 @@ func (e *emitter) group(id uint64) (*irpb.Group, error) {
 	return group, nil
 }
 
+// recordName is [identifier] for a record node.
+//
+// A record is the one node kind docs/ir/SPEC.md requires to be named —
+// internal/assemble/validate.go's `names` demands an original on a record and
+// on nothing else — so a record carrying no names message is a malformed
+// descriptor rather than a FILLER, and this is where that is said. Everywhere
+// else, absence of a names message is an item COBOL named nothing and is
+// handled; see [identifier].
+func recordName(names *irpb.Names) (string, error) {
+	if anonymous(names) {
+		return "", malformed("a record node carries no name",
+			"a record node carries the name the copybook spells, and it is the one node kind that must; see docs/ir/SPEC.md, \"Names\"")
+	}
+
+	return identifier("record", names)
+}
+
+// groupName is what the copybook calls the group node id.
+//
+// It is the one thing a diagnostic about a FILLER has to go on — the item has
+// no name of its own — so it is read from the node rather than from wherever a
+// walk happened to have a name to hand, which is what keeps the same item
+// refused with the same words whichever file this generator was emitting.
+func (e *emitter) groupName(id uint64) (string, error) {
+	group, err := e.group(id)
+	if err != nil {
+		return "", err
+	}
+
+	return group.GetNames().GetOriginal(), nil
+}
+
 // anonymous is whether a node's names are those of an item COBOL gave no
 // data-name: no names message at all.
 //
@@ -441,7 +473,7 @@ func fillerRun(f *irpb.Field, in string) (uint32, error) {
 	case *irpb.Repetition_Constant:
 		return f.GetWidth() * count.Constant, nil
 	case *irpb.Repetition_Variable:
-		return 0, &fillerError{Kind: "item", In: in, Because: "occurs a number of times the record states"}
+		return 0, &fillerError{Kind: "an item", In: in, Because: "occurs a number of times the record states"}
 	default:
 		return 0, malformed("an item repeats and says nothing about how many times",
 			"a repetition carries a constant count or an OCCURS DEPENDING ON one; an item that does not repeat carries no repetition at all")
@@ -603,7 +635,7 @@ func namedArm(body *irpb.Node, in string) error {
 	}
 
 	return &fillerError{
-		Kind:    "item",
+		Kind:    "an item",
 		In:      in,
 		Because: "is one alternative of an alternation over a run of bytes, which this generator spells as a field per alternative",
 	}
@@ -1070,24 +1102,36 @@ func renameNote(names *irpb.Names) string {
 // from being a hole in the rest of this: a name that cannot become an exported
 // identifier is refused wherever it came from, and two names that arrive at one
 // identifier collide whether or not a rename put them there.
+// # The two descriptors this used to collapse
+//
+// `names.GetOriginal() == ""` is true of two different descriptors, and telling
+// them apart is this function's own job rather than a convention its callers are
+// trusted to observe:
+//
+//   - **No names message at all.** An item COBOL gave no data-name, which is a
+//     FILLER: legal, common, and generated rather than refused. A caller that
+//     may meet one asks [anonymous] first and never arrives here, so reaching
+//     this function with one is a bug in *this generator* — and it says so, in
+//     those words, rather than sending an adopter after a producer bug in an
+//     item they wrote correctly. That misdirection is the whole of what this
+//     story was opened about, and leaving it to an unenforced convention is how
+//     it would come back.
+//   - **A names message stating no original.** A node the copybook named and
+//     the descriptor did not, which is a bug in the producer and is reported as
+//     the malformed descriptor it is.
+//
+// A record node is required to be named (internal/assemble/validate.go) and so
+// is never asked for through here — [recordName] is its way in, and it turns
+// the first case back into the descriptor fault it is for that node kind.
 func identifier(kind string, names *irpb.Names) (string, error) {
+	if anonymous(names) {
+		return "", fmt.Errorf(
+			"a %s the copybook gives no data-name reached the part of %s that names things, which is a bug in %s rather than in the descriptor or in your copybook",
+			kind, pluginName, pluginName)
+	}
+
 	original := names.GetOriginal()
 
-	// A names message that is present and states no original is a node the
-	// copybook named and the descriptor did not, which is a bug in the producer
-	// rather than a name an adopter can do anything about, so it is reported as
-	// the malformed descriptor it is. Telling them to rename an item in their
-	// layout would send them looking for a name that is not missing from
-	// anything they wrote.
-	//
-	// A node carrying *no names message at all* is the other descriptor this
-	// test used to collapse into that one, and it is not a fault: it is an item
-	// COBOL gave no data-name, which is a FILLER, and it is legal and common.
-	// Every caller that may meet one asks [anonymous] before it asks for an
-	// identifier — a FILLER has none — so what reaches here with an empty
-	// original really is the producer bug this refusal was written for. The
-	// exception is the record node, which is required to be named
-	// (internal/assemble/validate.go) and is refused by either half of this.
 	if original == "" {
 		return "", malformed(fmt.Sprintf("a %s node carries no name", kind),
 			"record, group and field nodes each carry the name the copybook spells; see docs/ir/SPEC.md, \"The node kinds\"")

@@ -161,11 +161,18 @@ func (e *unmungeableError) Notes() []string {
 // bytes has one length per record, and members that moved up a level cannot
 // move up once per occurrence.
 type fillerError struct {
-	// Kind is what the item is: a "group" or an "item".
+	// Kind is what the item is, with the article it takes: "a group" or "an
+	// item". The article is carried rather than composed, because "a" and
+	// "an" is one more thing for a diagnostic to get wrong in front of a user
+	// and there are exactly two of them.
 	Kind string
 
-	// In is the item containing it, as the copybook names it. A FILLER has no
-	// name of its own, so this is the name a reader has to go looking with.
+	// In is the group containing it, as the copybook names it. A FILLER has no
+	// name of its own, so this is the name a reader has to go looking with —
+	// and it is the *innermost named* group every time, whichever part of this
+	// generator met the item first, because a name that moved with the order
+	// the files happen to be emitted in would be one an adopter could not act
+	// on.
 	In string
 
 	// Because is what about it cannot be placed, as a phrase.
@@ -174,7 +181,7 @@ type fillerError struct {
 
 // Error implements the error interface.
 func (e *fillerError) Error() string {
-	return fmt.Sprintf("a %s of %s carries no data-name and %s", e.Kind, e.In, e.Because)
+	return fmt.Sprintf("%s of %s carries no data-name and %s", e.Kind, e.In, e.Because)
 }
 
 // Notes is what follows it as a `note:` diagnostic.

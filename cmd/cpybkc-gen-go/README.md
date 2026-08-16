@@ -314,17 +314,17 @@ There are two shapes, and they are two decisions rather than one:
 | A `FILLER` **group** | no field; its members become fields of the enclosing struct |
 
 ```cobol
-       01  LEDGER-TRAILER.
-           05  TRL-TYPE                PIC X(2).
+       01  ORDER-RECORD.
+           05  ORDER-TYPE              PIC X(2).
            05  FILLER.
                10  NOTE-CODE           PIC X(2).
            05  FILLER                  PIC X(8).
 ```
 
 ```go
-type LedgerTrailer struct {
-	// TrlType is TRL-TYPE — alphanumeric, DISPLAY, 2 bytes.
-	TrlType string
+type OrderRecord struct {
+	// OrderType is ORDER-TYPE — alphanumeric, DISPLAY, 2 bytes.
+	OrderType string
 
 	// NoteCode is NOTE-CODE — alphanumeric, DISPLAY, 2 bytes.
 	NoteCode string
@@ -335,9 +335,11 @@ type LedgerTrailer struct {
 
 An elementary `FILLER` holds no value anybody named, so it is retained the way
 slack is — see *Where the slack goes*: one run per item, in the order they
-occupy the record, one set per occurrence of the struct. A record that was read
-writes those bytes back exactly; a record you built rather than read carries no
-run for them and the writer emits zero bytes, for the reason it does for slack.
+occupy the record, one set per occurrence of the struct, so a `FILLER` inside a
+group that `OCCURS` gets a run in every element of the array or slice that group
+became. A record that was read writes those bytes back exactly; a record you
+built rather than read carries no run for them and the writer emits zero bytes,
+for the reason it does for slack.
 If a `FILLER` is somewhere you need a particular value, that item is not filler:
 give it a data-name in the copybook and it becomes a field like any other.
 

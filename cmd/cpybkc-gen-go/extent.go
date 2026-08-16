@@ -96,6 +96,11 @@ func (c *coder) sumWidth(id uint64, expr string, dir direction) (string, error) 
 
 // members is the sum of the widths of the group id's members.
 func (c *coder) members(id uint64, expr string, dir direction) (extent, error) {
+	in, err := c.groupName(id)
+	if err != nil {
+		return extent{}, err
+	}
+
 	members, err := c.flattened(id)
 	if err != nil {
 		return extent{}, err
@@ -104,7 +109,7 @@ func (c *coder) members(id uint64, expr string, dir direction) (extent, error) {
 	var total extent
 
 	for _, memberID := range members {
-		width, err := c.width(memberID, expr, dir)
+		width, err := c.width(memberID, in, expr, dir)
 		if err != nil {
 			return extent{}, err
 		}
@@ -116,7 +121,12 @@ func (c *coder) members(id uint64, expr string, dir direction) (extent, error) {
 }
 
 // width is the width of one member, occurrences and all.
-func (c *coder) width(id uint64, expr string, dir direction) (extent, error) {
+//
+// in is the group containing it, as the copybook names it, and it is there for
+// the one member that may have no name of its own: a refusal about a FILLER has
+// to name the same group wherever this generator met the item, so every caller
+// passes the innermost named group rather than whatever it happens to hold.
+func (c *coder) width(id uint64, in, expr string, dir direction) (extent, error) {
 	node, ok := c.nodes[id]
 	if !ok {
 		return extent{}, unresolved(id)
@@ -130,7 +140,7 @@ func (c *coder) width(id uint64, expr string, dir direction) (extent, error) {
 		// occupies, and no expression is needed to say how many: its
 		// occurrences are a constant or it is refused. See [fillerRun].
 		if anonymous(kind.Field.GetNames()) {
-			run, err := fillerRun(kind.Field, c.record)
+			run, err := fillerRun(kind.Field, in)
 			if err != nil {
 				return extent{}, err
 			}
@@ -184,7 +194,7 @@ func (c *coder) width(id uint64, expr string, dir direction) (extent, error) {
 			return extent{}, err
 		}
 
-		return c.width(arm.GetId(), expr, dir)
+		return c.width(arm.GetId(), in, expr, dir)
 	default:
 		return extent{}, malformed(fmt.Sprintf("node %d is not something a group may contain", id),
 			"a member list names a group, variant, field or slack node; see docs/ir/SPEC.md, \"The node kinds\"")
@@ -223,6 +233,11 @@ func (c *coder) occurrences(one extent, rep *irpb.Repetition, expr string, dir d
 // offsetOf is where the field target begins inside one occurrence of the group
 // root, as a Go expression, and whether it is in there at all.
 func (c *coder) offsetOf(root, target uint64, expr string, dir direction) (extent, bool, error) {
+	in, err := c.groupName(root)
+	if err != nil {
+		return extent{}, false, err
+	}
+
 	members, err := c.flattened(root)
 	if err != nil {
 		return extent{}, false, err
@@ -275,7 +290,7 @@ func (c *coder) offsetOf(root, target uint64, expr string, dir direction) (exten
 					continue
 				}
 
-				if err := namedArm(body, c.record); err != nil {
+				if err := namedArm(body, in); err != nil {
 					return extent{}, false, err
 				}
 
@@ -295,7 +310,7 @@ func (c *coder) offsetOf(root, target uint64, expr string, dir direction) (exten
 			}
 		}
 
-		width, err := c.width(memberID, expr, dir)
+		width, err := c.width(memberID, in, expr, dir)
 		if err != nil {
 			return extent{}, false, err
 		}
