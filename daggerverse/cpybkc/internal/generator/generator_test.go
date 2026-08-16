@@ -126,8 +126,8 @@ func TestCheckNameAccepts(t *testing.T) {
 		"go",
 		"acme-cobol2",
 		// Refused by docs/plugin/SPEC.md's SHOULD and not by either MUST. cpybkc
-		// resolves it, so this module composes it: a convenience over a contract
-		// does not get to make the contract smaller.
+		// resolves it, so this module composes it: a module mirroring the CLI does
+		// not get to make the contract smaller.
 		"Weird_Name.v2",
 		// Without a separator it cannot leave the plugin directory, so it needs no
 		// rule of its own and must not acquire one by accident.

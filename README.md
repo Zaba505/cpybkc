@@ -211,12 +211,25 @@ dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
   generate --source . export --path .
 ```
 
-It is a convenience over [the container base-image
-contract](docs/container/SPEC.md) and not an interface of its own, so it has no
-`SPEC.md`: what it needs to say it says in `dagger call --help`. Everything it
-does can be written by hand as a `docker run` or a `COPY --from` instead, and a
-caller reaching for one is not on a lesser path — `with-generator` stands for
-exactly the two lines [the worked
+It is the cpybkc CLI daggerized: what `cpybkc` can do, this module aims to do by
+name, with the CLI's commands as functions and their flags as arguments.
+`generate` and `init` are the two commands there are; `run` is the fallback for
+what has not been mapped yet and for the spellings a Dagger type cannot express,
+such as a destination that is a stream. Where the two disagree, that is a gap to
+file rather than a decision to work around.
+
+It still has no `SPEC.md`, and not because there is nothing to specify — it is
+public API, and a function or an argument here lasts as long as the published
+ref does. It is that everything there would be to specify is specified already:
+what a flag means is [the CLI's](docs/cli/SPEC.md), what the image promises is
+[the base-image contract's](docs/container/SPEC.md), and what a generator is
+handed is [the plugin contract's](docs/plugin/SPEC.md). A document here would be
+a second reading of those three. What it needs to say beyond them it says in
+`dagger call --help`.
+
+Everything it does can still be written by hand as a `docker run` or a
+`COPY --from` instead, and a caller reaching for one is not on a lesser path —
+`with-generator` stands for exactly the two lines [the worked
 example](docs/container/SPEC.md#worked-example-adding-a-generator) gives somebody
 writing a Dockerfile, and `with-generator-executable` does the same for a
 generator that has not been published yet.

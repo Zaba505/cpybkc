@@ -16,10 +16,13 @@
 // it — see the function's comment, which records what was measured rather than
 // what was assumed.
 //
-// CliSurface asserts the module has an answer for every flag the CLI accepts.
-// The module curates deliberately rather than mapping the flag table one-to-one
-// (#62), and a curated surface is only safe if adding a flag to the CLI forces
-// somebody to say which side of the curation it falls on.
+// CliSurface asserts the module has an answer for every flag the CLI accepts,
+// and that the answer is the one the module's stance says it should be. The
+// module mirrors the CLI (#253): a flag's answer is an argument on a function
+// named for the command it belongs to, and a flag that reaches the module
+// through the escape hatch instead is an exception carrying the argument for
+// itself. Adding a flag to the CLI therefore fails CI until somebody writes one
+// or the other down.
 //
 // CompanionModule runs the module's functions — over the image this pull request
 // built rather than over the last release (#64). The three above read the
@@ -33,10 +36,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
+	"dagger/cpybkc/internal/coverage"
 	"dagger/cpybkc/internal/dagger"
 	"dagger/cpybkc/internal/surface"
 )
@@ -168,11 +171,20 @@ const generatedFile = "dagger.gen.go"
 // failure the empty-result guard below cannot catch.
 const cliPackageDir = "cmd/cpybkc"
 
-// companionCoverage is what the companion module answers each of the CLI's
-// flags with. It is the record the curation of #62 is worth having: the module
-// maps the two runs a caller asks for by name and hands the rest to one escape
-// hatch, and without a written record of which flag went where, "curated" and
-// "forgotten" are the same thing to read.
+// companionCoverage is the function each of the CLI's flags is mapped onto by
+// name. daggerverse/cpybkc is the CLI daggerized (#253), so this is the ordinary
+// answer for a flag and the two tables below are read in that order: a flag
+// belongs here unless there is an argument for it not being here.
+//
+// It was not always. #62 built the module as a deliberately small surface with
+// one escape hatch behind it, and under that stance a flag recorded against Run
+// was the design working rather than a gap — which is why this map used to hold
+// "Run" as a value five times, beside the reasons. #253 settled the other way:
+// the module should expose every capability the CLI has as a named function, Run
+// is the fallback rather than the plan, and a flag on the escape hatch is an
+// exception. So Run is no longer a value this map accepts. An exception is an
+// entry in [companionRunExceptions], which is a different thing to write and
+// therefore a different thing to read.
 //
 // Be exact about what an entry claims, because it is less than it looks. It is a
 // person's assertion that they thought about this flag and decided where it
@@ -185,20 +197,14 @@ const cliPackageDir = "cmd/cpybkc"
 // accident.
 //
 // Every value names a function on daggerverse/cpybkc's own type, checked to
-// exist rather than taken on trust. Run appears five times over because it is the
-// escape hatch and that is what an escape hatch looks like when it is working; a
-// flag moving from Run to a curated argument is an edit here in the same commit
-// that adds the argument, which is what happened to `init`'s two below.
-//
-// That five is counted off the map rather than carried forward. It read "six"
-// while the map held seven, which is the kind of thing a number in prose does if
-// nobody re-derives it — and it is worth saying rather than quietly fixing,
-// because this comment is the drift record and a count nobody checked is exactly
-// what it warns about everywhere else.
+// exist rather than taken on trust. No count of the entries is written down
+// anywhere in this file, deliberately: the prose here used to say how many flags
+// reached Run, it read "six" while the map held seven, and a number nobody
+// re-derives is exactly what this comment warns about everywhere else.
 //
 // This is a table in the pipeline rather than a list in the module because it is
 // this repository's opinion about the module, in the file that already holds the
-// other two (#61). The module states the same split in prose, in its package
+// other two (#61). The module states the same stance in prose, in its package
 // comment, where a caller reading `dagger call --help` will meet it.
 var companionCoverage = map[string]string{
 	// The one flag Generate maps by name: it says which project is being
@@ -206,61 +212,135 @@ var companionCoverage = map[string]string{
 	// --source.
 	"--manifest": "Generate",
 
-	// Terminal, and mutually constrained: --emit-ir replaces generation outright
-	// and --emit-ir-format is a usage error without it. A Directory-returning
-	// function cannot express either — the emission may go to standard output —
-	// and two Dagger arguments cannot express "one is only legal beside the
-	// other" at all.
-	"--emit-ir":        "Run",
-	"--emit-ir-format": "Run",
-
-	// Questions about the program rather than about a project, whose answer is a
-	// line on standard output. Image() reaches them too; Run is what reaches them
-	// with no project and no with-exec spelled out.
-	"--version": "Run",
-	"--help":    "Run",
-
-	// The one single-hyphen spelling docs/cli/SPEC.md states. It is recorded
-	// rather than filtered out as "a synonym of a covered flag", because that
-	// reasoning is true of -h and of nothing else: filtering the whole class would
-	// let a future short flag that is nobody's synonym land with this check green,
-	// and an entry costs one line.
-	"-h": "Run",
-
 	// `init`'s two flags (#183, #214), curated onto one function (#228). This is
 	// the move this table was kept for: they were recorded against Run while the
 	// module expressed a scaffolding run through the escape hatch alone, and
 	// they came off it in the commit that added the function.
 	//
 	// The name is the CLI's verb rather than the `Scaffold` this comment used to
-	// name in prose. #62 is *map cpybkc commands to dagger functions*, there are
-	// two commands, and mapping the second one's name straight through is what
-	// lets somebody who read docs/cli/SPEC.md find it here — a second name for
-	// one command would be this module's own vocabulary, which is exactly what
-	// the curation is trying not to grow.
+	// name in prose. There are two commands, and mapping the second one's name
+	// straight through is what lets somebody who read docs/cli/SPEC.md find it
+	// here — a second name for one command would be this module's own vocabulary,
+	// which is what a module mirroring the CLI has the least business growing.
 	//
 	// Init takes copybook *paths* into --source rather than files, because
 	// docs/cli/SPEC.md has the scaffold record each path as it was typed and a
 	// layout's paths are relative to the layout; and it supplies --out itself, at
 	// a path outside the mounted project, so *nothing at <dest> is ever replaced*
-	// holds without the module reasoning about the caller's tree. The one
-	// spelling it does not offer is `--out -`, which a File-returning function
-	// cannot express — that stays Run's, as --emit-ir's is:
+	// holds without the module reasoning about the caller's tree.
+	//
+	// The one spelling Init does not offer is `--out -`, and that is not an
+	// exception in the sense below, because a spelling is not a flag and this
+	// table is keyed by flags. --out is curated; a stream destination is what a
+	// File-returning function cannot express, and it stays Run's:
 	//
 	//	dagger call run --source . --args=init,--copybook,posting.cpy,--out,-
 	"--copybook": "Init",
 	"--out":      "Init",
 }
 
+// companionRunExceptions are the CLI's flags that reach the module through Run
+// rather than through a function named for a command, each with the argument for
+// why.
+//
+// This table is the whole of what the mirroring stance costs. Under #62's
+// curation an uncurated flag needed no defence — the small surface was the design
+// — and the record could be one word. Under #253's it needs one, because "this
+// flag's answer is the escape hatch" and "nobody has got to this flag" are now
+// different claims that used to be written identically. [coverage.Exception] is
+// what makes them different to write: a reason is required, and an entry says
+// either that the escape hatch is the answer or which issue is writing the
+// function.
+//
+// Neither claim is one this pipeline can verify, and it does not pretend to. It
+// enforces that the claim was made, which is the same thing companionCoverage
+// enforces about a curated flag and for the same reason: an assertion that has to
+// be re-made whenever the CLI's surface moves is one that stops being true on
+// purpose rather than by accident.
+var companionRunExceptions = map[string]coverage.Exception{
+	// Terminal, and mutually constrained: --emit-ir replaces generation outright
+	// and --emit-ir-format is a usage error without it. That was the argument for
+	// leaving both on Run, and #251 answers it: a curated function need not return
+	// a Directory — Init already returns a File — and one function taking the
+	// format as an argument makes the illegal pairing unstateable rather than
+	// enforced, because there is no call that names a format without asking for an
+	// emission.
+	//
+	// So these are a gap rather than a decision, and the stance is why: the
+	// resolved descriptor is the single most useful thing to attach to a bug
+	// report, and it is a capability the CLI has.
+	//
+	// What will still be Run's afterwards is `--emit-ir -`, exactly as `--out -`
+	// is — a spelling rather than a flag, and so not an entry here at all.
+	"--emit-ir": {
+		Reason: "it replaces generation outright and --emit-ir-format is only legal beside it; #251 curates both " +
+			"onto one File-returning function, which makes the illegal pairing unstateable rather than enforced",
+		Tracking: "#251",
+	},
+	"--emit-ir-format": {
+		Reason:   "it is only legal beside --emit-ir, so it is that function's argument rather than a function",
+		Tracking: "#251",
+	},
+
+	// Questions about the program rather than about a project, and the one place
+	// the mirroring stance stops on purpose (#253). Both have a Dagger-native
+	// form that is not a function on this module: `dagger call --help` and the
+	// per-function documentation are what a caller reaches for instead of
+	// --help, and which release runs is something they state at `New --version`
+	// rather than ask the CLI afterwards.
+	//
+	// The reason does not cover everything, which is why Run remains the answer
+	// for the rest of it: --version defaults to the moving "v0" tag, so *which
+	// tag was asked for* and *which build is running* are different questions,
+	// and `run --args=--version` is how the second one is asked.
+	"--version": {
+		Reason: "a caller states the release at `New --version` rather than asking the CLI afterwards; " +
+			"`run --args=--version` is how the moving v0 tag's actual build is read back",
+		Settled: true,
+	},
+	"--help": {
+		Reason:  "`dagger call --help` and the per-function documentation are the Dagger-native form of the question",
+		Settled: true,
+	},
+
+	// The one single-hyphen spelling docs/cli/SPEC.md states. It is recorded
+	// rather than filtered out as "a synonym of a covered flag", because that
+	// reasoning is true of -h and of nothing else: filtering the whole class would
+	// let a future short flag that is nobody's synonym land with this check green,
+	// and an entry costs a few lines.
+	"-h": {
+		Reason:  "the short spelling of --help, and settled with it",
+		Settled: true,
+	},
+}
+
+// runFunction is the escape hatch every entry in [companionRunExceptions]
+// reaches its flag through. It is checked to exist for the reason a curated
+// function is: an exception naming a route the module no longer has is an
+// exception covering nothing.
+const runFunction = "Run"
+
 // CliSurface checks that every flag the CLI accepts is one the companion module
-// has an answer for.
+// has an answer for, and that the answer is one the module's stance allows.
 //
 // The surface that can drift away from the module is the flag table: a flag
 // added to the CLI is the event that would otherwise leave the module quietly
-// unable to express a run somebody can perform by hand. That is what this fails
-// on, in three directions — a flag no entry covers, an entry naming a function
-// the module does not declare, and an entry naming a flag the CLI no longer
-// accepts.
+// unable to express a run somebody can perform by hand. What this fails on, in
+// six directions, is [coverage.Record.Check]'s to say; this function is the
+// reading that feeds it.
+//
+// Two of those six are #253's, and they are what the stance cost this check.
+// While the module curated deliberately (#62), a flag recorded against Run was
+// the design working, so one map with "Run" as an ordinary value said everything
+// there was to say. Under a mirroring stance it is the opposite: a new flag
+// quietly recorded against Run, passing CI, *is* the drift this check exists to
+// catch, and one map cannot tell that from the flags nobody has curated on
+// purpose. So Run is refused as a mapping, and a flag that reaches it is an
+// exception carrying a reason and saying whether it is settled or tracked.
+//
+// What none of that buys is that an exception is *right*. No check can read an
+// argument; what this one does is make sure there is one, and make adding a flag
+// to the escape hatch a visibly different act from mapping it onto a function.
 //
 // The CLI has a verb now — `init` (#183, #214) — and the flag table is still the
 // whole of what this checks. That is a decision rather than an omission, and it
@@ -292,11 +372,39 @@ var companionCoverage = map[string]string{
 // decides whether an argument is accepted, which is the only reading that cannot
 // be true of the document and false of the program.
 //
-// What that leaves outside is a flag matched inline on a string literal rather
-// than through a constant — a shape the parser does not use, and the one this
-// check cannot see. Everything else a constant can be written as is read:
-// package scope or a function body, one hyphen or two, a literal or one flag's
-// spelling built from another's. The rules are internal/surface's and each of
+// # What the flag table is not
+//
+// It is not the CLI's surface, and the mirroring stance is what makes the
+// difference matter. This check reads flag *constants*, so a capability the CLI
+// has that is not spelled as a flag is invisible to it by construction — and
+// there is one today: cpybkc passes its whole environment through to a generator,
+// which is how docs/plugin/SPEC.md propagates SOURCE_DATE_EPOCH, and the
+// companion module has no way to state an environment at all (#252). No check in
+// this repository noticed, and none could have.
+//
+// So the honest answer to how a non-flag capability is caught is that it is
+// caught by a person, at the document that promises it: a change to
+// docs/cli/SPEC.md or docs/plugin/SPEC.md that adds a capability which is not a
+// flag is answered in the companion module in the same review, and CONTRIBUTING.md
+// says so where the stance is argued. That is a weaker guarantee than this check
+// and it is stated as one rather than dressed up.
+//
+// The mechanical version was considered and is not worth having. Anything that
+// could notice "docs/cli/SPEC.md changed" is a check comparing a document against
+// a copy of itself, which is the shape #65 was closed for being: it fails on
+// every edit to that document and on nothing else, so it is answered by updating
+// the copy, and a check whose remedy is *tell it what happened* has taught
+// nobody anything. What is available instead is that the gap this one missed is
+// written down where the stance is, as the standing reminder that the flag table
+// is a lower bound on the module's obligations.
+//
+// # What is outside the reading itself
+//
+// A flag matched inline on a string literal rather than through a constant — a
+// shape the parser does not use, and the one this check cannot see. Everything
+// else a constant can be written as is read: package scope or a function body,
+// one hyphen or two, a literal or one flag's spelling built from another's.
+// The rules are internal/surface's and each of
 // them is a test rather than a sentence here, because a drift guard's failure
 // mode is staying green and a sentence cannot fail.
 //
@@ -344,39 +452,21 @@ func (m *Cpybkc) CliSurface(ctx context.Context) error {
 		return err
 	}
 
-	var errs []error
-
-	for _, flag := range flags {
-		function, covered := companionCoverage[flag]
-		if !covered {
-			errs = append(errs, fmt.Errorf(
-				"the cpybkc CLI accepts %s and %s records nothing that covers it: add it to companionCoverage in "+
-					"this file, against the curated function that maps it or against Run, which is the escape hatch "+
-					"an uncurated flag reaches through (#62)",
-				flag, companionModuleDir))
-
-			continue
-		}
-
-		if !slices.Contains(functions, function) {
-			errs = append(errs, fmt.Errorf(
-				"%s is recorded as covered by %s's %s, and that module declares no such function; either the "+
-					"function was renamed and this table was not, or the flag now reaches the module some other way",
-				flag, companionModuleDir, function))
-		}
+	// Everything above is the reading, which needs a Dagger session; everything
+	// below is the rules, which do not. The split is deliberate and it is not
+	// tidiness: the rules used to be written out here, where no test can reach
+	// them, and the first version of them asserted in three comments that the flag
+	// table does not accept Run as a value while enforcing it nowhere. Review
+	// caught that; a test would have. So the rules live in a package that imports
+	// no Dagger, and this function hands them what it read.
+	record := coverage.Record{
+		Module:     companionModuleDir,
+		Fallback:   runFunction,
+		Mapped:     companionCoverage,
+		Exceptions: companionRunExceptions,
 	}
 
-	for _, flag := range slices.Sorted(maps.Keys(companionCoverage)) {
-		if !slices.Contains(flags, flag) {
-			errs = append(errs, fmt.Errorf(
-				"%s records %s as covered by %s and the cpybkc CLI no longer accepts that flag; a module argument "+
-					"is public API for as long as the published module ref exists, so a flag leaving the CLI is a "+
-					"decision about the module rather than a line to delete from this table without one",
-				companionModuleDir, flag, companionCoverage[flag]))
-		}
-	}
-
-	return errors.Join(errs...)
+	return record.Check(flags, functions)
 }
 
 // companionType is the companion module's own type, whose exported methods are
@@ -502,11 +592,13 @@ var exampleInitVector = []string{
 // dagger.json and its function names. None of them makes a call, so a module
 // whose calls no longer compose into a working image would fail none of them.
 // This is the only place `dagger call -m daggerverse/cpybkc …` actually happens,
-// and the module is a convenience over docs/container/SPEC.md rather than a
-// contract of its own, which is exactly why a broken one is worse than none: a
-// caller reaches for it because they did not want to learn the contract
-// underneath, so the failure lands on somebody with no reason to know where to
-// look.
+// and the module implements contracts specified elsewhere — docs/cli/SPEC.md's
+// and docs/container/SPEC.md's — while adding no specification of its own. That
+// is exactly why a broken one is worse than none: a caller reaches for it
+// because they did not want to learn the contract underneath, so the failure
+// lands on somebody with no reason to know where to look. Being an interface of
+// its own (#253) makes that argument stronger rather than weaker — more people
+// arrive through it, with less idea of what is behind it.
 //
 // # Why it drives the image built here
 //
@@ -680,10 +772,16 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 // to what `run --args=init,--copybook,…,--out,-` writes on standard output over
 // the same copybooks. That is cheap, it needs no second reading of
 // docs/cli/SPEC.md's `init` section — what a record is derived from, which forms
-// are commented, what a note says — and it is exactly the property the escape
-// hatch entry in [companionCoverage] used to stand in for: a caller who reached
-// for `run` before this function existed should get the same file from the
-// function that replaced it.
+// are commented, what a note says — and it is exactly the property `init`'s
+// escape-hatch entry used to stand in for, back when its flags were recorded
+// against Run: a caller who reached for `run` before this function existed
+// should get the same file from the function that replaced it.
+//
+// That is worth keeping in view now that every command is meant to have a
+// function (#253), because it generalises. What makes a curated function safe to
+// add is that the run it replaces is still spellable through Run and still
+// produces the same bytes, which is a check the next curated function can be
+// written against as easily as this one was.
 //
 // What the scaffold *contains* is checked where it is decided:
 // internal/scaffold's tests and cmd/cpybkc's. A second expectation here would be

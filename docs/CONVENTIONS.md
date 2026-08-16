@@ -38,8 +38,13 @@ That is the whole test, and it excludes more than it admits:
   corpus's own entries, their derivations and how to add one stay with the
   corpus. The test is who has to implement it, never which directory it sits
   in.
-- **Conveniences over a contract are not contracts.** The Dagger module that
-  runs cpybkc for a caller wraps the container contract; what it needs to say is
+- **An interface that restates specified ones adds no specification.** The
+  Dagger module that runs cpybkc for a caller is an interface somebody builds
+  against — it mirrors the CLI (#253) — but what they build against *through* it
+  is `cli/SPEC.md`, `container/SPEC.md` and `plugin/SPEC.md`. A document here
+  would be a second reading of those three, in another vocabulary and on another
+  schedule. What is the module's own is which function carries which flag, and
+  that is recorded where a check fails on it rather than in prose; the rest is
   said by its module comment and `dagger call --help`.
 
 Something that fails the test and still needs writing down goes in a package

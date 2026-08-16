@@ -115,7 +115,7 @@ func Repository(repository, name string) string {
 // digits and hyphens is a **SHOULD** — a convention about names that are easy to
 // type, not a constraint on what cpybkc will run — and a module refusing a name
 // cpybkc would have resolved would be making the contract smaller from the
-// outside, which is the one thing a convenience over a contract must not do.
+// outside, which is the one thing a module mirroring the CLI must not do.
 func CheckName(name string) error {
 	switch {
 	case name == "":

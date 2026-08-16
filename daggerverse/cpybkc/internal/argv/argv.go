@@ -5,13 +5,14 @@
 // module's own package main imports the generated Dagger client, whose init
 // panics without a session, so a test beside main cannot run under plain
 // `go test` at all. Keeping the part that is only string handling in a package
-// that imports no Dagger is what turns the vector a curated function builds
-// into something a test pins rather than something a comment asserts.
+// that imports no Dagger is what turns the vector a named function builds into
+// something a test pins rather than something a comment asserts.
 //
-// What is deliberately not here is a builder covering the whole of
-// docs/cli/SPEC.md's flag table. The module curates: it maps the run a caller
-// almost always wants, and hands everything else to Run, whose vector is the
-// caller's own words and is not this package's to assemble.
+// One vector is deliberately not assembled here, and it is Run's. The module
+// mirrors the cpybkc CLI (#253), so a function is added here as each command's
+// flags are mapped onto it; but the fallback's vector is the caller's own words,
+// passed through as written, and a vector this package built for them would be a
+// second, unversioned reading of the document the CLI already implements.
 package argv
 
 import "fmt"
