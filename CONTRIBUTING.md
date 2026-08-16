@@ -824,12 +824,16 @@ is the stance (#253), and everything else in this section follows from it.
 
 `Generate` takes a source directory and a manifest and hands back a
 `Directory`; `Init` takes a source directory and copybook paths and hands back
-the layout scaffold as a `File`; `Run` takes an argument vector verbatim and
-hands back a `Container`. The first two are the two commands cpybkc has, under
-the CLI's own names — a second name for one command would be this module's
-vocabulary rather than cpybkc's, and a module mirroring the CLI has the least
-business growing one. The third is the fallback, and the rest of this section is
-about what that means.
+the layout scaffold as a `File`; `EmitIr` takes a source directory, a manifest
+and a format and hands back the run's resolved descriptor as a `File`; `Run`
+takes an argument vector verbatim and hands back a `Container`. The first two
+are the two commands cpybkc has, under the CLI's own names — a second name for
+one command would be this module's vocabulary rather than cpybkc's, and a module
+mirroring the CLI has the least business growing one. The third is named for a
+flag, on the same grounds and for the same reason: `--emit-ir` replaces the
+default action outright, so it is not an argument on `Generate`, and the name it
+takes is the one `docs/cli/SPEC.md` already gave it. The fourth is the fallback,
+and the rest of this section is about what that means.
 
 `Init` is `cpybkc init` (#228), and it is the run that made the case for
 mapping the commands by name at all: it is the run an adopter reaches **first**,
@@ -842,6 +846,19 @@ was typed and a layout's own paths are relative to the layout; and it supplies
 is ever replaced* holds without the module reasoning about the caller's tree at
 all. Where the file goes in that tree is what they name at `export`, which is
 the one thing the adopter knows and cpybkc does not.
+
+`EmitIr` is `cpybkc --emit-ir` (#251), and it is the run somebody reaches for
+when they are already having a bad time: the resolved descriptor is what to
+attach to a bug report, because it is exactly the bytes every generator in the
+run was handed, and an emitting run is **terminal**, so the project whose
+`generate` fails inside a generator still produces one. It takes the manifest
+`Generate` takes, since which descriptor is emitted follows from which manifest
+was read; it supplies the destination itself, outside the mounted project, on
+`Init`'s grounds; and the format is its one optional argument, which is what
+makes the pairing `docs/cli/SPEC.md` calls a usage error — `--emit-ir-format`
+without `--emit-ir` — **unstateable** here rather than enforced. An unrecognised
+format is passed through and refused by the CLI, which names the spellings there
+are from the parser that decides them.
 
 #### What this stance replaced, and what it costs
 
@@ -860,10 +877,10 @@ and a forgotten one read identically from outside, so a caller could not tell
 "not offered, on purpose" from "nobody has got to it yet" — and neither could a
 contributor, because the argument above was written in four places and read as
 settled. Every gap was therefore argued twice, once by whoever found it and once
-by whoever fixed it: #228 had to argue past it to curate `init`, and #251 has to
-argue past it again for `--emit-ir`. Two arguments per gap is a worse price than
+by whoever fixed it. Two arguments per gap is a worse price than
 a permanent argument per flag, because it is paid by whoever is *least* able to
-pay it — somebody who wanted a feature, not a stance.
+pay it — somebody who wanted a feature, not a stance. #228 had to argue past it
+to curate `init`, and #251 had to argue past it again for `--emit-ir`.
 
 The judgment underneath is that the flag table moves slowly. `docs/cli/SPEC.md`
 is a specification with its own review, not a place flags accumulate; if that
@@ -883,11 +900,13 @@ recorded as **settled**, which is the class `Exception.Settled` exists to name.
 That second one is why a named function may still decline one spelling of a
 flag without declining the flag, and the sentence is kept deliberately because
 #228 and #251 both lean on it. `Init` does not offer `--out -`, which a
-`File`-returning function cannot express; `--emit-ir` will be the same when it
-is curated. A destination that is a stream rather than a file is the whole of
-that class today, and the scaffold on standard output is
-`run --source . --args=init,--copybook,posting.cpy,--out,-`, exactly as it was
-before there was an `Init`.
+`File`-returning function cannot express, and `EmitIr` does not offer
+`--emit-ir -` for the same reason. A destination that is a stream rather than a
+file is the whole of that class today, and each command is still spellable
+through the escape hatch —
+`run --source . --args=init,--copybook,posting.cpy,--out,-` and
+`run --source . --args=--emit-ir,-` — exactly as it was before either function
+existed.
 
 It returns a container rather than a directory for the same reason: the
 invocations that arrive here are the ones whose answer is not a tree —
@@ -954,8 +973,11 @@ What the check buys is that the assertion has to be **made**, and re-made
 whenever the CLI's surface moves, which is exactly when it stops being true by
 accident.
 
-Today's exceptions are `--emit-ir` and `--emit-ir-format`, tracked to #251, and
-`--version`, `--help` and `-h`, settled: `dagger call --help` and the
+Today's exceptions are `--version`, `--help` and `-h`, all **settled**, and
+there are no tracked ones: #251 curated the last of those — `--emit-ir` and
+`--emit-ir-format` — onto `emit-ir`, and moved both entries into
+`companionCoverage` in the same commit, which is what an entry naming an issue
+is for. The settled three are settled because `dagger call --help` and the
 per-function documentation are the Dagger-native form of that question, and
 which release runs is something a caller states at `New`'s `--version` rather
 than asks the CLI afterwards. That last reason does not cover everything, which
@@ -1167,9 +1189,9 @@ which is what makes the two
 rather than merely both present (#63). Both start from the base image, which
 carries the CLI and **no** generator — so a generation that succeeded did so with
 the generators these calls installed and not with something lying around in the
-image. `image`, `run` and `init` are checked too, since a check that exercised
-only what it needed would leave the rest of the module's surface covered by
-nothing.
+image. `image`, `run`, `init` and `emit-ir` are checked too, since a check that
+exercised only what it needed would leave the rest of the module's surface
+covered by nothing.
 
 **`init` is checked against the escape hatch, not against a second expectation.**
 The curated scaffolding function has to hand back the scaffold
@@ -1184,6 +1206,20 @@ that the run it replaces is still spellable through `run` and still produces the
 same bytes. It runs against the base
 image with nothing composed into it, because `init` resolves no layout and runs
 no generator, which is also the state an adopter is in when they run it.
+
+**`emit-ir` is checked the same way, in every encoding** (#251). The curated
+function has to hand back the descriptor `run --args=--emit-ir,…` writes over
+[`example/`](example/), byte for byte, once naming no format — which is what
+says the module left the default encoding to the CLI rather than spelling one
+out here — and once for each of `binary` and `json`. Equality is not incidental
+to this flag the way it is to `init`: the plugin contract rests reproducibility
+on the bytes `--emit-ir` writes being the bytes a generator was handed, and it
+holds that by there being **one encoder** rather than by two agreeing. A curated
+function that re-encoded or re-indented on the way out would break that for
+everybody who reached this module first. Both sides come back as *files* rather
+than through standard output, unlike `init`'s: a descriptor is not text, and
+comparing the binary encoding through a string would compare two decodings
+instead of the bytes.
 
 **Two generators, because the example runs two.** Since #191 the committed
 example names `go` *and* `graph`, so each composition installs both and the

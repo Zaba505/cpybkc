@@ -213,10 +213,30 @@ dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 
 It is the cpybkc CLI daggerized: what `cpybkc` can do, this module aims to do by
 name, with the CLI's commands as functions and their flags as arguments.
-`generate` and `init` are the two commands there are; `run` is the fallback for
-what has not been mapped yet and for the spellings a Dagger type cannot express,
-such as a destination that is a stream. Where the two disagree, that is a gap to
-file rather than a decision to work around.
+`generate` and `init` are the two commands there are, and `emit-ir` is the flag
+that replaces generating outright, so it gets a function under the flag's own
+name; `run` is the fallback for what has not been mapped yet and for the
+spellings a Dagger type cannot express, such as a destination that is a stream.
+Where the two disagree, that is a gap to file rather than a decision to work
+around.
+
+**Filing a bug against cpybkc or against a generator? Attach the descriptor.**
+It is exactly the bytes cpybkc handed every generator in the run, so reading it
+settles in one step whether a fault is the producer's or the consumer's — and an
+emitting run is terminal, so a project whose `generate` fails inside a generator
+still hands one back:
+
+```sh
+dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+  emit-ir --source . export --path descriptor.binpb
+```
+
+That is the canonical protobuf encoding, and it is the artifact to attach: it is
+the bytes a generator received, byte for byte. `--format json` renders the same
+descriptor as the normalized JSON a person reads — useful for quoting a field in
+the issue text, but a rendering rather than the thing itself, so send it *beside*
+the binary file rather than instead of it. `cpybkc --emit-ir descriptor.binpb` is
+the same run without Dagger.
 
 It still has no `SPEC.md`, and not because there is nothing to specify — it is
 public API, and a function or an argument here lasts as long as the published

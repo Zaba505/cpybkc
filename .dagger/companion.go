@@ -237,6 +237,34 @@ var companionCoverage = map[string]string{
 	//	dagger call run --source . --args=init,--copybook,posting.cpy,--out,-
 	"--copybook": "Init",
 	"--out":      "Init",
+
+	// The emitting run's two flags, curated onto one function (#251) exactly as
+	// `init`'s were, and off Run in the same commit this table's entries were
+	// written in. What they were doing on Run is worth keeping legible, because
+	// the argument was a good one: --emit-ir is terminal and --emit-ir-format is a
+	// usage error without it, and two Dagger arguments cannot express "one is only
+	// legal beside the other" at all.
+	//
+	// Both halves of that answered the same way. A curated function need not
+	// return a Directory — Init already returns a File, and a descriptor is one
+	// file — and making the function *be* --emit-ir leaves the format as its
+	// argument, so the illegal pairing is unstateable rather than enforced: there
+	// is no call that names a format without asking for an emission, and nothing
+	// here has to check for one.
+	//
+	// The name is the flag's, for the reason Init's is the verb's. A module
+	// mirroring the CLI has the least business growing a second vocabulary for a
+	// thing docs/cli/SPEC.md already names, and somebody who read that document
+	// looking for `--emit-ir` finds `emit-ir` here.
+	//
+	// EmitIr supplies the destination itself, at a path outside the mounted
+	// project, so an emitting run writes nothing into the caller's tree — which is
+	// the whole of what a terminal flag promises. The one spelling it does not
+	// offer is `--emit-ir -`, and that is not an exception below for the reason
+	// `--out -` is not: a spelling is not a flag, and this table is keyed by
+	// flags.
+	"--emit-ir":        "EmitIr",
+	"--emit-ir-format": "EmitIr",
 }
 
 // companionRunExceptions are the CLI's flags that reach the module through Run
@@ -258,30 +286,6 @@ var companionCoverage = map[string]string{
 // be re-made whenever the CLI's surface moves is one that stops being true on
 // purpose rather than by accident.
 var companionRunExceptions = map[string]coverage.Exception{
-	// Terminal, and mutually constrained: --emit-ir replaces generation outright
-	// and --emit-ir-format is a usage error without it. That was the argument for
-	// leaving both on Run, and #251 answers it: a curated function need not return
-	// a Directory — Init already returns a File — and one function taking the
-	// format as an argument makes the illegal pairing unstateable rather than
-	// enforced, because there is no call that names a format without asking for an
-	// emission.
-	//
-	// So these are a gap rather than a decision, and the stance is why: the
-	// resolved descriptor is the single most useful thing to attach to a bug
-	// report, and it is a capability the CLI has.
-	//
-	// What will still be Run's afterwards is `--emit-ir -`, exactly as `--out -`
-	// is — a spelling rather than a flag, and so not an entry here at all.
-	"--emit-ir": {
-		Reason: "it replaces generation outright and --emit-ir-format is only legal beside it; #251 curates both " +
-			"onto one File-returning function, which makes the illegal pairing unstateable rather than enforced",
-		Tracking: "#251",
-	},
-	"--emit-ir-format": {
-		Reason:   "it is only legal beside --emit-ir, so it is that function's argument rather than a function",
-		Tracking: "#251",
-	},
-
 	// Questions about the program rather than about a project, and the one place
 	// the mirroring stance stops on purpose (#253). Both have a Dagger-native
 	// form that is not a function on this module: `dagger call --help` and the
@@ -551,6 +555,42 @@ const (
 	// hands back a File the caller names at export, and the hand-typed one hands
 	// back bytes on standard output, so neither side has a name of its own here.
 	scaffoldName = "scaffold.sexpr"
+
+	// descriptorName is what the two descriptors are called while they are being
+	// compared, and it is [scaffoldName]'s counterpart: a name for the diff and
+	// nothing else. It carries no extension because the same comparison is made
+	// of both encodings, and a name claiming one of them would be wrong for the
+	// other run.
+	descriptorName = "descriptor"
+
+	// emitIRDescriptorPath is where the hand-typed escape-hatch spelling has
+	// cpybkc write its descriptor, and where the container is then read back
+	// from.
+	//
+	// Inside the mounted project, because that is the one directory a hand-typed
+	// run can be sure it may write into: the module owns that mount to whoever
+	// the image runs as, and a scratch image has nothing else a non-root user can
+	// create in. Nothing of the caller's is at risk — the mount is a copy, and
+	// this one is a directory of committed example inputs.
+	//
+	// The name is one no worked example could plausibly want, and that is the
+	// point of spelling it this way rather than reusing [descriptorName]. This is
+	// the one destination in this check that nothing empties first, so a day when
+	// example/ gains a file of the same name is a day this comparison quietly
+	// changes what it is comparing. It also keeps the two sides' project trees as
+	// close to identical as they can be: resolution strictly precedes the write —
+	// an emission writes what it resolved — and a layout names its copybooks
+	// rather than globbing for them, so a file appearing under the mount cannot
+	// change the descriptor. Both of those are why the asymmetry is tolerable at
+	// all, and neither is a reason to make it larger than it has to be.
+	//
+	// It is absolute rather than relative so that the vector and the read-back
+	// are one string rather than two that have to agree, and /src is where the
+	// companion module documents Run leaving a project mounted. A module that
+	// moved it fails this check on a file that is not there, which is the right
+	// way round: that path is documented behaviour of the escape hatch, and this
+	// is the only place in this repository that depends on it.
+	emitIRDescriptorPath = "/src/.cpybkc-descriptor-check"
 )
 
 // exampleCopybooks are the copybooks in [companionExampleDir], as the paths a
@@ -580,6 +620,68 @@ var exampleInitVector = []string{
 	"--copybook", "posting.cpy",
 	"--copybook", "trailer.cpy",
 	"--out", "-",
+}
+
+// exampleEmitIRRuns are the emissions [Cpybkc.checkEmitIR] compares: each is the
+// format the curated function is asked for, beside the hand-typed escape-hatch
+// vector for the same run.
+//
+// Both encodings are here because they are different obligations. The binary one
+// is what a File return has to carry back without corrupting — it is not text,
+// and it is the form every generator in the run is handed — and the JSON one is
+// what somebody pastes into an issue. A check that exercised one would say
+// nothing about the other.
+//
+// The third row is the one that is easy to leave out, and it is worth being
+// exact about what it buys, because the obvious claim for it is false. It does
+// *not* say the module left the default encoding to the CLI: a module that
+// spelled `binary` out itself would emit binary here and so would the hand-typed
+// side, and this row would be green. That property is observable only in the
+// vector, and it is pinned where the vector is — internal/argv's
+// TestEmitIRAssemblesTheVector, in its "no manifest and no format" case, which
+// requires no --emit-ir-format at all.
+//
+// What this row buys is the run: that a call naming no format is one the CLI
+// accepts and completes, and that it agrees with the hand-typed spelling of the
+// same thing on the day docs/cli/SPEC.md changes which encoding that is. A
+// module that had restated the old default would fail this row then, which is
+// exactly when somebody needs to be told.
+//
+// The vectors are written out rather than assembled from the module's
+// internal/argv, for [exampleInitVector]'s reason: two statements of one run
+// arrived at independently, so that a vector the module got wrong disagrees with
+// itself instead of agreeing with its own mistake.
+var exampleEmitIRRuns = []struct {
+	// named is how the call is described when it fails, since a run naming no
+	// format has no value to quote.
+	named string
+	// at is where this comparison's two trees are mounted, so a failure's paths
+	// say which of the three it was.
+	at string
+	// format is what the curated function is asked for, and empty is the call
+	// that names none.
+	format string
+	// vector is the hand-typed spelling of the same run.
+	vector []string
+}{
+	{
+		named:  "naming no format",
+		at:     "default",
+		format: "",
+		vector: []string{"--emit-ir", emitIRDescriptorPath},
+	},
+	{
+		named:  "--format binary",
+		at:     "binary",
+		format: "binary",
+		vector: []string{"--emit-ir", emitIRDescriptorPath, "--emit-ir-format", "binary"},
+	},
+	{
+		named:  "--format json",
+		at:     "json",
+		format: "json",
+		vector: []string{"--emit-ir", emitIRDescriptorPath, "--emit-ir-format", "json"},
+	},
 }
 
 // CompanionModule drives the companion module's functions over the image this
@@ -639,9 +741,12 @@ var exampleInitVector = []string{
 // exercised only what it needed would leave the rest of the module's surface
 // covered by nothing: image, whose plugin directory has to hold the generator
 // the CLI resolves on PATH; run, the escape hatch, asked the one question
-// docs/cli/SPEC.md requires to succeed against nothing at all; and init, the
-// curated scaffolding run (#228), required to hand back the same scaffold the
-// escape hatch writes over the same copybooks — see [Cpybkc.checkInit].
+// docs/cli/SPEC.md requires to succeed against nothing at all; init, the curated
+// scaffolding run (#228), required to hand back the same scaffold the escape
+// hatch writes over the same copybooks — see [Cpybkc.checkInit]; and emit-ir,
+// the curated emitting run (#251), required to hand back the same descriptor the
+// escape hatch writes over the same project, in every encoding — see
+// [Cpybkc.checkEmitIR].
 //
 // Both compositions start from the base image this pipeline built, which carries
 // the CLI and no generator — so a generation that succeeded did so with the
@@ -747,6 +852,10 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
+	if err := m.checkEmitIR(ctx, platform); err != nil {
+		errs = append(errs, err)
+	}
+
 	// --version through the escape hatch, with no project: it is the one
 	// invocation docs/cli/SPEC.md requires to succeed touching nothing, so a
 	// failure here is run failing to reach the CLI rather than anything about a
@@ -830,6 +939,99 @@ func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error 
 	return nil
 }
 
+// checkEmitIR requires the curated emitting function and the hand-typed escape
+// hatch to be the same run, over [companionExampleDir], in every encoding.
+//
+// # What is asserted
+//
+// The descriptor `emit-ir --source .` hands back has to be byte-identical to
+// what `run --args=--emit-ir,…` writes over the same project. That is
+// [Cpybkc.checkInit]'s property, and it generalises exactly as that function
+// says it does: what makes a curated function safe to add is that the run it
+// replaces is still spellable through Run and still produces the same bytes.
+//
+// It is worth having twice over here, because equality is not incidental to this
+// flag the way it is to `init`. The plugin contract rests reproducibility on the
+// bytes --emit-ir writes being the bytes a generator was handed, and it holds
+// that by there being one encoder rather than by two agreeing (docs/cli/SPEC.md,
+// "Emitting the IR"). A curated function that re-encoded, truncated or
+// re-indented on the way out would break that promise for every caller who
+// reached this module first — which is most of the people the emission is *for*,
+// since the descriptor is what a bug report carries.
+//
+// What the descriptor *contains* is checked where it is decided: internal/emit's
+// tests, cmd/cpybkc's, and [Cpybkc.IrArtifacts]. A second expectation here would
+// be this pipeline's own reading of docs/ir/SPEC.md, and the two would drift.
+//
+// # Why comparing two runs is legitimate rather than lucky
+//
+// This compares the bytes of two *separate executions* of cpybkc, which is a
+// stronger thing to require than "the module did not re-encode on the way out",
+// and it is not a property the Go protobuf stack gives for free: proto.Marshal
+// is documented as unstable across runs, and protojson deliberately varies its
+// insignificant whitespace so that nobody depends on its exact output. Both are
+// pinned in internal/emit rather than hoped for — Marshal sets
+// proto.MarshalOptions{Deterministic: true}, and MarshalJSON re-indents
+// protojson's rendering through encoding/json, which is the step that makes the
+// bytes a function of the descriptor rather than of the build that produced it.
+//
+// So this check rests on those two, and it would flake rather than fail if
+// either were removed. That is the right way round: the same guarantees are what
+// docs/ir/SPEC.md's reproducibility requirement rests on, and a run of this
+// check disagreeing with itself would be a real finding about the encoder rather
+// than noise about the module.
+//
+// # No generator, deliberately
+//
+// The base image with nothing composed into it, for [Cpybkc.checkInit]'s reason
+// and one more of this flag's own: an emitting run is terminal, so no generator
+// is resolved on PATH and none is started (docs/cli/SPEC.md, "Emitting replaces
+// generation"). Driving a composed image would assert less while costing more,
+// and would leave the run that made this capability worth curating — a project
+// whose generation fails and whose emission does not — the one shape not
+// exercised.
+//
+// # Both sides through a file
+//
+// The hand-typed side writes to a path in the mounted project and the container
+// is read back from there, rather than `--emit-ir -` and Stdout the way
+// [Cpybkc.checkInit] takes its scaffold. A scaffold is text and a descriptor is
+// not: the binary encoding through a GraphQL string is a comparison of two
+// decodings rather than of the bytes, and it is the encoding whose whole point
+// is that the bytes are the same ones. So both encodings come back as files, and
+// the two sides are compared as trees through the same helper every other
+// comparison here uses.
+func (m *Cpybkc) checkEmitIR(ctx context.Context, platform dagger.Platform) error {
+	bare := m.companion(platform)
+	example := m.Source.Directory(companionExampleDir)
+
+	var errs []error
+
+	// Every row, rather than stopping at the first failure: which encodings agree
+	// is the finding. One format disagreeing while the others hold is a different
+	// fault from all three disagreeing — the first is the format argument, the
+	// second is the function.
+	for _, run := range exampleEmitIRRuns {
+		handTyped := dag.Directory().WithFile(
+			descriptorName,
+			bare.Run(run.vector, dagger.CompanionRunOpts{Source: example}).File(emitIRDescriptorPath))
+		curated := dag.Directory().WithFile(
+			descriptorName,
+			bare.EmitIr(example, dagger.CompanionEmitIrOpts{Format: run.format}))
+
+		if err := m.diffTrees(ctx, handTyped, curated, "/companion-module/emit-ir/"+run.at); err != nil {
+			errs = append(errs, fmt.Errorf(
+				"emit-ir %s over %s/ did not hand back the descriptor `run --args=--emit-ir,…` writes over the same "+
+					"project (or did not get that far — the wrapped error says which): the curated function and the "+
+					"escape hatch are the same run spelled two ways, and these are the bytes a generator is handed, "+
+					"so a difference is one of them being wrong: %w",
+				run.named, companionExampleDir, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 // companion is the module bound to the image this pipeline built, and it is the
 // one construction of it: both compositions come through here, so there is no
 // arrangement in which one of them is driving a released image and the other the
@@ -896,9 +1098,12 @@ func (m *Cpybkc) checkComposedImage(ctx context.Context, composed *dagger.Contai
 // A real diff rather than a walk comparing file contents, because the failure
 // this reports is one somebody has to act on: which file, which line, and what
 // changed is the whole of the diagnostic, and a boolean would send them to
-// regenerate the example locally to find out. --text because every file cpybkc
-// writes is text, and a diff that said only "binary files differ" would report
-// the failure without reporting what it was.
+// regenerate the example locally to find out. --text because all but one of the
+// files this compares are text, and a diff that said only "binary files differ"
+// would report the failure without reporting what it was. The one that is not is
+// the binary descriptor [Cpybkc.checkEmitIR] compares, where --text buys nothing
+// legible and costs nothing either: what is being asserted there is equality,
+// and the readable account of a disagreement is the JSON run beside it.
 //
 // The trees are mounted under one directory named by the caller, so a run with
 // more than one comparison in it says which comparison the paths in the output
