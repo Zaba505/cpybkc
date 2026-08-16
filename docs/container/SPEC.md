@@ -273,8 +273,21 @@ from copybooks — and nothing above changed for it (#183). The arrangement is
 what made that affordable. `Cmd` is empty, so `docker run … <image>` with no
 arguments is still cpybkc's default action, which is generating; every derived
 image already published keeps working unaltered, and no `docker run` line in a
-repository this project cannot see had to be edited. A caller who wants the
-subcommand types it where they type every other argument:
+repository this project cannot see had to be edited.
+
+**The arrangement surviving is not the same as every caller surviving**, and the
+distinction is what [the section below](#a-breaking-change-to-either-contract-takes-a-new-major-version)
+turns on. What is unaltered here is this document's own surface: empty `Cmd`, an
+entrypoint that takes cpybkc's arguments, and every literal `docker run` line
+that was already written. A caller who *composed* that line — a wrapper passing a
+word of its own user's input through as cpybkc's first argument — is broken by
+the same change, and is broken identically whether it reached cpybkc through this
+image or through a `go install`. That is [the CLI contract's
+break](../cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it),
+not this one's, and the section below is where this document decides what it owes
+somebody holding one of its tags when the other contract breaks.
+
+A caller who wants the subcommand types it where they type every other argument:
 
 ```console
 $ docker run --rm -v "$PWD:/src" -w /src ghcr.io/zaba505/cpybkc:v0 \
@@ -696,13 +709,21 @@ redefine; and the boundary a reader was told to pin turns out to have been the
 which would need the major version this section is about.
 
 SemVer §4 is a permission and not an obligation, and this project has already
-declined it. Seven documents under `docs/` publish covered tables and a change
-rule, three published things rest on this one — a stranger's `FROM` line, [the
-generator images' addresses](#where-this-projects-own-generators-are-published),
-and the companion module's default tag — and a project that holds itself to
-those is one whose public API is defined in SemVer §5's sense. 1.0.0 is the
-number that says so, and the first change that cannot be made without breaking
-one of those tables is the release that has to say it.
+declined it. Two documents under `docs/` price a change in a release number —
+this one and [the CLI contract](../cli/SPEC.md#compatibility-guarantees), each
+publishing a covered table and the rule that a covered thing changes in a new
+major version — and they are exactly the two whose number this section fixes.
+The others version what they specify from the inside, through a field in the
+artifact rather than through a tag: [the IR's own version
+number](../ir/SPEC.md#versioning-and-compatibility) is the one to compare against,
+and it moves on its own schedule. A project that publishes those two tables and
+then declines to be bound by them below 1.0.0 is publishing nothing, and the two
+things already resting on them from outside this repository — a stranger's `FROM`
+line and [the generator images'
+addresses](#where-this-projects-own-generators-are-published) — are what makes
+that a cost somebody else pays. 1.0.0 is the number that says the tables bind,
+and the first change that cannot be made without breaking one of them is the
+release that has to say it.
 
 This makes 1.0.0 a consequence rather than a milestone anybody plans: releases
 below it are additive, and the first that is not is the one.
@@ -1349,7 +1370,7 @@ change to any of them is a breaking change:
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
-| [The CLI's covered surface](#a-breaking-change-to-either-contract-takes-a-new-major-version) | Holds here too: a change breaking [the CLI contract's guarantees](../cli/SPEC.md#compatibility-guarantees) takes a new major version of this image, so no moving tag carries one |
+| [The CLI's covered surface](#a-breaking-change-to-either-contract-takes-a-new-major-version) | Holds here too: a change breaking [the CLI contract's guarantees](../cli/SPEC.md#compatibility-guarantees) takes a new major version of this image, so neither the major nor the minor tag carries one |
 | [This project's own generator images](#where-this-projects-own-generators-are-published) | `<repository>-gen-<name>`, in the same registry and under the same release's tags as the CLI image |
 | [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM per platform, as referrers |
 

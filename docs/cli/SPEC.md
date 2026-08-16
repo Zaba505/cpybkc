@@ -1385,8 +1385,8 @@ is depending on something that may change in a patch release, with no notice:
   separable — it is a tag on that image and a `--version` line here — and it is
   [settled
   there](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version)
-  (#213), which is a statement about numbering rather than about any guarantee in
-  the table above.
+  (#213), which is a statement about numbering rather than about any guarantee
+  in the table above.
 
 ### How a covered thing would change
 
@@ -1411,8 +1411,8 @@ deprecation somebody reads instead of a broken build somebody bisects.
 **Which release is a new major version** is settled in the [base-image
 contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
 because that number reaches a consumer as an image tag as well as as a
-`--version` line and one release publishes both: a break in either contract takes
-a new major, and below 1.0.0 the release that is one is
+`--version` line and one release publishes both: a break in either contract
+takes a new major, and below 1.0.0 the release that is one is
 [1.0.0](../container/SPEC.md#below-100-the-rule-produces-100) (#213). A covered
 thing here therefore does not change in a `0.y.z` at all.
 
@@ -1443,23 +1443,26 @@ deprecation takes when the behaviour being replaced was an error message.
 
 Which release *number* carries it is **`1.0.0`** (#213). It took a decision
 outside this document to say so, which is why the paragraph above asked for an
-announcement and not for a version: cpybkc is below 1.0.0, where SemVer leaves a
-`0.y.z` release outside the stability rules altogether, and the same number is a
-floating tag on an image whose promises are the [base-image
-contract](../container/SPEC.md)'s rather than this one's. Both halves are settled
-there, together, because the number reaches a consumer as a tag as well as as a
-`--version` line: [the image's major version tracks this document's covered
-surface as well as its
+announcement and not for a version: cpybkc is below 1.0.0, where SemVer leaves
+a `0.y.z` release outside the stability rules altogether, and the same number
+is a floating tag on an image whose promises are the [base-image
+contract](../container/SPEC.md)'s rather than this one's. Both halves are
+settled there, together, because the number reaches a consumer as a tag as well
+as as a `--version` line: [the image's major version tracks this document's
+covered surface as well as its
 own](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
 so a break here takes a new major version of the release, and [below 1.0.0 the
 only release that is one](../container/SPEC.md#below-100-the-rule-produces-100)
 is 1.0.0.
 
 So this section now states two requirements rather than one. The release that
-first carries `init` **MUST** be `1.0.0`, and **MUST** say the command set gained
-a member. The first is checkable against the tag the release was cut from; the
-second is what a deprecation looks like when the behaviour being replaced was an
-error message.
+first carries `init` **MUST** be `1.0.0`, and **MUST** say the command set
+gained a member. Neither is checked by anything, and for one reason: which
+release first carries `init` is a property of a diff, and every artifact a
+pipeline can read — the tag, the refs, the built binary — is the same whichever
+diff is under it. A releaser reads both requirements and satisfies both, which
+is what [`CONTRIBUTING.md`](../../CONTRIBUTING.md#which-number-a-breaking-change-takes)
+says in the place a release is actually cut from.
 
 ## Out of Scope
 
@@ -1624,7 +1627,7 @@ the layout is resolved, not by `init`, which read no layout to compare against
 | [Cancellation](#cancellation) | #148 `cli` |
 | [The environment](#the-environment) | #41 and #43 `plugin` for the two variables read, #147 `cli` for reading no others |
 | [`--version`](#--version) | #147 `cli`; the IR version it reports, #17 `ir`; the version it reports being the release's, #181 `cli` |
-| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it |
+| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole |
 | [How a covered thing would change](#how-a-covered-thing-would-change) | #146 `cli`; the subcommand priced against it, #183 `cli`; which release number pays it and what it does to the image's major tag, #213 `container`, which answers `1.0.0` and settles both halves in [the base-image contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version) |
 | The project manifest — out of scope, see above | #40 `plugin` |
 | Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli` |

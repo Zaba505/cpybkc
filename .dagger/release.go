@@ -579,12 +579,13 @@ func (m *Cpybkc) ReleaseNotes(
 // and below 1.0.0 the only release that is one is 1.0.0 — see
 // docs/container/SPEC.md's "A breaking change to either contract takes a new
 // major version". That is a rule about which *diff* a number may carry, and
-// every input this function has is a ref: `v0.3.0` is a canonical version tag
-// pointing at HEAD whether the tree under it withdrew a rejection or fixed a
-// typo, so a check here would either pass on both or fail on both. The reading
-// is the releaser's, CONTRIBUTING.md's "Which number a breaking change takes" is
-// where it is written down for them, and the release notes carry the
-// announcement the CLI contract requires.
+// nothing planRelease is given describes a diff: it sees the refs at HEAD and
+// the name of the release object that triggered the run, and `v0.3.0` is a
+// canonical version tag pointing at HEAD whether the tree under it withdrew a
+// rejection or fixed a typo. A check here would pass on both or fail on both.
+// The reading is the releaser's, CONTRIBUTING.md's "Which number a breaking
+// change takes" is where it is written down for them, and the release notes
+// carry the announcement the CLI contract requires.
 //
 // What the rule does *not* touch is anything below, and that is the reading
 // #213's fourth criterion asks for: it decides which number is cut, while this
@@ -610,9 +611,13 @@ func (m *Cpybkc) TagScheme() error {
 		{refs: []string{"refs/tags/v1.10.3"}, version: "v1.10.3"},
 		// The number #213 names for the first breaking change, pinned because it
 		// is now a requirement in docs/cli/SPEC.md rather than a version like any
-		// other. It plans exactly as the rows above do, which is the point: the
+		// other. It reaches no branch the v1.10.3 row above does not, and saying
+		// so is the honest description: this row is documentation of a decision
+		// sitting where the decision's number would otherwise appear nowhere in
+		// the pipeline, not coverage of a path that was previously unchecked. The
 		// rule decides which diff may carry a number, and nothing about cutting
-		// that number had to change to accommodate it.
+		// that number had to change to accommodate it — which is the reading the
+		// paragraph above records, in the one place a reader can see it is true.
 		{refs: []string{"refs/tags/v1.0.0", "refs/heads/main"}, version: "v1.0.0"},
 		// A prerelease is a release of the image too. What it does *not* do —
 		// move the tags a derived Dockerfile pins to pick up fixes — is the
