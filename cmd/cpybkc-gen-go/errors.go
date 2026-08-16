@@ -143,6 +143,55 @@ func (e *unmungeableError) Notes() []string {
 	}
 }
 
+// fillerError is an item COBOL gave no data-name that this generator has
+// nowhere to put: a FILLER group that repeats, or a FILLER item whose number of
+// occurrences is data.
+//
+// It is deliberately **not** a [malformedError]. The descriptor is exactly what
+// docs/ir/SPEC.md admits — an item with no data-name carries no names message,
+// and "Names" opens on what a *named* node carries — so a diagnostic sending
+// the adopter to look for a producer bug would send them after an item they
+// wrote correctly. What is refused is this generator's ability to name the
+// occurrences, and the answer is in the copybook: give the item a data-name.
+//
+// The two cases share that cause. A FILLER has no name, so nothing emitted for
+// it can be named: an elementary one is retained as bytes in a field named
+// after nothing in the copybook, and a group's members are reached at the level
+// above it. Neither answer survives an occurrence count — a run of retained
+// bytes has one length per record, and members that moved up a level cannot
+// move up once per occurrence.
+type fillerError struct {
+	// Kind is what the item is, with the article it takes: "a group" or "an
+	// item". The article is carried rather than composed, because "a" and
+	// "an" is one more thing for a diagnostic to get wrong in front of a user
+	// and there are exactly two of them.
+	Kind string
+
+	// In is the group containing it, as the copybook names it. A FILLER has no
+	// name of its own, so this is the name a reader has to go looking with —
+	// and it is the *innermost named* group every time, whichever part of this
+	// generator met the item first, because a name that moved with the order
+	// the files happen to be emitted in would be one an adopter could not act
+	// on.
+	In string
+
+	// Because is what about it cannot be placed, as a phrase.
+	Because string
+}
+
+// Error implements the error interface.
+func (e *fillerError) Error() string {
+	return fmt.Sprintf("%s of %s carries no data-name and %s", e.Kind, e.In, e.Because)
+}
+
+// Notes is what follows it as a `note:` diagnostic.
+func (e *fillerError) Notes() []string {
+	return []string{
+		"give the item a data-name in the copybook, and it becomes a field like any other",
+		"an item COBOL names nothing is generated rather than refused wherever it can be — a FILLER is retained as bytes and a FILLER group's members are reached at the level above it — and neither of those has a name for one occurrence to differ from another by",
+	}
+}
+
 // unsupportedCharsetError is a charset the IR names and cobol-go's codec has no
 // table for.
 //

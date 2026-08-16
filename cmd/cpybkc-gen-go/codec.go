@@ -120,6 +120,12 @@ type scope struct {
 	// record is the record node's COBOL name, which opens every message.
 	record string
 
+	// group is the innermost named group the walk is inside, as the copybook
+	// names it. It is what a refusal about an item with no name of its own has
+	// to point at, and it is carried here so that every part of this generator
+	// points at the same one.
+	group string
+
 	// rw is the *codec.Reader or *codec.Writer in scope. It is the method's own
 	// argument outside a buffered occurrence and a sub-reader or sub-writer
 	// over that occurrence's bytes inside one.
@@ -195,7 +201,7 @@ func codecMethods(d *irpb.Descriptor, opts options) (string, error) {
 			continue
 		}
 
-		name, err := identifier("record", record.GetNames())
+		name, err := recordName(record.GetNames())
 		if err != nil {
 			return "", err
 		}
@@ -295,7 +301,8 @@ func (c *coder) unmarshal(name string, record *irpb.Record) (string, error) {
 	}
 
 	doc := commentLines(fmt.Sprintf(`UnmarshalCOBOL reads one %s out of r, in the order docs/ir/SPEC.md
-resolved its items, and retains the bytes of every slack node it carries.
+resolved its items, and retains the bytes of every slack node it carries and
+of every item the copybook gives no data-name.
 
 It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 of the file in hand, and %s is what this descriptor resolved.`,
@@ -324,15 +331,16 @@ func (c *coder) marshal(name string, record *irpb.Record) (string, error) {
 	}
 
 	doc := commentLines(fmt.Sprintf(`MarshalCOBOL writes this %s into w, in the order docs/ir/SPEC.md
-resolved its items, emitting the bytes retained for every slack node it
-carries and zero bytes for a slack node it does not.
+resolved its items, emitting the bytes retained for every slack node and
+every unnamed item it carries, and zero bytes for one it does not.
 
 It is codec's Marshaler. Two values are the descriptor's rather than the
 caller's and are supplied rather than taken from the record: an OCCURS
 DEPENDING ON count is emitted as the number of occurrences written, and
-slack is emitted as what was retained for it. Everything else is the
-caller's, including the value a discriminator tests — a writer evaluates a
-predicate and never inverts one.`, record.GetNames().GetOriginal()))
+slack — and the bytes of an item the copybook gives no data-name — is
+emitted as what was retained for it. Everything else is the caller's,
+including the value a discriminator tests — a writer evaluates a predicate
+and never inverts one.`, record.GetNames().GetOriginal()))
 
 	return doc + fmt.Sprintf("func (%s *%s) MarshalCOBOL(w *codec.Writer) error {\n%s\nreturn nil\n}",
 		c.receiver, name, c.prologue(body.String())), nil
@@ -357,9 +365,16 @@ func (c *coder) decodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		return err
 	}
 
-	runs := 0
+	s.group = group.GetNames().GetOriginal()
 
-	for at, memberID := range group.GetMemberIds() {
+	members, err := c.flattened(id)
+	if err != nil {
+		return err
+	}
+
+	runs, fillers := 0, 0
+
+	for at, memberID := range members {
 		member, ok := c.nodes[memberID]
 		if !ok {
 			return unresolved(memberID)
@@ -368,6 +383,26 @@ func (c *coder) decodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		// One item to a paragraph, which is what the record itself reads like.
 		if at > 0 {
 			b.WriteString("\n")
+		}
+
+		// An item the copybook gives no data-name is read into the run
+		// retained for it, the way a slack node is: it has no field, because it
+		// has no name for one. See [emitter.flattened].
+		if field := member.GetField(); field != nil && anonymous(field.GetNames()) {
+			width, err := fillerRun(field, s.group)
+			if err != nil {
+				return err
+			}
+
+			c.retain(b, width)
+
+			line(b, "if %s.%s[%d], err = %s.ReadBytes(%d); err != nil {", expr, fillerField, fillers, s.rw, width)
+			line(b, "%s", wrapf(s, "reading the "+plural(int(width), "byte")+" of an item the copybook gives no data-name"))
+			line(b, "}")
+
+			fillers++
+
+			continue
 		}
 
 		switch kind := member.GetKind().(type) {
@@ -597,9 +632,16 @@ func (c *coder) encodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		return err
 	}
 
-	runs := 0
+	s.group = group.GetNames().GetOriginal()
 
-	for at, memberID := range group.GetMemberIds() {
+	members, err := c.flattened(id)
+	if err != nil {
+		return err
+	}
+
+	runs, fillers := 0, 0
+
+	for at, memberID := range members {
 		member, ok := c.nodes[memberID]
 		if !ok {
 			return unresolved(memberID)
@@ -608,6 +650,40 @@ func (c *coder) encodeGroup(b *strings.Builder, id uint64, expr string, s scope)
 		// One item to a paragraph, which is what the record itself reads like.
 		if at > 0 {
 			b.WriteString("\n")
+		}
+
+		// An item the copybook gives no data-name is written back out of the
+		// run retained for it, on the same three terms a slack node is: what
+		// was read, zero bytes where the record was never read, and a report
+		// rather than a truncation where the run is the wrong length.
+		if field := member.GetField(); field != nil && anonymous(field.GetNames()) {
+			width, err := fillerRun(field, s.group)
+			if err != nil {
+				return err
+			}
+
+			c.retain(b, width)
+
+			run := fmt.Sprintf("%s.%s[%d]", expr, fillerField, fillers)
+
+			line(b, "switch {")
+			line(b, "case %s == nil:", run)
+			line(b, "if err = %s.WriteBytes(%s[:%d]); err != nil {", s.rw, zeroFillHelper, width)
+			line(b, "%s", wrapf(s, "writing "+plural(int(width), "zero byte")+" for an item the copybook gives no data-name and this record carries none for"))
+			line(b, "}")
+			line(b, "case len(%s) != %d:", run, width)
+			line(b, "%s", failf(s, fmt.Sprintf(
+				"a writer reports a retained run rather than truncating or padding it, and the run for an item of %s the copybook gives no data-name is %%d", plural(int(width), "byte")),
+				"len("+run+")"))
+			line(b, "default:")
+			line(b, "if err = %s.WriteBytes(%s); err != nil {", s.rw, run)
+			line(b, "%s", wrapf(s, "writing the "+plural(int(width), "byte")+" of an item the copybook gives no data-name"))
+			line(b, "}")
+			line(b, "}")
+
+			fillers++
+
+			continue
 		}
 
 		switch kind := member.GetKind().(type) {
@@ -929,12 +1005,19 @@ func (c *coder) encodeVariant(b *strings.Builder, v *irpb.Variant, expr string, 
 // than derived and stored. It runs behind the whole occurrence because a
 // target may sit behind the variant.
 func (c *coder) checkArms(b *strings.Builder, id uint64, expr string, s scope) error {
-	group, err := c.group(id)
+	in, err := c.groupName(id)
 	if err != nil {
 		return err
 	}
 
-	for _, memberID := range group.GetMemberIds() {
+	s.group = in
+
+	members, err := c.flattened(id)
+	if err != nil {
+		return err
+	}
+
+	for _, memberID := range members {
 		member, ok := c.nodes[memberID]
 		if !ok {
 			return unresolved(memberID)
@@ -1021,6 +1104,10 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 	for _, a := range v.GetArms() {
 		body, err := c.armBody(a)
 		if err != nil {
+			return nil, err
+		}
+
+		if err := namedArm(body, s.group); err != nil {
 			return nil, err
 		}
 
@@ -1117,12 +1204,12 @@ func (c *coder) armMatch(a *irpb.Arm, s scope) (string, error) {
 
 // collectCounts records every repetition of a record naming a count field.
 func (c *coder) collectCounts(id uint64, expr string, loops []countLoop) error {
-	group, err := c.group(id)
+	members, err := c.flattened(id)
 	if err != nil {
 		return err
 	}
 
-	for _, memberID := range group.GetMemberIds() {
+	for _, memberID := range members {
 		member, ok := c.nodes[memberID]
 		if !ok {
 			return unresolved(memberID)
@@ -1140,6 +1227,15 @@ func (c *coder) collectCounts(id uint64, expr string, loops []countLoop) error {
 		case *irpb.Node_Group:
 			rep, names, kind = k.Group.GetRepetition(), k.Group.GetNames(), "group"
 		default:
+			continue
+		}
+
+		// An item the copybook gives no data-name has no occurrences a writer
+		// counts: an elementary one is a run of retained bytes, and a group
+		// carrying no name is not here at all — [emitter.flattened] has already
+		// put its members in this list, and each of them is walked on its own
+		// terms.
+		if anonymous(names) {
 			continue
 		}
 
@@ -1243,22 +1339,6 @@ func (c *coder) retain(_ *strings.Builder, width uint32) {
 	if width > c.zeroFill {
 		c.zeroFill = width
 	}
-}
-
-// group is the group node id names.
-func (c *coder) group(id uint64) (*irpb.Group, error) {
-	node, ok := c.nodes[id]
-	if !ok {
-		return nil, unresolved(id)
-	}
-
-	group := node.GetGroup()
-	if group == nil {
-		return nil, malformed(fmt.Sprintf("node %d is not a group node, and a group is what stands here", id),
-			"a record's top level and a group's group members are group nodes; see docs/ir/SPEC.md, \"The node kinds\"")
-	}
-
-	return group, nil
 }
 
 // armBody is the group or field node an arm's body names.

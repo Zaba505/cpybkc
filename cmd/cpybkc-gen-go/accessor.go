@@ -461,19 +461,23 @@ file that implements it.`))
 	return b.String()
 }
 
-// zeroFillDeclaration is the run of zero bytes a writer emits for a slack node
-// the record it was handed carries no run for.
+// zeroFillDeclaration is the run of zero bytes a writer emits for a slack node,
+// or an item the copybook gives no data-name, the record it was handed carries
+// no run for.
 func zeroFillDeclaration(width uint32) string {
-	return commentLines(fmt.Sprintf(`%s is what a writer emits for a slack node of a record its caller built
-rather than read: zero bytes, %d of them at the most, sliced to the node's own
-width.
+	return commentLines(fmt.Sprintf(`%s is what a writer emits for a slack node — or for an item the copybook
+gives no data-name — of a record its caller built rather than read: zero
+bytes, %d of them at the most, sliced to the run's own width.
 
-Zero rather than a space, because charset is a property of a field and slack
-is not a field, so there is no charset to resolve a space against and zero is
-the byte that names none. Those bytes were never in a file, so nothing is
-being overwritten — a record that was read carries the bytes it was read
-from and they are emitted instead. See docs/ir/SPEC.md, "What the descriptor
-determines, a writer supplies".`, zeroFillHelper, width)) +
+Zero rather than a space. Charset is a property of a field and slack is not a
+field, so there is no charset to resolve a space against and zero is the byte
+that names none. A FILLER is a field and does have one, and it gets the same
+answer for a different reason: its value is nobody's — no program names it
+and nothing outside this package can set it — so filling it with spaces would
+be choosing a value on behalf of a caller who never had one to give. Those
+bytes were never in a file, so nothing is being overwritten — a record that
+was read carries the bytes it was read from and they are emitted instead. See
+docs/ir/SPEC.md, "What the descriptor determines, a writer supplies".`, zeroFillHelper, width)) +
 		fmt.Sprintf("var %s = make([]byte, %d)", zeroFillHelper, width)
 }
 

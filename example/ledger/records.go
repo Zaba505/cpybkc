@@ -32,8 +32,19 @@ type LedgerTrailer struct {
 	// The value is unscaled: the item's value is this field times 10^-2.
 	TrlNet int64
 
-	// TrlFiller is TRL-FILLER — alphanumeric, DISPLAY, 8 bytes.
-	TrlFiller string
+	// filler is the bytes of the items among this item's members that the
+	// copybook gives no data-name — its FILLER — in the order they occupy the
+	// record: one run each, as they stood when the record was read, and one set
+	// of them per occurrence of this struct. A nil run is one the record does
+	// not carry; an empty run is a run of no bytes, and the two are not the
+	// same.
+	//
+	// A FILLER is an item, and it is one no program names: it holds no value a
+	// caller of this package could set and none it could read. So it travels
+	// with the record and there is nothing here for a caller to do. An item you
+	// do want to read or write is one to give a data-name in the copybook,
+	// which makes it a field like any other.
+	filler [1][]byte
 }
 
 // DebitPosting is the POSTING-RECORD record, as docs/ir/SPEC.md resolved it.

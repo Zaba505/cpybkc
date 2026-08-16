@@ -1157,14 +1157,12 @@ func (f *filer) registerCounts(record *irpb.Record) ([]registerCount, error) {
 
 // walkCounts is [filer.registerCounts] over one group.
 func (f *filer) walkCounts(id uint64, expr string, loops []countLoopOver, sliding bool, out *[]registerCount) error {
-	c := &coder{emitter: f.emitter}
-
-	group, err := c.group(id)
+	members, err := f.flattened(id)
 	if err != nil {
 		return err
 	}
 
-	for _, memberID := range group.GetMemberIds() {
+	for _, memberID := range members {
 		member, ok := f.nodes[memberID]
 		if !ok {
 			return unresolved(memberID)
@@ -1182,6 +1180,13 @@ func (f *filer) walkCounts(id uint64, expr string, loops []countLoopOver, slidin
 		case *irpb.Node_Group:
 			rep, names, kind = k.Group.GetRepetition(), k.Group.GetNames(), "group"
 		default:
+			continue
+		}
+
+		// An item the copybook gives no data-name is a run of retained bytes
+		// and holds no table a register could size; a group carrying no name
+		// has already been replaced here by its own members.
+		if anonymous(names) {
 			continue
 		}
 
@@ -1247,14 +1252,12 @@ func (f *filer) walkCounts(id uint64, expr string, loops []countLoopOver, slidin
 // predicate both name a field, not an occurrence of one, so a target inside a
 // table is refused where it is read rather than found here.
 func (f *filer) pathTo(root, target uint64, expr string) (string, bool, error) {
-	c := &coder{emitter: f.emitter}
-
-	group, err := c.group(root)
+	members, err := f.flattened(root)
 	if err != nil {
 		return "", false, err
 	}
 
-	for _, memberID := range group.GetMemberIds() {
+	for _, memberID := range members {
 		member, ok := f.nodes[memberID]
 		if !ok {
 			return "", false, unresolved(memberID)
@@ -1272,6 +1275,13 @@ func (f *filer) pathTo(root, target uint64, expr string) (string, bool, error) {
 		case *irpb.Node_Group:
 			rep, names, kind = k.Group.GetRepetition(), k.Group.GetNames(), "group"
 		default:
+			continue
+		}
+
+		// An item the copybook gives no data-name is not a path to anything: a
+		// binding and a predicate each name a field, and a FILLER is a field
+		// nothing can name.
+		if anonymous(names) {
 			continue
 		}
 

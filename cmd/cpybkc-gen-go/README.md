@@ -299,6 +299,84 @@ missing from it. An **edited** item is a `string` for the same reason and a
 different one: its storage really is characters, and what the field holds is the
 edited text as it stands in the record.
 
+### An item your copybook gives no name
+
+`FILLER` is generated, not refused. It has no data-name, so there is nothing to
+munge into an identifier and nothing in the table above to look it up in — and
+it is in most copybooks anybody actually has, so a refusal here is a refusal of
+the whole package over an item nobody was looking at.
+
+There are two shapes, and they are two decisions rather than one:
+
+| The item | What is generated |
+|---|---|
+| An elementary `FILLER` | no field; its bytes are retained beside the slack, in an unexported `filler` run |
+| A `FILLER` **group** | no field; its members become fields of the enclosing struct |
+
+```cobol
+       01  ORDER-RECORD.
+           05  ORDER-TYPE              PIC X(2).
+           05  FILLER.
+               10  NOTE-CODE           PIC X(2).
+           05  FILLER                  PIC X(8).
+```
+
+```go
+type OrderRecord struct {
+	// OrderType is ORDER-TYPE — alphanumeric, DISPLAY, 2 bytes.
+	OrderType string
+
+	// NoteCode is NOTE-CODE — alphanumeric, DISPLAY, 2 bytes.
+	NoteCode string
+
+	filler [1][]byte
+}
+```
+
+An elementary `FILLER` holds no value anybody named, so it is retained the way
+slack is — see *Where the slack goes*: one run per item, in the order they
+occupy the record, one set per occurrence of the struct, so a `FILLER` inside a
+group that `OCCURS` gets a run in every element of the array or slice that group
+became. A record that was read writes those bytes back exactly; a record you
+built rather than read carries no run for them and the writer emits zero bytes,
+for the reason it does for slack.
+If a `FILLER` is somewhere you need a particular value, that item is not filler:
+give it a data-name in the copybook and it becomes a field like any other.
+
+A `FILLER` **group** is the half that had to be argued rather than derived. A
+run of retained bytes cannot stand in for it, because it holds members your
+copybook *does* name and hiding them would lose items you can see in your own
+source. So its members are lifted into the enclosing struct — which is what
+COBOL already says about them: qualification skips an unnamed group, so
+`NOTE-CODE` above is `NOTE-CODE OF LEDGER-TRAILER` in a program and there is no
+intermediate name it could be qualified by. If lifting them makes two names
+collide, that is reported like any other collision.
+
+Nothing is named `Filler1`, `Filler2`, or anything else positional. Such a name
+is one your copybook does not contain and one that moves the moment an unrelated
+item is inserted ahead of it, which is what this generator refuses to produce
+everywhere else.
+
+Three cases are **refused**, and the refusal names the record or group holding
+the item rather than calling your descriptor malformed:
+
+- A `FILLER` **group that repeats**. Its members would have to move up a level
+  once per occurrence, and there is no name for the occurrences to be an array
+  of.
+- A `FILLER` whose `OCCURS DEPENDING ON` count is data. The retained run would
+  have to be as long as a count field says, over bytes you cannot supply.
+- A `FILLER` standing as one alternative of a `REDEFINES` inside a table. An
+  alternation is a field per alternative and exactly one of them is non-nil;
+  an alternative with no name has no way to say it is the one the record holds.
+
+In all three the answer is in the copybook: give the item a data-name. And in
+none of them is the descriptor at fault — `ir/SPEC.md`'s *Names* says what a
+**named** node carries and never that every node is named, so an item with no
+names message is exactly what a producer emits for a `FILLER`. A names message
+that is *present* and states no name is the opposite: a named item whose name
+went missing, which is a bug in whatever produced the IR, and that one is still
+reported as a malformed descriptor.
+
 ### `OCCURS`
 
 A constant `OCCURS n` is an array, `[n]T`, and an `OCCURS DEPENDING ON` is a

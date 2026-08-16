@@ -46,16 +46,19 @@ var (
 	_ codec.Marshaler   = (*EntryRecord)(nil)
 )
 
-// zeroFill is what a writer emits for a slack node of a record its caller built
-// rather than read: zero bytes, 8 of them at the most, sliced to the node's own
-// width.
+// zeroFill is what a writer emits for a slack node — or for an item the copybook
+// gives no data-name — of a record its caller built rather than read: zero
+// bytes, 8 of them at the most, sliced to the run's own width.
 //
-// Zero rather than a space, because charset is a property of a field and slack
-// is not a field, so there is no charset to resolve a space against and zero is
-// the byte that names none. Those bytes were never in a file, so nothing is
-// being overwritten — a record that was read carries the bytes it was read
-// from and they are emitted instead. See docs/ir/SPEC.md, "What the descriptor
-// determines, a writer supplies".
+// Zero rather than a space. Charset is a property of a field and slack is not a
+// field, so there is no charset to resolve a space against and zero is the byte
+// that names none. A FILLER is a field and does have one, and it gets the same
+// answer for a different reason: its value is nobody's — no program names it
+// and nothing outside this package can set it — so filling it with spaces would
+// be choosing a value on behalf of a caller who never had one to give. Those
+// bytes were never in a file, so nothing is being overwritten — a record that
+// was read carries the bytes it was read from and they are emitted instead. See
+// docs/ir/SPEC.md, "What the descriptor determines, a writer supplies".
 var zeroFill = make([]byte, 8)
 
 // resized is s with n zero occurrences in it.
@@ -93,7 +96,8 @@ func fresh[T any](p *T) *T {
 }
 
 // UnmarshalCOBOL reads one ORDER-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -128,6 +132,18 @@ func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 		if x.LineItem[i0].slack[0], err = r.ReadBytes(1); err != nil {
 			return fmt.Errorf("ORDER-RECORD: reading the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0, err)
 		}
+
+		if x.LineItem[i0].filler[0], err = r.ReadBytes(1); err != nil {
+			return fmt.Errorf("ORDER-RECORD: reading the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0, err)
+		}
+	}
+
+	if x.filler[0], err = r.ReadBytes(4); err != nil {
+		return fmt.Errorf("ORDER-RECORD: reading the 4 bytes of an item the copybook gives no data-name: %w", err)
+	}
+
+	if x.NoteCode, err = r.ReadAlphanumeric(2); err != nil {
+		return fmt.Errorf("ORDER-RECORD: reading NOTE-CODE: %w", err)
 	}
 
 	if x.DetailCount, err = r.ReadZonedInt32(3, codec.SignUnsigned); err != nil {
@@ -149,15 +165,16 @@ func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this ORDER-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
@@ -207,6 +224,36 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 				return fmt.Errorf("ORDER-RECORD: writing the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0, err)
 			}
 		}
+
+		switch {
+		case x.LineItem[i0].filler[0] == nil:
+			if err = w.WriteBytes(zeroFill[:1]); err != nil {
+				return fmt.Errorf("ORDER-RECORD: writing 1 zero byte for an item the copybook gives no data-name and this record carries none for in occurrence %d of LINE-ITEM: %w", i0, err)
+			}
+		case len(x.LineItem[i0].filler[0]) != 1:
+			return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for an item of 1 byte the copybook gives no data-name is %d in occurrence %d of LINE-ITEM", len(x.LineItem[i0].filler[0]), i0)
+		default:
+			if err = w.WriteBytes(x.LineItem[i0].filler[0]); err != nil {
+				return fmt.Errorf("ORDER-RECORD: writing the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0, err)
+			}
+		}
+	}
+
+	switch {
+	case x.filler[0] == nil:
+		if err = w.WriteBytes(zeroFill[:4]); err != nil {
+			return fmt.Errorf("ORDER-RECORD: writing 4 zero bytes for an item the copybook gives no data-name and this record carries none for: %w", err)
+		}
+	case len(x.filler[0]) != 4:
+		return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for an item of 4 bytes the copybook gives no data-name is %d", len(x.filler[0]))
+	default:
+		if err = w.WriteBytes(x.filler[0]); err != nil {
+			return fmt.Errorf("ORDER-RECORD: writing the 4 bytes of an item the copybook gives no data-name: %w", err)
+		}
+	}
+
+	if err = w.WriteAlphanumeric(x.NoteCode, 2); err != nil {
+		return fmt.Errorf("ORDER-RECORD: writing NOTE-CODE: %w", err)
 	}
 
 	count1 := len(x.Detail)
@@ -227,7 +274,8 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 }
 
 // UnmarshalCOBOL reads one TRAILER-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -256,15 +304,16 @@ func (x *TrailerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this TRAILER-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *TrailerRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
@@ -293,7 +342,8 @@ func (x *TrailerRecord) MarshalCOBOL(w *codec.Writer) error {
 }
 
 // UnmarshalCOBOL reads one SYNC-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -320,15 +370,16 @@ func (x *SyncRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this SYNC-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *SyncRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
@@ -370,7 +421,8 @@ func (x *SyncRecord) MarshalCOBOL(w *codec.Writer) error {
 }
 
 // UnmarshalCOBOL reads one TABLE-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -425,15 +477,16 @@ func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this TABLE-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
@@ -515,7 +568,8 @@ func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 }
 
 // UnmarshalCOBOL reads one ENTRY-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -565,15 +619,16 @@ func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this ENTRY-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 

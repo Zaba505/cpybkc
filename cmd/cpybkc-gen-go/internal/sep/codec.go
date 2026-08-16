@@ -38,7 +38,8 @@ var (
 )
 
 // UnmarshalCOBOL reads one LINE-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -57,15 +58,16 @@ func (x *LineRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this LINE-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *LineRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 

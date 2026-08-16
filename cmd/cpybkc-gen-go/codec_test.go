@@ -556,7 +556,7 @@ func TestAWidthIsSummedForAMalformedVariantWithoutPanicking(t *testing.T) {
 		},
 	}}
 
-	if _, err := c.width(2, "x.Entry[i0]", decoding); err == nil {
+	if _, err := c.width(2, "ENTRY", "x.Entry[i0]", decoding); err == nil {
 		t.Error("a variant carrying no arm was given a width")
 	}
 }

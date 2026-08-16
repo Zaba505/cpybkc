@@ -136,6 +136,400 @@ func TestARecordCarryingSlackHoldsARunForEveryNodeOfIt(t *testing.T) {
 	}
 }
 
+// TestAFillerIsGeneratedRatherThanRefused is the case that makes the difference
+// between this generator working on real copybooks and not.
+//
+// COBOL's FILLER has no data-name, so a producer emits no names message for it
+// (internal/assemble/assemble.go's `names`), and FILLER is in most copybooks
+// anybody actually has. Refusing it refused the whole package over an item
+// nobody was looking at — and refused it as a *malformed descriptor*, which is
+// what docs/ir/SPEC.md's "Names" says it is not.
+//
+// The two halves are different decisions and are asserted separately. An
+// elementary FILLER has no value anybody named, so it gets no exported field
+// and its bytes are retained beside the slack. A FILLER *group* holds members
+// the copybook does name, which is the case a run of retained bytes could not
+// stand in for, so its members are reached at the enclosing level — which is
+// where COBOL's own qualification reaches them.
+func TestAFillerIsGeneratedRatherThanRefused(t *testing.T) {
+	t.Parallel()
+
+	source := written(t, goldenDir)[recordsFile]
+
+	// The FILLER item's bytes, retained beside ORDER-RECORD's slack rather than
+	// in it: a slack node and a FILLER are two different facts about a record.
+	if !strings.Contains(source, fillerField+" [1][]byte") {
+		t.Errorf("%s declares no run for the FILLER of ORDER-RECORD", recordsFile)
+	}
+
+	// The FILLER group's member, at the level COBOL qualifies it at.
+	for _, want := range []string{"NoteCode string", "// NoteCode is NOTE-CODE"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not contain %q, and NOTE-CODE is a member of a FILLER group", recordsFile, want)
+		}
+	}
+
+	// Nothing is *named* after an item the copybook did not name. A positional
+	// name would be an identifier no copybook spells and one that moves the
+	// moment an unrelated item is inserted ahead of it. Munging produces
+	// exported identifiers, so `Filler` in any form is one — the word appears
+	// in the retained run's doc comment as COBOL spells it and nowhere else.
+	if strings.Contains(source, "Filler") {
+		t.Errorf("%s declares an identifier munged from FILLER, which no copybook and no layout named", recordsFile)
+	}
+}
+
+// TestAnItemCarryingNoNameIsRefused is the other half of the FILLER rule, and
+// the descriptor the refusal was written for.
+//
+// A names message that is *present* and states no original is not an unnamed
+// item: it is a named one whose name went missing, which is a bug in the
+// producer and reads correctly as one. The two used to be the same test —
+// `names.GetOriginal() == ""` is true of both — and collapsing them is what
+// refused every copybook with a FILLER in it.
+func TestAnItemCarryingNoNameIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for name, node := range map[string]*irpb.Node{
+		"a field": {Id: 3, Kind: &irpb.Node_Field{Field: &irpb.Field{
+			Width: 4, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_DISPLAY,
+			Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+			Names:   &irpb.Names{},
+		}}},
+		"a group": {Id: 3, Kind: &irpb.Node_Group{Group: &irpb.Group{
+			MemberIds: []uint64{4}, Names: &irpb.Names{},
+		}}},
+	} {
+		d := &irpb.Descriptor{
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3),
+				node,
+				alphanumeric(4, "NOTE-CODE", 2),
+			},
+		}
+
+		err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+		var refusal *malformedError
+		if !errors.As(err, &refusal) {
+			t.Errorf("%s carrying a names message that states no name generated %v, want a malformed descriptor", name, err)
+		}
+	}
+}
+
+// TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed is the third
+// shape a FILLER takes, where there is an honest refusal rather than a
+// generated answer.
+//
+// A FILLER that repeats has no name for its occurrences to differ by, and one
+// standing as an alternative of an alternation has no name to say it is the one
+// an occurrence holds. Each is refused — and refused as the copybook item it is,
+// naming what contains it, rather than as a malformed descriptor. The
+// descriptor is exactly what docs/ir/SPEC.md admits, and telling an adopter to
+// go and find a producer bug over an item they wrote correctly is the
+// misdirection this whole story is about.
+func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T) {
+	t.Parallel()
+
+	repeating := fillerItem(3, 4)
+	repeating.GetField().Repetition = depending(5, 0, 4)
+
+	// The group each refusal has to name is the innermost one the copybook
+	// *does* name, and it is asserted exactly. A test satisfied by any of the
+	// names in the descriptor would pass whichever part of this generator
+	// reached the item first, which is the same as not checking: the whole
+	// point of the message is that an adopter can go and search for the word in
+	// it.
+	for name, tc := range map[string]struct {
+		descriptor *irpb.Descriptor
+		in         string
+	}{
+		"a FILLER group that repeats": {
+			in: "ORDER-RECORD",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					repeated(fillerGroup(3, 4), constant(2)),
+					alphanumeric(4, "NOTE-CODE", 2),
+				},
+			},
+		},
+		"a FILLER item counted by another": {
+			in: "ORDER-RECORD",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 5, 3),
+					repeating,
+					zoned(5, "NOTE-COUNT", 2, 2, 0, false),
+				},
+			},
+		},
+		// The item is inside ENTRY and ENTRY is inside ORDER-RECORD, so this is
+		// the case that says which of the two the message names: the group the
+		// adopter would find the item under, not the record it is somewhere in.
+		"a FILLER standing as one alternative of an alternation": {
+			in: "ENTRY",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					group(3, "ENTRY", constant(2), 4, 5),
+					alphanumeric(4, "ENTRY-TYPE", 1),
+					variant(5, armOf(6, 7), armOf(8, 9)),
+					equals(6, 4, "\xc4"),
+					equals(8, 4, "\xe2"),
+					alphanumeric(7, "ENTRY-DETAIL", 4),
+					fillerItem(9, 4),
+				},
+			},
+		},
+		// A FILLER inside a FILLER: the members of both are lifted to the one
+		// named level, so the group the refusal names is that level rather than
+		// either of the two anonymous ones between.
+		"a FILLER group that repeats inside another FILLER group": {
+			in: "ORDER-RECORD",
+			descriptor: &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					fillerGroup(3, 4),
+					repeated(fillerGroup(4, 5), constant(2)),
+					alphanumeric(5, "NOTE-CODE", 2),
+				},
+			},
+		},
+	} {
+		out := t.TempDir()
+
+		err := generate(tc.descriptor, out, options{packageName: goldenPackage})
+
+		var refusal *fillerError
+		if !errors.As(err, &refusal) {
+			t.Errorf("%s generated %v, want a refusal naming the item", name, err)
+
+			continue
+		}
+
+		var wrong *malformedError
+		if errors.As(err, &wrong) {
+			t.Errorf("%s is reported as a malformed descriptor, and the descriptor says what docs/ir/SPEC.md admits", name)
+		}
+
+		if refusal.In != tc.in {
+			t.Errorf("%s is refused in %q, want %q — the innermost group the copybook names", name, refusal.In, tc.in)
+		}
+
+		// "a item of ..." is what a hard-coded article produces, and this
+		// message is the one the whole story is about.
+		if !strings.HasPrefix(refusal.Error(), "a group ") && !strings.HasPrefix(refusal.Error(), "an item ") {
+			t.Errorf("%s reads %q, which opens with neither article", name, refusal.Error())
+		}
+
+		if entries, err := os.ReadDir(out); err != nil {
+			t.Fatalf("reading the output directory: %v", err)
+		} else if len(entries) != 0 {
+			t.Errorf("%s left %d files beneath --out, want none", name, len(entries))
+		}
+	}
+}
+
+// TestAFillerGroupInsideAFillerGroupIsFlattenedToTheNamedLevel is the recursive
+// half of the flattening rule, and the one that says what "the enclosing level"
+// means when there is more than one anonymous level to skip.
+//
+// COBOL qualification skips *every* unnamed group between an item and the name
+// it is qualified by, so two levels of FILLER lift a member exactly as far as
+// one does. The struct is the assertion: NOTE-CODE is a field of the record and
+// there is no intermediate type between them.
+func TestAFillerGroupInsideAFillerGroupIsFlattenedToTheNamedLevel(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 7),
+			fillerGroup(3, 4),
+			fillerGroup(4, 5, 6),
+			alphanumeric(5, "NOTE-CODE", 2),
+			fillerItem(6, 3),
+			alphanumeric(7, "ORDER-ID", 4),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsFile]
+
+	// Both members reach the record's own struct, in record order, and the
+	// FILLER two levels down contributes to the record's own run.
+	for _, want := range []string{"NoteCode string", "OrderId string", fillerField + " [1][]byte"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not contain %q", recordsFile, want)
+		}
+	}
+
+	// One struct: the record's. An anonymous group that produced a type of its
+	// own would be a type named after an item the copybook did not name.
+	if got := strings.Count(source, "struct {"); got != 1 {
+		t.Errorf("%s declares %d struct types, want 1", recordsFile, got)
+	}
+}
+
+// TestAnUnnamedGroupThatContainsItselfIsRefused is the cycle the flattening
+// walk can meet before any other guard does.
+//
+// An unnamed group is expanded in place, so one containing itself would be
+// expanded for ever — and it would do so before the containment guard over
+// struct types is reached, because no struct is emitted for it.
+func TestAnUnnamedGroupThatContainsItselfIsRefused(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3),
+			fillerGroup(3, 4),
+			fillerGroup(4, 3),
+		},
+	}
+
+	var refusal *malformedError
+	if err := generate(d, t.TempDir(), options{packageName: goldenPackage}); !errors.As(err, &refusal) {
+		t.Fatalf("a FILLER group containing itself generated %v, want a malformed descriptor", err)
+	}
+}
+
+// TestAMemberLiftedOutOfAFillerGroupCollidesLikeAnyOther is the cost of
+// flattening, and the thing that has to be reported rather than resolved.
+//
+// Lifting a FILLER group's members into the enclosing struct can bring two
+// names to one Go identifier that the copybook keeps at two levels. COBOL is
+// content — the two are qualified differently there — and Go is not, so it is
+// refused with the same diagnostic every other collision gets, naming both
+// items.
+func TestAMemberLiftedOutOfAFillerGroupCollidesLikeAnyOther(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			alphanumeric(3, "NOTE-CODE", 2),
+			fillerGroup(4, 5),
+			alphanumeric(5, "NOTE_CODE", 2),
+		},
+	}
+
+	err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+	var collision *collisionError
+	if !errors.As(err, &collision) {
+		t.Fatalf("two names lifted to one level generated %v, want a collision", err)
+	}
+
+	for _, want := range []string{"NOTE-CODE", "NOTE_CODE", "NoteCode"} {
+		if !strings.Contains(collision.Error(), want) {
+			t.Errorf("the collision reads %q and never names %s", collision.Error(), want)
+		}
+	}
+}
+
+// TestAFillerAloneDeclaresTheZeroFillItsWriterNeeds is the copybook this story
+// is actually about: one with FILLER in it and no slack anywhere.
+//
+// Every golden package that carries a FILLER also carries a slack node, so the
+// helper a writer emits zero bytes from is already declared in each of them for
+// another reason. A record whose only retained run is a FILLER has to declare
+// it on its own account, and it has to be wide enough for that run.
+func TestAFillerAloneDeclaresTheZeroFillItsWriterNeeds(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			alphanumeric(3, "ORDER-ID", 4),
+			fillerItem(4, 6),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if source := written(t, out)[codecFile]; !strings.Contains(source, "var zeroFill = make([]byte, 6)") {
+		t.Errorf("a record whose only retained run is a FILLER of 6 bytes declares no zeroFill wide enough for it:\n%s", source)
+	}
+}
+
+// TestAFillerInsideAnArmOfAnAlternationIsRetainedLikeAnyOther is the last place
+// a FILLER can stand that the golden does not reach: inside the body of one arm
+// of a variant.
+//
+// An arm's body is a group like any other, so its struct is emitted by the same
+// walk and its FILLER is retained in that struct's own run — per arm, and per
+// occurrence of the table the variant is in.
+func TestAFillerInsideAnArmOfAnAlternationIsRetainedLikeAnyOther(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ENTRY-RECORD", 2),
+			group(2, "ENTRY-RECORD", nil, 3),
+			group(3, "ENTRY", constant(2), 4, 5),
+			alphanumeric(4, "ENTRY-TYPE", 1),
+			variant(5, armOf(6, 8), armOf(7, 10)),
+			equals(6, 4, "\xc4"),
+			equals(7, 4, "\xe2"),
+			group(8, "ENTRY-DETAIL", nil, 9, 12),
+			alphanumeric(9, "DETAIL-SKU", 4),
+			group(10, "ENTRY-SUMMARY", nil, 11),
+			alphanumeric(11, "SUMMARY-TEXT", 6),
+			fillerItem(12, 2),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	// The run belongs to the arm's own struct, so it is declared inside the
+	// arm and the record itself carries none.
+	source := written(t, out)[recordsFile]
+
+	if got := strings.Count(source, fillerField+" [1][]byte"); got != 1 {
+		t.Errorf("%s declares %d FILLER runs, want 1 — the one in the arm that carries it", recordsFile, got)
+	}
+
+	// And the two arms still cover the same bytes, which is what says the
+	// FILLER was counted into the width of the arm holding it.
+	codec := written(t, out)[codecFile]
+	if !strings.Contains(codec, "ReadBytes(7)") {
+		t.Errorf("%s reads an occurrence of ENTRY that is not 7 bytes wide:\n%s", codecFile, codec)
+	}
+}
+
 // TestADescriptorCarryingNoRecordWritesOnlyTheDocFile keeps the record file
 // something a descriptor produced rather than something this generator always
 // writes. A file holding a package clause and no declaration says nothing
@@ -885,18 +1279,34 @@ func ordersDescriptor() *irpb.Descriptor {
 			admits(94, 30, 7),
 
 			record(10, "ORDER-RECORD", 11),
-			group(11, "ORDER-RECORD", nil, 12, 13, 14, 15, 16, 22, 23),
+			group(11, "ORDER-RECORD", nil, 12, 13, 14, 15, 16, 20, 21, 22, 23),
 			renamed(zoned(12, "ORDER-ID", 5, 5, 0, false), "OrderID"),
 			alphanumeric(13, "CUSTOMER-NAME", 20),
 			slack(14, 2),
 			packed(15, "ORDER-TOTAL", 4, 7, 2, true),
-			group(16, "LINE-ITEM", constant(3), 17, 18, 19),
+			group(16, "LINE-ITEM", constant(3), 17, 18, 19, 26),
 			alphanumeric(17, "SKU", 8),
 			binary(18, "QUANTITY", 2, 4, true),
 			slack(19, 1),
+
+			// The two shapes an item COBOL gives no data-name takes. The first
+			// is a FILLER item, which gets no field and whose bytes are
+			// retained; the second is a FILLER group, which cannot be retained
+			// as bytes because it holds a member the copybook does name — and
+			// that member is reached at this level, exactly as COBOL's own
+			// qualification reaches it.
+			fillerItem(20, 4),
+			fillerGroup(21, 25),
+
 			zoned(22, "DETAIL-COUNT", 3, 3, 0, false),
 			group(23, "DETAIL", depending(22, 0, 12), 24),
 			alphanumeric(24, "DETAIL-TEXT", 10),
+			alphanumeric(25, "NOTE-CODE", 2),
+
+			// A FILLER inside a group that repeats, which is what says the
+			// retained run is per occurrence: LINE-ITEM's struct is the
+			// element type, so each of the three elements holds its own.
+			fillerItem(26, 1),
 
 			record(30, "TRAILER-RECORD", 31),
 			group(31, "TRAILER-RECORD", nil, 32, 33, 34, 35),
@@ -992,6 +1402,32 @@ func group(id uint64, name string, rep *irpb.Repetition, members ...uint64) *irp
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Group{Group: &irpb.Group{
 		MemberIds: members, Names: &irpb.Names{Original: name}, Repetition: rep,
 	}}}
+}
+
+// fillerItem and fillerGroup are an elementary item and a group COBOL gave no
+// data-name: a FILLER, and a FILLER group.
+//
+// Neither carries a names message at all, which is what a producer emits for
+// one — internal/assemble/assemble.go's `names` returns nil for a FILLER, and
+// docs/ir/SPEC.md's "Names" says what a *named* node carries rather than that
+// every node is named. That is the descriptor this generator has to make a
+// decision about, and it is a legal one.
+func fillerItem(id uint64, width uint32) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
+		Width: width, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_DISPLAY,
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+	}}}
+}
+
+func fillerGroup(id uint64, members ...uint64) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Group{Group: &irpb.Group{MemberIds: members}}}
+}
+
+// repeated is a group node that occurs that many times.
+func repeated(node *irpb.Node, rep *irpb.Repetition) *irpb.Node {
+	node.GetGroup().Repetition = rep
+
+	return node
 }
 
 // slack is a slack node of that many bytes.

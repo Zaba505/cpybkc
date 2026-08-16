@@ -173,4 +173,4 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 0 | 2 | TRL-TYPE | DISPLAY | X(2) | always |
 | 2 | 6 | TRL-COUNT | DISPLAY | 9(6) | always |
 | 8 | 8 | TRL-NET | PACKED-DECIMAL | S9(13)V9(2) | always |
-| 16 | 8 | TRL-FILLER | DISPLAY | X(8) | always |
+| 16 | 8 | *filler* | DISPLAY | X(8) | always |
