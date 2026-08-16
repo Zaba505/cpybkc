@@ -573,13 +573,24 @@ const (
 	// create in. Nothing of the caller's is at risk — the mount is a copy, and
 	// this one is a directory of committed example inputs.
 	//
+	// The name is one no worked example could plausibly want, and that is the
+	// point of spelling it this way rather than reusing [descriptorName]. This is
+	// the one destination in this check that nothing empties first, so a day when
+	// example/ gains a file of the same name is a day this comparison quietly
+	// changes what it is comparing. It also keeps the two sides' project trees as
+	// close to identical as they can be: resolution strictly precedes the write —
+	// an emission writes what it resolved — and a layout names its copybooks
+	// rather than globbing for them, so a file appearing under the mount cannot
+	// change the descriptor. Both of those are why the asymmetry is tolerable at
+	// all, and neither is a reason to make it larger than it has to be.
+	//
 	// It is absolute rather than relative so that the vector and the read-back
 	// are one string rather than two that have to agree, and /src is where the
 	// companion module documents Run leaving a project mounted. A module that
 	// moved it fails this check on a file that is not there, which is the right
 	// way round: that path is documented behaviour of the escape hatch, and this
 	// is the only place in this repository that depends on it.
-	emitIRDescriptorPath = "/src/" + descriptorName
+	emitIRDescriptorPath = "/src/.cpybkc-descriptor-check"
 )
 
 // exampleCopybooks are the copybooks in [companionExampleDir], as the paths a
@@ -621,12 +632,20 @@ var exampleInitVector = []string{
 // what somebody pastes into an issue. A check that exercised one would say
 // nothing about the other.
 //
-// The third row is the one that is easy to leave out. A call naming no format
-// has to be the same run as a hand-typed vector naming none, which is what says
-// the module left the default encoding to the CLI rather than spelling one out
-// here; and it says it without this pipeline stating what that default is, which
-// would be exactly the second reading of docs/cli/SPEC.md the module declines to
-// hold.
+// The third row is the one that is easy to leave out, and it is worth being
+// exact about what it buys, because the obvious claim for it is false. It does
+// *not* say the module left the default encoding to the CLI: a module that
+// spelled `binary` out itself would emit binary here and so would the hand-typed
+// side, and this row would be green. That property is observable only in the
+// vector, and it is pinned where the vector is — internal/argv's
+// TestEmitIRAssemblesTheVector, in its "no manifest and no format" case, which
+// requires no --emit-ir-format at all.
+//
+// What this row buys is the run: that a call naming no format is one the CLI
+// accepts and completes, and that it agrees with the hand-typed spelling of the
+// same thing on the day docs/cli/SPEC.md changes which encoding that is. A
+// module that had restated the old default would fail this row then, which is
+// exactly when somebody needs to be told.
 //
 // The vectors are written out rather than assembled from the module's
 // internal/argv, for [exampleInitVector]'s reason: two statements of one run
@@ -943,6 +962,24 @@ func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error 
 // What the descriptor *contains* is checked where it is decided: internal/emit's
 // tests, cmd/cpybkc's, and [Cpybkc.IrArtifacts]. A second expectation here would
 // be this pipeline's own reading of docs/ir/SPEC.md, and the two would drift.
+//
+// # Why comparing two runs is legitimate rather than lucky
+//
+// This compares the bytes of two *separate executions* of cpybkc, which is a
+// stronger thing to require than "the module did not re-encode on the way out",
+// and it is not a property the Go protobuf stack gives for free: proto.Marshal
+// is documented as unstable across runs, and protojson deliberately varies its
+// insignificant whitespace so that nobody depends on its exact output. Both are
+// pinned in internal/emit rather than hoped for — Marshal sets
+// proto.MarshalOptions{Deterministic: true}, and MarshalJSON re-indents
+// protojson's rendering through encoding/json, which is the step that makes the
+// bytes a function of the descriptor rather than of the build that produced it.
+//
+// So this check rests on those two, and it would flake rather than fail if
+// either were removed. That is the right way round: the same guarantees are what
+// docs/ir/SPEC.md's reproducibility requirement rests on, and a run of this
+// check disagreeing with itself would be a real finding about the encoder rather
+// than noise about the module.
 //
 // # No generator, deliberately
 //

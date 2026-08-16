@@ -228,13 +228,15 @@ still hands one back:
 
 ```sh
 dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
-  emit-ir --source . --format json export --path descriptor.json
+  emit-ir --source . export --path descriptor.binpb
 ```
 
-`--format json` is the rendering a person reads and pastes; leaving it off gives
-the canonical protobuf encoding, which is the one a generator was actually
-handed. `cpybkc --emit-ir descriptor.json --emit-ir-format json` is the same run
-without Dagger.
+That is the canonical protobuf encoding, and it is the artifact to attach: it is
+the bytes a generator received, byte for byte. `--format json` renders the same
+descriptor as the normalized JSON a person reads — useful for quoting a field in
+the issue text, but a rendering rather than the thing itself, so send it *beside*
+the binary file rather than instead of it. `cpybkc --emit-ir descriptor.binpb` is
+the same run without Dagger.
 
 It still has no `SPEC.md`, and not because there is nothing to specify — it is
 public API, and a function or an argument here lasts as long as the published

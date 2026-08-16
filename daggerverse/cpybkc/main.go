@@ -226,6 +226,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"dagger/cpybkc/internal/argv"
 	"dagger/cpybkc/internal/dagger"
@@ -725,9 +726,9 @@ func (m *Cpybkc) Generate(
 // Nothing is written to the host, exactly as with Generate: the File that comes
 // back is a value, and exporting it is the caller's separate step. What it is
 // called is theirs — this module writes the scaffold to a path of its own inside
-// the container ([scaffoldPath]) that nothing was mounted into, so the run cannot
-// land on something the caller already has, and the name it takes in their tree
-// is the one they give `export`.
+// the container, outside the mounted project and where nothing was mounted, so
+// the run cannot land on something the caller already has, and the name it takes
+// in their tree is the one they give `export`.
 //
 // *Where* it goes is theirs within one constraint, and it is the one thing here
 // a caller cannot infer from the signature. The scaffold names each copybook by
@@ -791,7 +792,12 @@ func (m *Cpybkc) Init(
 		return nil, err
 	}
 
-	return m.writable(m.mount(user, source), user, scaffoldDir).
+	scaffold, err := m.writable(m.mount(user, source), user, scaffoldDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return scaffold.
 		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
 		File(scaffoldPath), nil
 }
@@ -799,7 +805,7 @@ func (m *Cpybkc) Init(
 // EmitIr writes the run's resolved descriptor and hands back the file:
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
-//	  emit-ir --source . --format json export --path descriptor.json
+//	  emit-ir --source . export --path descriptor.binpb
 //
 // It is `cpybkc --emit-ir`, and the name is that flag rather than a word of this
 // module's own for the reason Init's is the CLI's verb: somebody who read
@@ -807,9 +813,12 @@ func (m *Cpybkc) Init(
 // read it under.
 //
 // The descriptor is what to attach to a bug report, against cpybkc or against
-// any generator. It is exactly the bytes a plugin was handed — the equality the
-// plugin contract rests reproducibility on — so reading it settles in one step
-// whether a fault is the producer's or the consumer's. It is also available from
+// any generator, and the call above is the one that produces it: in the default
+// encoding it is exactly the bytes a plugin was handed — the equality the plugin
+// contract rests reproducibility on — so reading it settles in one step whether
+// a fault is the producer's or the consumer's. The JSON is a rendering of that
+// same descriptor rather than the bytes themselves, so it belongs beside the
+// binary file in an issue rather than instead of it. It is also available from
 // the run that is broken: an emission is terminal, so no generator is resolved,
 // nothing is merged into the project's tree and nothing is pruned from it
 // (docs/cli/SPEC.md, "Emitting replaces generation"), which is why a project
@@ -818,8 +827,9 @@ func (m *Cpybkc) Init(
 //
 // Nothing is written to the host, exactly as with Init: the File that comes back
 // is a value, and exporting it is the caller's separate step. This module writes
-// it to a path of its own inside the container ([descriptorPath]) that nothing
-// was mounted into, so the run cannot land on something the caller already has.
+// it to a path of its own inside the container, outside the mounted project and
+// where nothing was mounted, so the run cannot land on something the caller
+// already has.
 //
 // The one spelling this does not offer is `--emit-ir -`, which stays Run's for
 // the reason `--out -` does — a File-returning function has no stream to hand
@@ -886,7 +896,12 @@ func (m *Cpybkc) EmitIr(
 		return nil, err
 	}
 
-	return m.writable(m.mount(user, source), user, descriptorDir).
+	emitting, err := m.writable(m.mount(user, source), user, descriptorDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return emitting.
 		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
 		File(descriptorPath), nil
 }
@@ -894,6 +909,17 @@ func (m *Cpybkc) EmitIr(
 // writable hands back container with dir emptied and owned by user, which is
 // what a curated function supplies the CLI when it chooses the destination
 // itself.
+//
+// A dir inside [projectDir] is refused, and that is the whole reason this takes
+// a path rather than closing over one. Emptying is destructive, and as an
+// inlined block in one function it was safe by construction — the constant
+// beside it was outside the mount, and could be read in the same screenful. As a
+// helper taking a path it would empty whatever it was handed, so a later
+// destination written one directory further up would delete part of the caller's
+// project before the run, which is the one thing every comment around here says
+// cannot happen. It is checked rather than asserted for that reason: *the
+// destination is outside the mounted project* is a promise to a caller, and a
+// promise held by nobody editing a constant is held by nothing.
 //
 // Emptied because WithDirectory *merges*: whatever the image already had there
 // would survive it, and a caller may have passed --image, which this module is
@@ -911,10 +937,16 @@ func (m *Cpybkc) EmitIr(
 // It is one function rather than two copies for the reason [Cpybkc.user] is:
 // Init and EmitIr are making the same arrangement for the same reasons, and two
 // statements of it would be two things to keep in step.
-func (m *Cpybkc) writable(container *dagger.Container, user, dir string) *dagger.Container {
+func (m *Cpybkc) writable(container *dagger.Container, user, dir string) (*dagger.Container, error) {
+	if dir == projectDir || strings.HasPrefix(dir, projectDir+"/") {
+		return nil, fmt.Errorf(
+			"a destination this module supplies has to be outside the mounted project, and %q is inside %q: "+
+				"emptying it would delete part of the caller's tree before the run", dir, projectDir)
+	}
+
 	return container.
 		WithoutDirectory(dir).
-		WithDirectory(dir, dag.Directory(), dagger.ContainerWithDirectoryOpts{Owner: user})
+		WithDirectory(dir, dag.Directory(), dagger.ContainerWithDirectoryOpts{Owner: user}), nil
 }
 
 // Run is the fallback: cpybkc invoked with an argument vector this module has no
