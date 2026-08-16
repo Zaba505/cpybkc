@@ -9,22 +9,32 @@
 // Nothing is installed on the host and no Dockerfile is written: the published
 // images are pulled, composed, and run.
 //
-// # This is a convenience, not a contract
+// # An interface of its own, and why it still gets no SPEC.md
 //
-// The contract is the published image. docs/container/SPEC.md says what the
-// entrypoint is, which directory generators are discovered in, which UID the
-// process runs as and where the IR schema lives, and it is that document a third
-// party builds against. Everything here is those promises spelled as Dagger
-// calls, and every one of them can be written by hand as
-// `docker run --rm ghcr.io/zaba505/cpybkc:v0` instead.
+// This module is the cpybkc CLI daggerized (#253): a caller who reaches for it
+// should be able to do what `cpybkc` does, by name. That makes it something a
+// third party builds against rather than a convenience they could equally well
+// do without — a function name, an argument and a default here are public API
+// for as long as the directory this module is published under exists, which is
+// for as long as the directory exists at all.
 //
-// So this module gets no SPEC.md, deliberately (docs/CONVENTIONS.md, "What
-// belongs here"). A specification for it would imply the contract is a property
-// of the module — that a caller reaching for `docker run`, a Kubernetes Job or a
-// Dockerfile were on a lesser path — when the module is the one thing in this
-// repository that could be deleted without breaking a single promise cpybkc
-// makes. What it needs to say, it says in this comment and in
-// `dagger call --help`.
+// It gets no SPEC.md all the same, and the reason is not that there would be
+// nothing to specify. It is that everything there would be to specify is
+// specified already: what a flag means is docs/cli/SPEC.md's, what the image
+// promises is docs/container/SPEC.md's, and what a generator is handed is
+// docs/plugin/SPEC.md's. A document here would be a second reading of those
+// three, in another vocabulary and on another schedule, which is the drift the
+// mapping is checked for rather than a defence against it. What is this module's
+// own is the mapping — which function carries which flag — and that is written
+// down in this repository's pipeline, where `dagger call cli-surface` fails on
+// it, rather than in a document nothing can check (docs/CONVENTIONS.md, "What
+// belongs here").
+//
+// Everything here can still be written by hand as
+// `docker run --rm ghcr.io/zaba505/cpybkc:v0` or as a `COPY --from`, and a
+// caller who prefers either is not on a lesser path. What the stance changes is
+// what it means when the CLI can do something this module cannot: that is a gap
+// to be filed, not a curation working as designed.
 //
 // It states nothing about the plugin CLI contract either. `cpybkc-gen-<name>`,
 // the argument vector and the exit codes are docs/plugin/SPEC.md's, they hold
@@ -144,38 +154,59 @@
 // are the caller's (docs/container/SPEC.md's `CGO_ENABLED=0`). Nothing here can
 // check that, which is why it is said rather than enforced.
 //
-// # The curated surface, and why it is not the flag table
+// # The surface mirrors the CLI, and Run is the fallback
 //
-// Two functions map a cpybkc command by name, and they are the two commands
-// there are. Generate takes a source directory and a manifest, and is the
-// default action — what cpybkc does when nothing else is asked of it. Init takes
-// a source directory and copybook paths and hands back the layout scaffold, which
-// is `cpybkc init`; it is curated because it is the run an adopter reaches first,
-// before there is a manifest or a layout for anything else to read, and so the one
-// invocation they have nothing to copy from.
+// Every capability cpybkc has should be reachable here as a function named for
+// the command it belongs to, and every flag as an argument on that function.
+// Generate takes a source directory and a manifest, and is the default action —
+// what cpybkc does when nothing else is asked of it. Init takes a source
+// directory and copybook paths and hands back the layout scaffold, which is
+// `cpybkc init`. Those are the two commands there are, so the names are the
+// CLI's rather than this module's: somebody who read docs/cli/SPEC.md should
+// find what they read about here, under the name they read it under.
 //
-// That is the whole of what this module maps by name. It deliberately does not
-// grow an argument per entry in docs/cli/SPEC.md's flag table: a module argument
-// is public API for as long as the directory this module is published under
-// exists, so a table mapped one-to-one would make every change to that table a
-// change to this module's surface, and would have to express in Dagger arguments
-// things a command line says better — a flag that replaces the action rather
-// than configuring it, and a flag that may not appear beside another.
+// That is a stance rather than an observation, and it replaced a good argument
+// (#62, #253). This module used to curate deliberately — two functions, an
+// escape hatch, and the reasoning that a module argument is public API for as
+// long as the published ref exists, so a surface mapped one-to-one onto
+// docs/cli/SPEC.md's flag table makes every change to that table a change to
+// this module's. That cost is real, and mirroring pays it rather than avoids it.
+// What decided it the other way is what the alternative cost: a caller who can
+// do something with `cpybkc` and not with this module could not tell "not
+// offered, on purpose" from "nobody has got to it yet", and neither could
+// anybody reading this comment — so every gap was argued twice, once by whoever
+// found it and once by whoever fixed it.
 //
-// A curated function is also allowed to decline one spelling of a flag without
-// declining the flag. Init supplies --out itself, at a path inside the container
-// the caller never types, and hands back the File; `--out -` is not offered,
-// because a File-returning function cannot express a stream any more than it can
-// express --emit-ir's. That is not the command being out of reach — it is Run's,
-// below, exactly as --emit-ir is.
+// Run is the fallback, not the plan. It takes the argument vector verbatim and
+// hands back the container, so anything this module has not caught up with is
+// still reachable today; what it is not is the intended route for a class of
+// flag. A flag that reaches a caller through Run is recorded as an exception in
+// this repository's pipeline, with the argument for it and, where it is a gap
+// rather than a decision, the issue curating it — and `dagger call cli-surface`
+// fails on one that is neither. Today that is --emit-ir and --emit-ir-format,
+// which #251 is curating, and --version, --help and -h, which stay: `dagger call
+// --help` and the per-function documentation are the Dagger-native form of that
+// question, and which release runs is something a caller states at New's
+// --version rather than asks the CLI afterwards.
 //
-// Run is the other half of that decision, and the reason the first half can stay
-// small. It takes the argument vector verbatim and hands back the container, so
-// an uncurated flag — --emit-ir, --emit-ir-format, --version, --help, and
-// whatever this document has not heard of — is reachable without this module
-// having an opinion about it. The root pipeline's CliSurface check is what keeps
-// the split honest: it fails when the CLI grows a flag that neither Generate nor
-// Run is recorded as covering, so the two cannot drift quietly.
+// A function is still allowed to decline one *spelling* of a flag without
+// declining the flag, and that stays deliberately. Init supplies --out itself,
+// at a path inside the container the caller never types, and hands back the
+// File; `--out -` is not offered, because a File-returning function cannot
+// express a stream. A stream destination is the whole of that class — --emit-ir
+// will have the same one when it is curated — and the spelling stays Run's,
+// which is the command being reachable rather than out of reach:
+//
+//	dagger call run --source . --args=init,--copybook,posting.cpy,--out,- stdout
+//
+// One thing the flag table cannot say, and this comment therefore should. cpybkc
+// passes its whole environment through to a generator, which is how
+// docs/plugin/SPEC.md propagates SOURCE_DATE_EPOCH — and this module offers no
+// way to state an environment, so that promise does not reach a Dagger caller
+// (#252). It is a capability with no flag behind it, so cli-surface cannot see
+// it and did not; it is named here because the flag table is a lower bound on
+// what mirroring the CLI means, and a reader deserves to know the one place it
+// is currently short.
 package main
 
 import (
@@ -642,9 +673,10 @@ func (m *Cpybkc) Generate(
 //	  init --source . --copybook posting.cpy export --path ledger.sexpr
 //
 // It is the first thing an adopter runs, before there is a manifest, a layout or
-// a generator to speak of, and it is curated for that reason: the one invocation
-// somebody has nothing to copy from is a poor place to make them assemble an
-// argument vector by hand.
+// a generator to speak of, and it is the run that made the case for mapping
+// cpybkc's commands by name at all (#228): the one invocation somebody has
+// nothing to copy from is a poor place to make them assemble an argument vector
+// by hand.
 //
 // What comes back is **not a valid layout** and is not meant to be. `init`
 // writes what the copybooks decide — a record per 01-level, an alternative per
@@ -745,8 +777,8 @@ func (m *Cpybkc) Init(
 		File(scaffoldPath), nil
 }
 
-// Run is the escape hatch: cpybkc invoked with an argument vector this module
-// has no opinion about, in a container handed back whole.
+// Run is the fallback: cpybkc invoked with an argument vector this module has no
+// opinion about, in a container handed back whole.
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  run --source . --args=--emit-ir,- stdout
@@ -754,13 +786,20 @@ func (m *Cpybkc) Init(
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  run --args=--help stdout
 //
-// It exists so that Generate does not have to grow an argument every time
-// docs/cli/SPEC.md's flag table does. A flag that replaces the action rather
-// than configuring it (--emit-ir is terminal: no generator runs and nothing is
-// merged or pruned), one that may only appear beside another (--emit-ir-format
-// without --emit-ir is a usage error), and one that answers a question about the
-// program rather than about a project (--version, --help) are all things a
-// command line states plainly and a set of Dagger arguments states badly.
+// It is not the intended route for anything. This module mirrors the CLI, so a
+// capability's ordinary answer is an argument on the function named for the
+// command it belongs to (#253), and what is left over is the two things this
+// function is for. A flag this module has not caught up with is reachable
+// through it in the meantime, which is what keeps a gap an inconvenience rather
+// than a wall. And a spelling no Dagger type can express is reachable through it
+// permanently: a destination that is a stream rather than a file — `--out -`,
+// `--emit-ir -` — which a File-returning function cannot hand back.
+//
+// Which flags arrive here today is stated in this module's package comment and
+// recorded where a check can fail on it, in the root pipeline's
+// companionRunExceptions: `dagger call cli-surface` fails when the CLI grows a
+// flag that neither a named function nor an argued exception covers, so a flag
+// landing on this function quietly is the one thing that cannot happen.
 //
 // A container rather than a directory, because the uncurated invocations are the
 // ones whose answer is not a tree. --emit-ir may write to standard output, and

@@ -698,12 +698,25 @@ to be settled before it could be written, because the answer is a default value
 in a constructor, and a default in a module directory that is never renamed is
 public API from the first release.
 
-The module gets no `SPEC.md`. It is a convenience over the [base-image
-contract](docs/container/SPEC.md) rather than an interface of its own, and what
-it needs to say it says in its module comment and in `dagger call --help`
-([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What belongs here*). What
-follows is the argument behind one of those comments, kept here because the
-argument is longer than the comment and outlives the reader who needs it.
+The module **is** an interface of its own — it mirrors the CLI, and a function
+name or an argument on it is public API for as long as the published ref exists
+(#253, and [the stance](#the-module-mirrors-the-cli-and-the-check-that-holds-it-to-it)
+below). It gets no `SPEC.md` all the same, and not because there would be
+nothing to specify: everything there would be to specify is specified already.
+What a flag means is [`docs/cli/SPEC.md`](docs/cli/SPEC.md)'s, what the image
+promises is [the base-image contract](docs/container/SPEC.md)'s, and what a
+generator is handed is [`docs/plugin/SPEC.md`](docs/plugin/SPEC.md)'s. A
+document here would be a second reading of those three, in another vocabulary
+and on another schedule, which is the drift the module is checked for rather
+than a defence against it ([`docs/CONVENTIONS.md`](docs/CONVENTIONS.md), *What
+belongs here*).
+
+What is the module's own is the *mapping* — which function carries which flag —
+and that lives in this repository's pipeline, in
+[`.dagger/companion.go`](.dagger/companion.go), where `dagger call cli-surface`
+fails on it. The rest it says in its module comment and in `dagger call --help`.
+What follows is the argument behind those, kept here because the argument is
+longer than the comment and outlives the reader who needs it.
 
 ### The directory name is the public ref, so it is chosen once
 
@@ -801,19 +814,28 @@ Both modules' generated code is committed, so a change to either is a
 [*After changing the module*](#after-changing-the-module) applies to the
 companion exactly as it does to the root.
 
-### The curated surface, and the check that keeps it honest
+### The module mirrors the CLI, and the check that holds it to it
+
+**The module is the cpybkc CLI daggerized.** Every capability the CLI has
+should be reachable as a function named for the command it belongs to, with the
+command's flags as arguments on it; a caller who can do something with `cpybkc`
+and cannot do it here has found a gap to file, not a decision to respect. That
+is the stance (#253), and everything else in this section follows from it.
 
 `Generate` takes a source directory and a manifest and hands back a
 `Directory`; `Init` takes a source directory and copybook paths and hands back
 the layout scaffold as a `File`; `Run` takes an argument vector verbatim and
-hands back a `Container`. Those three are the whole surface, and the split
-between them is a decision rather than a stopping point (#62).
+hands back a `Container`. The first two are the two commands cpybkc has, under
+the CLI's own names — a second name for one command would be this module's
+vocabulary rather than cpybkc's, and a module mirroring the CLI has the least
+business growing one. The third is the fallback, and the rest of this section is
+about what that means.
 
-The two curated ones are the two commands cpybkc has. `Init` is `cpybkc init`
-(#228), and it is curated for a reason the default action does not need: it is
-the run an adopter reaches **first**, before there is a manifest or a layout for
-anything else to read, so it is the one invocation they have nothing to copy
-from. It takes copybook *paths* into `--source` rather than files, because
+`Init` is `cpybkc init` (#228), and it is the run that made the case for
+mapping the commands by name at all: it is the run an adopter reaches **first**,
+before there is a manifest or a layout for anything else to read, so it is the
+one invocation they have nothing to copy from. It takes copybook *paths* into
+`--source` rather than files, because
 [`docs/cli/SPEC.md`](docs/cli/SPEC.md) has the scaffold record each path as it
 was typed and a layout's own paths are relative to the layout; and it supplies
 `--out` itself, at a path outside the mounted project, so *nothing at `<dest>`
@@ -821,53 +843,114 @@ is ever replaced* holds without the module reasoning about the caller's tree at
 all. Where the file goes in that tree is what they name at `export`, which is
 the one thing the adopter knows and cpybkc does not.
 
-The module **does not** grow an argument per entry in
-[`docs/cli/SPEC.md`](docs/cli/SPEC.md)'s flag table. A module argument is public
-API for as long as the published ref exists — the [directory name is the public
-ref](#the-directory-name-is-the-public-ref-so-it-is-chosen-once) — so a table
-mapped one-to-one would make every change to the CLI's surface a change to this
-module's, and it would have to express in Dagger arguments two things a command
-line says better: a flag that *replaces* the action rather than configuring it
-(`--emit-ir` is terminal — no generator runs, and nothing is merged or pruned),
-and a flag that is only legal beside another (`--emit-ir-format` without
-`--emit-ir` is a usage error). `Run` is what makes the small surface safe: an
-uncurated flag is reachable without the module having an opinion about it, and
-it returns the container rather than a directory because the uncurated
-invocations are exactly the ones whose answer is not a tree — `--emit-ir` may
-write to standard output, and `--version` and `--help` write nothing else at
-all.
+#### What this stance replaced, and what it costs
 
-It is also what lets a curated function decline one *spelling* of a flag
-without declining the flag. `Init` does not offer `--out -`, which a
-`File`-returning function cannot express any more than it can express
-`--emit-ir`'s stream; the scaffold on standard output is
+Until #253 the module argued the opposite, and argued it well. It curated
+deliberately: two functions, an escape hatch, and the reasoning that **a module
+argument is public API for as long as the published ref exists** — the
+[directory name is the public
+ref](#the-directory-name-is-the-public-ref-so-it-is-chosen-once) — so a surface
+mapped one-to-one onto `docs/cli/SPEC.md`'s flag table makes every change to
+that table a change to this module's. That cost is real, and mirroring **pays**
+it rather than avoids it: adding a flag to cpybkc now ordinarily means adding an
+argument here that can never be removed.
+
+What decided it the other way is what the alternative cost. A curated surface
+and a forgotten one read identically from outside, so a caller could not tell
+"not offered, on purpose" from "nobody has got to it yet" — and neither could a
+contributor, because the argument above was written in four places and read as
+settled. Every gap was therefore argued twice, once by whoever found it and once
+by whoever fixed it: #228 had to argue past it to curate `init`, and #251 has to
+argue past it again for `--emit-ir`. Two arguments per gap is a worse price than
+a permanent argument per flag, because it is paid by whoever is *least* able to
+pay it — somebody who wanted a feature, not a stance.
+
+The judgment underneath is that the flag table moves slowly. `docs/cli/SPEC.md`
+is a specification with its own review, not a place flags accumulate; if that
+stopped being true, this decision would be worth taking again.
+
+#### `Run` is the fallback, not the plan
+
+It takes the argument vector verbatim and hands back a `Container`, and it is
+for exactly two things. A flag the module has not caught up with is reachable
+through it in the meantime, which keeps a gap an inconvenience rather than a
+wall. And a *spelling* no Dagger type can express is reachable through it
+permanently.
+
+That second one is why a named function may still decline one spelling of a
+flag without declining the flag, and the sentence is kept deliberately because
+#228 and #251 both lean on it. `Init` does not offer `--out -`, which a
+`File`-returning function cannot express; `--emit-ir` will be the same when it
+is curated. A destination that is a stream rather than a file is the whole of
+that class today, and the scaffold on standard output is
 `run --source . --args=init,--copybook,posting.cpy,--out,-`, exactly as it was
 before there was an `Init`.
 
-What a curated surface risks is the CLI quietly growing a flag the module can
-no longer express, which reads from out here exactly like a module that chose
-not to express it. `dagger call cli-surface` is the difference, and it is in
-`ci`:
+It returns a container rather than a directory for the same reason: the
+invocations that arrive here are the ones whose answer is not a tree —
+`--emit-ir` may write to standard output, and `--version` and `--help` write
+nothing else at all.
+
+What `Run` is **not** is the intended route for a class of flag. A pull request
+that adds a flag to cpybkc and records it against `Run` is doing something that
+now has to be argued in the diff, and the next section is how.
+
+#### The check, and the two tables it reads
+
+What the stance risks is the CLI quietly growing a flag the module cannot
+express, which reads from out here exactly like a module that chose not to
+express it. `dagger call cli-surface` is the difference, and it is in `ci`:
 
 ```sh
 dagger call cli-surface
 ```
 
 It reads the CLI's flag constants out of the [`cmd/cpybkc/`](cmd/cpybkc/) tree
-and fails when one of them is not recorded in `companionCoverage` in
-[`.dagger/companion.go`](.dagger/companion.go), when a recorded entry names a
-function `daggerverse/cpybkc` does not declare, or when an entry names a flag
-the CLI has stopped accepting. **So adding a flag to cpybkc fails CI until
-somebody says which side of the curation it falls on** — a curated argument on
-`Generate` or `Init`, or `Run`.
+and holds each of them against two tables in
+[`.dagger/companion.go`](.dagger/companion.go):
 
-Be exact about what an entry in that table claims, because it is less than it
+- **`companionCoverage`** maps a flag onto the function that carries it, by
+  name. This is where a flag belongs, and `Run` is not a value it accepts.
+- **`companionRunExceptions`** records a flag that reaches the module through
+  `Run` instead, with the argument for why. An entry says either that it is
+  **settled** — the escape hatch is this flag's answer — or that it is
+  **tracked**, naming the issue writing the function, and a reason is required
+  either way. The rules are
+  [`.dagger/internal/coverage/`](.dagger/internal/coverage/)'s, pinned by tests.
+
+The check fails when a flag is in neither table, when it is in both, when a
+mapping names a function `daggerverse/cpybkc` does not declare, when an
+exception claims neither settled nor tracked, and when either table names a flag
+the CLI has stopped accepting. **So adding a flag to cpybkc fails CI until
+somebody either maps it onto a function or writes down why it cannot be.**
+
+The two tables are the tightening #253 asked for, and they are worth the second
+map for one reason. While the module curated (#62), a flag recorded against
+`Run` was the design working, so one map with `"Run"` as an ordinary value said
+everything; under the mirroring stance it is the opposite, and a new flag
+quietly recorded against `Run` and passing CI **is** the drift this check exists
+to catch. One map cannot tell that from the flags nobody has curated on purpose.
+Two can, because writing an exception means writing a reason and saying which of
+the two claims you are making — in the diff, where a reviewer reads it.
+
+Be exact about what an entry in either table claims, because it is less than it
 looks. It is a person's assertion that they thought about the flag and decided
 where it belongs; nothing verifies that the named function can *reach* it, and
 since `Run` forwards an arbitrary vector, every flag is reachable through `Run`
-by construction. What the check buys is that the assertion has to be re-made
+by construction. No check can read an argument and say whether it is a good one.
+What the check buys is that the assertion has to be **made**, and re-made
 whenever the CLI's surface moves, which is exactly when it stops being true by
 accident.
+
+Today's exceptions are `--emit-ir` and `--emit-ir-format`, tracked to #251, and
+`--version`, `--help` and `-h`, settled: `dagger call --help` and the
+per-function documentation are the Dagger-native form of that question, and
+which release runs is something a caller states at `New`'s `--version` rather
+than asks the CLI afterwards. That last reason does not cover everything, which
+is why the escape hatch stays the answer for the rest of it — `--version`
+defaults to the moving `v0` tag, so *which tag was asked for* and *which build
+is running* are different questions, and `run --args=--version` is how the
+second is asked.
 
 Three things about how it reads are worth knowing before changing either side.
 It reads the parser's **constants**, not `cpybkc --help` and not the spec's
@@ -899,6 +982,36 @@ This is the shape of check [#65 was closed for not
 being](#65-is-closed-rather-than-left-open). It fails on something a person does
 — adding a flag in one module and not thinking about the other — rather than on
 a constant compared against the thing it was generated from.
+
+#### The flag table is not the CLI's surface
+
+`cli-surface` reads flag **constants**, so a capability cpybkc has that is not
+spelled as a flag is invisible to it by construction. That is not a hole to be
+plugged; it is the boundary of what a check reading Go source can see, and under
+the mirroring stance it matters, because the module's obligation is every
+capability rather than every flag.
+
+There is one such capability today and it is the worked case. cpybkc passes its
+whole environment through to a generator — that pass-through **is** how
+[`docs/plugin/SPEC.md`](docs/plugin/SPEC.md) propagates `SOURCE_DATE_EPOCH` —
+and the companion module offers no way to state an environment at all, so a
+promise that document makes to every generator author does not reach a Dagger
+caller (#252). No check here noticed, and none could have.
+
+So the answer to how the next one is caught is a person, at the document that
+promises it: **a change to
+[`docs/cli/SPEC.md`](docs/cli/SPEC.md) or [`docs/plugin/SPEC.md`](docs/plugin/SPEC.md)
+that adds a capability which is not a flag is answered in the companion module
+in the same review.** That is a weaker guarantee than `cli-surface`, and saying
+so plainly is the point — a reader who believes the check covers the whole
+surface will not go looking.
+
+The mechanical version was considered and is not worth having. Anything that
+could notice "`docs/cli/SPEC.md` changed" is a check comparing a document
+against a copy of itself, which is precisely [the shape #65 was closed for
+being](#65-is-closed-rather-than-left-open): it fails on every edit to that
+document and on nothing else, so it is answered by updating the copy, and a
+check whose remedy is *tell it what happened* has taught nobody anything.
 
 ### Composing a generator is `COPY --from`, split across two methods
 
@@ -1051,9 +1164,12 @@ The curated scaffolding function has to hand back the scaffold
 `run --args=init,…,--out,-` writes over the same three copybooks in
 [`example/`](example/), byte for byte (#228). That is cheap, it needs no second
 reading of what a scaffold should contain — `internal/scaffold`'s tests own that
-— and it is the property the escape-hatch entry in `companionCoverage` stood in
-for while there was no function: a caller who reached for `run` before it existed
-gets the same file from the function that replaced it. It runs against the base
+— and it is the property `init`'s escape-hatch entry stood in for while there was
+no function: a caller who reached for `run` before it existed gets the same file
+from the function that replaced it. That generalises, which matters now that
+every command is meant to have a function: what makes a new one safe to add is
+that the run it replaces is still spellable through `run` and still produces the
+same bytes. It runs against the base
 image with nothing composed into it, because `init` resolves no layout and runs
 no generator, which is also the state an adopter is in when they run it.
 

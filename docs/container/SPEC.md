@@ -1504,13 +1504,15 @@ Go install with no document that applies to them.
 
 ### Also out of scope
 
-- **The Dagger module** (#61–#65) that runs cpybkc for a caller. It is a
-  convenience over this contract; what it needs to say, it says in its module
-  comment and `dagger call --help`. Which tag it pulls when a caller names none
-  — the moving major tag — and what pinning its module ref does and does not pin
-  about the image are settled in
-  [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module) (#104),
-  which is where an argument about a convenience belongs.
+- **The Dagger module** (#61–#65) that runs cpybkc for a caller. It mirrors the
+  cpybkc CLI (#253) and drives an image satisfying this contract; what it needs
+  to say, it says in its module comment and `dagger call --help`, and it gets no
+  specification of its own because what a caller builds against through it is
+  [`cli/SPEC.md`](../cli/SPEC.md) and this document rather than anything it
+  adds. Which tag it pulls when a caller names none — the moving major tag — and
+  what pinning its module ref does and does not pin about the image are settled
+  in [CONTRIBUTING.md](../../CONTRIBUTING.md#the-companion-dagger-module)
+  (#104), which is where that argument belongs.
 - **The registry.** That the image is published to `ghcr.io` (#59) is a fact
   about where to find it, not a guarantee about what is inside it. A mirror
   serving the same digest satisfies this contract identically.
