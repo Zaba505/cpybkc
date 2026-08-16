@@ -945,11 +945,19 @@ func edgeNode(id, admits, to uint64, predicate *uint64, guards, bindings []uint6
 // in the schema absence is a meaning for — so it is a pointer and never a
 // sentinel, because zero is an ordinary identifier.
 //
-// Kept rather than inlined to `new(expr)`: all twenty-odd call sites pass an
-// untyped constant, so inlining spells each one `new(uint64(50))` — twenty
-// conversions bought with the name that says which of a transition's several
-// identifiers this one is.
-func predicateAt(id uint64) *uint64 { return &id } //nolint:modernize // named on purpose; see above
+// Kept rather than inlined to `new(expr)`, on the rule this repository applies
+// to every `newexpr` finding: a one-line shim earns its name when it is called
+// repeatedly *and* says something the call site does not. Both hold here, and
+// the first emphatically — [edgeNode] takes three bare identifiers before this
+// one, across twenty-odd call sites in four files, and `predicateAt(50)` is
+// what tells a reader which of them is the reference absence is a meaning for.
+//
+// Where either half fails, the shim goes: `grammarString("XX")` in
+// internal/conformance/grammar_test.go had one call site and sat beside a field
+// already named `Text`, and was inlined to `new("XX")` for exactly that reason.
+// The conversion an untyped constant costs — `new(uint64(50))` — is the price
+// of the rule and not the reason for it.
+func predicateAt(id uint64) *uint64 { return &id } //nolint:modernize // see above
 
 // equalPredicate and oneOfPredicate are the two members of the predicate set.
 func equalPredicate(id, field uint64, value string) *irpb.Node {

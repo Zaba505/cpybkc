@@ -525,6 +525,12 @@ func (c *compiler) boundOnEntry(a *Automaton) map[int]map[int]bool {
 // It is not named `maps`, as it once was, because a package-level identifier by
 // that name shadows the standard library's `maps` package for every file in this
 // one — including this function, which is now a single call into it.
+//
+// It is `make` plus [maps.Copy] and **not** [maps.Clone], which is what a reader
+// of a two-line body wrapping `maps.Copy` will reach for next. `maps.Clone`
+// returns nil for a nil argument, where this returns an empty map; a state whose
+// entry set is nil is ordinary here, and [compiler.boundOnEntry] writes into
+// what this returns, so the nil would be a panic and not a smaller allocation.
 func copyOf(of map[int]bool) map[int]bool {
 	out := make(map[int]bool, len(of))
 	maps.Copy(out, of)

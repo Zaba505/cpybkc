@@ -52,10 +52,15 @@ func owner(t *testing.T, path string) Owner {
 // is a process-wide setting, and a test that moved it would move it for every
 // other test running beside it.
 //
-// Kept rather than inlined to `new(expr)`: its other call site passes an untyped
-// constant, which `new` cannot take without a conversion, so inlining would
-// leave `new(test.mask)` beside `new(fs.FileMode(0o022))` for the same idea.
-func umask(mask fs.FileMode) *fs.FileMode { return &mask } //nolint:modernize // named on purpose; see above
+// Kept rather than inlined to `new(expr)`, on the rule this repository applies
+// to every `newexpr` finding: a one-line shim earns its name when it is called
+// repeatedly *and* says something the call site does not. Both hold — two call
+// sites, and the paragraph above is the thing the name carries to each of them.
+//
+// Inlining would also split one idea in two, since the call site below passes an
+// untyped constant `new` cannot take without a conversion: `new(test.mask)` on
+// one line and `new(fs.FileMode(0o022))` on another, for the same idea.
+func umask(mask fs.FileMode) *fs.FileMode { return &mask } //nolint:modernize // see above
 
 // tight is a generator that writes under a umask of its own, so that what lands
 // in the project's tree is visibly not what the plugin created.
@@ -102,7 +107,7 @@ func TestTheModesAreThisRunsRatherThanThePlugins(t *testing.T) {
 			t.Parallel()
 
 			r := runner(t)
-			r.Umask = umask(test.mask) //nolint:modernize // [umask] is kept, so its call sites are too
+			r.Umask = umask(test.mask) //nolint:modernize // [umask] is kept, so this call site is too
 
 			out := filepath.Join(t.TempDir(), "project", "gen")
 

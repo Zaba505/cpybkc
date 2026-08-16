@@ -32,7 +32,8 @@
 # makes each suggestion a decision — taken, or declined at the site with a
 # `//nolint:modernize` saying why. Declining belongs in the file and not here:
 # an exclusion rule in this config would silence an analyzer across the whole
-# repository, which is the state this paragraph is the end of.
+# repository, which is the repository-wide silence this paragraph exists to
+# prevent.
 #
 # It has a cost worth stating rather than discovering. `modernize`'s suggestions
 # track the Go release and the golangci-lint pin, so a version bump can turn CI
