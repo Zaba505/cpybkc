@@ -288,8 +288,10 @@ the entrypoint is *always* a flag. It may be a flag, as it is for every
 invocation published before this — the CLI's default action is all flags — or it
 may now be a subcommand name; which names are admitted is [the
 CLI's](../cli/SPEC.md#the-first-operand-is-a-subcommand-name) rather than this
-document's. Whether a breaking change to that command set moves
-this image's own major tag is a separate question, filed as #213.
+document's. What a breaking change to that command set does to this image's own
+major tag is settled below, and the answer is that the moving major tag does not
+carry one: a break in either contract takes [a new major version of the
+release](#a-breaking-change-to-either-contract-takes-a-new-major-version) (#213).
 
 ## The user
 
@@ -599,7 +601,11 @@ every fix in the major version and, by the [guarantee
 below](#compatibility-guarantees), keeps every path this document names; it is
 the right pin for a derived image that wants security updates without a
 Dockerfile change, and it is what the [worked
-example](#worked-example-adding-a-generator) uses. A **prerelease** —
+example](#worked-example-adding-a-generator) uses. It keeps the CLI's covered
+surface as well, which is a decision rather than a consequence of the sentence
+before it: see [A breaking change to either contract takes a new major
+version](#a-breaking-change-to-either-contract-takes-a-new-major-version).
+A **prerelease** —
 `v0.3.0-rc.1` — publishes its own full version tag and **MUST NOT** move any of
 the other three, because a release candidate is not a fix anybody consented to
 be given (#59).
@@ -618,6 +624,88 @@ position the plugin contract takes under [Plugin
 distribution](../plugin/SPEC.md#also-out-of-scope). Pinning a digest fixes the
 generators in the image along with cpybkc itself, which is the whole reason this
 project has no lockfile.
+
+### A breaking change to either contract takes a new major version
+
+The image and the CLI inside it are **one release under one version number**. A
+release publishes `vX.Y.Z` and the executable in it answers `X.Y.Z` to
+[`--version`](../cli/SPEC.md#--version), so there is no image major that can
+move independently of the CLI's, and the question [the subcommand
+raised](#the-arrangement-survives-a-subcommand) is not which of two numbers
+advances but what the one number is entitled to carry.
+
+**The image's major version tracks the CLI's covered surface as well as its
+own** (#213). A change breaking [this document's
+guarantees](#compatibility-guarantees) **or** [the CLI contract's
+guarantees](../cli/SPEC.md#compatibility-guarantees) is a breaking change of the
+release, and the release carrying it **MUST** be a new major version, by [How a
+covered thing would change](#how-a-covered-thing-would-change). The moving major
+tag therefore never carries one: `v0` stops at the last release before it and
+`v1` begins with it, and a derived Dockerfile pinning `v0` keeps the command set
+it was written against as surely as it keeps the plugin directory.
+
+The other answer was available and is refused. The two contracts do cover
+different things — [`docs/cli/SPEC.md` says so in as many
+words](../cli/SPEC.md#compatibility-guarantees), listing anything about the
+published image as not its own — and on this image's own terms nothing broke
+when `init` arrived: every path here survives it and the entrypoint still takes
+cpybkc's arguments. A rule reading only the table below would let `v0` move
+across it.
+
+What refuses that is who is holding the tag. A `FROM …:v0` line is in a
+repository this project cannot see, and what it pulls the image *for* is the
+program inside it. A caller whose wrapper passes a word of its own user's input
+through as cpybkc's first argument is broken by [the subcommand's
+arrival](../cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it)
+whether they reached cpybkc through a `docker run` or through a `go install`,
+and telling them afterwards that the break was covered by a document they were
+not reading is telling them the pin this section recommends bought less than the
+sentence recommending it said.
+
+The cost is stated rather than hidden: a `v0` pinner stops receiving fixes once
+`v1` is cut. That is what a compatibility boundary *is*, it is what the [full
+version tag](#tags-and-what-pinning-one-buys) already means one release at a
+time, and moving across it is one edited line at a moment of the pinner's
+choosing rather than a build that changed under them.
+
+Nothing here makes the CLI's requirements this document's. Which names the
+command set admits, which flags exist and what they mean stay [the CLI
+contract's](../cli/SPEC.md) to state and to change; what this section fixes is
+only which release number a change to them may appear in, because that number is
+a tag on this image.
+
+### Below 1.0.0, the rule produces 1.0.0
+
+cpybkc is below 1.0.0, and SemVer 2.0.0 §4 puts a `0.y.z` release outside the
+stability rules altogether — so "a new major version" looks like a requirement
+naming no number a release could be held to. It names one (#213):
+
+> A breaking change to a covered thing in either contract **MUST NOT** be
+> published in a `0.y.z` release. Below 1.0.0 the release satisfying [How a
+> covered thing would change](#how-a-covered-thing-would-change) is **1.0.0**.
+
+The leading non-zero component is **not** treated as the major in the meantime,
+and the rule does **not** wait for 1.0.0 either. Both of those readings were
+available, and both make `v0` mean something other than what this document has
+already published about it. Under either, a break ships in `0.3.0`; [the tag
+table](#tags-and-what-pinning-one-buys) moves `v0` onto it, because SemVer's
+major is `0` and which tags a version implies is [the shared pipeline's
+derivation](#tags-and-what-pinning-one-buys) rather than this project's to
+redefine; and the boundary a reader was told to pin turns out to have been the
+*minor* tag all along. Saying so now is itself a change to a covered thing,
+which would need the major version this section is about.
+
+SemVer §4 is a permission and not an obligation, and this project has already
+declined it. Seven documents under `docs/` publish covered tables and a change
+rule, three published things rest on this one — a stranger's `FROM` line, [the
+generator images' addresses](#where-this-projects-own-generators-are-published),
+and the companion module's default tag — and a project that holds itself to
+those is one whose public API is defined in SemVer §5's sense. 1.0.0 is the
+number that says so, and the first change that cannot be made without breaking
+one of those tables is the release that has to say it.
+
+This makes 1.0.0 a consequence rather than a milestone anybody plans: releases
+below it are additive, and the first that is not is the one.
 
 ### What a tag carries besides the image
 
@@ -1261,6 +1349,7 @@ change to any of them is a breaking change:
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
+| [The CLI's covered surface](#a-breaking-change-to-either-contract-takes-a-new-major-version) | Holds here too: a change breaking [the CLI contract's guarantees](../cli/SPEC.md#compatibility-guarantees) takes a new major version of this image, so no moving tag carries one |
 | [This project's own generator images](#where-this-projects-own-generators-are-published) | `<repository>-gen-<name>`, in the same registry and under the same release's tags as the CLI image |
 | [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM per platform, as referrers |
 
@@ -1358,6 +1447,16 @@ at `COPY` time with an error naming a path rather than a version. Giving it a
 release in which both the old and the new form work is what turns that into a
 deprecation notice somebody reads instead of a broken build somebody bisects.
 
+**Which release is a new major version** is not left to whoever cuts it. A break
+in [either contract](#a-breaking-change-to-either-contract-takes-a-new-major-version)
+is one of these, and [below 1.0.0 the release that satisfies this
+rule](#below-100-the-rule-produces-100) is 1.0.0 — so a covered thing does not
+change in a `0.y.z` at all (#213). Where the change withdraws a rejection rather
+than moving a form, there is nothing to hold in parallel and the announcement is
+the whole of the transition; [the CLI contract states that
+case](../cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it)
+for the one change that has hit it.
+
 ## Out of Scope
 
 ### How the image is built and published
@@ -1411,14 +1510,16 @@ Go install with no document that applies to them.
 | [The arrangement survives a subcommand](#the-arrangement-survives-a-subcommand) | #183 `cli` adds the subcommand and restates the promise here; #213 `container` decides what a breaking CLI change does to this image's major tag |
 | [The user](#the-user) | #55 `container` |
 | [Shell or no shell](#shell-or-no-shell) | #55 `container` |
-| [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container`; #185 `container` moves the family's derivation to the shared pipeline |
+| [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container`; #185 `container` moves the family's derivation to the shared pipeline; #213 `container` says what the moving major tag does with a breaking CLI change |
+| [A breaking change to either contract takes a new major version](#a-breaking-change-to-either-contract-takes-a-new-major-version) | #213 `container`, over the command set #183 `cli` broke and the guarantees #146 `cli` and #54 `container` state |
+| [Below 1.0.0, the rule produces 1.0.0](#below-100-the-rule-produces-100) | #213 `container` |
 | [What a tag carries besides the image](#what-a-tag-carries-besides-the-image) | #58 `container`; #185 `container` for the SBOM's subject and formats |
 | [Verifying a signature](#verifying-a-signature) | #58 `container` |
 | [After mirroring to an internal registry](#after-mirroring-to-an-internal-registry) | #58 `container` |
 | [Discovering the attestations](#discovering-the-attestations) | #185 `container` |
 | [Worked example: adding a generator](#worked-example-adding-a-generator) | #54 `container` |
 | [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for replaying that stage onto a base image of this pipeline's own |
-| [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container` |
+| [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container`; #213 `container` adds the CLI's covered surface to the table and fixes which release number a change to a covered thing takes |
 | [Why the platform set is the two it is](#why-the-platform-set-is-the-two-it-is) | #54 `container` decides it, #55 `container` builds it, #56 `container` retires the third leg it once had |
 | [The IR schema in the image](#the-ir-schema-in-the-image) | #57 `container`; #185 `container` for its ownership and mode |
 | [Worked example: reading the IR without generated code](#worked-example-reading-the-ir-without-generated-code) | #57 `container`; #19 `ir` for what the descriptor set contains |

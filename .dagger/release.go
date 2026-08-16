@@ -573,6 +573,26 @@ func (m *Cpybkc) ReleaseNotes(
 // tagged, is discovered afterwards, and by then the tag is out and this
 // project's own contract says it is never repointed.
 //
+// What #213 added to the contract is not checkable here, and the reason is worth
+// stating where somebody would come looking for it. Since #213 a break in either
+// the CLI contract's covered surface or the image's takes a new major version,
+// and below 1.0.0 the only release that is one is 1.0.0 — see
+// docs/container/SPEC.md's "A breaking change to either contract takes a new
+// major version". That is a rule about which *diff* a number may carry, and
+// every input this function has is a ref: `v0.3.0` is a canonical version tag
+// pointing at HEAD whether the tree under it withdrew a rejection or fixed a
+// typo, so a check here would either pass on both or fail on both. The reading
+// is the releaser's, CONTRIBUTING.md's "Which number a breaking change takes" is
+// where it is written down for them, and the release notes carry the
+// announcement the CLI contract requires.
+//
+// What the rule does *not* touch is anything below, and that is the reading
+// #213's fourth criterion asks for: it decides which number is cut, while this
+// function and the archetype's table decide what a number, once cut, publishes
+// and moves. The two still agree because they answer different questions — 1.0.0
+// plans exactly as v0.2.0 does, and the family it implies is derived from it the
+// same way.
+//
 // Every expected value below is a literal, never one of this file's own
 // constants, so the check cannot move with the code it checks.
 //
@@ -588,6 +608,12 @@ func (m *Cpybkc) TagScheme() error {
 		// A release: a single canonical version tag at HEAD.
 		{refs: []string{"refs/tags/v0.2.0", "refs/heads/main"}, version: "v0.2.0"},
 		{refs: []string{"refs/tags/v1.10.3"}, version: "v1.10.3"},
+		// The number #213 names for the first breaking change, pinned because it
+		// is now a requirement in docs/cli/SPEC.md rather than a version like any
+		// other. It plans exactly as the rows above do, which is the point: the
+		// rule decides which diff may carry a number, and nothing about cutting
+		// that number had to change to accommodate it.
+		{refs: []string{"refs/tags/v1.0.0", "refs/heads/main"}, version: "v1.0.0"},
 		// A prerelease is a release of the image too. What it does *not* do —
 		// move the tags a derived Dockerfile pins to pick up fixes — is the
 		// archetype's rule now, and its table is where that is checked.
