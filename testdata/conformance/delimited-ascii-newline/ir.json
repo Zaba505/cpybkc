@@ -1,0 +1,91 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "delimited": {
+          "delimiter": "Cg==",
+          "placement": "DELIMITER_PLACEMENT_TERMINATOR"
+        },
+        "start_state_id": "5"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "LINE-RECORD"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4"
+        ],
+        "names": {
+          "original": "LINE-RECORD"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "L-KEY"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 2,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_BINARY",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 4,
+          "signed": true
+        },
+        "names": {
+          "original": "L-QTY"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "6"
+        ]
+      }
+    },
+    {
+      "id": "6",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "5"
+      }
+    }
+  ]
+}

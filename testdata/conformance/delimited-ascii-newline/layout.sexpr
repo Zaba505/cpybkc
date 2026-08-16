@@ -1,0 +1,39 @@
+;; A line-sequential file of the kind an adopter is likeliest to hand the tool
+;; first: ASCII, on Linux, its records ended by 0x0A.
+;;
+;; Charset governs items and never framing bytes, so an ASCII twin of
+;; delimited-terminator would say only what packed-ascii and packed-ebcdic
+;; already say about an axis that does not apply, and would not be worth an
+;; entry. What earns this one is the collision. A PIC S9(4) COMP item holding 10
+;; is the bytes 00 0A and one holding 2570 is 0A 0A, and 0x0A is what ends a
+;; record here — so a consumer that split these twenty-one bytes on 0x0A would
+;; come back with six pieces, of five, no, four, no, no and six bytes, rather
+;; than three records of six; one that counts the extent reads them as the
+;; numbers they are. That is delimited-terminator's point, in the file the
+;; field actually holds.
+;;
+;; The third record's count is zero, so its six bytes carry no 0x0A at all: it
+;; is the ordinary record the other two are read against, and the one piece a
+;; splitting consumer still hands back whole.
+;;
+;; Nothing in Appendix A describes a delimiter — codec/SPEC.md places record
+;; formats out of scope in as many words — so this entry's framing is derived
+;; from the two specifications this repository publishes rather than from
+;; cobol-go's, exactly as delimited-terminator's is.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm line-sequential)
+  (delimiter (bytes "0A"))
+  (placement terminator))
+
+(record LINE
+  (copybook "line.cpy" LINE-RECORD))
+
+(discriminate LINE single-record-type)
+
+(sequence (* LINE))
