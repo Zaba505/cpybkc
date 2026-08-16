@@ -62,6 +62,65 @@ func TestCheckNameAcceptsWhatCanBeAName(t *testing.T) {
 	}
 }
 
+func TestCheckValue(t *testing.T) {
+	for _, tc := range []struct {
+		testName string
+		value    string
+		// want is a substring the refusal has to carry, and an empty one is a
+		// value that has to be accepted.
+		want string
+	}{
+		{
+			testName: "an epoch",
+			value:    "1700000000",
+		},
+		{
+			// A value may be empty, and an exported variable with no value is
+			// set: cpybkc would have carried it, so this does too.
+			testName: "empty",
+			value:    "",
+		},
+		{
+			// The one character that is a name's problem and not a value's. An
+			// environment string is split at the first =, so everything after
+			// it is value by definition.
+			testName: "carries equals signs",
+			value:    "-X main.version=v1 -X main.commit=abc",
+		},
+		{
+			testName: "carries a NUL byte",
+			value:    "1700000000\x00trailing",
+			want:     "NUL",
+		},
+	} {
+		t.Run(tc.testName, func(t *testing.T) {
+			err := CheckValue("SOURCE_DATE_EPOCH", tc.value)
+
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("CheckValue(%q) = %v, want no error", tc.value, err)
+				}
+
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("CheckValue(%q) = nil, want an error", tc.value)
+			}
+
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("CheckValue(%q) = %q, which does not mention %q", tc.value, err, tc.want)
+			}
+
+			// The name, because a refusal that does not say which variable was
+			// being set is one a caller with several has to bisect.
+			if !strings.Contains(err.Error(), "SOURCE_DATE_EPOCH") {
+				t.Errorf("CheckValue(%q) = %q, which does not name the variable it refused", tc.value, err)
+			}
+		})
+	}
+}
+
 func TestCheckNameRefusesWhatCannotBeAName(t *testing.T) {
 	for _, tc := range []struct {
 		testName string

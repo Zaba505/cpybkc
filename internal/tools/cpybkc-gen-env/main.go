@@ -150,6 +150,11 @@ func parse(args []string) (invocation, error) {
 		parsed     invocation
 		descriptor string
 		options    []string
+		// seen counts each flag, so that the arity below is enforced rather
+		// than claimed. A message saying a flag appears exactly once beside a
+		// loop that keeps the last of several is the fixture being wrong about
+		// the contract it exists to be right about.
+		seen = map[string]int{}
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -168,6 +173,24 @@ func parse(args []string) (invocation, error) {
 			break
 		}
 
+		// Recognised before its value is counted, because the two failures have
+		// different messages and only one of them is true of an argument this
+		// program does not take: `--bogus` in final position is an unrecognised
+		// argument, not a flag missing its value, and the second message sends
+		// its reader looking for the value rather than for the typo.
+		switch arg {
+		case descriptorFlag, outFlag, optFlag:
+			seen[arg]++
+		default:
+			return invocation{}, fmt.Errorf("unrecognised argument %q: the invocation is `%s <path> %s <dir> "+
+				"[%s k=v ...]` and nothing else", arg, descriptorFlag, outFlag, optFlag)
+		}
+
+		if arg != optFlag && seen[arg] > 1 {
+			return invocation{}, fmt.Errorf("%s was passed %d times, and it appears exactly once in every "+
+				"invocation cpybkc emits", arg, seen[arg])
+		}
+
 		if i+1 >= len(args) {
 			return invocation{}, fmt.Errorf("%s was passed with no value after it", arg)
 		}
@@ -182,9 +205,6 @@ func parse(args []string) (invocation, error) {
 			parsed.out = value
 		case optFlag:
 			options = append(options, value)
-		default:
-			return invocation{}, fmt.Errorf("unrecognised argument %q: the invocation is `%s <path> %s <dir> "+
-				"[%s k=v ...]` and nothing else", arg, descriptorFlag, outFlag, optFlag)
 		}
 	}
 
@@ -213,7 +233,16 @@ func parse(args []string) (invocation, error) {
 // generator dropped is configuration a reviewer can read in the manifest and
 // nobody can observe in the output.
 func readOptions(options []string) (string, error) {
-	var variable string
+	var (
+		variable string
+		// named separately from the value, because an option that was not
+		// passed and one passed with an empty value are different mistakes and
+		// telling a caller their required option is missing when they wrote it
+		// is the diagnostic sending them to the wrong line of their manifest.
+		// A value MAY be empty as far as the contract is concerned; it is this
+		// generator that has no variable to read when it is.
+		named bool
+	)
 
 	for _, option := range options {
 		key, value, ok := strings.Cut(option, "=")
@@ -226,12 +255,16 @@ func readOptions(options []string) (string, error) {
 				key, variableOption)
 		}
 
-		variable = value
+		variable, named = value, true
 	}
 
-	if variable == "" {
+	switch {
+	case !named:
 		return "", errors.New("the `" + variableOption +
 			"` option is required, and names the environment variable this generator reports")
+	case variable == "":
+		return "", errors.New("the `" + variableOption +
+			"` option names no variable: it was passed with an empty value, and there is no variable to report")
 	}
 
 	return variable, nil

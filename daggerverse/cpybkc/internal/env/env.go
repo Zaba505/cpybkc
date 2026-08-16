@@ -66,3 +66,33 @@ func CheckName(name string) error {
 
 	return nil
 }
+
+// CheckValue refuses a value carrying a NUL byte, and refuses nothing else.
+//
+// It is [CheckName]'s NUL rule on the other half of the pair, and it is here
+// because the argument for that rule was never about names: an environment
+// string ends at the first NUL, so a value holding one arrives at the generator
+// silently truncated, which is the same failure as a truncated name and just as
+// invisible in every diagnostic printed afterwards. Guarding one half and
+// documenting the other as unexamined would have been asymmetric by accident
+// rather than on purpose.
+//
+// It costs the mirroring stance nothing, which is what makes it safe to have: a
+// value carrying NUL is not a value cpybkc could have been started with either,
+// so this refuses no run the CLI performs. That is the whole test a check out
+// here has to pass.
+//
+// `=` is deliberately not refused. It is a name's problem and not a value's —
+// an environment string is split at the *first* one, so everything after that is
+// value by definition, and `LDFLAGS=-X main.version=v1` is an ordinary thing to
+// want to set.
+func CheckValue(name, value string) error {
+	if strings.ContainsRune(value, 0) {
+		return fmt.Errorf(
+			"the value given for %s contains a NUL byte: an environment string ends at the first one, so the "+
+				"generator would be handed %q rather than what was stated here",
+			name, value[:strings.IndexByte(value, 0)])
+	}
+
+	return nil
+}

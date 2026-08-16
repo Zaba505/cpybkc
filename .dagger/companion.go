@@ -687,7 +687,7 @@ const (
 // failure mode "one of three generators disagreed" for a question none of them
 // can answer.
 const envProbeManifestBody = `{
-  "layout": "ledger.sexpr",
+  "layout": "` + exampleLayout + `",
   "generators": [
     {
       "name": "` + envProbeGenerator + `",
@@ -713,6 +713,20 @@ const envProbeManifestBody = `{
 // decision about what this check covers, and it should fail here loudly rather
 // than widen silently.
 var exampleCopybooks = []string{"header.cpy", "posting.cpy", "trailer.cpy"}
+
+// exampleLayout is the layout example/cpybkc.json names, and the one
+// [envProbeManifestBody] names beside it.
+//
+// It is a constant rather than a literal inside that manifest for
+// [exampleCopybooks]'s reason: it is a path that has to agree with a directory
+// this file does not own, and a rename over there should be one edit here rather
+// than a string somebody greps for. What it does *not* buy is a legible failure
+// — a layout this manifest cannot find fails the generation, which
+// [Cpybkc.checkEnvVariable] reports as the variable most likely not having
+// reached the generator. That misattribution is worth knowing about and is not
+// worth a check of its own: the run beside it, over the committed manifest,
+// fails on the same rename and says so plainly.
+const exampleLayout = "ledger.sexpr"
 
 // exampleInitVector is the hand-typed escape-hatch spelling of the same
 // scaffolding run, `--out -` and all.
@@ -1220,22 +1234,55 @@ func (m *Cpybkc) checkEnvVariable(ctx context.Context, platform dagger.Platform)
 			envProbeVariable, got, envProbeValue))
 	}
 
-	// The same run without the builder. It has to fail, and what fails is the
-	// generator: anything else passing here would mean this check's positive
-	// case was reading a variable the engine supplied rather than one the module
-	// did.
+	// The same run without the builder. It has to fail, and it has to fail *in
+	// the generator*: this is the half whose job is to falsify the half above,
+	// so "it failed" is not the fact this needs and "the generator refused it"
+	// is. A run that failed because the manifest name was wrong, the probe would
+	// not build or the example's layout moved satisfies "an error came back"
+	// exactly as well — and it would do so in the same pull request that made
+	// the positive case fail for that reason, reporting it as the variable not
+	// having arrived. The probe's refusal names the variable, which is what makes
+	// the two distinguishable from out here.
 	_, err = composed.
 		Generate(project, dagger.CompanionGenerateOpts{Manifest: envProbeManifest}).
 		Entries(ctx)
-	if err == nil {
+
+	switch {
+	case err == nil:
 		errs = append(errs, fmt.Errorf(
 			"generate without with-env-variable succeeded, and it must not: the generator refuses a run in which "+
 				"%s is unset, so a run that succeeded was started with that variable from somewhere other than the "+
 				"module — which would leave the case above passing on a builder that did nothing",
 			envProbeVariable))
+	case !strings.Contains(failure(err), envProbeVariable):
+		errs = append(errs, fmt.Errorf(
+			"generate without with-env-variable failed without the generator's refusal of %s in what came back, so "+
+				"this run did not get as far as a generator and falsified nothing — what it said was: %s: %w",
+			envProbeVariable, failure(err), err))
 	}
 
 	return errors.Join(errs...)
+}
+
+// failure is everything a failed call said, including the standard streams of
+// the exec that failed.
+//
+// It exists because a [dagger.ExecError]'s message is not what a reader of it
+// expects: Error() reports that the command exited non-zero and the process's
+// own output is carried in fields beside it. So a check asking *what did the
+// program say* has to look there, and one that matched on the message alone
+// would find nothing — which is not a difference between "it did not say that"
+// and "it said nothing", and reads as the first while being the second.
+//
+// Measured rather than assumed: [Cpybkc.checkEnvVariable]'s falsification of its
+// own negative case failed exactly this way before this function existed.
+func failure(err error) string {
+	var exec *dagger.ExecError
+	if errors.As(err, &exec) {
+		return strings.Join([]string{err.Error(), exec.Stdout, exec.Stderr}, "\n")
+	}
+
+	return err.Error()
 }
 
 // envProbeBinary builds the generator [Cpybkc.checkEnvVariable] composes, for

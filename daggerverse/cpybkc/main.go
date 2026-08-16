@@ -702,9 +702,22 @@ func (m *Cpybkc) WithGeneratorExecutable(
 // takes the second value — a container's environment is a mapping, and the last
 // write to a key wins.
 //
-// The name is checked for the two shapes that are not a name in any environment
-// (empty, or carrying `=` or NUL); nothing else about it is this module's
-// business, and the value is not examined at all. See internal/env.
+// One variable is worth naming, because its failure lands a long way from the
+// call that caused it. PATH is how the CLI finds a generator, and in a composed
+// image it is the plugin directory WithGenerator installed into — so a caller
+// who states PATH here is overwriting an arrangement this module made, and the
+// symptom is a generation failing with cpybkc reporting that a generator the
+// manifest plainly names cannot be found. That is not a reason to refuse the
+// name: a module deciding which variables may reach a generator is what the
+// section above rejects, and the same is true of anything else the image's
+// entrypoint depends on. It is a reason to say so here, so that a caller who
+// does it can recognise what they did.
+//
+// The name is checked for the shapes that are not a name in any environment
+// (empty, or carrying `=` or NUL) and the value for the one shape that is not a
+// value in any environment (NUL, which truncates the string it is in). Nothing
+// else about either is this module's business — in particular a value may
+// contain `=`. See internal/env.
 func (m *Cpybkc) WithEnvVariable(
 	// The variable's name, as a generator would read it — SOURCE_DATE_EPOCH for
 	// the reproducible timestamp that is this function's reason to exist.
@@ -716,6 +729,10 @@ func (m *Cpybkc) WithEnvVariable(
 	value string,
 ) (*Cpybkc, error) {
 	if err := env.CheckName(name); err != nil {
+		return nil, err
+	}
+
+	if err := env.CheckValue(name, value); err != nil {
 		return nil, err
 	}
 

@@ -143,6 +143,37 @@ func TestParseRefusesWhatTheContractDoesNotAllow(t *testing.T) {
 			want:     "k=v",
 		},
 		{
+			// Distinct from the option being absent: it was written, and what
+			// it names is nothing. A message saying it is required would send
+			// its reader looking for a line that is in front of them.
+			testName: "the variable option with an empty value",
+			args:     vector("/descriptor", "/out", variableOption+"="),
+			want:     "names no variable",
+		},
+		{
+			// The arity the messages claim, now enforced. cpybkc emits each of
+			// these exactly once, and a fixture that quietly kept the last of
+			// several would be wrong about the contract it exists to be right
+			// about.
+			testName: "a repeated out",
+			args:     []string{descriptorFlag, "/descriptor", outFlag, "/a", outFlag, "/b"},
+			want:     "exactly once",
+		},
+		{
+			testName: "a repeated descriptor",
+			args:     []string{descriptorFlag, "/a", descriptorFlag, "/b", outFlag, "/out"},
+			want:     "exactly once",
+		},
+		{
+			// The one the arity check used to answer wrongly: an argument this
+			// program does not take, in final position, read as a flag missing
+			// its value. The message has to name the typo rather than send its
+			// reader looking for a value.
+			testName: "an unrecognised argument in final position",
+			args:     append(vector("/descriptor", "/out", variableOption+"=X"), "--bogus"),
+			want:     "unrecognised argument",
+		},
+		{
 			// The joined form, which a plugin MAY accept and cpybkc never
 			// emits. Refusing it keeps this fixture covering exactly the
 			// spelling the thing it checks produces.
