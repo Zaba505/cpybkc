@@ -517,7 +517,7 @@ func TestARecordNameInTheRegisterTableIsEscapedAsMarkdown(t *testing.T) {
 
 	// The row is still one row: an unescaped `|` would have made it three
 	// columns of something else.
-	for _, line := range strings.Split(written, "\n") {
+	for line := range strings.SplitSeq(written, "\n") {
 		if !strings.HasPrefix(line, "| r20 ") {
 			continue
 		}
@@ -944,7 +944,12 @@ func edgeNode(id, admits, to uint64, predicate *uint64, guards, bindings []uint6
 // predicateAt is a transition's predicate reference, which is the one reference
 // in the schema absence is a meaning for — so it is a pointer and never a
 // sentinel, because zero is an ordinary identifier.
-func predicateAt(id uint64) *uint64 { return &id }
+//
+// Kept rather than inlined to `new(expr)`: all twenty-odd call sites pass an
+// untyped constant, so inlining spells each one `new(uint64(50))` — twenty
+// conversions bought with the name that says which of a transition's several
+// identifiers this one is.
+func predicateAt(id uint64) *uint64 { return &id } //nolint:modernize // named on purpose; see above
 
 // equalPredicate and oneOfPredicate are the two members of the predicate set.
 func equalPredicate(id, field uint64, value string) *irpb.Node {

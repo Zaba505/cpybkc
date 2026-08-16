@@ -94,13 +94,7 @@ func (a Axis) Values() []string {
 
 // admits reports whether value is one the axis takes.
 func (a Axis) admits(value string) bool {
-	for _, admitted := range a.Values() {
-		if admitted == value {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(a.Values(), value)
 }
 
 // Charset is a character set the charset axis admits.

@@ -292,7 +292,12 @@ func edge(id, record, next uint64, predicate *uint64, guards, bindings []uint64)
 
 // predicateOn is a transition's predicate reference, which is the one reference
 // in the schema absence is a meaning for.
-func predicateOn(id uint64) *uint64 { return &id }
+//
+// Kept rather than inlined to `new(expr)`: every call site passes an untyped
+// constant, so inlining spells each one `new(uint64(50))` — which is the naming
+// of the pointer traded for a conversion, in the one place a reader is checking
+// that a present reference and an absent one are told apart.
+func predicateOn(id uint64) *uint64 { return &id } //nolint:modernize // named on purpose; see above
 
 // counter is an integer register and flag is a bytes one.
 func counter(id uint64) *irpb.Node {

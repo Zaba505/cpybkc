@@ -1381,7 +1381,7 @@ func (m *Cpybkc) checkShippedIr(ctx context.Context, image *dagger.Container) []
 func buildSettings(out string) map[string]string {
 	settings := map[string]string{}
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 || fields[0] != "build" {
 			continue
@@ -1599,7 +1599,7 @@ func (m *Cpybkc) checkImageContents(
 	var errs []error
 
 	got := make(map[string]imageEntry, len(want))
-	for _, line := range strings.Split(strings.TrimSpace(listing), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(listing), "\n") {
 		if line == "" {
 			continue
 		}

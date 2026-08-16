@@ -21,9 +21,9 @@ import (
 // single path element named "internal" anywhere in it puts the IR out of reach
 // of the third-party generators it exists for.
 func TestImportPathHasNoInternalElement(t *testing.T) {
-	pkgPath := reflect.TypeOf((*irpb.Descriptor)(nil)).Elem().PkgPath()
+	pkgPath := reflect.TypeFor[irpb.Descriptor]().PkgPath()
 
-	for _, elem := range strings.Split(pkgPath, "/") {
+	for elem := range strings.SplitSeq(pkgPath, "/") {
 		if elem == "internal" {
 			t.Fatalf("IR package %q is unimportable from outside this module: no element of its import path may be %q", pkgPath, "internal")
 		}

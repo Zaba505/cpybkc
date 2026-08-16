@@ -234,7 +234,7 @@ func fencedBlock(t *testing.T, body string) string {
 		open  bool
 	)
 
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			if open {
 				return strings.Join(block, "\n")

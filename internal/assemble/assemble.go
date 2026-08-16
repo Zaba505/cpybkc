@@ -9,7 +9,6 @@ import (
 	"math"
 
 	"github.com/Zaba505/cobol-go/copybook"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
@@ -379,7 +378,7 @@ func (a *assembler) recordName(record Record) *irpb.Names {
 
 	names := &irpb.Names{Original: field.Name}
 	if substitute, renamed := a.recordSubstitutes[record.Name]; renamed {
-		names.OverrideName = proto.String(substitute)
+		names.OverrideName = new(substitute)
 	}
 
 	return names
@@ -524,7 +523,7 @@ func (a *assembler) names(s *scope, field *copybook.Field) *irpb.Names {
 
 	names := &irpb.Names{Original: field.Name}
 	if substitute, renamed := a.renames[renameKey{record: s.name, item: field}]; renamed {
-		names.OverrideName = proto.String(substitute)
+		names.OverrideName = new(substitute)
 	}
 
 	return names

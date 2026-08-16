@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -269,12 +270,10 @@ func assign(field *string, key, value string, admitted ...string) error {
 		return fmt.Errorf("%s %s was passed more than once", optFlag, key)
 	}
 
-	for _, one := range admitted {
-		if value == one {
-			*field = value
+	if slices.Contains(admitted, value) {
+		*field = value
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%s=%q is not a value this generator takes; it takes %s",

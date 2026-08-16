@@ -211,8 +211,8 @@ var grammarValues = map[string]grammarValue{
 	"table-none":      {node: 155, value: []string{}},
 	"table-of-groups": {node: 157, value: []grammarLine{{LineSKU: "SK1"}, {LineSKU: "SK2"}}},
 
-	"variant-arm-held":   {node: 159, value: grammarRecord{Before: 1, Num: grammarNum(2), After: 3}},
-	"variant-arm-absent": {node: 159, value: grammarRecord{Before: 1, Text: grammarString("XX"), After: 3}},
+	"variant-arm-held":   {node: 159, value: grammarRecord{Before: 1, Num: new(int32(2)), After: 3}},
+	"variant-arm-absent": {node: 159, value: grammarRecord{Before: 1, Text: new("XX"), After: 3}},
 }
 
 // grammarDocuments is what every row of GRAMMAR.md's "A record and a document"
@@ -279,10 +279,6 @@ var grammarRefusals = map[string]bool{
 	"bytes-not-canonical":      true,
 	"text-trailing-space-kept": true,
 }
-
-func grammarNum(n int32) *int32 { return &n }
-
-func grammarString(s string) *string { return &s }
 
 // TestTheWriterWritesEveryGrammarRow holds this repository's writer to
 // docs/conformance/GRAMMAR.md: for every row of every value table, the value
@@ -680,7 +676,7 @@ func grammarWritten(t *testing.T) map[string]string {
 
 	rows := map[string]string{}
 
-	for _, line := range strings.Split(grammarText(t), "\n") {
+	for line := range strings.SplitSeq(grammarText(t), "\n") {
 		cells := grammarCells(line)
 		if len(cells) != 3 || !grammarRowID.MatchString(cells[0]) {
 			continue
@@ -709,7 +705,7 @@ func grammarNotAdmissible(t *testing.T) map[string]grammarNotAdmissibleRow {
 
 	rows := map[string]grammarNotAdmissibleRow{}
 
-	for _, line := range strings.Split(grammarText(t), "\n") {
+	for line := range strings.SplitSeq(grammarText(t), "\n") {
 		cells := grammarCells(line)
 		if len(cells) != 4 || !grammarRowID.MatchString(cells[0]) {
 			continue
@@ -734,7 +730,7 @@ func grammarCells(line string) []string {
 	}
 
 	var cells []string
-	for _, cell := range strings.Split(strings.Trim(line, "|"), "|") {
+	for cell := range strings.SplitSeq(strings.Trim(line, "|"), "|") {
 		cells = append(cells, strings.TrimSpace(cell))
 	}
 

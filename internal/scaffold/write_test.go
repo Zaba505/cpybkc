@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,22 +61,12 @@ func leftovers(t *testing.T, dir string, expected ...string) []string {
 	var found []string
 
 	for _, entry := range entries {
-		if !contains(expected, entry.Name()) {
+		if !slices.Contains(expected, entry.Name()) {
 			found = append(found, entry.Name())
 		}
 	}
 
 	return found
-}
-
-func contains(names []string, name string) bool {
-	for _, each := range names {
-		if each == name {
-			return true
-		}
-	}
-
-	return false
 }
 
 func TestAFreeDestinationIsWrittenInFull(t *testing.T) {

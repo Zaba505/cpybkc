@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/irpb"
 )
@@ -321,7 +319,7 @@ func TestASignedComp6FieldIsRefused(t *testing.T) {
 // copybook it came from.
 func TestAnOverrideWithNoOriginalIsRefused(t *testing.T) {
 	d := valid()
-	node(t, d, 3).GetField().Names = &irpb.Names{OverrideName: proto.String("kind")}
+	node(t, d, 3).GetField().Names = &irpb.Names{OverrideName: new("kind")}
 
 	refused(t, d, "carries an override and no original name")
 }
@@ -422,7 +420,7 @@ func TestAPredicateCarriesATestOverBytes(t *testing.T) {
 		t.Helper()
 
 		d := valid()
-		node(t, d, 5).GetTransition().PredicateId = proto.Uint64(6)
+		node(t, d, 5).GetTransition().PredicateId = new(uint64(6))
 		d.Nodes = append(d.GetNodes(), &irpb.Node{Id: 6, Kind: &irpb.Node_Predicate{Predicate: test}})
 
 		return d

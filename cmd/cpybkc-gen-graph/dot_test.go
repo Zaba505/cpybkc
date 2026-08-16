@@ -100,7 +100,7 @@ func TestAnEdgeLabelIsOneLeftJustifiedLinePerSection(t *testing.T) {
 	// `\n` centres the line it ends and `\l` left-justifies it, so a label that
 	// broke its lines the other way would draw a ragged sentence with no left
 	// edge — which is the shape being avoided.
-	for _, line := range strings.Split(written, "\n") {
+	for line := range strings.SplitSeq(written, "\n") {
 		if strings.Contains(line, "[label=") && strings.Contains(line, `\n`) {
 			t.Errorf("the label %q breaks a line with a centring escape", line)
 		}
@@ -199,7 +199,7 @@ func TestTheRecordTablesAreClusteredAndNothingRunsIntoThem(t *testing.T) {
 	// it was written; a cell naming one is the register table's third column,
 	// which says the edges in words and is the whole reason there is no need to
 	// draw them.
-	for _, line := range strings.Split(written, "\n") {
+	for line := range strings.SplitSeq(written, "\n") {
 		if !strings.Contains(line, " -> ") || strings.Contains(line, "<TD>") {
 			continue
 		}

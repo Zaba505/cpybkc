@@ -446,7 +446,7 @@ func TestEveryDiagnosticLineCarriesASeverity(t *testing.T) {
 
 	diagnostics, _, _ := strings.Cut(stderr, "\n\n")
 
-	for _, line := range strings.Split(strings.TrimRight(diagnostics, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(diagnostics, "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(line, continuationIndent):
 			// A continuation line carries no severity of its own, and the

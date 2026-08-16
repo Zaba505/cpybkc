@@ -563,7 +563,7 @@ func wrapped(text string, at int) []string {
 		wide  int
 	)
 
-	for _, word := range strings.Fields(text) {
+	for word := range strings.FieldsSeq(text) {
 		runes := utf8.RuneCountInString(word)
 
 		switch {

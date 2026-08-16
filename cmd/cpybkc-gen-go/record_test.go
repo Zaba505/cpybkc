@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/Zaba505/cpybkc/irpb"
 )
 
@@ -1271,7 +1269,7 @@ func ordersDescriptor() *irpb.Descriptor {
 			// a framing stating a record's length has a predicate to bound:
 			// a target outside the record the framing bounds does not match.
 			{Id: 92, Kind: &irpb.Node_Transition{Transition: &irpb.Transition{
-				RecordId: 40, NextStateId: 5, PredicateId: proto.Uint64(95),
+				RecordId: 40, NextStateId: 5, PredicateId: new(uint64(95)),
 			}}},
 			equals(95, 42, "\xe8"),
 
@@ -1377,7 +1375,7 @@ func ordersDescriptor() *irpb.Descriptor {
 // renamed is a node the layout gave a substitute name for, which is the name
 // this generator munges into an identifier.
 func renamed(node *irpb.Node, override string) *irpb.Node {
-	namesOf(node).OverrideName = proto.String(override)
+	namesOf(node).OverrideName = new(override)
 
 	return node
 }

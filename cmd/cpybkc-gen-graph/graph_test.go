@@ -686,7 +686,7 @@ func transitionNode(id, admits, to uint64) *irpb.Node {
 func recordNode(id uint64, original, override string) *irpb.Node {
 	names := &irpb.Names{Original: original}
 	if override != "" {
-		names.OverrideName = proto.String(override)
+		names.OverrideName = new(override)
 	}
 
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Record{Record: &irpb.Record{

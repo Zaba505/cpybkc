@@ -51,7 +51,11 @@ func owner(t *testing.T, path string) Owner {
 // umask is a mask to hand a [Runner], stated rather than read: the process's own
 // is a process-wide setting, and a test that moved it would move it for every
 // other test running beside it.
-func umask(mask fs.FileMode) *fs.FileMode { return &mask }
+//
+// Kept rather than inlined to `new(expr)`: its other call site passes an untyped
+// constant, which `new` cannot take without a conversion, so inlining would
+// leave `new(test.mask)` beside `new(fs.FileMode(0o022))` for the same idea.
+func umask(mask fs.FileMode) *fs.FileMode { return &mask } //nolint:modernize // named on purpose; see above
 
 // tight is a generator that writes under a umask of its own, so that what lands
 // in the project's tree is visibly not what the plugin created.
@@ -98,7 +102,7 @@ func TestTheModesAreThisRunsRatherThanThePlugins(t *testing.T) {
 			t.Parallel()
 
 			r := runner(t)
-			r.Umask = umask(test.mask)
+			r.Umask = umask(test.mask) //nolint:modernize // [umask] is kept, so its call sites are too
 
 			out := filepath.Join(t.TempDir(), "project", "gen")
 

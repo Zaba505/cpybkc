@@ -704,7 +704,7 @@ func frames(t *testing.T, path string) []string {
 
 	var sent []string
 
-	for _, line := range strings.Split(transcript(t, path), "\n") {
+	for line := range strings.SplitSeq(transcript(t, path), "\n") {
 		if line != "" {
 			sent = append(sent, line)
 		}

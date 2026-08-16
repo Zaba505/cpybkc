@@ -517,8 +517,8 @@ func instructions(lines []string) []string {
 		if current == "" && (trimmed == "" || strings.HasPrefix(trimmed, "#")) {
 			continue
 		}
-		if strings.HasSuffix(trimmed, `\`) {
-			current += strings.TrimSuffix(trimmed, `\`) + " "
+		if before, ok := strings.CutSuffix(trimmed, `\`); ok {
+			current += before + " "
 			continue
 		}
 		out = append(out, current+trimmed)
