@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -380,11 +381,12 @@ const runFunction = "Run"
 //
 // It is not the CLI's surface, and the mirroring stance is what makes the
 // difference matter. This check reads flag *constants*, so a capability the CLI
-// has that is not spelled as a flag is invisible to it by construction — and
-// there is one today: cpybkc passes its whole environment through to a generator,
-// which is how docs/plugin/SPEC.md propagates SOURCE_DATE_EPOCH, and the
-// companion module has no way to state an environment at all (#252). No check in
-// this repository noticed, and none could have.
+// has that is not spelled as a flag is invisible to it by construction — and one
+// was missing for exactly that reason: cpybkc passes its whole environment
+// through to a generator, which is how docs/plugin/SPEC.md propagates
+// SOURCE_DATE_EPOCH, and the companion module had no way to state an environment
+// at all until #252 added with-env-variable. No check in this repository
+// noticed, and none could have.
 //
 // So the honest answer to how a non-flag capability is caught is that it is
 // caught by a person, at the document that promises it: a change to
@@ -392,6 +394,16 @@ const runFunction = "Run"
 // flag is answered in the companion module in the same review, and CONTRIBUTING.md
 // says so where the stance is argued. That is a weaker guarantee than this check
 // and it is stated as one rather than dressed up.
+//
+// What #252 adds to that answer is the second half, and it is the half a
+// mechanical check would not have given either: a capability that arrives this
+// way is covered afterwards by a *run* rather than by a reading.
+// [Cpybkc.checkEnvVariable] drives with-env-variable end to end and requires the
+// value to come back out of a generator process, so the module losing it again
+// fails CI even though nothing here can see it. The rule that follows is the one
+// worth writing down: a person answers the document, and what they add to this
+// pipeline is a call in CompanionModule, because the table below can only ever
+// hold flags.
 //
 // The mechanical version was considered and is not worth having. Anything that
 // could notice "docs/cli/SPEC.md changed" is a check comparing a document against
@@ -591,7 +603,102 @@ const (
 	// way round: that path is documented behaviour of the escape hatch, and this
 	// is the only place in this repository that depends on it.
 	emitIRDescriptorPath = "/src/.cpybkc-descriptor-check"
+
+	// envProbePackage builds the generator [Cpybkc.checkEnvVariable] composes,
+	// and envProbeExecutable is what the build calls it.
+	//
+	// It is internal/tools/ rather than cmd/, because it is a fixture rather
+	// than something a release publishes: it generates nothing anybody wants and
+	// exists to report the environment it was started with. Its own package
+	// comment carries the rest of the argument, including why the two-line shell
+	// generator internal/plugin's tests use cannot be composed into a scratch
+	// image.
+	//
+	// The name it is *installed* under is not this constant. with-generator-executable
+	// renames whatever it is handed to cpybkc-gen-<name>, which is the mechanism
+	// rather than a liberty, so what matters here is only what the build
+	// artifact is called on the way through.
+	envProbePackage    = "./internal/tools/cpybkc-gen-env"
+	envProbeExecutable = "cpybkc-gen-env"
+
+	// envProbeGenerator is the name example's stand-in manifest asks the probe
+	// for, and envProbeOut is the directory that manifest has it write into.
+	envProbeGenerator = "env"
+	envProbeOut       = "env"
+
+	// envProbeValueFile is what the probe writes under its output directory, and
+	// this is the second spelling of that filename.
+	//
+	// The first is internal/tools/cpybkc-gen-env's valueFile, and the two are in
+	// Go modules that cannot import each other — the same arrangement
+	// generatorRepository and daggerverse/cpybkc's generator.Repository are in.
+	// It is pinned at the other end by that package's tests, and a disagreement
+	// here fails this check on a file that is not there rather than passing
+	// quietly.
+	envProbeValueFile = "value"
+
+	// envProbeManifest is the manifest [Cpybkc.checkEnvVariable] adds to the
+	// worked example, and it is added rather than substituted for cpybkc.json so
+	// that the committed manifest keeps saying what the rest of this check
+	// asserts about it.
+	envProbeManifest = "cpybkc-env-probe.json"
+
+	// envProbeVariable and envProbeValue are what the check states through
+	// with-env-variable and requires to come back out of the generator.
+	//
+	// SOURCE_DATE_EPOCH rather than a variable of this check's own, because it is
+	// the one docs/plugin/SPEC.md says legitimately reaches a generator and
+	// changes its output, and the promise #252 was about is the one made for it.
+	// The builder takes any name, and that this one is not special to it is
+	// asserted where the rule is — daggerverse/cpybkc's internal/env tests.
+	//
+	// The value is a plausible epoch rather than a nonsense string, so that a
+	// person reading a failure is reading the thing a build would really set.
+	envProbeVariable = "SOURCE_DATE_EPOCH"
+	envProbeValue    = "1700000000"
+
+	// exampleRecordName is the record of what the last run generated, which
+	// [Cpybkc.checkEnvVariable] drops before generating with a manifest of its
+	// own.
+	//
+	// A literal rather than internal/generate's RecordName: this is a separate
+	// Go module and that package is internal to the other one, so the constant
+	// cannot be imported however much both would like it to be. It is the same
+	// arrangement generatorRepository is in, and it is safe in the same weak way
+	// — a name that disagreed would leave the record in place, which prunes the
+	// example's generated trees inside a Directory nothing exports rather than
+	// changing what this check asserts.
+	exampleRecordName = "cpybkc.gen.json"
 )
+
+// envProbeManifestBody is the stand-in manifest: the worked example's layout,
+// and the probe as its only generator.
+//
+// The example's own layout rather than one written here, because the point of
+// running against example/ is that the inputs are real — three copybooks, a
+// discriminated union and a redefine — and a manifest naming a layout of this
+// check's own would be a smaller project that happened to run a generator. The
+// probe reports the environment whatever it was handed, so what this run
+// resolves is not what is being asserted; that it is a real resolution is what
+// keeps the assertion about a generation rather than about an exec.
+//
+// One generator rather than three. The two the example publishes are covered by
+// the tree comparisons above, and adding them here would make this check's
+// failure mode "one of three generators disagreed" for a question none of them
+// can answer.
+const envProbeManifestBody = `{
+  "layout": "` + exampleLayout + `",
+  "generators": [
+    {
+      "name": "` + envProbeGenerator + `",
+      "out": "` + envProbeOut + `",
+      "options": {
+        "variable": "` + envProbeVariable + `"
+      }
+    }
+  ]
+}
+`
 
 // exampleCopybooks are the copybooks in [companionExampleDir], as the paths a
 // person would type them, and they are all three of them.
@@ -606,6 +713,20 @@ const (
 // decision about what this check covers, and it should fail here loudly rather
 // than widen silently.
 var exampleCopybooks = []string{"header.cpy", "posting.cpy", "trailer.cpy"}
+
+// exampleLayout is the layout example/cpybkc.json names, and the one
+// [envProbeManifestBody] names beside it.
+//
+// It is a constant rather than a literal inside that manifest for
+// [exampleCopybooks]'s reason: it is a path that has to agree with a directory
+// this file does not own, and a rename over there should be one edit here rather
+// than a string somebody greps for. What it does *not* buy is a legible failure
+// — a layout this manifest cannot find fails the generation, which
+// [Cpybkc.checkEnvVariable] reports as the variable most likely not having
+// reached the generator. That misattribution is worth knowing about and is not
+// worth a check of its own: the run beside it, over the committed manifest,
+// fails on the same rename and says so plainly.
+const exampleLayout = "ledger.sexpr"
 
 // exampleInitVector is the hand-typed escape-hatch spelling of the same
 // scaffolding run, `--out -` and all.
@@ -748,6 +869,12 @@ var exampleEmitIRRuns = []struct {
 // escape hatch writes over the same project, in every encoding — see
 // [Cpybkc.checkEmitIR].
 //
+// And with-env-variable (#252), which is the one function here whose subject is
+// not a flag: CliSurface reads flag constants and cannot see a capability that
+// is not spelled as one, so this is where the module's obligation to mirror the
+// CLI's environment pass-through is held to anything at all — see
+// [Cpybkc.checkEnvVariable].
+//
 // Both compositions start from the base image this pipeline built, which carries
 // the CLI and no generator — so a generation that succeeded did so with the
 // generators these calls installed and not with something that was lying around
@@ -853,6 +980,10 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	}
 
 	if err := m.checkEmitIR(ctx, platform); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := m.checkEnvVariable(ctx, platform); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -1030,6 +1161,147 @@ func (m *Cpybkc) checkEmitIR(ctx context.Context, platform dagger.Platform) erro
 	}
 
 	return errors.Join(errs...)
+}
+
+// checkEnvVariable requires a variable stated through with-env-variable to reach
+// the generator process, over [companionExampleDir]'s inputs (#252).
+//
+// # Why the generator has to be the one to say so
+//
+// This is a pass-through with three hops in it — the module sets the variable on
+// a container, the container starts cpybkc with it, and cpybkc hands its own
+// environment to each generator unchanged (docs/plugin/SPEC.md, "The
+// environment") — and only the last one is what the promise is about. Reading the
+// variable back off the composed container would assert the first hop and look
+// like a check; a module that set it on a container it then did not run cpybkc
+// in, or a CLI that scrubbed its environment before an exec, would pass it. So
+// the assertion is made by the process at the far end: the generator writes what
+// it was started with, and this compares that file.
+//
+// # Both directions, because one of them is not evidence
+//
+// The negative case is the half that makes the positive one mean anything. A
+// Dagger engine's containers carry an environment of their own, so a check that
+// only ran *with* with-env-variable would pass on a module whose builder did
+// nothing if the variable happened to be set somewhere upstream. The same
+// generation without the builder therefore has to **fail**, and it fails in the
+// generator rather than in this check: the probe refuses a variable it was not
+// started with, which is a diagnostic and a non-zero exit, which is a failed run.
+//
+// # Against the worked example, and with a manifest of its own
+//
+// The example's copybooks and layout, because that is the tree the rest of this
+// check drives and a smaller project of this check's own would be a second, less
+// real answer to what a generation is. What is not the example's is the manifest:
+// this run generates with the probe and nothing else, so it names a manifest
+// added beside the committed one rather than replacing it — the committed
+// cpybkc.json is what every other comparison here rests on, and a check that
+// edited it would be checking a project no adopter has.
+//
+// [exampleRecordName] is dropped from the tree for the same reason: the record
+// of what the last run generated belongs to the committed manifest's generators,
+// and leaving it would have this run prune the example's generated trees on its
+// way past. Nothing of the caller's is at risk either way — a Directory is a
+// value and nothing is exported — but a run that pruned would make the failure
+// of a later comparison depend on the order these checks happened to run in.
+func (m *Cpybkc) checkEnvVariable(ctx context.Context, platform dagger.Platform) error {
+	project := m.Source.Directory(companionExampleDir).
+		WithoutFile(exampleRecordName).
+		WithNewFile(envProbeManifest, envProbeManifestBody)
+
+	// One composition, built once and used for both runs, so that the two differ
+	// in exactly the thing being asserted and not in how the generator arrived.
+	composed := m.companion(platform).
+		WithGeneratorExecutable(envProbeGenerator, m.envProbeBinary(platform))
+
+	stated := composed.
+		WithEnvVariable(envProbeVariable, envProbeValue).
+		Generate(project, dagger.CompanionGenerateOpts{Manifest: envProbeManifest})
+
+	var errs []error
+
+	got, err := stated.File(path.Join(envProbeOut, envProbeValueFile)).Contents(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf(
+			"generate with %s stated through with-env-variable did not hand back what the generator wrote at %s: "+
+				"the generator refuses a variable it was not started with, so this is most likely the variable not "+
+				"having reached it: %w",
+			envProbeVariable, path.Join(envProbeOut, envProbeValueFile), err))
+	} else if got != envProbeValue {
+		errs = append(errs, fmt.Errorf(
+			"the generator was started with %s=%q where with-env-variable stated %q: the value reaches a generator "+
+				"as cpybkc's own environment does, unchanged",
+			envProbeVariable, got, envProbeValue))
+	}
+
+	// The same run without the builder. It has to fail, and it has to fail *in
+	// the generator*: this is the half whose job is to falsify the half above,
+	// so "it failed" is not the fact this needs and "the generator refused it"
+	// is. A run that failed because the manifest name was wrong, the probe would
+	// not build or the example's layout moved satisfies "an error came back"
+	// exactly as well — and it would do so in the same pull request that made
+	// the positive case fail for that reason, reporting it as the variable not
+	// having arrived. The probe's refusal names the variable, which is what makes
+	// the two distinguishable from out here.
+	_, err = composed.
+		Generate(project, dagger.CompanionGenerateOpts{Manifest: envProbeManifest}).
+		Entries(ctx)
+
+	switch {
+	case err == nil:
+		errs = append(errs, fmt.Errorf(
+			"generate without with-env-variable succeeded, and it must not: the generator refuses a run in which "+
+				"%s is unset, so a run that succeeded was started with that variable from somewhere other than the "+
+				"module — which would leave the case above passing on a builder that did nothing",
+			envProbeVariable))
+	case !strings.Contains(failure(err), envProbeVariable):
+		errs = append(errs, fmt.Errorf(
+			"generate without with-env-variable failed without the generator's refusal of %s in what came back, so "+
+				"this run did not get as far as a generator and falsified nothing — what it said was: %s: %w",
+			envProbeVariable, failure(err), err))
+	}
+
+	return errors.Join(errs...)
+}
+
+// failure is everything a failed call said, including the standard streams of
+// the exec that failed.
+//
+// It exists because a [dagger.ExecError]'s message is not what a reader of it
+// expects: Error() reports that the command exited non-zero and the process's
+// own output is carried in fields beside it. So a check asking *what did the
+// program say* has to look there, and one that matched on the message alone
+// would find nothing — which is not a difference between "it did not say that"
+// and "it said nothing", and reads as the first while being the second.
+//
+// Measured rather than assumed: [Cpybkc.checkEnvVariable]'s falsification of its
+// own negative case failed exactly this way before this function existed.
+func failure(err error) string {
+	var exec *dagger.ExecError
+	if errors.As(err, &exec) {
+		return strings.Join([]string{err.Error(), exec.Stdout, exec.Stderr}, "\n")
+	}
+
+	return err.Error()
+}
+
+// envProbeBinary builds the generator [Cpybkc.checkEnvVariable] composes, for
+// the platform the composition is for.
+//
+// No version stamp, unlike [Cpybkc.generatorBinary]: nothing asks this generator
+// which build it is, and a -X naming a variable that does not exist is silently
+// dropped, so passing one would be a line in this recipe that does nothing and
+// read as though it did.
+func (m *Cpybkc) envProbeBinary(platform dagger.Platform) *dagger.File {
+	return dag.Go().
+		Build(m.appSource(), dagger.GoBuildOpts{
+			Pkg:          envProbePackage,
+			ArtifactName: envProbeExecutable,
+			Trimpath:     true,
+			DisableCgo:   true,
+			Platform:     string(platform),
+		}).
+		File(envProbeExecutable)
 }
 
 // companion is the module bound to the image this pipeline built, and it is the

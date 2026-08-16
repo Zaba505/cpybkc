@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Companion
-func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/cpybkc/main.go:328:6)
+func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/cpybkc/main.go:336:6)
 	q := r.query.Select("asCompanion")
 
 	return &Companion{
@@ -24,7 +24,7 @@ func (r *Binding) AsCompanion() *Companion { // companion (../../../daggerverse/
 // A function on it is a builder returning a new Cpybkc, a terminal that runs
 // something, or an accessor handing back what was resolved, so a call chain
 // reads as the image being assembled and then used; nothing here mutates.
-type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:328:6)
+type Companion struct { // companion (../../../daggerverse/cpybkc/main.go:336:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -62,7 +62,7 @@ type CompanionEmitIrOpts struct {
 	// because a manifest's own paths are relative to the directory holding it and
 	// a manifest arriving on a stream is in no directory.
 	//
-	Manifest string // companion (../../../daggerverse/cpybkc/main.go:871:2)
+	Manifest string // companion (../../../daggerverse/cpybkc/main.go:973:2)
 	//
 	// The encoding the descriptor is written in: `binary`, the canonical protobuf
 	// wire encoding a generator is handed, or `json`, the normalized rendering a
@@ -79,7 +79,7 @@ type CompanionEmitIrOpts struct {
 	// contract out here is one that drifts, and this one would drift the day a
 	// third encoding landed.
 	//
-	Format string // companion (../../../daggerverse/cpybkc/main.go:887:2)
+	Format string // companion (../../../daggerverse/cpybkc/main.go:989:2)
 }
 
 // EmitIr writes the run's resolved descriptor and hands back the file:
@@ -123,7 +123,7 @@ type CompanionEmitIrOpts struct {
 // emission and the format is its argument, so there is no call that names a
 // format without asking for one, and there is nothing left for the module to
 // check.
-func (r *Companion) EmitIr(source *Directory, opts ...CompanionEmitIrOpts) *File { // companion (../../../daggerverse/cpybkc/main.go:846:1)
+func (r *Companion) EmitIr(source *Directory, opts ...CompanionEmitIrOpts) *File { // companion (../../../daggerverse/cpybkc/main.go:948:1)
 	assertNotNil("source", source)
 	q := r.query.Select("emitIr")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -159,7 +159,7 @@ type CompanionGenerateOpts struct {
 	// cannot be "-": a manifest's own paths are relative to the directory holding
 	// it, and a manifest arriving on a stream is in no directory.
 	//
-	Manifest string // companion (../../../daggerverse/cpybkc/main.go:691:2)
+	Manifest string // companion (../../../daggerverse/cpybkc/main.go:793:2)
 }
 
 // Generate runs cpybkc over a project and hands back the project as it should
@@ -182,7 +182,7 @@ type CompanionGenerateOpts struct {
 // express half of what a run did. `generate --source . export --path .` is
 // therefore the ordinary use, and it is a full statement of the run rather than
 // an overlay that leaves deletions behind.
-func (r *Companion) Generate(source *Directory, opts ...CompanionGenerateOpts) *Directory { // companion (../../../daggerverse/cpybkc/main.go:668:1)
+func (r *Companion) Generate(source *Directory, opts ...CompanionGenerateOpts) *Directory { // companion (../../../daggerverse/cpybkc/main.go:770:1)
 	assertNotNil("source", source)
 	q := r.query.Select("generate")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -265,7 +265,7 @@ func (r *Companion) UnmarshalJSON(bs []byte) error {
 // none of the signatures or attestations one does (docs/container/SPEC.md, "What
 // a tag carries besides the image"), because those are attached to the digest
 // this project published and not to the bytes.
-func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpybkc/main.go:644:1)
+func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpybkc/main.go:746:1)
 	q := r.query.Select("image")
 
 	return &Container{
@@ -314,7 +314,7 @@ func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpyb
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  run --source . --args=init,--copybook,posting.cpy,--out,- stdout
-func (r *Companion) Init(source *Directory, copybook []string) *File { // companion (../../../daggerverse/cpybkc/main.go:749:1)
+func (r *Companion) Init(source *Directory, copybook []string) *File { // companion (../../../daggerverse/cpybkc/main.go:851:1)
 	assertNotNil("source", source)
 	q := r.query.Select("init")
 	q = q.Arg("source", source)
@@ -335,7 +335,7 @@ type CompanionRunOpts struct {
 	// contact nothing. With no source the container is the image as it was
 	// resolved, and cpybkc runs in whatever directory the image left it in.
 	//
-	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:1008:2)
+	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:1110:2)
 }
 
 // Run is the fallback: cpybkc invoked with an argument vector this module has no
@@ -381,7 +381,7 @@ type CompanionRunOpts struct {
 // unrecognised flag is, whether a flag may repeat and what a usage error exits
 // with are all docs/cli/SPEC.md's, and the exec's failure carries them back
 // verbatim.
-func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:995:1)
+func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:1097:1)
 	q := r.query.Select("run")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `source` optional argument
@@ -392,6 +392,90 @@ func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { //
 	q = q.Arg("args", args)
 
 	return &Container{
+		query: q,
+	}
+}
+
+// WithEnvVariable states one environment variable every run through this module
+// is started with, and therefore one every generator it starts is handed:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  with-env-variable --name SOURCE_DATE_EPOCH --value "$SOURCE_DATE_EPOCH" \
+//	  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+//	  generate --source . export --path .
+//
+// # The variable this exists for
+//
+// SOURCE_DATE_EPOCH, and the reason is a promise made elsewhere. cpybkc passes
+// its own environment through to a generator unchanged — it adds no variable,
+// removes none and names none — and that pass-through *is* how
+// docs/plugin/SPEC.md propagates the timestamp its determinism requirement rests
+// on (#47). A generator honouring it produces the same bytes on every run; a
+// build that has already set it for its other tools has set it for every
+// generator cpybkc runs. Until this function existed that sentence was false for
+// a build going through this module, and there was no way to make it true
+// without dropping out of the module to edit a container (#252) — which is not a
+// chain `dagger call` can express, so it meant an SDK program or nothing.
+//
+// # Any variable, rather than that one
+//
+// This takes a name and a value instead of a typed --source-date-epoch, which is
+// the wider of the two shapes #252 put up and the one the mirroring stance
+// settles on. The CLI has no flag for this: it reads its whole environment and
+// hands it on, so *the* capability to mirror is an environment and not a
+// timestamp (#253). A single typed argument would have been this module deciding
+// which variables may reach a generator, which is a reading of
+// docs/plugin/SPEC.md kept out here where it would drift — the same reason the
+// format argument passes an unknown encoding through to be refused by the parser
+// that decides them rather than screening it first.
+//
+// It also would not have been the narrower thing it looks like. A caller who
+// wants any other variable still has `image` and a container of their own; what
+// a typed argument buys is not that the door is shut but that the ordinary route
+// through it is missing, which is how a promise ends up kept for one variable and
+// broken for the build that needed a second.
+//
+// What the wide shape does *not* do is make the environment a place to configure
+// a generator. docs/cli/SPEC.md and docs/plugin/SPEC.md both forbid a plugin to
+// require a variable for its normal work — everything that configures its output
+// arrives as --opt, because the manifest is the reviewable record of how a
+// project's code was generated and a setting living in the environment is absent
+// from it. That prohibition binds generator authors and is unaffected by this
+// function: cpybkc has always passed the whole environment through, so the door
+// this opens is one the CLI already had, and a module refusing it would make a
+// generator no more compliant while making the mirror less honest.
+//
+// # Which runs it reaches, and which of them start a generator
+//
+// Every function on this module, because the variable is set on the container
+// they all run in rather than passed to one of them. That is the CLI's own
+// arrangement — cpybkc is started with an environment, not a command — and it is
+// stated here rather than left to fall out of the implementation.
+//
+// Generate is the one where it matters, because it is the one that starts a
+// generator. Init runs none at all (docs/cli/SPEC.md, "`init` reads no
+// manifest"), and EmitIr resolves none either, since an emission is terminal
+// ("Emitting replaces generation"); Run starts one exactly when the vector it was
+// handed asks for a generation. So on three of the four the variable reaches
+// cpybkc and stops there, which is what "the environment cpybkc was started with"
+// means and is why they are not carved out: a builder that refused to set a
+// variable for a run that would not have read it would be inventing a rule the
+// CLI does not have, and the caller would have to know which functions resolve
+// generators to predict it.
+//
+// Repeated calls compose, in the order they are written, and a name given twice
+// takes the second value — a container's environment is a mapping, and the last
+// write to a key wins.
+//
+// The name is checked for the two shapes that are not a name in any environment
+// (empty, or carrying `=` or NUL); nothing else about it is this module's
+// business, and the value is not examined at all. See internal/env.
+func (r *Companion) WithEnvVariable(name string, value string) *Companion { // companion (../../../daggerverse/cpybkc/main.go:708:1)
+	q := r.query.Select("withEnvVariable")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+
+	return &Companion{
 		query: q,
 	}
 }
@@ -407,7 +491,7 @@ type CompanionWithGeneratorOpts struct {
 	// image being composed into, which is checked, because a mismatch here is
 	// checkable and its exec-time failure is not legible.
 	//
-	Image *Container // companion (../../../daggerverse/cpybkc/main.go:526:2)
+	Image *Container // companion (../../../daggerverse/cpybkc/main.go:534:2)
 }
 
 // WithGenerator adds one generator to the image by copying its executable out of
@@ -435,7 +519,7 @@ type CompanionWithGeneratorOpts struct {
 // about multi-platform: composing an amd64 generator into an arm64 image produces
 // an image that builds and pushes and then fails at exec with the kernel's
 // message rather than cpybkc's, which is a long way from the call that caused it.
-func (r *Companion) WithGenerator(name string, opts ...CompanionWithGeneratorOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:513:1)
+func (r *Companion) WithGenerator(name string, opts ...CompanionWithGeneratorOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:521:1)
 	q := r.query.Select("withGenerator")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `image` optional argument
@@ -472,7 +556,7 @@ func (r *Companion) WithGenerator(name string, opts ...CompanionWithGeneratorOpt
 // or foreign-architecture generator fails at exec time with the kernel's message
 // rather than cpybkc's. WithGenerator can check the platform half of that because
 // a container states one; here there is nothing to read.
-func (r *Companion) WithGeneratorExecutable(name string, executable *File) *Companion { // companion (../../../daggerverse/cpybkc/main.go:598:1)
+func (r *Companion) WithGeneratorExecutable(name string, executable *File) *Companion { // companion (../../../daggerverse/cpybkc/main.go:606:1)
 	assertNotNil("executable", executable)
 	q := r.query.Select("withGeneratorExecutable")
 	q = q.Arg("name", name)
@@ -492,7 +576,7 @@ func (r *Companion) AsNode() Node {
 }
 
 // Create or update a binding of type Companion in the environment
-func (r *Env) WithCompanionInput(name string, value *Companion, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:328:6)
+func (r *Env) WithCompanionInput(name string, value *Companion, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:336:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withCompanionInput")
 	q = q.Arg("name", name)
@@ -505,7 +589,7 @@ func (r *Env) WithCompanionInput(name string, value *Companion, description stri
 }
 
 // Declare a desired Companion output to be assigned in the environment
-func (r *Env) WithCompanionOutput(name string, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:328:6)
+func (r *Env) WithCompanionOutput(name string, description string) *Env { // companion (../../../daggerverse/cpybkc/main.go:336:6)
 	q := r.query.Select("withCompanionOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -529,7 +613,7 @@ type CompanionOpts struct {
 	//
 	//
 	// Default: "v0"
-	Version string // companion (../../../daggerverse/cpybkc/main.go:399:2)
+	Version string // companion (../../../daggerverse/cpybkc/main.go:407:2)
 	//
 	// The registry repository the image is pulled from, as `<host>/<path>` with no
 	// tag.
@@ -544,7 +628,7 @@ type CompanionOpts struct {
 	//
 	//
 	// Default: "ghcr.io/zaba505/cpybkc"
-	Repository string // companion (../../../daggerverse/cpybkc/main.go:412:2)
+	Repository string // companion (../../../daggerverse/cpybkc/main.go:420:2)
 	//
 	// Run in this container instead of pulling one, replacing it entirely.
 	//
@@ -564,7 +648,7 @@ type CompanionOpts struct {
 	// does not track whatever was pinned here, so a build that pins the CLI by
 	// digest and wants the pairing to hold still passes --version beside it.
 	//
-	Image *Container // companion (../../../daggerverse/cpybkc/main.go:431:2)
+	Image *Container // companion (../../../daggerverse/cpybkc/main.go:439:2)
 	//
 	// Pull the image for this platform, as `GOOS/GOARCH`, instead of for the
 	// engine's own.
@@ -583,7 +667,7 @@ type CompanionOpts struct {
 	// Empty is the engine's own platform, which is what makes an ordinary
 	// `dagger call` from a checkout do the obvious thing.
 	//
-	Platform string // companion (../../../daggerverse/cpybkc/main.go:449:2)
+	Platform string // companion (../../../daggerverse/cpybkc/main.go:457:2)
 }
 
 // New selects the cpybkc release to run:
@@ -604,7 +688,7 @@ type CompanionOpts struct {
 // resolves companion images against, which is why an air-gapped caller passing a
 // container from their own registry should pass --repository beside it rather
 // than instead of it.
-func (r *Query) Companion(opts ...CompanionOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:388:1)
+func (r *Query) Companion(opts ...CompanionOpts) *Companion { // companion (../../../daggerverse/cpybkc/main.go:396:1)
 	q := r.query.Select("companion")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument

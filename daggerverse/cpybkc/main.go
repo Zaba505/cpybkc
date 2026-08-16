@@ -215,12 +215,19 @@
 //
 // One thing the flag table cannot say, and this comment therefore should. cpybkc
 // passes its whole environment through to a generator, which is how
-// docs/plugin/SPEC.md propagates SOURCE_DATE_EPOCH — and this module offers no
-// way to state an environment, so that promise does not reach a Dagger caller
-// (#252). It is a capability with no flag behind it, so cli-surface cannot see
-// it and did not; it is named here because the flag table is a lower bound on
-// what mirroring the CLI means, and a reader deserves to know the one place it
-// is currently short.
+// docs/plugin/SPEC.md propagates SOURCE_DATE_EPOCH, and that capability has no
+// flag behind it — so cli-surface could not see that this module had no way to
+// state an environment, and did not (#252). WithEnvVariable is the answer, and
+// it takes any variable rather than that one, because what the CLI mirrors here
+// is an environment and not a timestamp.
+//
+// The gap is worth leaving written down now that it is closed, because the
+// lesson is about the check rather than about the variable: the flag table is a
+// lower bound on what mirroring the CLI means. A capability that is not spelled
+// as a flag is caught by a person, at the document that promises it — a change
+// to docs/cli/SPEC.md or docs/plugin/SPEC.md adding one is answered in this
+// module in the same review — and that is a weaker guarantee than cli-surface,
+// stated as one. This is the worked case of it working.
 package main
 
 import (
@@ -230,6 +237,7 @@ import (
 
 	"dagger/cpybkc/internal/argv"
 	"dagger/cpybkc/internal/dagger"
+	"dagger/cpybkc/internal/env"
 	"dagger/cpybkc/internal/generator"
 	"dagger/cpybkc/internal/imageref"
 )
@@ -619,6 +627,117 @@ func (m *Cpybkc) WithGeneratorExecutable(
 		executable,
 		dagger.ContainerWithFileOpts{Permissions: executableMode},
 	)
+
+	return &next, nil
+}
+
+// WithEnvVariable states one environment variable every run through this module
+// is started with, and therefore one every generator it starts is handed:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  with-env-variable --name SOURCE_DATE_EPOCH --value "$SOURCE_DATE_EPOCH" \
+//	  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+//	  generate --source . export --path .
+//
+// # The variable this exists for
+//
+// SOURCE_DATE_EPOCH, and the reason is a promise made elsewhere. cpybkc passes
+// its own environment through to a generator unchanged — it adds no variable,
+// removes none and names none — and that pass-through *is* how
+// docs/plugin/SPEC.md propagates the timestamp its determinism requirement rests
+// on (#47). A generator honouring it produces the same bytes on every run; a
+// build that has already set it for its other tools has set it for every
+// generator cpybkc runs. Until this function existed that sentence was false for
+// a build going through this module, and there was no way to make it true
+// without dropping out of the module to edit a container (#252) — which is not a
+// chain `dagger call` can express, so it meant an SDK program or nothing.
+//
+// # Any variable, rather than that one
+//
+// This takes a name and a value instead of a typed --source-date-epoch, which is
+// the wider of the two shapes #252 put up and the one the mirroring stance
+// settles on. The CLI has no flag for this: it reads its whole environment and
+// hands it on, so *the* capability to mirror is an environment and not a
+// timestamp (#253). A single typed argument would have been this module deciding
+// which variables may reach a generator, which is a reading of
+// docs/plugin/SPEC.md kept out here where it would drift — the same reason the
+// format argument passes an unknown encoding through to be refused by the parser
+// that decides them rather than screening it first.
+//
+// It also would not have been the narrower thing it looks like. A caller who
+// wants any other variable still has `image` and a container of their own; what
+// a typed argument buys is not that the door is shut but that the ordinary route
+// through it is missing, which is how a promise ends up kept for one variable and
+// broken for the build that needed a second.
+//
+// What the wide shape does *not* do is make the environment a place to configure
+// a generator. docs/cli/SPEC.md and docs/plugin/SPEC.md both forbid a plugin to
+// require a variable for its normal work — everything that configures its output
+// arrives as --opt, because the manifest is the reviewable record of how a
+// project's code was generated and a setting living in the environment is absent
+// from it. That prohibition binds generator authors and is unaffected by this
+// function: cpybkc has always passed the whole environment through, so the door
+// this opens is one the CLI already had, and a module refusing it would make a
+// generator no more compliant while making the mirror less honest.
+//
+// # Which runs it reaches, and which of them start a generator
+//
+// Every function on this module, because the variable is set on the container
+// they all run in rather than passed to one of them. That is the CLI's own
+// arrangement — cpybkc is started with an environment, not a command — and it is
+// stated here rather than left to fall out of the implementation.
+//
+// Generate is the one where it matters, because it is the one that starts a
+// generator. Init runs none at all (docs/cli/SPEC.md, "`init` reads no
+// manifest"), and EmitIr resolves none either, since an emission is terminal
+// ("Emitting replaces generation"); Run starts one exactly when the vector it was
+// handed asks for a generation. So on three of the four the variable reaches
+// cpybkc and stops there, which is what "the environment cpybkc was started with"
+// means and is why they are not carved out: a builder that refused to set a
+// variable for a run that would not have read it would be inventing a rule the
+// CLI does not have, and the caller would have to know which functions resolve
+// generators to predict it.
+//
+// Repeated calls compose, in the order they are written, and a name given twice
+// takes the second value — a container's environment is a mapping, and the last
+// write to a key wins.
+//
+// One variable is worth naming, because its failure lands a long way from the
+// call that caused it. PATH is how the CLI finds a generator, and in a composed
+// image it is the plugin directory WithGenerator installed into — so a caller
+// who states PATH here is overwriting an arrangement this module made, and the
+// symptom is a generation failing with cpybkc reporting that a generator the
+// manifest plainly names cannot be found. That is not a reason to refuse the
+// name: a module deciding which variables may reach a generator is what the
+// section above rejects, and the same is true of anything else the image's
+// entrypoint depends on. It is a reason to say so here, so that a caller who
+// does it can recognise what they did.
+//
+// The name is checked for the shapes that are not a name in any environment
+// (empty, or carrying `=` or NUL) and the value for the one shape that is not a
+// value in any environment (NUL, which truncates the string it is in). Nothing
+// else about either is this module's business — in particular a value may
+// contain `=`. See internal/env.
+func (m *Cpybkc) WithEnvVariable(
+	// The variable's name, as a generator would read it — SOURCE_DATE_EPOCH for
+	// the reproducible timestamp that is this function's reason to exist.
+	name string,
+	// The value it is set to. It is passed through as written and never
+	// interpreted here: what a variable means is the generator's, and even
+	// SOURCE_DATE_EPOCH is a count of seconds this module has no business
+	// parsing — a value cpybkc would have carried is one this module carries.
+	value string,
+) (*Cpybkc, error) {
+	if err := env.CheckName(name); err != nil {
+		return nil, err
+	}
+
+	if err := env.CheckValue(name, value); err != nil {
+		return nil, err
+	}
+
+	next := *m
+	next.Container = m.Container.WithEnvVariable(name, value)
 
 	return &next, nil
 }

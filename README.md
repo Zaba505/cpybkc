@@ -238,6 +238,27 @@ the issue text, but a rendering rather than the thing itself, so send it *beside
 the binary file rather than instead of it. `cpybkc --emit-ir descriptor.binpb` is
 the same run without Dagger.
 
+**Building reproducibly? State the environment.** cpybkc passes its whole
+environment through to every generator it runs, which is how [the plugin
+contract](docs/plugin/SPEC.md#the-environment) propagates `SOURCE_DATE_EPOCH`, so
+a build that sets it for its other tools sets it for generated output too —
+through this module, that is `with-env-variable`:
+
+```sh
+dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+  with-env-variable --name SOURCE_DATE_EPOCH --value "$SOURCE_DATE_EPOCH" \
+  with-generator --name hello --image ghcr.io/example/cpybkc-gen-hello:v1 \
+  generate --source . export --path .
+```
+
+It takes any variable, not that one: what the CLI hands a generator is an
+environment rather than a timestamp, and this module mirrors the CLI. What it is
+*for* is still that one — a generator's output is configured by the manifest, and
+[the plugin contract](docs/plugin/SPEC.md#the-environment) is explicit that a
+generator must not need a variable set to do its normal work, precisely so that
+two developers comparing generated output can see the difference between their
+machines.
+
 It still has no `SPEC.md`, and not because there is nothing to specify — it is
 public API, and a function or an argument here lasts as long as the published
 ref does. It is that everything there would be to specify is specified already:
