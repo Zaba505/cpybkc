@@ -250,14 +250,16 @@ with four items in it.
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
 | [`delimited-terminator`](delimited-terminator) | A line-sequential file whose records end with `0x15`, two of them holding a packed amount whose own bytes are `0x15`. |
 | [`delimited-optional-terminator`](delimited-optional-terminator) | The same three records in a file whose last record carries no delimiter, which a writer supplies: twenty-three bytes written back as twenty-four. |
+| [`delimited-ascii-newline`](delimited-ascii-newline) | The delimited file an adopter on Linux has: ASCII, records ended by `0x0A`, two of them holding a binary count whose own bytes are `0x0A`. |
 | [`segmented-spanning`](segmented-spanning) | `RECFM=VBS`: a record laid into as few segments as the largest allows, and one laid into more than it allows a writer, both spanning. |
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 | [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Eight are not derived from it — `float-ieee754-special`,
+it came from (#67). Nine are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `delimited-terminator`,
-`delimited-optional-terminator`, `segmented-spanning`, `odo-sliding` and
+`delimited-optional-terminator`, `delimited-ascii-newline`,
+`segmented-spanning`, `odo-sliding` and
 `sync-slack` — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
@@ -315,16 +317,17 @@ its right answer is written down. `batch-fixed` is in the same position, and bot
 carry Appendix A.7's record inside them so that the bytes of a *record* stay
 traceable to a vector even where the bytes around it are not.
 
-`delimited-terminator`, `delimited-optional-terminator` and `segmented-spanning`
-are the other three, authored against the same two documents plus
+`delimited-terminator`, `delimited-optional-terminator`, `delimited-ascii-newline`
+and `segmented-spanning` are the other four, authored against the same two
+documents. Three of them — the first two and `segmented-spanning` — cite
 [`docs/conformance/SPEC.md`](../../docs/conformance/SPEC.md)'s *Why the writing
-direction is checked by reading, and not by comparing bytes*. They are here
-because that section rests on them: it says a corpus demanding the input's bytes
-back would fail two of the four framings by design, and until these arrived
-neither of those two framings had an entry, so a runner that byte-compared would
-have passed the whole corpus.
+direction is checked by reading, and not by comparing bytes* as well, and they
+are here because that section rests on them: it says a corpus demanding the
+input's bytes back would fail two of the four framings by design, and until these
+arrived neither of those two framings had an entry, so a runner that byte-compared
+would have passed the whole corpus.
 
-Two of the three are what the section describes, and each one's `input.bin` is
+Two of those three are what the section describes, and each one's `input.bin` is
 chosen to be a file no correct writer would produce. `delimited-optional-terminator`
 ends without the delimiter the placement lets a file end without, and a writer
 under that placement **MUST** emit it rather than choosing whether to, so
@@ -346,6 +349,25 @@ searching the input for a delimiter — so it is what both delimited entries cit
 A consumer that searched would cut that record after four bytes; one that counts
 the extent reads them as the number they are.
 
+`delimited-ascii-newline` is that collision in the file an adopter is likeliest
+to hand the tool first. Its records end with `0x0A`, which is what the delimiter
+of the same file becomes once it has moved to Linux, and the entry is ASCII
+because that is the file line-sequential means off the mainframe. Charset governs
+items and never framing bytes, so an ASCII twin of `delimited-terminator` would
+only restate what `packed-ascii` and `packed-ebcdic` state about an axis that
+does not apply, and would not be worth an entry. What earns this one is that the
+delimiter turns up inside an item in the likelier bytes: a `PIC S9(4) COMP` item
+holding 10 is `00 0A` and one holding 2570 is `0A 0A`, so a consumer that
+searched cuts the first record after five bytes and the second after four and
+again after five, while one that counts the extent reads the counts it wrote.
+Its third record's count is zero and its six bytes carry no `0x0A` at all, which
+is the ordinary record the other two are read against. Its delimiter is written
+as a byte string and never as a named character or a line-ending style, which is
+[`docs/layout/SPEC.md`](../../docs/layout/SPEC.md)'s *A delimiter is bytes, and
+it has a placement*, and its file is a `terminator` file — so, like
+`delimited-terminator`, it is what a writer produces and would still pass a byte
+comparison. What it catches is the search.
+
 What none of the three states is what a **wrong** consumer does. All three are
 well-formed files, so a writer that omitted the final delimiter under
 `optional-terminator`, or that copied its input's segmentation instead of
@@ -355,14 +377,17 @@ assertions the corpus makes, and what these three actually catch is a runner tha
 compares bytes — which is the claim `docs/conformance/SPEC.md` makes for them and
 the whole of it.
 
-Three cases are named here because they are known gaps rather than covered
+Four cases are named here because they are known gaps rather than covered
 ground. `separator` has no entry, and neither does the trailing delimiter that
 announces a record which is not there under it, nor the missing one that makes a
 file truncated under `terminator`; each is an error-path entry, which is a
-different claim from these and belongs with the other refusals. And a segment
-control code of `0` — a complete, unspanned record inside a spanned dataset —
-cannot occur in `segmented-spanning`, because its one record type is longer than
-its largest segment; a second record type is what would reach it.
+different claim from these and belongs with the other refusals. A multi-byte
+delimiter has no entry either: `0D 0A`, what the same file ends its records with
+once it has been through Windows, is the only case where a consumer consumes two
+framing bytes rather than one, and all three delimited entries here consume one.
+And a segment control code of `0` — a complete, unspanned record inside a spanned
+dataset — cannot occur in `segmented-spanning`, because its one record type is
+longer than its largest segment; a second record type is what would reach it.
 
 ### The variable-table entry cites the two specs that decide it
 

@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "name": "LINE-RECORD",
+      "value": {"L-KEY": "A001", "L-QTY": "10"}
+    },
+    {
+      "name": "LINE-RECORD",
+      "value": {"L-KEY": "B002", "L-QTY": "2570"}
+    },
+    {
+      "name": "LINE-RECORD",
+      "value": {"L-KEY": "C003", "L-QTY": "0"}
+    }
+  ]
+}
