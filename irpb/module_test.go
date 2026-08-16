@@ -85,7 +85,7 @@ func parseGoMod(t *testing.T, path string) goMod {
 	mod := goMod{requires: make(map[string]string)}
 
 	block := ""
-	for _, raw := range strings.Split(string(b), "\n") {
+	for raw := range strings.SplitSeq(string(b), "\n") {
 		line := raw
 		if i := strings.Index(line, "//"); i >= 0 {
 			line = line[:i]

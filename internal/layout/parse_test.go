@@ -814,7 +814,7 @@ func fencedBlock(t *testing.T, body string) string {
 		open  bool
 	)
 
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			if open {
 				return strings.Join(block, "\n")
@@ -847,7 +847,7 @@ func section(t *testing.T, heading string) string {
 		found bool
 	)
 
-	for _, line := range strings.Split(specText(t), "\n") {
+	for line := range strings.SplitSeq(specText(t), "\n") {
 		if line == heading {
 			found = true
 

@@ -223,7 +223,7 @@ func specTopLevelForms(t *testing.T) map[string]specTopLevelForm {
 
 	rows := make(map[string]specTopLevelForm)
 
-	for _, line := range strings.Split(section(t, "### The top-level forms"), "\n") {
+	for line := range strings.SplitSeq(section(t, "### The top-level forms"), "\n") {
 		cells := tableRow(line)
 		if len(cells) != 3 || !strings.HasPrefix(cells[0], "`") {
 			continue
@@ -248,7 +248,7 @@ func tableRow(line string) []string {
 	}
 
 	var cells []string
-	for _, cell := range strings.Split(strings.Trim(line, "|"), "|") {
+	for cell := range strings.SplitSeq(strings.Trim(line, "|"), "|") {
 		cells = append(cells, strings.TrimSpace(cell))
 	}
 
@@ -267,7 +267,7 @@ func section(t *testing.T, heading string) string {
 		found bool
 	)
 
-	for _, line := range strings.Split(specText(t), "\n") {
+	for line := range strings.SplitSeq(specText(t), "\n") {
 		if line == heading {
 			found = true
 

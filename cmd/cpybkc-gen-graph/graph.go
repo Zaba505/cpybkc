@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -488,9 +489,9 @@ func (g *graph) walk(nodes nodeSet, id uint64, seen map[uint64]bool) ([]uint64, 
 		// Pushed in reverse so that the first transition the state carries is
 		// the first one popped, which is what makes this a pre-order walk in
 		// the order a consumer evaluates transitions.
-		for i := len(s.edges) - 1; i >= 0; i-- {
-			if !seen[s.edges[i].to] {
-				stack = append(stack, s.edges[i].to)
+		for _, edge := range slices.Backward(s.edges) {
+			if !seen[edge.to] {
+				stack = append(stack, edge.to)
 			}
 		}
 	}

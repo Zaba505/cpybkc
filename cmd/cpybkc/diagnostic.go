@@ -142,7 +142,7 @@ func continuation(w io.Writer, span diag.Span) {
 		}
 	}
 
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimRight(line, " \t")
 		if line == "" {
 			continue

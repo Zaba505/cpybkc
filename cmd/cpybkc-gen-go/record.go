@@ -1070,7 +1070,7 @@ func comment(name string, names *irpb.Names, summary string) string {
 func commentLines(text string) string {
 	var b strings.Builder
 
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		b.WriteString("// ")
 		b.WriteString(line)
 		b.WriteString("\n")

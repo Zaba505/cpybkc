@@ -16,13 +16,30 @@
 # github.com/z5labs/devex/daggerverse/go, which is where a bump belongs, and
 # nothing here restates it.
 #
-# The enabled set is v2's own "standard" set, spelled out rather than inherited
-# so that a change to golangci-lint's defaults is a change this repository has to
-# make deliberately.
+# The enabled set is v2's own "standard" set plus `modernize`, spelled out rather
+# than inherited so that a change to golangci-lint's defaults is a change this
+# repository has to make deliberately — and so that the one addition to the
+# standard set is visible as an addition rather than lost in an inherited list.
 #
 # Unlike cobol-go, `unused` is left enabled: this repository starts from an
 # empty package tree rather than a pre-seeded set of building-block helpers,
 # so there is nothing legitimately unused to exempt.
+#
+# `modernize` is enforced because the alternative is not "no rule" but "a rule
+# only some readers see": a gopls-backed editor raises its suggestions whether
+# this file enables it or not, so leaving it out made every one of them noise to
+# whoever had the file open and a finding nothing ever cleared. Enforcing it
+# makes each suggestion a decision — taken, or declined at the site with a
+# `//nolint:modernize` saying why. Declining belongs in the file and not here:
+# an exclusion rule in this config would silence an analyzer across the whole
+# repository, which is the repository-wide silence this paragraph exists to
+# prevent.
+#
+# It has a cost worth stating rather than discovering. `modernize`'s suggestions
+# track the Go release and the golangci-lint pin, so a version bump can turn CI
+# red on code nobody touched. Renovate raises those bumps automatically (#245),
+# so the first such pull request is where this shows up, and the fix there is to
+# clear or decline the new findings in the same pull request.
 version: "2"
 
 run:
@@ -34,5 +51,6 @@ linters:
     - errcheck
     - govet
     - ineffassign
+    - modernize
     - staticcheck
     - unused

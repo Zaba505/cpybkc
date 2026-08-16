@@ -66,7 +66,7 @@ func report(w io.Writer, err error) {
 	var carrier noted
 	if errors.As(err, &carrier) {
 		for _, note := range carrier.Notes() {
-			for _, line := range strings.Split(note, "\n") {
+			for line := range strings.SplitSeq(note, "\n") {
 				diagnostic(w, severityNote, line)
 			}
 		}

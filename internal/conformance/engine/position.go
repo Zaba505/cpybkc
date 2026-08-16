@@ -104,17 +104,20 @@ func (p position) bytes(input []byte) (string, bool) {
 	}
 
 	run := input[p.FileOffset:end]
-	said := fmt.Sprintf("%s 0x%04x..0x%04x:", conformance.InputName, p.FileOffset, end-1)
+
+	var said strings.Builder
+
+	fmt.Fprintf(&said, "%s 0x%04x..0x%04x:", conformance.InputName, p.FileOffset, end-1)
 
 	for _, b := range run[:min(len(run), bytesLimit)] {
-		said += fmt.Sprintf(" %02x", b)
+		fmt.Fprintf(&said, " %02x", b)
 	}
 
 	if len(run) > bytesLimit {
-		said += fmt.Sprintf(" (and %d more)", len(run)-bytesLimit)
+		fmt.Fprintf(&said, " (and %d more)", len(run)-bytesLimit)
 	}
 
-	return said, true
+	return said.String(), true
 }
 
 // positions is where the descriptor puts every value the entry states, keyed by

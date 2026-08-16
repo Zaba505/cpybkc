@@ -209,13 +209,9 @@ func (r *Runner) Run(ctx context.Context, d *irpb.Descriptor, invocations []Invo
 	var running sync.WaitGroup
 
 	for i, invocation := range invocations {
-		running.Add(1)
-
-		go func() {
-			defer running.Done()
-
+		running.Go(func() {
 			faults[i] = r.invoke(ctx, invocation, descriptor)
-		}()
+		})
 	}
 
 	running.Wait()

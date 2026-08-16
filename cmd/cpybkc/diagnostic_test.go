@@ -144,7 +144,7 @@ func TestAContinuationLineIsNotADiagnostic(t *testing.T) {
 
 	stderr := reported(crossFile)
 
-	for _, line := range strings.Split(strings.TrimRight(stderr, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(stderr, "\n"), "\n") {
 		if strings.HasPrefix(line, continuationIndent) {
 			for _, severity := range []string{severityError, severityWarning, severityNote} {
 				if strings.HasPrefix(strings.TrimLeft(line, " "), severity+severitySeparator) {

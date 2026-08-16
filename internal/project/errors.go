@@ -405,11 +405,8 @@ func and(items []string) string {
 	default:
 		last := len(items) - 1
 
-		joined := ""
-		for _, item := range items[:last] {
-			joined += item + ", "
-		}
-
-		return joined + "and " + items[last]
+		// The serial comma is deliberate: "a, b, and c" rather than "a, b and
+		// c", so that a two-word item cannot read as two items.
+		return strings.Join(items[:last], ", ") + ", and " + items[last]
 	}
 }

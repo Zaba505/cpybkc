@@ -398,8 +398,8 @@ func assertRemoved(t *testing.T, record string) {
 	var name string
 
 	for _, arg := range run {
-		if strings.HasPrefix(arg, "--name=") {
-			name = strings.TrimPrefix(arg, "--name=")
+		if after, ok := strings.CutPrefix(arg, "--name="); ok {
+			name = after
 		}
 	}
 

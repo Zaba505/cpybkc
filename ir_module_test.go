@@ -37,7 +37,7 @@ const irModulePath = "github.com/Zaba505/cpybkc/irpb"
 func TestTheCLIConsumesThePublishedIRModule(t *testing.T) {
 	d := &irpb.Descriptor{Version: irpb.IrVersion_IR_VERSION_1}
 
-	if got := reflect.TypeOf(d).Elem().PkgPath(); got != irModulePath {
+	if got := reflect.TypeFor[irpb.Descriptor]().PkgPath(); got != irModulePath {
 		t.Errorf("IR types resolve to %q, want %q: the IR a plugin author imports and the IR this module builds against must be the same package", got, irModulePath)
 	}
 

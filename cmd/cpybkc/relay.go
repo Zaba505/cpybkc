@@ -105,7 +105,7 @@ func (r *relay) Handle(_ context.Context, record slog.Record) error {
 	// diagnostic has none. Either way every piece of it is written at the
 	// severity the whole arrived at, because the alternative is a line on this
 	// stream that no severity opens.
-	for _, line := range strings.Split(record.Message, "\n") {
+	for line := range strings.SplitSeq(record.Message, "\n") {
 		relayed(r.w, severity, name, line)
 	}
 

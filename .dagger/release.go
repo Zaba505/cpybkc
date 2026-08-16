@@ -1228,7 +1228,7 @@ func releaseNotesBlock(version string, irVersion int, reference string) string {
 // prerelease and a release say *different* things about the moving tags, and a
 // keyword search is how two different sentences come to look identical.
 func movingTagsSentence(block string) string {
-	for _, line := range strings.Split(block, "\n") {
+	for line := range strings.SplitSeq(block, "\n") {
 		if strings.Contains(line, "moving tags") || strings.Contains(line, "moves none") {
 			return strings.TrimSpace(line)
 		}
@@ -1296,7 +1296,7 @@ func headRefs(ctx context.Context, source, gitDir *dagger.Directory) ([]string, 
 
 	var refs []string
 
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if ref := strings.TrimSpace(line); ref != "" {
 			refs = append(refs, ref)
 		}

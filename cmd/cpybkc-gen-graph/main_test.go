@@ -146,7 +146,7 @@ func TestEveryDiagnosticThisProgramWritesOpensWithASeverity(t *testing.T) {
 			var stderr bytes.Buffer
 			report(&stderr, err)
 
-			for _, line := range strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSuffix(stderr.String(), "\n"), "\n") {
 				severity, message, separated := strings.Cut(line, severitySeparator)
 				if !separated || message == "" {
 					t.Errorf("the diagnostic %q is not `<severity>%s<message>`", line, severitySeparator)

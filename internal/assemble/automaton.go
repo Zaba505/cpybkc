@@ -8,8 +8,6 @@ package assemble
 import (
 	"strconv"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/Zaba505/cpybkc/internal/resolve"
 	"github.com/Zaba505/cpybkc/irpb"
 )
@@ -100,7 +98,7 @@ func (a *assembler) transition(transition *resolve.Transition) uint64 {
 	// and why nothing here writes a sentinel (docs/ir/SPEC.md, "A transition
 	// may carry no predicate").
 	if transition.Predicate != nil {
-		built.PredicateId = proto.Uint64(a.allocatePredicate(scope, transition.Predicate))
+		built.PredicateId = new(a.allocatePredicate(scope, transition.Predicate))
 	}
 
 	for _, guard := range transition.Guards {
