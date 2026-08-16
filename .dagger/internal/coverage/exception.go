@@ -102,6 +102,10 @@ func (e Exception) Check(flag string) error {
 				"that carries the argument for itself (#253)", flag))
 	}
 
+	// Which claim was made, reported independently of whether the claim is well
+	// formed. The two cases here are exclusive of each other and of nothing else:
+	// an entry can be settled-and-tracked *and* name a tracking value that is not
+	// a reference, and a contributor should learn both before they re-run.
 	switch {
 	case e.Settled && e.Tracking != "":
 		errs = append(errs, fmt.Errorf(
@@ -115,8 +119,9 @@ func (e Exception) Check(flag string) error {
 				"tracked: say Settled when the escape hatch is this flag's answer and the argument for that is "+
 				"written beside it, or name the issue curating it in Tracking, so that a decision and a gap nobody "+
 				"got to stop looking the same (#253)", flag))
+	}
 
-	case e.Tracking != "" && !issueRef.MatchString(e.Tracking):
+	if e.Tracking != "" && !issueRef.MatchString(e.Tracking) {
 		errs = append(errs, fmt.Errorf(
 			"%s names %q as the issue curating it, which is not an issue reference: it is written as # and the "+
 				"number, so that the story closing this gap can be found from here", flag, e.Tracking))

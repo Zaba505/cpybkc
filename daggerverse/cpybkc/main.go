@@ -788,12 +788,14 @@ func (m *Cpybkc) Init(
 //
 // It is not the intended route for anything. This module mirrors the CLI, so a
 // capability's ordinary answer is an argument on the function named for the
-// command it belongs to (#253), and what is left over is the two things this
-// function is for. A flag this module has not caught up with is reachable
-// through it in the meantime, which is what keeps a gap an inconvenience rather
-// than a wall. And a spelling no Dagger type can express is reachable through it
-// permanently: a destination that is a stream rather than a file — `--out -`,
-// `--emit-ir -` — which a File-returning function cannot hand back.
+// command it belongs to (#253), and three kinds of thing are left over for this
+// function. A flag this module has not caught up with is reachable through it in
+// the meantime, which is what keeps a gap an inconvenience rather than a wall. A
+// spelling no Dagger type can express is reachable through it permanently: a
+// destination that is a stream rather than a file — `--out -`, `--emit-ir -` —
+// which a File-returning function cannot hand back. And a flag whose question
+// has a Dagger-native answer that is not a function here stays on purpose, which
+// is --version, --help and -h and is meant to be the whole of that class.
 //
 // Which flags arrive here today is stated in this module's package comment and
 // recorded where a check can fail on it, in the root pipeline's

@@ -871,11 +871,14 @@ stopped being true, this decision would be worth taking again.
 
 #### `Run` is the fallback, not the plan
 
-It takes the argument vector verbatim and hands back a `Container`, and it is
-for exactly two things. A flag the module has not caught up with is reachable
-through it in the meantime, which keeps a gap an inconvenience rather than a
-wall. And a *spelling* no Dagger type can express is reachable through it
-permanently.
+It takes the argument vector verbatim and hands back a `Container`, and three
+kinds of thing arrive here. A flag the module has not caught up with is
+reachable through it in the meantime, which keeps a gap an inconvenience rather
+than a wall — that one is temporary, and the exception recording it names the
+issue closing it. A *spelling* no Dagger type can express is reachable through
+it permanently. And a flag whose question has a Dagger-native answer that is not
+a function on this module stays here on purpose — `--version`, `--help` and `-h`,
+recorded as **settled**, which is the class `Exception.Settled` exists to name.
 
 That second one is why a named function may still decline one spelling of a
 flag without declining the flag, and the sentence is kept deliberately because
@@ -915,14 +918,23 @@ and holds each of them against two tables in
   `Run` instead, with the argument for why. An entry says either that it is
   **settled** — the escape hatch is this flag's answer — or that it is
   **tracked**, naming the issue writing the function, and a reason is required
-  either way. The rules are
-  [`.dagger/internal/coverage/`](.dagger/internal/coverage/)'s, pinned by tests.
+  either way.
 
-The check fails when a flag is in neither table, when it is in both, when a
-mapping names a function `daggerverse/cpybkc` does not declare, when an
-exception claims neither settled nor tracked, and when either table names a flag
-the CLI has stopped accepting. **So adding a flag to cpybkc fails CI until
-somebody either maps it onto a function or writes down why it cannot be.**
+Every rule above lives in
+[`.dagger/internal/coverage/`](.dagger/internal/coverage/) rather than in
+`cli-surface` itself, and is pinned by tests there; `cli-surface` reads the flags
+and the module's function names — the part that needs a Dagger session — and
+hands them over. That split is not tidiness. The first draft of #253 wrote the
+rules inline, where no test could reach them, and asserted in three comments that
+`Run` is not a legal mapping while enforcing it nowhere: `"--new-flag": "Run"`
+passed green. Review caught it; a test would have.
+
+The check fails when a flag is in neither table, when it is mapped onto `Run`,
+when it is in both tables, when a mapping names a function
+`daggerverse/cpybkc` does not declare, when an exception claims neither settled
+nor tracked, and when either table names a flag the CLI has stopped accepting.
+**So adding a flag to cpybkc fails CI until somebody either maps it onto a
+function or writes down why it cannot be.**
 
 The two tables are the tightening #253 asked for, and they are worth the second
 map for one reason. While the module curated (#62), a flag recorded against

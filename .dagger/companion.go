@@ -36,7 +36,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -270,9 +269,12 @@ var companionRunExceptions = map[string]coverage.Exception{
 	// So these are a gap rather than a decision, and the stance is why: the
 	// resolved descriptor is the single most useful thing to attach to a bug
 	// report, and it is a capability the CLI has.
+	//
+	// What will still be Run's afterwards is `--emit-ir -`, exactly as `--out -`
+	// is — a spelling rather than a flag, and so not an entry here at all.
 	"--emit-ir": {
-		Reason: "the emission may go to standard output, and --emit-ir-format is only legal beside it; #251 curates " +
-			"both onto one File-returning function, which makes the illegal pairing unstateable",
+		Reason: "it replaces generation outright and --emit-ir-format is only legal beside it; #251 curates both " +
+			"onto one File-returning function, which makes the illegal pairing unstateable rather than enforced",
 		Tracking: "#251",
 	},
 	"--emit-ir-format": {
@@ -323,20 +325,18 @@ const runFunction = "Run"
 //
 // The surface that can drift away from the module is the flag table: a flag
 // added to the CLI is the event that would otherwise leave the module quietly
-// unable to express a run somebody can perform by hand. That is what this fails
-// on, in five directions — a flag neither table covers, a flag both cover, an
-// entry naming a function the module does not declare, an exception that claims
-// nothing, and an entry naming a flag the CLI no longer accepts.
+// unable to express a run somebody can perform by hand. What this fails on, in
+// six directions, is [coverage.Record.Check]'s to say; this function is the
+// reading that feeds it.
 //
-// The second and fourth are #253's, and they are what the stance cost this
-// check. While the module curated deliberately (#62), a flag recorded against
-// Run was the design working, so one map with "Run" as an ordinary value said
-// everything there was to say. Under a mirroring stance it is the opposite: a new
-// flag quietly recorded against Run, passing CI, *is* the drift this check exists
-// to catch, and one map cannot tell that from the two flags nobody has curated
-// on purpose. Two tables can, because writing an exception is writing a reason
-// and saying whether it is settled or tracked — see [coverage.Exception], whose
-// rules are pinned by tests rather than by this comment.
+// Two of those six are #253's, and they are what the stance cost this check.
+// While the module curated deliberately (#62), a flag recorded against Run was
+// the design working, so one map with "Run" as an ordinary value said everything
+// there was to say. Under a mirroring stance it is the opposite: a new flag
+// quietly recorded against Run, passing CI, *is* the drift this check exists to
+// catch, and one map cannot tell that from the flags nobody has curated on
+// purpose. So Run is refused as a mapping, and a flag that reaches it is an
+// exception carrying a reason and saying whether it is settled or tracked.
 //
 // What none of that buys is that an exception is *right*. No check can read an
 // argument; what this one does is make sure there is one, and make adding a flag
@@ -452,85 +452,21 @@ func (m *Cpybkc) CliSurface(ctx context.Context) error {
 		return err
 	}
 
-	var errs []error
-
-	// Where each flag is recorded, and what it is recorded as reaching, which is
-	// the reverse direction's message as well as this one's bookkeeping.
-	recorded := map[string]string{}
-	for flag, function := range companionCoverage {
-		recorded[flag] = function
+	// Everything above is the reading, which needs a Dagger session; everything
+	// below is the rules, which do not. The split is deliberate and it is not
+	// tidiness: the rules used to be written out here, where no test can reach
+	// them, and the first version of them asserted in three comments that the flag
+	// table does not accept Run as a value while enforcing it nowhere. Review
+	// caught that; a test would have. So the rules live in a package that imports
+	// no Dagger, and this function hands them what it read.
+	record := coverage.Record{
+		Module:     companionModuleDir,
+		Fallback:   runFunction,
+		Mapped:     companionCoverage,
+		Exceptions: companionRunExceptions,
 	}
 
-	// Sorted, because these are diagnostics: two runs over one tree should report
-	// the same faults in the same order, and a map's is whatever the runtime felt
-	// like.
-	for _, flag := range slices.Sorted(maps.Keys(companionRunExceptions)) {
-		if function, both := recorded[flag]; both {
-			errs = append(errs, fmt.Errorf(
-				"%s is recorded both as mapped onto %s's %s and as an exception reaching it through %s: a flag has "+
-					"one answer, and the two tables are how a curated flag and an uncurated one are told apart, so a "+
-					"flag in both says the module mirrors it and does not at once",
-				flag, companionModuleDir, function, runFunction))
-
-			continue
-		}
-
-		recorded[flag] = runFunction
-	}
-
-	for _, flag := range flags {
-		if exception, excepted := companionRunExceptions[flag]; excepted {
-			if err := exception.Check(flag); err != nil {
-				errs = append(errs, err)
-			}
-
-			continue
-		}
-
-		function, covered := companionCoverage[flag]
-		if !covered {
-			errs = append(errs, fmt.Errorf(
-				"the cpybkc CLI accepts %s and %s records nothing that covers it: %s is the cpybkc CLI daggerized, "+
-					"so the answer is ordinarily an argument on the function named for the command this flag belongs "+
-					"to, recorded in companionCoverage in this file; a flag a Dagger argument cannot express is an "+
-					"entry in companionRunExceptions instead, carrying the argument for that and the issue curating "+
-					"it if one is (#253)",
-				flag, companionModuleDir, companionModuleDir))
-
-			continue
-		}
-
-		if !slices.Contains(functions, function) {
-			errs = append(errs, fmt.Errorf(
-				"%s is recorded as covered by %s's %s, and that module declares no such function; either the "+
-					"function was renamed and this table was not, or the flag now reaches the module some other way",
-				flag, companionModuleDir, function))
-		}
-	}
-
-	// The route every exception is an exception *to*. An entry saying a flag
-	// reaches the module through a function the module no longer declares covers
-	// nothing, and it would otherwise be the one claim in either table that is
-	// checked against nothing.
-	if len(companionRunExceptions) > 0 && !slices.Contains(functions, runFunction) {
-		errs = append(errs, fmt.Errorf(
-			"companionRunExceptions records flags as reaching %s through %s, and that module declares no such "+
-				"function: the escape hatch is what every exception in that table is an exception to, so a rename "+
-				"of it is a rewrite of the table rather than a rename",
-			companionModuleDir, runFunction))
-	}
-
-	for _, flag := range slices.Sorted(maps.Keys(recorded)) {
-		if !slices.Contains(flags, flag) {
-			errs = append(errs, fmt.Errorf(
-				"%s records %s as covered by %s and the cpybkc CLI no longer accepts that flag; a module argument "+
-					"is public API for as long as the published module ref exists, so a flag leaving the CLI is a "+
-					"decision about the module rather than a line to delete from this table without one",
-				companionModuleDir, flag, recorded[flag]))
-		}
-	}
-
-	return errors.Join(errs...)
+	return record.Check(flags, functions)
 }
 
 // companionType is the companion module's own type, whose exported methods are
@@ -656,11 +592,13 @@ var exampleInitVector = []string{
 // dagger.json and its function names. None of them makes a call, so a module
 // whose calls no longer compose into a working image would fail none of them.
 // This is the only place `dagger call -m daggerverse/cpybkc …` actually happens,
-// and the module implements contracts written elsewhere rather than one of its
-// own — docs/cli/SPEC.md's and docs/container/SPEC.md's — which is exactly why a
-// broken one is worse than none: a caller reaches for it because they did not
-// want to learn the contract underneath, so the failure lands on somebody with
-// no reason to know where to look.
+// and the module implements contracts specified elsewhere — docs/cli/SPEC.md's
+// and docs/container/SPEC.md's — while adding no specification of its own. That
+// is exactly why a broken one is worse than none: a caller reaches for it
+// because they did not want to learn the contract underneath, so the failure
+// lands on somebody with no reason to know where to look. Being an interface of
+// its own (#253) makes that argument stronger rather than weaker — more people
+// arrive through it, with less idea of what is behind it.
 //
 // # Why it drives the image built here
 //

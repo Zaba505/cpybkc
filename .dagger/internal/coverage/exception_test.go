@@ -127,14 +127,46 @@ func TestCheckRefusesAnExceptionThatClaimsNothing(t *testing.T) {
 func TestCheckReportsEveryFaultAtOnce(t *testing.T) {
 	// An exception written in a hurry is usually wrong in more than one way, and
 	// learning about the second one on the next run is a second run.
-	err := Exception{Tracking: "nope"}.Check("--flag")
-	if err == nil {
-		t.Fatal("Check() = nil, want an error")
-	}
+	for _, tc := range []struct {
+		name      string
+		exception Exception
+		want      []string
+	}{
+		{
+			name:      "a missing reason beside a malformed reference",
+			exception: Exception{Tracking: "nope"},
+			want:      []string{"no reason is written beside it", "not an issue reference"},
+		},
+		{
+			// The row that pins the claim rather than passing by accident: these
+			// two faults are decided in the same place, so a version of Check that
+			// stopped at the first would report only the mutual exclusion. Review
+			// found exactly that, and this is what it is fixed against.
+			name:      "settled and tracked at once, by something that is not a reference",
+			exception: Exception{Reason: "because", Settled: true, Tracking: "nope"},
+			want:      []string{"both settled and tracked", "not an issue reference"},
+		},
+		{
+			name:      "all three at once",
+			exception: Exception{Settled: true, Tracking: "nope"},
+			want: []string{
+				"no reason is written beside it",
+				"both settled and tracked",
+				"not an issue reference",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.exception.Check("--flag")
+			if err == nil {
+				t.Fatal("Check() = nil, want an error")
+			}
 
-	for _, want := range []string{"no reason is written beside it", "not an issue reference"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("Check() = %q, want it to mention %q", err, want)
-		}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Check() = %q, want it to mention %q", err, want)
+				}
+			}
+		})
 	}
 }
