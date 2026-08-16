@@ -345,9 +345,9 @@ and what it adds instead is a record whose data holds the delimiter. A
 vector *The extent governs, and framing is checked against it* names, and `0x15`
 is what ends a record in that file. That is the section carrying the rule the
 record is aimed at — a consumer **MUST NOT** determine a record's end by
-searching the input for a delimiter — so it is what both delimited entries cite.
-A consumer that searched would cut that record after four bytes; one that counts
-the extent reads them as the number they are.
+searching the input for a delimiter — so it is what all three delimited entries
+cite. A consumer that searched would cut that record after four bytes; one that
+counts the extent reads them as the number they are.
 
 `delimited-ascii-newline` is that collision in the file an adopter is likeliest
 to hand the tool first. Its records end with `0x0A`, which is what the delimiter
@@ -357,34 +357,40 @@ items and never framing bytes, so an ASCII twin of `delimited-terminator` would
 only restate what `packed-ascii` and `packed-ebcdic` state about an axis that
 does not apply, and would not be worth an entry. What earns this one is that the
 delimiter turns up inside an item in the likelier bytes: a `PIC S9(4) COMP` item
-holding 10 is `00 0A` and one holding 2570 is `0A 0A`, so a consumer that
-searched cuts the first record after five bytes and the second after four and
-again after five, while one that counts the extent reads the counts it wrote.
-Its third record's count is zero and its six bytes carry no `0x0A` at all, which
-is the ordinary record the other two are read against. Its delimiter is written
+holding 10 is `00 0A` and one holding 2570 is `0A 0A`. A consumer that split the
+twenty-one bytes on `0x0A` would come back with six pieces of five, no, four,
+no, no and six bytes instead of three records of six; one that counts the extent
+reads the counts that were written. Its third record's count is zero and its six
+bytes carry no `0x0A` at all, which is the ordinary record the other two are
+read against, and the one piece a splitting consumer still gets whole. The
+bytes of that count are Appendix A.5's, which is what the entry cites beside the
+sections above. Its delimiter is written
 as a byte string and never as a named character or a line-ending style, which is
 [`docs/layout/SPEC.md`](../../docs/layout/SPEC.md)'s *A delimiter is bytes, and
 it has a placement*, and its file is a `terminator` file — so, like
 `delimited-terminator`, it is what a writer produces and would still pass a byte
 comparison. What it catches is the search.
 
-What none of the three states is what a **wrong** consumer does. All three are
+What none of `delimited-terminator`, `delimited-optional-terminator` and
+`segmented-spanning` states is what a **wrong** *writer* does. All three are
 well-formed files, so a writer that omitted the final delimiter under
 `optional-terminator`, or that copied its input's segmentation instead of
 relaying it, would still write a file that reads back as these records and would
 still pass. The byte counts above are properties of the entries rather than
-assertions the corpus makes, and what these three actually catch is a runner that
+assertions the corpus makes, and what those three actually catch is a runner that
 compares bytes — which is the claim `docs/conformance/SPEC.md` makes for them and
-the whole of it.
+the whole of it. What a wrong *consumer* does is a separate matter and is what
+the two entries above hold a delimiter inside a record for.
 
-Four cases are named here because they are known gaps rather than covered
+These cases are named here because they are known gaps rather than covered
 ground. `separator` has no entry, and neither does the trailing delimiter that
 announces a record which is not there under it, nor the missing one that makes a
 file truncated under `terminator`; each is an error-path entry, which is a
 different claim from these and belongs with the other refusals. A multi-byte
 delimiter has no entry either: `0D 0A`, what the same file ends its records with
-once it has been through Windows, is the only case where a consumer consumes two
-framing bytes rather than one, and all three delimited entries here consume one.
+once it has been through Windows, is the delimiter a consumer is likeliest to
+meet that is more than one byte long, and all three delimited entries here carry
+a delimiter of one.
 And a segment control code of `0` — a complete, unspanned record inside a spanned
 dataset — cannot occur in `segmented-spanning`, because its one record type is
 longer than its largest segment; a second record type is what would reach it.

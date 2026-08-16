@@ -6,15 +6,15 @@
 ;; already say about an axis that does not apply, and would not be worth an
 ;; entry. What earns this one is the collision. A PIC S9(4) COMP item holding 10
 ;; is the bytes 00 0A and one holding 2570 is 0A 0A, and 0x0A is what ends a
-;; record here — so a consumer that searched the input for the delimiter cuts
-;; the first record after five bytes and the second after four and again after
-;; five, while one that counts the extent reads them as the numbers they are.
-;; That is delimited-terminator's point in the file the field actually holds.
+;; record here — so a consumer that split these twenty-one bytes on 0x0A would
+;; come back with six pieces, of five, no, four, no, no and six bytes, rather
+;; than three records of six; one that counts the extent reads them as the
+;; numbers they are. That is delimited-terminator's point, in the file the
+;; field actually holds.
 ;;
 ;; The third record's count is zero, so its six bytes carry no 0x0A at all: it
-;; is the ordinary record the other two are read against, and it is what a
-;; consumer that cut the file into four records or five would still have got
-;; right.
+;; is the ordinary record the other two are read against, and the one piece a
+;; splitting consumer still hands back whole.
 ;;
 ;; Nothing in Appendix A describes a delimiter — codec/SPEC.md places record
 ;; formats out of scope in as many words — so this entry's framing is derived
