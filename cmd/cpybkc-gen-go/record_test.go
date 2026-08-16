@@ -136,6 +136,168 @@ func TestARecordCarryingSlackHoldsARunForEveryNodeOfIt(t *testing.T) {
 	}
 }
 
+// TestAFillerIsGeneratedRatherThanRefused is the case that makes the difference
+// between this generator working on real copybooks and not.
+//
+// COBOL's FILLER has no data-name, so a producer emits no names message for it
+// (internal/assemble/assemble.go's `names`), and FILLER is in most copybooks
+// anybody actually has. Refusing it refused the whole package over an item
+// nobody was looking at — and refused it as a *malformed descriptor*, which is
+// what docs/ir/SPEC.md's "Names" says it is not.
+//
+// The two halves are different decisions and are asserted separately. An
+// elementary FILLER has no value anybody named, so it gets no exported field
+// and its bytes are retained beside the slack. A FILLER *group* holds members
+// the copybook does name, which is the case a run of retained bytes could not
+// stand in for, so its members are reached at the enclosing level — which is
+// where COBOL's own qualification reaches them.
+func TestAFillerIsGeneratedRatherThanRefused(t *testing.T) {
+	t.Parallel()
+
+	source := written(t, goldenDir)[recordsFile]
+
+	// The FILLER item's bytes, retained beside ORDER-RECORD's slack rather than
+	// in it: a slack node and a FILLER are two different facts about a record.
+	if !strings.Contains(source, fillerField+" [1][]byte") {
+		t.Errorf("%s declares no run for the FILLER of ORDER-RECORD", recordsFile)
+	}
+
+	// The FILLER group's member, at the level COBOL qualifies it at.
+	for _, want := range []string{"NoteCode string", "// NoteCode is NOTE-CODE"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not contain %q, and NOTE-CODE is a member of a FILLER group", recordsFile, want)
+		}
+	}
+
+	// Nothing is *named* after an item the copybook did not name. A positional
+	// name would be an identifier no copybook spells and one that moves the
+	// moment an unrelated item is inserted ahead of it. Munging produces
+	// exported identifiers, so `Filler` in any form is one — the word appears
+	// in the retained run's doc comment as COBOL spells it and nowhere else.
+	if strings.Contains(source, "Filler") {
+		t.Errorf("%s declares an identifier munged from FILLER, which no copybook and no layout named", recordsFile)
+	}
+}
+
+// TestAnItemCarryingNoNameIsRefused is the other half of the FILLER rule, and
+// the descriptor the refusal was written for.
+//
+// A names message that is *present* and states no original is not an unnamed
+// item: it is a named one whose name went missing, which is a bug in the
+// producer and reads correctly as one. The two used to be the same test —
+// `names.GetOriginal() == ""` is true of both — and collapsing them is what
+// refused every copybook with a FILLER in it.
+func TestAnItemCarryingNoNameIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for name, node := range map[string]*irpb.Node{
+		"a field": {Id: 3, Kind: &irpb.Node_Field{Field: &irpb.Field{
+			Width: 4, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_DISPLAY,
+			Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+			Names:   &irpb.Names{},
+		}}},
+		"a group": {Id: 3, Kind: &irpb.Node_Group{Group: &irpb.Group{
+			MemberIds: []uint64{4}, Names: &irpb.Names{},
+		}}},
+	} {
+		d := &irpb.Descriptor{
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3),
+				node,
+				alphanumeric(4, "NOTE-CODE", 2),
+			},
+		}
+
+		err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+
+		var refusal *malformedError
+		if !errors.As(err, &refusal) {
+			t.Errorf("%s carrying a names message that states no name generated %v, want a malformed descriptor", name, err)
+		}
+	}
+}
+
+// TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed is the third
+// shape a FILLER takes, where there is an honest refusal rather than a
+// generated answer.
+//
+// A FILLER that repeats has no name for its occurrences to differ by, and one
+// standing as an alternative of an alternation has no name to say it is the one
+// an occurrence holds. Each is refused — and refused as the copybook item it is,
+// naming what contains it, rather than as a malformed descriptor. The
+// descriptor is exactly what docs/ir/SPEC.md admits, and telling an adopter to
+// go and find a producer bug over an item they wrote correctly is the
+// misdirection this whole story is about.
+func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T) {
+	t.Parallel()
+
+	repeating := fillerItem(3, 4)
+	repeating.GetField().Repetition = depending(5, 0, 4)
+
+	for name, d := range map[string]*irpb.Descriptor{
+		"a FILLER group that repeats": {
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3),
+				repeated(fillerGroup(3, 4), constant(2)),
+				alphanumeric(4, "NOTE-CODE", 2),
+			},
+		},
+		"a FILLER item counted by another": {
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 5, 3),
+				repeating,
+				zoned(5, "NOTE-COUNT", 2, 2, 0, false),
+			},
+		},
+		"a FILLER standing as one alternative of an alternation": {
+			Version: supportedIRVersion,
+			Nodes: []*irpb.Node{
+				record(1, "ORDER-RECORD", 2),
+				group(2, "ORDER-RECORD", nil, 3),
+				group(3, "ENTRY", constant(2), 4, 5),
+				alphanumeric(4, "ENTRY-TYPE", 1),
+				variant(5, armOf(6, 7), armOf(8, 9)),
+				equals(6, 4, "\xc4"),
+				equals(8, 4, "\xe2"),
+				alphanumeric(7, "ENTRY-DETAIL", 4),
+				fillerItem(9, 4),
+			},
+		},
+	} {
+		out := t.TempDir()
+
+		err := generate(d, out, options{packageName: goldenPackage})
+
+		var refusal *fillerError
+		if !errors.As(err, &refusal) {
+			t.Errorf("%s generated %v, want a refusal naming the item", name, err)
+
+			continue
+		}
+
+		var wrong *malformedError
+		if errors.As(err, &wrong) {
+			t.Errorf("%s is reported as a malformed descriptor, and the descriptor says what docs/ir/SPEC.md admits", name)
+		}
+
+		if !strings.Contains(refusal.Error(), "ORDER-RECORD") && !strings.Contains(refusal.Error(), "ENTRY") {
+			t.Errorf("%s is refused as %q, which names nothing an adopter can go and look at", name, refusal.Error())
+		}
+
+		if entries, err := os.ReadDir(out); err != nil {
+			t.Fatalf("reading the output directory: %v", err)
+		} else if len(entries) != 0 {
+			t.Errorf("%s left %d files beneath --out, want none", name, len(entries))
+		}
+	}
+}
+
 // TestADescriptorCarryingNoRecordWritesOnlyTheDocFile keeps the record file
 // something a descriptor produced rather than something this generator always
 // writes. A file holding a package clause and no declaration says nothing
@@ -885,7 +1047,7 @@ func ordersDescriptor() *irpb.Descriptor {
 			admits(94, 30, 7),
 
 			record(10, "ORDER-RECORD", 11),
-			group(11, "ORDER-RECORD", nil, 12, 13, 14, 15, 16, 22, 23),
+			group(11, "ORDER-RECORD", nil, 12, 13, 14, 15, 16, 20, 21, 22, 23),
 			renamed(zoned(12, "ORDER-ID", 5, 5, 0, false), "OrderID"),
 			alphanumeric(13, "CUSTOMER-NAME", 20),
 			slack(14, 2),
@@ -894,9 +1056,20 @@ func ordersDescriptor() *irpb.Descriptor {
 			alphanumeric(17, "SKU", 8),
 			binary(18, "QUANTITY", 2, 4, true),
 			slack(19, 1),
+
+			// The two shapes an item COBOL gives no data-name takes. The first
+			// is a FILLER item, which gets no field and whose bytes are
+			// retained; the second is a FILLER group, which cannot be retained
+			// as bytes because it holds a member the copybook does name — and
+			// that member is reached at this level, exactly as COBOL's own
+			// qualification reaches it.
+			fillerItem(20, 4),
+			fillerGroup(21, 25),
+
 			zoned(22, "DETAIL-COUNT", 3, 3, 0, false),
 			group(23, "DETAIL", depending(22, 0, 12), 24),
 			alphanumeric(24, "DETAIL-TEXT", 10),
+			alphanumeric(25, "NOTE-CODE", 2),
 
 			record(30, "TRAILER-RECORD", 31),
 			group(31, "TRAILER-RECORD", nil, 32, 33, 34, 35),
@@ -992,6 +1165,32 @@ func group(id uint64, name string, rep *irpb.Repetition, members ...uint64) *irp
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Group{Group: &irpb.Group{
 		MemberIds: members, Names: &irpb.Names{Original: name}, Repetition: rep,
 	}}}
+}
+
+// fillerItem and fillerGroup are an elementary item and a group COBOL gave no
+// data-name: a FILLER, and a FILLER group.
+//
+// Neither carries a names message at all, which is what a producer emits for
+// one — internal/assemble/assemble.go's `names` returns nil for a FILLER, and
+// docs/ir/SPEC.md's "Names" says what a *named* node carries rather than that
+// every node is named. That is the descriptor this generator has to make a
+// decision about, and it is a legal one.
+func fillerItem(id uint64, width uint32) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
+		Width: width, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_DISPLAY,
+		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+	}}}
+}
+
+func fillerGroup(id uint64, members ...uint64) *irpb.Node {
+	return &irpb.Node{Id: id, Kind: &irpb.Node_Group{Group: &irpb.Group{MemberIds: members}}}
+}
+
+// repeated is a group node that occurs that many times.
+func repeated(node *irpb.Node, rep *irpb.Repetition) *irpb.Node {
+	node.GetGroup().Repetition = rep
+
+	return node
 }
 
 // slack is a slack node of that many bytes.

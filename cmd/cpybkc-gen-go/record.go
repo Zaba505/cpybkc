@@ -26,13 +26,24 @@ import (
 const recordsFile = "records.go"
 
 // slackField is the name of the unexported field a struct carries for the
-// slack nodes among its members.
+// slack nodes among its members, and fillerField is the same for the items
+// among them COBOL gave no data-name.
 //
-// It cannot collide with a member's field name: a member's name is munged to
-// an exported identifier and this one is not, so the two live in disjoint sets
+// Neither can collide with a member's field name: a member's name is munged to
+// an exported identifier and these are not, so the two live in disjoint sets
 // however a copybook spells its items — including a copybook with an item
-// literally called SLACK.
-const slackField = "slack"
+// literally called SLACK, and including the FILLER this one is for.
+//
+// Two fields rather than one, because a slack node and a FILLER are two
+// different facts about a record and docs/ir/SPEC.md keeps them apart: slack is
+// bytes that belong to no item, and a FILLER *is* an item — it carries a
+// PICTURE and a USAGE, and cpybkc-gen-graph draws it as a row. Retaining both
+// in one run of storage would be that collapse in this generator instead of in
+// the producer.
+const (
+	slackField  = "slack"
+	fillerField = "filler"
+)
 
 // bigIntType is the Go type a numeric item wider than an int64 takes, and
 // bigIntImport is what the generated file imports for it.
@@ -173,18 +184,13 @@ func (e *emitter) sortedImports() []string {
 // structType is the Go struct type of the group node id names, as source.
 //
 // The members become fields in the order the member list carries them, which
-// docs/ir/SPEC.md makes record order, and the slack nodes among them become the
-// one unexported field at the end.
+// docs/ir/SPEC.md makes record order, and the two kinds of member that get no
+// field of their own — the slack nodes and the items COBOL named nothing —
+// become the unexported fields at the end.
 func (e *emitter) structType(id uint64) (string, error) {
-	node, ok := e.nodes[id]
-	if !ok {
-		return "", unresolved(id)
-	}
-
-	group := node.GetGroup()
-	if group == nil {
-		return "", malformed(fmt.Sprintf("node %d is not a group node, and a group is what stands here", id),
-			"a record's top level and a group's group members are group nodes; see docs/ir/SPEC.md, \"The node kinds\"")
+	group, err := e.group(id)
+	if err != nil {
+		return "", err
 	}
 
 	if _, cycle := e.visiting[id]; cycle {
@@ -195,16 +201,35 @@ func (e *emitter) structType(id uint64) (string, error) {
 	e.visiting[id] = struct{}{}
 	defer delete(e.visiting, id)
 
+	members, err := e.flattened(id)
+	if err != nil {
+		return "", err
+	}
+
 	var (
 		fields []string
 		named  = make(map[string]colliding)
 		slack  int
+		filler int
 	)
 
-	for _, memberID := range group.GetMemberIds() {
+	for _, memberID := range members {
 		member, ok := e.nodes[memberID]
 		if !ok {
 			return "", unresolved(memberID)
+		}
+
+		// An item COBOL gave no data-name contributes bytes and no field, the
+		// way a slack node does. Which of the two shapes a FILLER takes, and
+		// why a group's is the other one, is [emitter.flattened].
+		if field := member.GetField(); field != nil && anonymous(field.GetNames()) {
+			if _, err := fillerRun(field, group.GetNames().GetOriginal()); err != nil {
+				return "", err
+			}
+
+			filler++
+
+			continue
 		}
 
 		switch kind := member.GetKind().(type) {
@@ -219,7 +244,7 @@ func (e *emitter) structType(id uint64) (string, error) {
 		case *irpb.Node_Variant:
 			// One field per arm rather than one field for the alternation, so
 			// that this generator still names nothing the copybook did not.
-			arms, err := e.armFields(kind.Variant)
+			arms, err := e.armFields(kind.Variant, group.GetNames().GetOriginal())
 			if err != nil {
 				return "", err
 			}
@@ -263,7 +288,164 @@ func (e *emitter) structType(id uint64) (string, error) {
 		fields = append(fields, slackDeclaration(slack))
 	}
 
+	if filler > 0 {
+		fields = append(fields, fillerDeclaration(filler))
+	}
+
 	return "struct {\n" + strings.Join(fields, "\n\n") + "\n}", nil
+}
+
+// flattened is the members of the group id as the struct standing for it sees
+// them: its own member list, with each member that is a group COBOL gave no
+// data-name replaced, in place, by that group's own members.
+//
+// # A FILLER group is flattened, and a FILLER item is retained as bytes
+//
+// docs/ir/SPEC.md's "Names" says what a *named* node carries and never that
+// every node is named, so an item COBOL gives no data-name — a FILLER — carries
+// no names message at all, and a FILLER may be a group as much as an elementary
+// item. Neither is a malformed descriptor and neither is refused; what each one
+// generates is this generator's decision, and the two decisions are different
+// because the two items are.
+//
+// An elementary FILLER holds no value anybody named, so it gets no exported
+// field and its bytes are retained the way a slack node's are — see
+// [fillerDeclaration]. That answer is not available to a group: a FILLER group
+// holds members, and those members are named. Retaining the group as one run of
+// bytes would hide items the copybook does name, which is the whole reason
+// there is a second decision to make here at all.
+//
+// Flattening is what COBOL already says about them. Qualification skips an
+// unnamed group — a NOTE-CODE inside a FILLER group is reached as NOTE-CODE OF
+// THE-RECORD, because there is no intermediate name to qualify by — so its
+// members already belong to the enclosing named level, and putting them there
+// is a reading of the copybook rather than a shape invented for Go. A collision
+// after it goes through [collisionError] like any other, which is what says so
+// when two levels turn out to spell one member the same way.
+//
+// # What is refused, and why it is not "malformed"
+//
+// A FILLER group that *repeats* cannot be flattened: its members would have to
+// move up a level once per occurrence, and there is no name for the occurrences
+// to be an array of. That is a [fillerError] — the item is refused, the
+// diagnostic names the item containing it, and it does not call the descriptor
+// malformed over something the adopter wrote correctly.
+//
+// A names message that is *present* and states no original is a different thing
+// and keeps the old refusal: that is a named item whose name went missing,
+// which is a bug in the producer. [identifier] is where the two part company.
+func (e *emitter) flattened(id uint64) ([]uint64, error) {
+	group, err := e.group(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return e.flatten(id, group.GetNames().GetOriginal(), map[uint64]struct{}{id: {}})
+}
+
+// flatten is [emitter.flattened] over one group, in the name of the named one
+// containing it.
+func (e *emitter) flatten(id uint64, in string, seen map[uint64]struct{}) ([]uint64, error) {
+	group, err := e.group(id)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []uint64
+
+	for _, memberID := range group.GetMemberIds() {
+		member, ok := e.nodes[memberID]
+		if !ok {
+			return nil, unresolved(memberID)
+		}
+
+		inner := member.GetGroup()
+		if inner == nil || !anonymous(inner.GetNames()) {
+			out = append(out, memberID)
+
+			continue
+		}
+
+		if inner.GetRepetition() != nil {
+			return nil, &fillerError{Kind: "group", In: in, Because: "repeats"}
+		}
+
+		// A group with no name that contains itself would otherwise be expanded
+		// for ever, and the expansion happens before [emitter.structType]'s own
+		// guard is reached.
+		if _, cycle := seen[memberID]; cycle {
+			return nil, malformed(fmt.Sprintf("node %d contains itself", memberID),
+				"docs/ir/SPEC.md requires containment to be acyclic, and a record whose group contains itself has no width")
+		}
+
+		seen[memberID] = struct{}{}
+
+		below, err := e.flatten(memberID, in, seen)
+		if err != nil {
+			return nil, err
+		}
+
+		delete(seen, memberID)
+
+		out = append(out, below...)
+	}
+
+	return out, nil
+}
+
+// group is the group node id names.
+func (e *emitter) group(id uint64) (*irpb.Group, error) {
+	node, ok := e.nodes[id]
+	if !ok {
+		return nil, unresolved(id)
+	}
+
+	group := node.GetGroup()
+	if group == nil {
+		return nil, malformed(fmt.Sprintf("node %d is not a group node, and a group is what stands here", id),
+			"a record's top level and a group's group members are group nodes; see docs/ir/SPEC.md, \"The node kinds\"")
+	}
+
+	return group, nil
+}
+
+// anonymous is whether a node's names are those of an item COBOL gave no
+// data-name: no names message at all.
+//
+// The whole of the FILLER decision turns on this being *absence* rather than
+// emptiness. A names message that is present and states no original is a named
+// item whose name went missing — a producer bug — and it is refused as one; see
+// [identifier].
+func anonymous(names *irpb.Names) bool { return names == nil }
+
+// fillerRun is the number of bytes retained for an item COBOL gave no name: its
+// width, taken as many times as it occurs.
+//
+// A constant OCCURS is one run of all of it rather than one run per occurrence.
+// The occurrences of a FILLER are indistinguishable — nothing names them and
+// nothing reads them — so a run each would be storage divided along a line no
+// caller can see.
+//
+// An OCCURS DEPENDING ON is refused. The run would have to be as long as the
+// count says, so a writer would have to agree with a count field it does not
+// derive, over bytes no caller can supply; that is a promise this generator
+// cannot keep, and it says so rather than emitting a record that fails at run
+// time.
+func fillerRun(f *irpb.Field, in string) (uint32, error) {
+	rep := f.GetRepetition()
+	if rep == nil {
+		return f.GetWidth(), nil
+	}
+
+	switch count := rep.GetCount().(type) {
+	case *irpb.Repetition_Constant:
+		return f.GetWidth() * count.Constant, nil
+	case *irpb.Repetition_Variable:
+		return 0, &fillerError{Kind: "item", In: in, Because: "occurs a number of times the record states"}
+	default:
+		return 0, malformed("an item repeats and says nothing about how many times",
+			"a repetition carries a constant count or an OCCURS DEPENDING ON one; an item that does not repeat carries no repetition at all")
+	}
 }
 
 // member is one field of a struct: the declaration with its doc comment, and
@@ -356,7 +538,7 @@ type armField struct {
 // generator invented, which is exactly what it refuses to do everywhere else.
 // Nil and non-nil say the same thing and say it in names the copybook already
 // spells: exactly one arm of an occurrence is non-nil.
-func (e *emitter) armFields(v *irpb.Variant) ([]armField, error) {
+func (e *emitter) armFields(v *irpb.Variant, in string) ([]armField, error) {
 	if len(v.GetArms()) < 2 {
 		return nil, malformed(fmt.Sprintf("a variant carries %d arms", len(v.GetArms())),
 			"a producer must not emit a variant carrying fewer than two arms; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
@@ -376,6 +558,10 @@ func (e *emitter) armFields(v *irpb.Variant) ([]armField, error) {
 	names := make([]string, 0, len(bodies))
 
 	for _, body := range bodies {
+		if err := namedArm(body, in); err != nil {
+			return nil, err
+		}
+
 		name, err := identifier("arm", namesOf(body))
 		if err != nil {
 			return nil, err
@@ -400,6 +586,27 @@ func (e *emitter) armFields(v *irpb.Variant) ([]armField, error) {
 	}
 
 	return fields, nil
+}
+
+// namedArm refuses an arm whose body is an item COBOL gave no data-name.
+//
+// This is the third shape a FILLER takes and the one there is no answer for. An
+// alternation is spelled as a field per alternative, exactly one of which is
+// non-nil in an occurrence, so an alternative with no name has no way to say it
+// is the one the record holds — and it cannot be retained as bytes either,
+// because its siblings cover the same bytes and one of them is a field a caller
+// fills. Refused rather than called malformed: a `FILLER REDEFINES` is
+// something a copybook may say, and the answer is in the copybook.
+func namedArm(body *irpb.Node, in string) error {
+	if !anonymous(namesOf(body)) {
+		return nil
+	}
+
+	return &fillerError{
+		Kind:    "item",
+		In:      in,
+		Because: "is one alternative of an alternation over a run of bytes, which this generator spells as a field per alternative",
+	}
 }
 
 // armBody is the group or field node an arm's body names.
@@ -786,6 +993,32 @@ func slackDeclaration(runs int) string {
 %[1]s [%[2]d][]byte`, slackField, runs)
 }
 
+// fillerDeclaration is the one unexported field a struct carries for the items
+// among its members COBOL gave no data-name.
+//
+// The same shape as [slackDeclaration] and for a related reason: the bytes are
+// part of the record, and nothing in the copybook names them, so they travel
+// with the record where the decode and encode methods can reach them and a
+// caller cannot. Exporting them would need a name — Filler1, Filler2 — that no
+// copybook spells and that moves the moment an unrelated item is inserted ahead
+// of it, which is the one thing this generator refuses to produce everywhere
+// else.
+func fillerDeclaration(runs int) string {
+	return fmt.Sprintf(`// %[1]s is the bytes of the items among this item's members that the
+// copybook gives no data-name — its FILLER — in the order they occupy the
+// record: one run each, as they stood when the record was read, and one set
+// of them per occurrence of this struct. A nil run is one the record does
+// not carry; an empty run is a run of no bytes, and the two are not the
+// same.
+//
+// A FILLER is an item, and it is one no program names: it holds no value a
+// caller of this package could set and none it could read. So it travels
+// with the record and there is nothing here for a caller to do. An item you
+// do want to read or write is one to give a data-name in the copybook,
+// which makes it a field like any other.
+%[1]s [%[2]d][]byte`, fillerField, runs)
+}
+
 // comment is a struct field's doc comment, opening with the Go name Go's own
 // convention wants there and naming the copybook's word for it.
 //
@@ -840,11 +1073,21 @@ func renameNote(names *irpb.Names) string {
 func identifier(kind string, names *irpb.Names) (string, error) {
 	original := names.GetOriginal()
 
-	// A node the copybook named and the descriptor did not is a bug in the
-	// producer rather than a name an adopter can do anything about, so it is
-	// reported as the malformed descriptor it is. Telling them to rename an
-	// item in their layout would send them looking for a name that is not
-	// missing from anything they wrote.
+	// A names message that is present and states no original is a node the
+	// copybook named and the descriptor did not, which is a bug in the producer
+	// rather than a name an adopter can do anything about, so it is reported as
+	// the malformed descriptor it is. Telling them to rename an item in their
+	// layout would send them looking for a name that is not missing from
+	// anything they wrote.
+	//
+	// A node carrying *no names message at all* is the other descriptor this
+	// test used to collapse into that one, and it is not a fault: it is an item
+	// COBOL gave no data-name, which is a FILLER, and it is legal and common.
+	// Every caller that may meet one asks [anonymous] before it asks for an
+	// identifier — a FILLER has none — so what reaches here with an empty
+	// original really is the producer bug this refusal was written for. The
+	// exception is the record node, which is required to be named
+	// (internal/assemble/validate.go) and is refused by either half of this.
 	if original == "" {
 		return "", malformed(fmt.Sprintf("a %s node carries no name", kind),
 			"record, group and field nodes each carry the name the copybook spells; see docs/ir/SPEC.md, \"The node kinds\"")

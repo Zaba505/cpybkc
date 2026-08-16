@@ -16,4 +16,4 @@
            05  TRL-TYPE                PIC X(2).
            05  TRL-COUNT               PIC 9(6).
            05  TRL-NET                 PIC S9(13)V99 COMP-3.
-           05  TRL-FILLER              PIC X(8).
+           05  FILLER                  PIC X(8).

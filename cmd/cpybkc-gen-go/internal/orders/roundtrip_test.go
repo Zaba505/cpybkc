@@ -152,6 +152,18 @@ func orderBytes(t *testing.T, enc codec.Encoding, details int) []byte {
 			}
 		}
 
+		// The FILLER item, and then the FILLER group's one named member.
+		// Neither byte of the first is a space or a zero, for the reason the
+		// slack runs above are neither: a writer that filled the run rather
+		// than emitting what it read fails this rather than passing it by luck.
+		if err := w.WriteBytes([]byte{0x01, 0x02, 0xfe, 0xff}); err != nil {
+			return err
+		}
+
+		if err := w.WriteAlphanumeric("NC", 2); err != nil {
+			return err
+		}
+
 		if err := w.WriteZonedInt32(int32(details), 3, codec.SignUnsigned); err != nil {
 			return err
 		}
@@ -722,6 +734,79 @@ func TestARetainedRunOfTheWrongLengthIsReported(t *testing.T) {
 				t.Errorf("the report reads %q and does not say what it refused to do", err)
 			}
 		})
+	}
+}
+
+// TestAFillerTravelsWithTheRecordAndItsGroupsMembersDoNot is the FILLER
+// decision from the only side that can be asserted from inside a record: what
+// the two shapes do with the bytes.
+//
+// ORDER-RECORD carries both. The elementary FILLER has no field, so its four
+// bytes are written back out of the run retained for them — which
+// [TestARecordCarryingSlackWritesBackTheBytesItWasReadFrom] already covers over
+// the whole record, and which this states about the run itself. The FILLER
+// *group* is the half that could not be retained as bytes: it holds NOTE-CODE,
+// which the copybook does name, and a caller reads and writes it as a field of
+// the record — at this level, because COBOL's own qualification skips a group
+// with no name.
+func TestAFillerTravelsWithTheRecordAndItsGroupsMembersDoNot(t *testing.T) {
+	t.Parallel()
+
+	var x OrderRecord
+
+	in := orderBytes(t, Encoding(), 1)
+
+	r, err := codec.NewReader(bytes.NewReader(in), Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewReader: %v", err)
+	}
+
+	if err := x.UnmarshalCOBOL(r); err != nil {
+		t.Fatalf("UnmarshalCOBOL: %v", err)
+	}
+
+	// The FILLER's own bytes, as they stood in the record: neither a space nor
+	// a zero, so a run this generator filled rather than read fails here.
+	if got, want := x.filler[0], []byte{0x01, 0x02, 0xfe, 0xff}; !bytes.Equal(got, want) {
+		t.Errorf("the FILLER of the record read back as % x, want % x", got, want)
+	}
+
+	// The member of the FILLER group, reached at the level above it.
+	if x.NoteCode != "NC" {
+		t.Errorf("NOTE-CODE is a member of a FILLER group and read back as %q, want %q", x.NoteCode, "NC")
+	}
+}
+
+// TestARecordTheCallerBuiltEmitsZeroBytesForItsFiller is the writer's half of
+// that, and the one place it invents bytes for an item rather than for slack.
+//
+// A caller cannot set a FILLER — it has no field, because the copybook gave it
+// no name — so a record built rather than read carries no run for it and the
+// writer emits zero bytes, exactly as it does for slack. Spaces would be a
+// value chosen on behalf of a caller who never had one to give; an item whose
+// value you want to choose is one to give a data-name in the copybook.
+func TestARecordTheCallerBuiltEmitsZeroBytesForItsFiller(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+
+	w, err := codec.NewWriter(&out, Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewWriter: %v", err)
+	}
+
+	if err := (&OrderRecord{NoteCode: "NC"}).MarshalCOBOL(w); err != nil {
+		t.Fatalf("MarshalCOBOL: %v", err)
+	}
+
+	// The four bytes of the FILLER, ahead of the two of NOTE-CODE, which is
+	// the caller's.
+	want := append(make([]byte, 4), laidOut(t, Encoding(), func(w *codec.Writer) error {
+		return w.WriteAlphanumeric("NC", 2)
+	})...)
+
+	if !bytes.Contains(out.Bytes(), want) {
+		t.Errorf("a record the caller built writes % x, and the FILLER ahead of NOTE-CODE is not % x", out.Bytes(), want)
 	}
 }
 

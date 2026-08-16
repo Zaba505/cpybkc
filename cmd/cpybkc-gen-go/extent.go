@@ -96,14 +96,14 @@ func (c *coder) sumWidth(id uint64, expr string, dir direction) (string, error) 
 
 // members is the sum of the widths of the group id's members.
 func (c *coder) members(id uint64, expr string, dir direction) (extent, error) {
-	group, err := c.group(id)
+	members, err := c.flattened(id)
 	if err != nil {
 		return extent{}, err
 	}
 
 	var total extent
 
-	for _, memberID := range group.GetMemberIds() {
+	for _, memberID := range members {
 		width, err := c.width(memberID, expr, dir)
 		if err != nil {
 			return extent{}, err
@@ -126,6 +126,18 @@ func (c *coder) width(id uint64, expr string, dir direction) (extent, error) {
 	case *irpb.Node_Slack:
 		return fixed(int(kind.Slack.GetWidth())), nil
 	case *irpb.Node_Field:
+		// An item the copybook gives no data-name occupies the bytes it
+		// occupies, and no expression is needed to say how many: its
+		// occurrences are a constant or it is refused. See [fillerRun].
+		if anonymous(kind.Field.GetNames()) {
+			run, err := fillerRun(kind.Field, c.record)
+			if err != nil {
+				return extent{}, err
+			}
+
+			return fixed(int(run)), nil
+		}
+
 		name, err := identifier("field", kind.Field.GetNames())
 		if err != nil {
 			return extent{}, err
@@ -211,14 +223,14 @@ func (c *coder) occurrences(one extent, rep *irpb.Repetition, expr string, dir d
 // offsetOf is where the field target begins inside one occurrence of the group
 // root, as a Go expression, and whether it is in there at all.
 func (c *coder) offsetOf(root, target uint64, expr string, dir direction) (extent, bool, error) {
-	group, err := c.group(root)
+	members, err := c.flattened(root)
 	if err != nil {
 		return extent{}, false, err
 	}
 
 	var at extent
 
-	for _, memberID := range group.GetMemberIds() {
+	for _, memberID := range members {
 		if memberID == target {
 			return at, true, nil
 		}
@@ -261,6 +273,10 @@ func (c *coder) offsetOf(root, target uint64, expr string, dir direction) (exten
 
 				if body.GetGroup() == nil {
 					continue
+				}
+
+				if err := namedArm(body, c.record); err != nil {
+					return extent{}, false, err
 				}
 
 				name, err := identifier("arm", namesOf(body))

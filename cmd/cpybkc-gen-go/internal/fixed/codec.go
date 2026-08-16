@@ -38,16 +38,19 @@ var (
 	_ codec.Marshaler   = (*LedgerRecord)(nil)
 )
 
-// zeroFill is what a writer emits for a slack node of a record its caller built
-// rather than read: zero bytes, 6 of them at the most, sliced to the node's own
-// width.
+// zeroFill is what a writer emits for a slack node — or for an item the copybook
+// gives no data-name — of a record its caller built rather than read: zero
+// bytes, 6 of them at the most, sliced to the run's own width.
 //
-// Zero rather than a space, because charset is a property of a field and slack
-// is not a field, so there is no charset to resolve a space against and zero is
-// the byte that names none. Those bytes were never in a file, so nothing is
-// being overwritten — a record that was read carries the bytes it was read
-// from and they are emitted instead. See docs/ir/SPEC.md, "What the descriptor
-// determines, a writer supplies".
+// Zero rather than a space. Charset is a property of a field and slack is not a
+// field, so there is no charset to resolve a space against and zero is the byte
+// that names none. A FILLER is a field and does have one, and it gets the same
+// answer for a different reason: its value is nobody's — no program names it
+// and nothing outside this package can set it — so filling it with spaces would
+// be choosing a value on behalf of a caller who never had one to give. Those
+// bytes were never in a file, so nothing is being overwritten — a record that
+// was read carries the bytes it was read from and they are emitted instead. See
+// docs/ir/SPEC.md, "What the descriptor determines, a writer supplies".
 var zeroFill = make([]byte, 6)
 
 // fresh is a zeroed arm to decode into, reusing the one the record already holds
@@ -68,7 +71,8 @@ func fresh[T any](p *T) *T {
 }
 
 // UnmarshalCOBOL reads one LEDGER-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries.
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
 //
 // It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
@@ -126,15 +130,16 @@ func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 }
 
 // MarshalCOBOL writes this LEDGER-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node it
-// carries and zero bytes for a slack node it does not.
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
 //
 // It is codec's Marshaler. Two values are the descriptor's rather than the
 // caller's and are supplied rather than taken from the record: an OCCURS
 // DEPENDING ON count is emitted as the number of occurrences written, and
-// slack is emitted as what was retained for it. Everything else is the
-// caller's, including the value a discriminator tests — a writer evaluates a
-// predicate and never inverts one.
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
 func (x *LedgerRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
