@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -31,15 +32,22 @@ var fileTierDescriptors = map[string]func() *irpb.Descriptor{
 	"internal/opt":     optionalDescriptor,
 }
 
-// TestTheFileTierCoversEveryTransitionPredicate is the coverage rule, held over
-// the generator rather than over the files it happened to write.
+// TestTheFileTierCoversEveryTransitionPredicate is the coverage rule, held
+// against the bytes that were emitted rather than against the generator's own
+// bookkeeping.
 //
 // Every transition predicate the descriptor carries, and every literal of a
-// set-membership one, is exercised by some case. It is asserted here rather
-// than left to the golden comparison because a golden agrees with whatever was
-// generated last: a predicate that quietly stopped being reached would
-// regenerate into a smaller file and the goldens would be updated with it, and
-// the gap would be in an adopter's output before anybody read the diff.
+// set-membership one, is spelled by some case's file at the offset that
+// predicate reads. Over the bytes because the alternative is tautological:
+// [filetest.cover] already refuses a goal it cannot reach, so asking it which
+// goals it reached asks it to mark its own work. What this cannot be satisfied by
+// is a path that was chosen and then not written.
+//
+// It is asserted here rather than left to the golden comparison because a golden
+// agrees with whatever was generated last: a predicate that quietly stopped being
+// reached would regenerate into a smaller file and the goldens would be updated
+// with it, and the gap would be in an adopter's output before anybody read the
+// diff.
 func TestTheFileTierCoversEveryTransitionPredicate(t *testing.T) {
 	t.Parallel()
 
@@ -48,10 +56,11 @@ func TestTheFileTierCoversEveryTransitionPredicate(t *testing.T) {
 			t.Parallel()
 
 			name := dir[strings.LastIndex(dir, "/")+1:]
+			opts := options{packageName: name, importPath: goldenModule + dir}
 
-			one, err := newFileTest(descriptor(), options{packageName: name, importPath: goldenModule + dir})
+			one, err := newFiletest(descriptor(), opts)
 			if err != nil {
-				t.Fatalf("fileTests: %v", err)
+				t.Fatalf("newFiletest: %v", err)
 			}
 
 			want, err := one.goals()
@@ -59,26 +68,73 @@ func TestTheFileTierCoversEveryTransitionPredicate(t *testing.T) {
 				t.Fatalf("goals: %v", err)
 			}
 
+			source, err := fileTests(descriptor(), opts)
+			if err != nil {
+				t.Fatalf("fileTests: %v", err)
+			}
+
 			files, err := one.cover()
 			if err != nil {
 				t.Fatalf("cover: %v", err)
 			}
 
-			reached := make(map[goal]struct{})
-
-			for _, file := range files {
-				for _, met := range file.meets {
-					reached[met] = struct{}{}
-				}
+			// The paths were chosen, and every one of them is a case in the
+			// file that was written. Counted rather than assumed, because a
+			// chosen path that never reached the source is exactly the gap the
+			// rest of this test would not see.
+			if got := strings.Count(source, "\nfunc Test"); got != len(files) {
+				t.Errorf("%s cases were chosen and %d were written", plural(len(files), "case"), got)
 			}
 
 			for _, missing := range want {
-				if _, ok := reached[missing]; !ok {
-					t.Errorf("no case reaches %s", spell(t, one, missing))
+				if !spelled(t, one, files, missing) {
+					t.Errorf("no case spells %s in the bytes it reads", spell(t, one, missing))
 				}
 			}
 		})
 	}
+}
+
+// spelled is whether some case's file holds the goal's literal at the offset the
+// predicate reads it from, in a record the transition carrying that predicate
+// admits.
+func spelled(t *testing.T, one *filetest, files []*laid, want goal) bool {
+	t.Helper()
+
+	if want.automaton {
+		return len(files) != 0
+	}
+
+	values, err := one.literalsOf(want.predicate)
+	if err != nil {
+		t.Fatalf("literalsOf: %v", err)
+	}
+
+	value := values[want.pick]
+
+	for _, walk := range one.walks {
+		for _, edge := range walk {
+			if edge.node.PredicateId == nil || edge.node.GetPredicateId() != want.predicate {
+				continue
+			}
+
+			at := edge.reads - len(value)
+
+			for _, file := range files {
+				for _, record := range file.records {
+					if record.typ != edge.typ || len(record.raw) < edge.reads {
+						continue
+					}
+
+					if bytes.Equal(record.raw[at:edge.reads], value) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // TestEveryLiteralOfASetMembershipPredicateGetsACase is the half of the
@@ -91,9 +147,9 @@ func TestTheFileTierCoversEveryTransitionPredicate(t *testing.T) {
 func TestEveryLiteralOfASetMembershipPredicateGetsACase(t *testing.T) {
 	t.Parallel()
 
-	one, err := newFileTest(oneOfDescriptor(), options{packageName: "counted", importPath: goldenModule + "internal/counted"})
+	one, err := newFiletest(oneOfDescriptor(), options{packageName: "counted", importPath: goldenModule + "internal/counted"})
 	if err != nil {
-		t.Fatalf("fileTests: %v", err)
+		t.Fatalf("newFiletest: %v", err)
 	}
 
 	files, err := one.cover()
@@ -226,44 +282,6 @@ func TestTheFileTierIsTheSameBytesTwice(t *testing.T) {
 	}
 }
 
-// newFileTest is the emitter the two coverage assertions reach past
-// [fileTests] for, so that they can ask what the goals were as well as what was
-// written.
-func newFileTest(d *irpb.Descriptor, opts options) (*filetest, error) {
-	e, err := newEmitter(d)
-	if err != nil {
-		return nil, err
-	}
-
-	f := &filer{emitter: e, opts: opts, index: make(map[uint64]int)}
-	if err := f.collect(d); err != nil {
-		return nil, err
-	}
-
-	enc, err := descriptorEncoding(d)
-	if err != nil {
-		return nil, err
-	}
-
-	s, err := newSynth(&coder{emitter: e, receiver: opts.receiverName()}, d, enc)
-	if err != nil {
-		return nil, err
-	}
-
-	one := &filetest{filer: f, synth: s}
-
-	for _, state := range f.states {
-		walk, err := f.transitionsOf(state.GetState())
-		if err != nil {
-			return nil, err
-		}
-
-		one.walks = append(one.walks, walk)
-	}
-
-	return one, nil
-}
-
 // spell is a goal as a failure names it.
 func spell(t *testing.T, one *filetest, want goal) string {
 	t.Helper()
@@ -296,4 +314,67 @@ func oneOfDescriptor() *irpb.Descriptor {
 	})
 
 	return &irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes}
+}
+
+// TestADecrementCountsAgainstTheLatestBindingOfItsRegister is the arithmetic a
+// register bound twice along one path turns on.
+//
+// A binding replaces what a register holds, so a decrement after it takes one off
+// the *new* value. Counting decrements against the register's first binding
+// instead is off by however many stood between the two, and the number is what
+// sizes a table counted by that register and what decides whether an earlier
+// transition of a state would have been eligible — so getting it wrong writes a
+// wrong file rather than refusing.
+//
+// None of the golden descriptors walks a path that rebinds a register, which is
+// exactly why this is asserted directly: the goldens would agree with the bug.
+func TestADecrementCountsAgainstTheLatestBindingOfItsRegister(t *testing.T) {
+	t.Parallel()
+
+	one, err := newFiletest(countedDescriptor(), options{packageName: "counted", importPath: goldenModule + "internal/counted"})
+	if err != nil {
+		t.Fatalf("newFiletest: %v", err)
+	}
+
+	// header, detail, header, detail: the second header rebinds the counter the
+	// first one bound, and a detail stands on each side of it.
+	path := []step{{from: 0, at: 0}, {from: 1, at: 0}, {from: 1, at: 2}, {from: 1, at: 0}}
+
+	sites, needs, why, err := one.demands(path)
+	if err != nil {
+		t.Fatalf("demands: %v", err)
+	}
+
+	if why != "" {
+		t.Fatalf("the path was refused before anything was solved: %s", why)
+	}
+
+	if why, err := one.solve(sites, needs); err != nil || why != "" {
+		t.Fatalf("solve: %v %s", err, why)
+	}
+
+	reached, err := one.reachedWith(path, sites)
+	if err != nil {
+		t.Fatalf("reachedWith: %v", err)
+	}
+
+	// Node 20 is the detail counter. The second header bound it to one and the
+	// detail behind that header took that one off, so the run is complete and
+	// the register is at zero — not at minus one, which is what counting both
+	// decrements against the first header would give.
+	held, bound := 0, false
+
+	for _, register := range reached {
+		if register.register == 20 {
+			held, bound = int(register.value), true
+		}
+	}
+
+	if !bound {
+		t.Fatal("the counter the descriptor carries as node 20 is bound twice along this path and came back unbound")
+	}
+
+	if held != 0 {
+		t.Errorf("the counter reads %d after the second header bound it to one and one detail took one off, want 0", held)
+	}
 }

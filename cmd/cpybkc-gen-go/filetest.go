@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -68,27 +69,17 @@ var fileCaseIdentifiers = map[string]struct{}{
 // [fileMachine] is: a tier covering a file that is not emitted has nothing to
 // cover. Absent too where no field of the descriptor gives an encoding to read.
 func fileTests(d *irpb.Descriptor, opts options) (string, error) {
-	e, err := newEmitter(d)
+	t, err := newFiletest(d, opts)
 	if err != nil {
 		return "", err
 	}
 
-	f := &filer{emitter: e, opts: opts, index: make(map[uint64]int)}
-
-	if err := f.collect(d); err != nil {
-		return "", err
-	}
-
-	if f.file == nil || !f.admits() {
-		return "", nil
-	}
-
-	enc, err := descriptorEncoding(d)
-	if err != nil {
-		return "", err
-	}
-
-	if enc == nil {
+	// Absent where the automaton admits no record, and where no field of the
+	// descriptor gives an encoding to read a case's bytes under. Asked of the
+	// built emitter rather than ahead of building one, so that the emission
+	// rules are the only thing this function adds to [newFiletest] and the two
+	// cannot come to disagree about what a descriptor is.
+	if t.file == nil || !t.admits() || t.synth == nil {
 		return "", nil
 	}
 
@@ -98,23 +89,64 @@ func fileTests(d *irpb.Descriptor, opts options) (string, error) {
 			optFlag, importPathOption, outFlag)
 	}
 
-	s, err := newSynth(&coder{emitter: e, receiver: opts.receiverName()}, d, enc)
+	return t.source()
+}
+
+// newFiletest is the emitter over one descriptor, indexed and with every state's
+// transitions resolved.
+//
+// Separate from [fileTests] so that this package's own tests reach the same
+// construction the generator makes rather than a second copy of it, which is a
+// copy that drifts. What is left in [fileTests] is the emission rules — when a
+// file is written at all — and nothing else.
+//
+// [filetest.synth] is nil where the descriptor gives no encoding to lay bytes out
+// under, which is a descriptor carrying no field.
+func newFiletest(d *irpb.Descriptor, opts options) (*filetest, error) {
+	e, err := newEmitter(d)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	t := &filetest{filer: f, synth: s}
+	f := &filer{emitter: e, opts: opts, index: make(map[uint64]int)}
+
+	if err := f.collect(d); err != nil {
+		return nil, err
+	}
+
+	t := &filetest{filer: f}
+
+	// Nothing to resolve where the descriptor carries no file node: [filer.collect]
+	// returns before it indexes the states, so a transition's next state cannot be
+	// looked up and the walk would refuse a descriptor that simply has no automaton.
+	if f.file == nil {
+		return t, nil
+	}
 
 	for _, state := range f.states {
 		walk, err := f.transitionsOf(state.GetState())
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		t.walks = append(t.walks, walk)
 	}
 
-	return t.source()
+	enc, err := descriptorEncoding(d)
+	if err != nil {
+		return nil, err
+	}
+
+	if enc == nil {
+		return t, nil
+	}
+
+	t.synth, err = newSynth(&coder{emitter: e, receiver: opts.receiverName()}, d, enc)
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
 }
 
 // filetest writes one descriptor's file-tier cases.
@@ -149,15 +181,36 @@ func (t *filetest) source() (string, error) {
 	)
 
 	for _, one := range files {
-		funcs = append(funcs, t.testCase(one, alias, used))
+		source, err := t.testCase(one, alias, used)
+		if err != nil {
+			return "", err
+		}
+
+		funcs = append(funcs, source)
 	}
 
-	paths := []string{"bytes", "errors", "io", "testing", t.opts.importPath}
-	for path := range t.synth.needs {
-		paths = append(paths, path)
+	// The imports every case takes, and the ones an accepted case asked for.
+	// Per accepted case rather than off the shared synthesizer, because
+	// [filetest.cover] lays out candidate paths it then refuses: an import a
+	// discarded candidate reached for is an import nothing in this file uses,
+	// which is generated code that does not compile. Deduplicated for the same
+	// reason from the other side — one named twice is the same error.
+	imports := map[string]struct{}{
+		"bytes": {}, "errors": {}, "io": {}, "testing": {}, t.opts.importPath: {},
 	}
 
-	slices.Sort(paths)
+	for _, one := range files {
+		for _, path := range one.needs {
+			imports[path] = struct{}{}
+		}
+	}
+
+	sorted := make([]string, 0, len(imports))
+	for path := range imports {
+		sorted = append(sorted, path)
+	}
+
+	slices.Sort(sorted)
 
 	var b strings.Builder
 
@@ -181,7 +234,7 @@ own tests in a package of your own that imports %s.`, t.opts.packageName)))
 	b.WriteString(t.opts.packageName)
 	b.WriteString("_test\n\nimport (\n")
 
-	for _, path := range paths {
+	for _, path := range sorted {
 		if path == t.opts.importPath && alias != lastElement(path) {
 			fmt.Fprintf(&b, "%s %q\n", alias, path)
 
@@ -433,7 +486,14 @@ type step struct {
 // carrying the same predicate — see [run] for why twice rather than once, and
 // why the singular is tried after it rather than instead of it.
 func (t *filetest) paths(want goal) ([][]step, error) {
-	var out [][]step
+	// Two lists, because they answer different questions. preferred is the file
+	// this generator means to write for each edge that reaches the goal — the run
+	// walked [runLength] times where the automaton offers it again — and shortened
+	// is the same edge walked once, which is what is left where the longer file
+	// cannot be laid out. Every preferred candidate is tried before any shortened
+	// one, so a file does not lose its second record to a state that happens to be
+	// carried first.
+	var preferred, shortened [][]step
 
 	for from, walk := range t.walks {
 		for at, one := range walk {
@@ -454,19 +514,33 @@ func (t *filetest) paths(want goal) ([][]step, error) {
 
 			extended, landed := t.extend(core, one.next, want.pick)
 
+			// The run walked once is the preferred file only where the automaton
+			// offers no second walk of it; where it does, the singular form is
+			// what is left when the longer one cannot be laid out.
+			whole := &preferred
 			if len(extended) > len(core) {
+				whole = &shortened
+
 				if suffix, accepts := t.shortestAccepting(landed); accepts {
-					out = append(out, append(extended, suffix...))
+					preferred = append(preferred, append(extended, suffix...))
 				}
 			}
 
 			if suffix, accepts := t.shortestAccepting(one.next); accepts {
-				out = append(out, append(append([]step(nil), core...), suffix...))
+				*whole = append(*whole, append(append([]step(nil), core...), suffix...))
 			}
 		}
 	}
 
-	return out, nil
+	// Shortest first inside each list, not only inside one candidate: each piece
+	// of a candidate is a shortest walk, but a goal two states offer would
+	// otherwise be answered by whichever state the descriptor happens to carry
+	// first. Stable, so that two candidates of one length stay in the order the
+	// automaton carries them and a run is a run two of them make alike.
+	sort.SliceStable(preferred, func(i, j int) bool { return len(preferred[i]) < len(preferred[j]) })
+	sort.SliceStable(shortened, func(i, j int) bool { return len(shortened[i]) < len(shortened[j]) })
+
+	return append(preferred, shortened...), nil
 }
 
 // extend walks the run out to [runLength] records where the automaton offers the same
@@ -654,6 +728,10 @@ type laid struct {
 
 	// records is one entry per record of the file.
 	records []laidRecord
+
+	// needs are the import paths this case's assertions asked for beyond the
+	// ones every case takes.
+	needs []string
 }
 
 // laidRecord is one record of a synthesized file.
@@ -681,7 +759,7 @@ type laidRecord struct {
 // exist, because what excludes an earlier transition of a state may be its guard
 // or may be the bytes in front of it.
 func (t *filetest) lay(path []step) (*laid, string, error) {
-	sites, needs, why, err := t.collect(path)
+	sites, needs, why, err := t.demands(path)
 	if err != nil || why != "" {
 		return nil, why, err
 	}
@@ -724,8 +802,11 @@ func (t *filetest) met(path []step) []goal {
 	return out
 }
 
-// collect is the path's binding sites and everything the path needs of them.
-func (t *filetest) collect(path []step) ([]site, []need, string, error) {
+// demands is the path's binding sites and everything the path needs of them.
+//
+// Named for what it collects rather than `collect`, which is [filer.collect] —
+// indexing a descriptor's nodes — and would be shadowed by a method of this type.
+func (t *filetest) demands(path []step) ([]site, []need, string, error) {
 	var (
 		sites []site
 		needs []need
@@ -1054,7 +1135,7 @@ func (t *filetest) solveNumber(one *site, mine []need) (string, error) {
 
 		shifted := make([]int64, 0, len(want.numbers))
 		for _, value := range want.numbers {
-			shifted = append(shifted, value+int64(want.down))
+			shifted = append(shifted, shift(value, want.down))
 		}
 
 		if !narrowed {
@@ -1232,6 +1313,10 @@ func intersectBytes(a, b [][]byte) [][]byte {
 func (t *filetest) write(path []step, sites []site) (*laid, error) {
 	one := &laid{path: path}
 
+	// The synthesizer is shared across every candidate and this one may yet be
+	// refused, so what it reaches for is taken here and not left on it.
+	t.synth.needs = make(map[string]struct{})
+
 	for at, taken := range path {
 		edge := t.walks[taken.from][taken.at]
 
@@ -1239,6 +1324,13 @@ func (t *filetest) write(path []step, sites []site) (*laid, error) {
 			return nil, err
 		}
 	}
+
+	one.needs = make([]string, 0, len(t.synth.needs))
+	for path := range t.synth.needs {
+		one.needs = append(one.needs, path)
+	}
+
+	slices.Sort(one.needs)
 
 	return one, nil
 }
@@ -1278,7 +1370,12 @@ func (t *filetest) record(one *laid, at int, taken step, edge transition, sites 
 		s.pinned[bound.field] = bound.body
 	}
 
-	for _, reached := range t.reachedWith(one.path[:at], sites) {
+	all, err := t.reachedWith(one.path[:at], sites)
+	if err != nil {
+		return err
+	}
+
+	for _, reached := range all {
 		if reached.integer {
 			s.registers[reached.register] = int(reached.value)
 		}
@@ -1300,7 +1397,12 @@ func (t *filetest) record(one *laid, at int, taken step, edge transition, sites 
 		parts = append(parts, chunk{body: part.body, note: fmt.Sprintf("record %d: %s", at+1, part.note)})
 	}
 
-	one.runs = append(one.runs, t.framed(at, parts)...)
+	framed, err := t.framed(at, parts)
+	if err != nil {
+		return err
+	}
+
+	one.runs = append(one.runs, framed...)
 
 	one.records = append(one.records, laidRecord{
 		typ: edge.typ, original: edge.record.GetNames().GetOriginal(),
@@ -1324,51 +1426,65 @@ type reachedRegister struct {
 	integer  bool
 }
 
-// reachedWith is what every integer register holds after the walk given, which
-// is what sizes a table the next record counts by one.
+// reachedWith is what every register holds after the walk given, which is what
+// sizes a table the next record counts by one and what decides whether an
+// earlier transition of a state would have been eligible.
 //
 // Recomputed from the path rather than carried, because the value a binding put
-// in a register is decided by [filetest.solve] and the walk that collected the
-// needs ran before that. Undecided bindings are left out: nothing along the path
-// reads them, so nothing needs a number for them.
-func (t *filetest) reachedWith(walk []step, sites []site) []reachedRegister {
+// in a register is decided by [filetest.solve] and [filetest.demands], which
+// collected the needs, ran before that. It is one forward walk in step order,
+// which is [filetest.demands]' own shape and the reader's: a register nothing has
+// bound is absent, a binding replaces what was there and resets the decrements
+// with it, and a decrement takes one off what the *latest* binding put there. Two
+// passes counting decrements against the earliest binding would disagree with the
+// solver about any register a path binds twice.
+//
+// A binding nothing constrained is left out rather than guessed at. Nothing along
+// the path reads it, so nothing needs a number for it — and [filetest.eligible]
+// is written to treat an absent register as one it cannot rule a transition out
+// on.
+func (t *filetest) reachedWith(walk []step, sites []site) ([]reachedRegister, error) {
 	var (
 		held = make(map[uint64]reachedRegister)
-		down = make(map[uint64]int)
-		open = make(map[uint64]bool)
+		open = make(map[uint64]struct{})
 	)
-
-	for _, one := range sites {
-		if one.step >= len(walk) {
-			continue
-		}
-
-		if !one.pinned && !one.chosen {
-			open[one.register] = true
-
-			continue
-		}
-
-		open[one.register] = false
-		held[one.register] = reachedRegister{
-			register: one.register, value: one.number, body: one.body, integer: one.integer,
-		}
-		down[one.register] = 0
-	}
 
 	for at, taken := range walk {
 		for _, id := range t.walks[taken.from][taken.at].node.GetBindingIds() {
-			binding := t.nodes[id].GetBinding()
-			if _, takes := binding.GetValue().(*irpb.Binding_Decrement); !takes {
+			node, ok := t.nodes[id]
+			if !ok {
+				return nil, unresolved(id)
+			}
+
+			binding := node.GetBinding()
+			if binding == nil {
+				return nil, malformed(fmt.Sprintf("node %d is a transition's binding and is not a binding node", id),
+					"a transition's binding list names binding nodes; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
+			}
+
+			register := binding.GetRegisterId()
+
+			if _, takes := binding.GetValue().(*irpb.Binding_Decrement); takes {
+				if one, bound := held[register]; bound {
+					one.value--
+					held[register] = one
+				}
+
 				continue
 			}
 
-			for _, one := range sites {
-				if one.register == binding.GetRegisterId() && one.step <= at {
-					down[one.register]++
+			delete(held, register)
+			delete(open, register)
 
-					break
-				}
+			bound, ok := siteAt(sites, at, register)
+			if !ok || (!bound.pinned && !bound.chosen) {
+				open[register] = struct{}{}
+
+				continue
+			}
+
+			held[register] = reachedRegister{
+				register: register, value: bound.number, body: bound.body, integer: bound.integer,
 			}
 		}
 	}
@@ -1376,17 +1492,21 @@ func (t *filetest) reachedWith(walk []step, sites []site) []reachedRegister {
 	out := make([]reachedRegister, 0, len(held))
 
 	for _, id := range sortedKeys(held) {
-		if open[id] {
-			continue
-		}
-
-		one := held[id]
-		one.value -= int64(down[id])
-
-		out = append(out, one)
+		out = append(out, held[id])
 	}
 
-	return out
+	return out, nil
+}
+
+// siteAt is the binding of one register made at one step of the path.
+func siteAt(sites []site, at int, register uint64) (site, bool) {
+	for _, one := range sites {
+		if one.step == at && one.register == register {
+			return one, true
+		}
+	}
+
+	return site{}, false
 }
 
 // framed is one record's runs with this file's framing around them, at the same
@@ -1400,7 +1520,7 @@ func (t *filetest) reachedWith(walk []step, sites []site) []reachedRegister {
 // The framing stands in the literal rather than being elided, because it is half
 // of what an adopter is holding the literal against: a record descriptor word is
 // four bytes they will see in a hexdump and want to recognise.
-func (t *filetest) framed(at int, parts []chunk) []chunk {
+func (t *filetest) framed(at int, parts []chunk) ([]chunk, error) {
 	width := 0
 	for _, part := range parts {
 		width += len(part.body)
@@ -1410,16 +1530,27 @@ func (t *filetest) framed(at int, parts []chunk) []chunk {
 	case descriptorWord:
 		stated := width + segmentDescriptorWidth
 
+		// The emitted writer refuses a record whose stated length will not fit
+		// the two bytes a record descriptor word carries, and so does this. A
+		// truncated word here would be a literal that fails its own byte
+		// equality inside generated code somebody else has to debug, which is a
+		// long way from the descriptor that caused it.
+		if stated > 0xFFFF {
+			return nil, malformed(fmt.Sprintf("record %d of a synthesized file is %s and this file states a record's length in a record descriptor word",
+				at+1, plural(width, "byte")),
+				"a record descriptor word states a length in two bytes, so a record it stands in front of is at most 65531 bytes")
+		}
+
 		return append([]chunk{{
 			body: []byte{byte(stated >> 8), byte(stated), 0, 0},
 			note: fmt.Sprintf("record %d: the record descriptor word — %s, itself included", at+1, plural(stated, "byte")),
-		}}, parts...)
+		}}, parts...), nil
 	case segmented:
-		return t.segmented(at, parts, width)
+		return t.segmented(at, parts, width), nil
 	case delimited:
-		return t.delimited(at, parts)
+		return t.delimited(at, parts), nil
 	default:
-		return parts
+		return parts, nil
 	}
 }
 
@@ -1553,13 +1684,27 @@ func (t *filetest) walked(path []step, sites []site, one *laid) (string, error) 
 
 // eligible is whether one transition would take the record in front of it.
 func (t *filetest) eligible(edge transition, walk []step, sites []site, raw []byte) (bool, error) {
+	all, err := t.reachedWith(walk, sites)
+	if err != nil {
+		return false, err
+	}
+
 	reached := make(map[uint64]reachedRegister)
-	for _, one := range t.reachedWith(walk, sites) {
+	for _, one := range all {
 		reached[one.register] = one
 	}
 
 	for _, id := range edge.node.GetGuardIds() {
-		guard := t.nodes[id].GetGuard()
+		node, ok := t.nodes[id]
+		if !ok {
+			return false, unresolved(id)
+		}
+
+		guard := node.GetGuard()
+		if guard == nil {
+			return false, malformed(fmt.Sprintf("node %d guards a transition or a state and is not a guard node", id),
+				"a guard reads a register and decides whether the transition carrying it is eligible; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
+		}
 
 		// A register whose value nothing along the path fixed cannot be
 		// evaluated here, and a transition that might be eligible is treated as
@@ -1655,12 +1800,17 @@ func (t *filetest) matches(edge transition, raw []byte) (bool, error) {
 }
 
 // testCase is one case, written.
-func (t *filetest) testCase(one *laid, alias string, used map[string]struct{}) string {
+func (t *filetest) testCase(one *laid, alias string, used map[string]struct{}) (string, error) {
 	name := unique("Test"+t.name(one), used)
+
+	doc, err := t.doc(name, one)
+	if err != nil {
+		return "", err
+	}
 
 	var b strings.Builder
 
-	b.WriteString(commentLines(t.doc(name, one)))
+	b.WriteString(commentLines(doc))
 	fmt.Fprintf(&b, "func %s(t *testing.T) {\nt.Parallel()\n\n", name)
 	b.WriteString(t.synth.literalOf(one.runs))
 	fmt.Fprintf(&b, "\nr, err := %s.%s(bytes.NewReader(in), %s.%s())\n", alias, newReaderFunc, alias, encodingFunc)
@@ -1705,12 +1855,12 @@ func (t *filetest) testCase(one *laid, alias string, used map[string]struct{}) s
 	b.WriteString("t.Errorf(\"the file does not write back the bytes it was read from\\n got: % x\\nwant: % x\", out.Bytes(), in)\n")
 	b.WriteString("}\n}")
 
-	return b.String()
+	return b.String(), nil
 }
 
-// doc is a case's comment: what file it holds, and what about the automaton it
-// is the only case to reach.
-func (t *filetest) doc(name string, one *laid) string {
+// doc is a case's comment: what file it holds, and which of the automaton's
+// discriminators it walks.
+func (t *filetest) doc(name string, one *laid) (string, error) {
 	records := make([]string, 0, len(one.records))
 	for _, record := range one.records {
 		records = append(records, record.original)
@@ -1728,12 +1878,24 @@ func (t *filetest) doc(name string, one *laid) string {
 
 		node, ok := t.nodes[met.predicate]
 		if !ok {
-			continue
+			return "", unresolved(met.predicate)
 		}
 
+		// Reported rather than dropped from the comment. Both of these are
+		// invariants that held once already — [filetest.goals] resolved this
+		// predicate and counted its literals — so either failing here means the
+		// path and the goal disagree about which literal the case covers, which
+		// is exactly the gap the coverage rule exists to catch. A comment that
+		// quietly grew shorter is the one outcome that would hide it.
 		values, err := t.literalsOf(met.predicate)
-		if err != nil || met.pick >= len(values) {
-			continue
+		if err != nil {
+			return "", err
+		}
+
+		if met.pick < 0 || met.pick >= len(values) {
+			return "", malformed(fmt.Sprintf("a case covers literal %d of the predicate the descriptor carries as node %d, which carries %s",
+				met.pick, met.predicate, plural(len(values), "literal")),
+				"a case covers one literal of the predicate that admits its record, and the set it is drawn from is the set that predicate carries")
 		}
 
 		field := fmt.Sprintf("node %d", node.GetPredicate().GetFieldId())
@@ -1751,7 +1913,7 @@ func (t *filetest) doc(name string, one *laid) string {
 		doc += "\n\n" + wrapped("The discriminators it walks: "+joinNames(covered)+".")
 	}
 
-	return doc
+	return doc, nil
 }
 
 // name is what a case is called, which is the file it holds spelled as a

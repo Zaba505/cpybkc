@@ -920,10 +920,13 @@ reach cannot regenerate into a smaller golden nobody reads.
 The path a case walks is the **shortest** the automaton offers that reaches the
 predicate being covered: the shortest walk from the start state to a state
 offering that transition, the transition, and the shortest walk from where it
-lands to a state that accepts. Every predicate the path passes through on the way
-is struck off with it, so two predicates on one path cost one case rather than
-two. Shortest first is what keeps a case readable — the literal is as long as the
-path — and it is why the ledger gets seven cases rather than fifty.
+lands to a state that accepts. Where more than one state offers the transition,
+the candidates are ordered by the length of the file each produces, so the case
+an adopter gets is decided by how long it is rather than by which state the
+descriptor happens to carry first. Every predicate the path passes through on the
+way is struck off with it, so two predicates on one path cost one case rather
+than two. Shortest first is what keeps a case readable — the literal is as long
+as the path — and it is why the ledger gets seven cases rather than fifty.
 
 Where the state a record lands in offers the same predicate again, the record is
 taken **twice**. One is enough to reach the predicate and is shortest to read,
