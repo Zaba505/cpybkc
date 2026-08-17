@@ -107,14 +107,28 @@ run has succeeded. Two runs given the same descriptor and the same options
 produce byte-identical files: nothing in the output comes from the clock, the
 environment, the host, the user or the paths in the argument vector.
 
-So far that is four files. `doc.go` carries the package clause and nothing
-else, `records.go` carries [the record structs](#the-record-structs) — one per
-record the descriptor describes — `codec.go` carries
+So far that is six files: four that are the package, and two that are its tests.
+`doc.go` carries the package clause and nothing else, `records.go` carries
+[the record structs](#the-record-structs) — one per record the descriptor
+describes — `codec.go` carries
 [the decode and encode methods](#decoding-and-encoding), and `file.go` carries
-[the file-level reader and writer](#reading-and-writing-a-file). A descriptor
-carrying no record node produces only the first, because a file holding a
-package clause and no declaration says nothing `doc.go` does not, and one whose
-automaton admits no record produces no `file.go` for the same reason.
+[the file-level reader and writer](#reading-and-writing-a-file).
+
+Beside them, [the generated tests](#the-generated-tests) come in two tiers that
+mirror the two source files whose output they cover. `records_test.go` is the
+record tier: one case per record type and per variant arm, each decoding a
+synthesized literal, asserting every decoded field against a value written out
+beside it, and encoding it back byte for byte. `file_test.go` is the file tier:
+one case per path the automaton admits, over the framing around a record and the
+order records come in, so that every transition predicate and every literal of a
+set-membership predicate is exercised by some case.
+
+Each file is written exactly when the file it covers is, and nothing else turns
+it off ([written unconditionally](#decided-the-test-files-are-written-unconditionally)).
+A descriptor carrying no record node produces only `doc.go` — a file holding a
+package clause and no declaration says nothing `doc.go` does not, and a tier with
+no record to make a case out of has nothing to write. One whose automaton admits
+no record produces neither `file.go` nor `file_test.go`, for the same reason.
 
 The codec version assertions
 ([#53](https://github.com/Zaba505/cpybkc/issues/53)) land beside them, in a
@@ -625,3 +639,233 @@ A writer never derives a discriminating value. It evaluates the predicate of the
 transition it would take against the bytes it is about to emit and reports a
 record satisfying none, naming the record — see `ir/SPEC.md`'s *A writer
 evaluates a predicate, it never inverts one*.
+
+## The generated tests
+
+`records_test.go` and `file_test.go` are the two files this generator writes
+that are not the package. Each holds one case per thing the descriptor
+distinguishes, and each case carries the bytes it reads as a **literal** —
+which is the artifact, and the reason these files exist.
+
+Everything else covering this generator's output covers it *in this repository*:
+the golden packages under [`internal/`](internal/), the hand-written round-trip
+assertions inside them, [`example/regenerate_test.go`](../../example/regenerate_test.go), and the
+adapter driving the generator through the plugin contract. None of it reaches
+the directory you generate into, and the question it leaves unanswered is not
+*is the generated code correct*. It is **is the layout I wrote the file I
+actually have**. You write a layout, run cpybkc, get a package — and have
+nothing showing what a file matching that descriptor looks like. If `PST-TYPE`
+is at offset 12 and you wrote 14, the first time you find out is when a real
+dataset fails to read, or worse, when it reads and the numbers are wrong.
+
+A case carrying synthesized bytes closes that. You read the literal, hold it
+against the file on your desk, and find a wrong offset, a wrong width or a wrong
+discriminator literal before opening a real dataset at all. It is the job
+[`cpybkc-gen-graph`](../cpybkc-gen-graph/) already does for the automaton, done
+for the bytes: that document answers *the right records, in the right order,
+told apart on the right bytes, at the right offsets* about the descriptor, and
+until these files nothing answered it about the bytes.
+
+### What they catch, and what they cannot
+
+Read this before deciding how much a green run buys you, because the honest
+answer is smaller than it looks and the part that is left over is the point.
+
+The bytes in a case are laid out, at generation time, with `cobol-go/codec`'s
+own `Writer`, and the generated decoder reads them back with `codec`'s `Reader`.
+The same library is on both ends, so **a `codec` bug cancels** — and so does a
+bug the generated decoder and the generated encoder share.
+
+What they do catch is worth having anyway:
+
+- the two generated directions **disagreeing** — a decoder and an encoder that do
+  not walk the same items in the same order,
+- an emitted offset or width that does not match the descriptor's,
+- framing emitted wrongly, or checked wrongly,
+- an automaton that refuses a file its own descriptor describes.
+
+What is left is **yours**, and no assertion in these files can make it: *the
+descriptor being wrong about the real file* is caught by a person reading the
+literal. That is not a shortcoming of the feature, it is the feature — the
+assertions keep the generated code honest with itself, and the literal is what
+you check against the world.
+
+### Decided: the test files are written unconditionally
+
+There is no `tests=` option. Both files come out of every generation the way the
+other four do.
+
+An adopter who has to discover a flag is an adopter who never gets the
+spot-check — and the spot-check is worth most on the first generation of a
+layout nobody has read yet, which is exactly the run that has not been
+configured. This generator also refuses to carry configuration that does
+nothing: an unrecognised option is an error here rather than something ignored
+(see [Options](#options)), and a switch whose off position is *a worse first
+run* is not a choice a checked-in manifest should have to state.
+
+The cost is two files in a directory that was never yours to edit (see [Your own
+tests do not go here](#your-own-tests-do-not-go-here)), and `go test` running
+them is the whole of what they ask of you.
+
+### Decided: bytes are spelled charset-aware
+
+A case's bytes are a readable Go **string literal** where the charset is an
+ASCII family, and an annotated **`[]byte{…}`** — one comment per item, naming
+the copybook item, its offset and its picture — anywhere else.
+
+This is not a new rule. It is
+[`cpybkc-gen-graph`](../cpybkc-gen-graph/README.md#why-an-edge-is-taken)'s,
+applied to a whole record instead of to one predicate literal:
+
+> **A literal is bytes unless the field it is tested against is ASCII.** `0x40`
+> is `@` in ASCII and a space in cp037, so a document that read a printable byte
+> as text because it happened to be printable would print `"@"` for a literal
+> that is a space in your file.
+
+What is added here is only which spelling helps at which end. For an EBCDIC file
+the slice is the honest spelling and also the useful one — it pastes into
+`hexdump` beside the dataset. For an ASCII file the string literal is readable
+the way the file is readable, and hex would put a transcription step between you
+and the check you came to make. The per-item comments are what make the slice
+checkable at all: without them a wrong offset is invisible in a run of hex, and
+with them the picture the copybook wrote sits beside the bytes it produced.
+
+### Decided: a case asserts round-trip and field values, over every discriminator path
+
+One case does three things, in this order. It decodes its bytes; it asserts
+every decoded field against a value written out beside it; it re-encodes the
+record and asserts the bytes came back byte for byte.
+
+The field-value half is not redundant with the round-trip half. Round-trip alone
+is satisfied by a decoder and an encoder that agree with each other and with
+nothing else — it says the walk is *consistent*, not that it lands where the
+descriptor says. It is also the half that makes the literal legible: *these five
+bytes are the order id, and they read as 12345* is the sentence that turns a
+wall of hex into a spot-check, and a byte literal on its own cannot say it.
+
+Coverage is not one happy path. **Every record type, every variant arm, every
+transition predicate and every literal of a set-membership predicate** is
+exercised by some case. A discriminator that no case covers is one whose
+spelling you find out about from a production file, and a set-membership
+predicate is exactly where a literal goes wrong one value at a time — the arm
+nobody generates a case for is the arm nobody reads.
+
+### The style, and why it inverts this repository's own
+
+A generated case is written to four rules:
+
+- **No package-level variables, and no global state.**
+- **No helpers.** Not `assertBytes`, not `roundTrip`, not `laidOut`.
+- **No separate test data.** No `testdata/`, no shared fixture, no builder — the
+  bytes are inline in the case that reads them, as a literal.
+- **One top-level `func Test…(t *testing.T)` per case**, carrying its own bytes,
+  its own expected values and its own assertions.
+
+Every one of those is broken, deliberately and correctly, by the hand-written
+tests in this repository:
+[`internal/orders/roundtrip_test.go`](internal/orders/roundtrip_test.go) has
+`ascii`, `laidOut`, `roundTrip`, `assertBytes`, `orderBytes`, `tableBytes` and
+`entryBytes`, and it states the opposite policy on literals outright, with a
+good reason:
+
+> The original bytes are laid out here with codec's own accessors rather than
+> written out as hex. That is independent of what is under test in the way that
+> matters: what these tests exercise is the generated *walk* […] and a
+> hand-written EBCDIC literal would be a second thing to get wrong without
+> making the walk any more checked.
+
+Both inversions come from one place. A helper amortises over the cases a person
+would otherwise write out by hand; a generated file amortises nothing, because a
+machine writes every case and nobody edits any of them. What is left of a helper
+is its cost, and that cost is paid at the worst possible moment — a failing
+generated test is read by somebody who did not write it, under time pressure,
+and every helper is one jump away from the line that failed and the bytes that
+caused it. The literal rule inverts for the same reason: nobody hand-writes this
+one, so there is no second thing to get wrong, and the literal here is not a
+means to an assertion — it *is* the artifact.
+
+So the trade this repository makes everywhere else reverses inside a generated
+file, and that file is verbose on purpose. The six hand-written tests keep their
+approach: they are testing the walk, not showing the file.
+
+### The names, and which side moves
+
+`records_test.go` and `file_test.go`, mirroring the source files whose output
+each covers. A name is part of this generator's output, so it is fixed here
+rather than left to a run: an adopter grepping for the case that covers a record
+should land in the file named after the file that declares it.
+
+`file_test.go` is a name already in use in this repository — all six golden
+packages under [`internal/`](internal/) carry a hand-written one — and **the
+hand-written side moves.** The generated name is seen by every adopter of this
+generator and cannot be renamed by any of them; the hand-written files are this
+repository's own, read by contributors who can be told once. Trading the
+adopter-facing name away to keep six internal ones would buy nothing and cost
+the only one that is a contract. The two hand-written files become
+`record_roundtrip_test.go` and `file_roundtrip_test.go`, renamed as a pair so
+that which layer each asserts stays legible once `file_test.go` means something
+else in the same directory.
+
+The rename lands with the first change to what is emitted
+([#264](https://github.com/Zaba505/cpybkc/issues/264)) rather than ahead of it.
+Today's names collide with nothing, and a rename made before the file it makes
+room for exists is a rename nothing in the tree explains.
+
+### The package clause
+
+`package <name>_test` — an external test package, beside the generated package
+rather than inside it.
+
+Everything a case needs is exported: `Encoding()`, `NewReader`,
+`(*Reader).Next`, `NewWriter`, `(*Writer).Write` and `Close`, and each record's
+`UnmarshalCOBOL` and `MarshalCOBOL`. The one thing that looks as though it might
+need more is the [slack a record retains](#where-the-slack-goes), and it is the
+thing an external package demonstrates best: slack survives a round trip through
+the public surface without a case ever naming the field it lives in.
+
+So the clause is what makes *the public API is sufficient to read and write this
+file* something this generator asserts rather than assumes. It is the opposite
+choice from the assertions inside the golden packages, and both are right: those
+are `package orders` because two of their criteria cannot be stated from outside
+at all, and they are testing the walk from within. These are showing you the
+file from where you sit, which is outside.
+
+### Your own tests do not go here
+
+The generated directory is cpybkc's. It is merged wholesale from a scratch
+directory this generator is handed empty on every run
+([#43](https://github.com/Zaba505/cpybkc/issues/43)), and a file a previous run
+produced that this one did not is pruned against `cpybkc.gen.json`
+([#45](https://github.com/Zaba505/cpybkc/issues/45)). **A test file you add
+there is a file you lose**, quietly, at the next generation — and an edit you
+make to a generated case is lost the same way.
+
+Put your own tests in a package of your own that imports the generated one.
+Everything the generated cases touch is exported, so anything they can do yours
+can too; what they cover is that the descriptor's own records read and write,
+and what is yours to cover is what your program does with them.
+
+### A separate `cpybkc-gen-gotest`, considered and rejected
+
+Recorded so that it is not proposed again. The contract permits it:
+[`docs/plugin/SPEC.md`](../../docs/plugin/SPEC.md) lets two generators share an
+`out` directory as long as no output *path* collides
+([#44](https://github.com/Zaba505/cpybkc/issues/44)).
+
+It is rejected because a test package is a function of everything the package
+beside it is. A second generator would have to re-derive `package_name`, the
+identifier munging, the record struct shapes and the extent arithmetic — from
+the same descriptor, in a second implementation, with nothing holding the two in
+step. Its failure mode is the worst one available: a test package that disagreed
+with the package beside it compiles, fails, and blames the wrong side, so the
+adopter debugs a layout that was right. A generator writing tests for its own
+output has nothing to disagree with. The manifest cost is real too — a second
+entry, a second binary on `PATH`, a second thing to version — bought for a
+capability nobody asked for, since these files are not optional and there is no
+one who wants the package without them.
+
+`docs/plugin/SPEC.md` needs no word for any of this, and gets none. The contract
+fixes *where* a generator writes and what it may not do — not how many files it
+writes, nor what any of them is for — so two more files from this generator are
+already inside it. A clause about test output would be a rule about one
+generator written into the document that governs all of them.
