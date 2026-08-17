@@ -415,20 +415,25 @@ func (s *synth) testCase(node *irpb.Node, typ string, one generatedCase, alias s
 // is readable the way the file is, with hex only where an item's bytes are not
 // characters under any charset. See README.md, "Decided: bytes are spelled
 // charset-aware".
-func (s *synth) byteLiteral() string {
+func (s *synth) byteLiteral() string { return s.literalOf(s.runs) }
+
+// literalOf is [synth.byteLiteral] over runs the caller assembled, which is how
+// the file tier spells a whole file: its runs are the framing around each record
+// as well as the items inside one.
+func (s *synth) literalOf(runs []chunk) string {
 	if s.charset == irpb.Charset_CHARSET_ASCII {
-		return s.stringLiteral()
+		return stringLiteral(runs)
 	}
 
-	return s.hexLiteral()
+	return hexLiteral(runs)
 }
 
 // stringLiteral is the ASCII spelling: one quoted run per item, concatenated,
 // each with the item that wrote it in the comment column.
-func (s *synth) stringLiteral() string {
+func stringLiteral(all []chunk) string {
 	var runs []chunk
 
-	for _, one := range s.runs {
+	for _, one := range all {
 		if len(one.body) > 0 {
 			runs = append(runs, one)
 		}
@@ -467,12 +472,12 @@ const bytesPerLine = 8
 // hexLiteral is the EBCDIC spelling: one line of hex per eight bytes, with the
 // item that wrote them in the comment column of the first and the column held
 // open on the rest.
-func (s *synth) hexLiteral() string {
+func hexLiteral(runs []chunk) string {
 	var b strings.Builder
 
 	b.WriteString("in := []byte{\n")
 
-	for _, one := range s.runs {
+	for _, one := range runs {
 		if len(one.body) == 0 {
 			continue
 		}

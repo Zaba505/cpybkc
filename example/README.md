@@ -25,13 +25,27 @@ a field nothing outside can — see
 [Slack](#slack-and-why-a-test-lives-inside-the-package). The regeneration below
 leaves it alone.
 
-`ledger/records_test.go` **is** generated, and it is pinned like every other
-generated file. `cpybkc-gen-go` writes one case per record type and per variant
-arm, each carrying the bytes it reads as a literal with the item, the offset and
-the picture in the comment column — the record read against the layout rather
-than against a file, which is the spot-check an adopter makes before opening a
-real dataset. The two kinds of `_test.go` are told apart by the
+`ledger/records_test.go` and `ledger/file_test.go` **are** generated, and they
+are pinned like every other generated file. `cpybkc-gen-go` writes one case per
+record type and per variant arm into the first, and one case per path through the
+automaton into the second, each carrying the bytes it reads as a literal with the
+item, the offset and the picture in the comment column — read against the layout
+rather than against a file, which is the spot-check an adopter makes before
+opening a real dataset. The two kinds of `_test.go` are told apart by the
 `// Code generated … DO NOT EDIT.` header rather than by the suffix.
+
+The file tier and [`graph/graph.md`](graph/graph.md) are the two halves of one
+spot-check and are meant to be held against each other. The diagram answers
+*which records, in which order, told apart on which bytes* about the descriptor:
+`s77 --> s78: LEDGER-HEADER, when HDR-TYPE = 0xF0 0xF1, then r76 = HDR-COUNT` is
+the edge, and `TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer` is that
+edge and the two it leads to as bytes — `0xf0 0xf1` at offset 0 of the first
+record, `0xf0 0xf0 0xf2` in `HDR-COUNT`, and the two debit postings the register
+it bound then admits. Seven cases cover all eight of the automaton's
+discriminators; the fifty edges the diagram draws are fifty ways to arrive at
+those eight, and [why one case per predicate rather than one per
+edge](../cmd/cpybkc-gen-go/README.md#decided-the-file-tier-covers-by-predicate-not-by-edge)
+is the whole of that decision.
 
 ## Why this exists
 

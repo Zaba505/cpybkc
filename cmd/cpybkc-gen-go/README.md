@@ -130,7 +130,7 @@ run has succeeded. Two runs given the same descriptor and the same options
 produce byte-identical files: nothing in the output comes from the clock, the
 environment, the host, the user or the paths in the argument vector.
 
-So far that is five files: four that are the package, and one that is its tests.
+So far that is six files: four that are the package, and two that are its tests.
 `doc.go` carries the package clause and nothing else, `records.go` carries
 [the record structs](#the-record-structs) — one per record the descriptor
 describes — `codec.go` carries
@@ -147,12 +147,9 @@ and encoding it back byte for byte. `file_test.go` is the file tier and covers
 case for every transition predicate and every literal of a set-membership
 predicate the automaton carries.
 
-The record tier is written today. The file tier is
-[#265](https://github.com/Zaba505/cpybkc/issues/265)'s and is not emitted yet,
-so a generation currently produces five files rather than six — which is why the
-hand-written `file_test.go` in each of [the golden
-packages](internal/) has already moved out of its way; see [the names, and which
-side moves](#the-names-and-which-side-moves).
+Both tiers are written today, which is why the hand-written `file_test.go` in
+each of [the golden packages](internal/) has moved out of the way; see [the
+names, and which side moves](#the-names-and-which-side-moves).
 
 Each test file is written exactly when the files it covers are, and nothing else
 turns it off ([written
@@ -884,6 +881,129 @@ spelling you find out about from a production file, and a set-membership
 predicate is exactly where a literal goes wrong one value at a time — the arm
 nobody generates a case for is the arm nobody reads.
 
+### Decided: the file tier covers by predicate, not by edge
+
+A file-tier case is a whole file — the framing, and the records in an order the
+automaton admits — and between them the cases satisfy **every transition
+predicate the descriptor carries and every literal of a set-membership one**.
+Transitions that share a predicate are covered **once, by that predicate**, not
+once per edge.
+
+This has to be decided rather than assumed, because it is the difference between
+a readable file and an unreadable one.
+[`example/graph/graph.md`](../../example/graph/graph.md) draws nine states and
+fifty transitions for one ordinary ledger — every posting state offers all six
+posting types — so a full edge cover would be fifty cases for the worked example
+alone, over seven. What an adopter is checking is *this record type is selected
+on these bytes*, which is a property of the **predicate**; the guards that make
+two edges carrying one predicate distinct are the automaton's business, and
+[`cpybkc-gen-graph`](../cpybkc-gen-graph/) has already drawn them.
+
+So it is a bound on what these cases prove, and it is stated here for that
+reason: a green file tier says every way a record can be *told apart* has been
+read and written back. It does not say every way the automaton can *get there*
+has been.
+
+A literal of a set-membership predicate is not covered by another literal of the
+same set. `is one of "DA" or "DB"` is two ways a file can be spelled, and an
+adopter who has checked one has not checked the other, so each gets a case.
+
+A predicate **no file reaches** is refused rather than skipped: a transition no
+reader will ever take selects a record the automaton describes and no file can
+hold, which is a bug in whatever produced the descriptor. Refusing is the answer
+this generator gives everywhere else a descriptor cannot be walked, and a test in
+this package holds it to the rule so that a predicate quietly falling out of
+reach cannot regenerate into a smaller golden nobody reads.
+
+### Decided: shortest first, and a counted run walked twice
+
+The path a case walks is the **shortest** the automaton offers that reaches the
+predicate being covered: the shortest walk from the start state to a state
+offering that transition, the transition, and the shortest walk from where it
+lands to a state that accepts. Every predicate the path passes through on the way
+is struck off with it, so two predicates on one path cost one case rather than
+two. Shortest first is what keeps a case readable — the literal is as long as the
+path — and it is why the ledger gets seven cases rather than fifty.
+
+Where the state a record lands in offers the same predicate again, the record is
+taken **twice**. One is enough to reach the predicate and is shortest to read,
+and it is still not enough to see: a counted run walked once cannot tell a
+register that was decremented from one that was tested, and a file of one record
+under a separator placement carries no separator at all — which is half of the
+framing [the golden packages](internal/) exist to exercise. Two costs one more
+record in the literal and shows both. It is a constant in the generator rather
+than an option, because the file a case carries is the artifact and a number a
+run could set is a literal an adopter cannot predict from their own layout.
+
+### Decided: the count is chosen before it is stored
+
+A transition may bind an integer register out of a field of the record it just
+admitted, and a later transition may guard on that register and take one off it.
+`example/ledger.sexpr` is exactly that shape: the header states how many postings
+follow, the header's edge binds `HDR-COUNT` into a register, each posting edge is
+guarded *greater than zero* and decrements it, and the trailer's edge is guarded
+on zero.
+
+Nothing downstream fixes such a field up — `ir/SPEC.md`'s *"A writer evaluates a
+guard, it never back-fills a count"* — so the number has to be **chosen first and
+then written into the field**. The choice is made over the path rather than by a
+search over values: every guard the path evaluates and every table of the path's
+records whose count is a register becomes one requirement on the value a binding
+put in a register, shifted by the decrements standing between the two. The set to
+solve over is closed and small — the predicates are `BytesEqual` and
+`BytesOneOf`, the guards are `equals`, `one_of` and `greater_than_zero`, and the
+bindings are from a field or `Decrement`, and there is no fourth of anything — so
+each binding is settled on its own: the requirements naming a set intersect, the
+requirements naming a bound narrow, and the smallest value satisfying both wins.
+
+A binding **nothing along the path constrains** is left alone, and its field
+takes the value [the record tier's own rule](#where-a-cases-values-come-from)
+gives it. That is not a gap: a register no guard reads and no table is counted by
+is a register whose value nothing along the path can tell apart.
+
+A field the admitting predicate already pins is **read** rather than chosen — the
+predicate decides whether the record is admitted at all — and a path whose guards
+that value cannot satisfy is refused in favour of the next candidate.
+
+Two consequences worth stating. A table counted by a register carries that many
+occurrences at the file tier, where the automaton has run, and **none** at the
+record tier, where it has not — see [a table counted by a
+register](#a-table-counted-by-a-register); the two tiers show the same record
+with different extents on purpose. And every candidate path is checked against
+the walk the generated reader would actually make: both directions evaluate a
+state's transitions in the order the state carries them and take the first that
+is eligible, so a path is only a path if every earlier transition of every state
+along it is excluded — by a guard that does not hold, or by a predicate the
+record's own bytes do not satisfy.
+
+### Decided: the file tier asserts the record types, their order and the discriminator
+
+One file-tier case reads its bytes with the generated `Reader`, checks that the
+records came back **in the order the automaton admits them and as the types the
+descriptor names**, checks the field each transition's predicate names, writes
+them all back with the generated `Writer` and checks the bytes are the bytes it
+started from.
+
+Not every field of every record. That is a deliberate narrowing of [the record
+tier's rule](#decided-a-case-asserts-round-trip-and-field-values-over-every-discriminator-path)
+and it is taken rather than fallen into: each record already has a case of its own
+one file over, where every exported field of it is written out beside its value,
+and the ledger's six posting types asserted field by field inside seven files
+would be a literal nobody reads to the end. What is left is what this tier is
+*for* — the framing, the order, and the bytes a record is told apart on — and
+byte equality over the whole file is what keeps the round-trip half as strong as
+the record tier's.
+
+The framing is **in the literal**, never stripped or elided: a record descriptor
+word is four bytes an adopter will see in a hexdump and want to recognise, and a
+segmented record's own runs are cut at the segment boundaries with the piece
+behind each marked as a continuation.
+
+A case is named after the file it holds — `TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer`
+— with runs collapsed. Long, and that is the trade: the name is the first thing a
+reader sees in a failure and the only summary of the path the case walks, and a
+numbered one would be short and say nothing.
+
 ### The style, and why it inverts this repository's own
 
 A generated case is written to four rules:
@@ -947,10 +1067,10 @@ The rename landed with the first change to what is emitted
 ([#264](https://github.com/Zaba505/cpybkc/issues/264)) rather than ahead of it,
 so that a rename and the file it makes room for are one diff rather than two —
 and so that the seven moved files are read beside the reason they moved. The
-collision itself is still not live, because the file tier is
-[#265](https://github.com/Zaba505/cpybkc/issues/265)'s; what the rename buys is
-that the tier can land without a rename landing in the same pull request as the
-file that collides with it, which is a diff nobody can read.
+tier that collides with them landed one pull request later
+([#265](https://github.com/Zaba505/cpybkc/issues/265)), which is what the rename
+bought: a rename and the file that displaces it are two diffs a reviewer can
+read rather than one nobody can.
 
 The golden packages hold both kinds of `_test.go` for that reason, and the two
 tests that pin them tell one from the other by the `// Code generated … DO NOT

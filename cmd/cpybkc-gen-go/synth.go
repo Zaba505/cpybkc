@@ -10,6 +10,7 @@ import (
 	byteorder "encoding/binary"
 	"fmt"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -58,6 +59,25 @@ type synth struct {
 	// counts is the number of occurrences chosen for each OCCURS DEPENDING ON
 	// count field, by that field's identifier. See [synth.chooseCounts].
 	counts map[uint64]int
+
+	// The file tier's, and nil at the record tier — where a record is laid out
+	// on its own, no automaton has run in front of it and there is nothing for
+	// any of these to say.
+	//
+	// admitting is the transition whose predicate this record's bytes have to
+	// satisfy, which at the file tier is one edge rather than every edge
+	// admitting the type. pick is which literal of a set-membership predicate
+	// that edge is being covered for, by predicate node. pinned is the bytes a
+	// register's guard requires of the field bound into it, and forced the
+	// number one requires of a numeric one. registers is what each register
+	// holds where the record is read, which is what sizes a table counted by
+	// one. only is the fields whose values the case asserts.
+	admitting *irpb.Transition
+	pick      map[uint64]int
+	pinned    map[uint64][]byte
+	forced    map[uint64]int
+	registers map[uint64]int
+	only      map[uint64]struct{}
 
 	// runs is the record's bytes divided by the item that wrote them, in
 	// record order, each with the comment column that names it.
@@ -243,6 +263,14 @@ func (s *synth) chooseCounts(rootID uint64) error {
 		s.counts[id] = chosen
 	}
 
+	// A field an earlier transition binds into an integer register holds the
+	// number the file tier chose for it, whether or not it also counts a table
+	// of its own. Where it does, [synth.countFor] has already sized that table
+	// from the same number, so the two cannot disagree.
+	for _, id := range sortedKeys(s.forced) {
+		s.counts[id] = s.forced[id]
+	}
+
 	return nil
 }
 
@@ -250,6 +278,14 @@ func (s *synth) chooseCounts(rootID uint64) error {
 // with: what a predicate pins it to where one does, and the story's rule
 // otherwise.
 func (s *synth) countFor(id uint64, node *irpb.Node, uses []*irpb.VariableCount) (int, error) {
+	// A number the file tier chose because an earlier transition binds this
+	// field into a register a guard reads. It wins over the story's rule for
+	// the reason a predicate's literal does: the value is fixed elsewhere, and
+	// a table sized against it is a table the case cannot read back.
+	if want, ok := s.forced[id]; ok {
+		return want, nil
+	}
+
 	if want, ok := s.literal[id]; ok {
 		field := node.GetField()
 		if field == nil {
@@ -381,18 +417,56 @@ func (s *synth) countUses(id uint64, into map[uint64][]*irpb.VariableCount, orde
 func (s *synth) discriminators(id uint64, record *irpb.Record) error {
 	s.literal = make(map[uint64][]byte)
 
-	for _, node := range s.order {
-		transition := node.GetTransition()
-		if transition == nil || transition.PredicateId == nil || transition.GetRecordId() != id {
-			continue
+	switch {
+	case s.admitting != nil:
+		// The file tier admits a record along one edge, and it is that edge's
+		// predicate the bytes have to satisfy — not every edge admitting the
+		// type. Two transitions may admit one record on two literals of one
+		// field, and a case laid out for the second would be a record the
+		// reader takes the first edge for.
+		if s.admitting.PredicateId != nil {
+			if err := s.require(s.admitting.GetPredicateId(), false); err != nil {
+				return err
+			}
 		}
+	default:
+		for _, node := range s.order {
+			transition := node.GetTransition()
+			if transition == nil || transition.PredicateId == nil || transition.GetRecordId() != id {
+				continue
+			}
 
-		if err := s.require(transition.GetPredicateId(), false); err != nil {
-			return err
+			if err := s.require(transition.GetPredicateId(), false); err != nil {
+				return err
+			}
+		}
+	}
+
+	// What a guard requires of the field an earlier binding read it out of,
+	// where the predicate has not already claimed that field. Second, and never
+	// over a predicate: a predicate decides whether the record is admitted at
+	// all, and a guard tested against a register the record cannot produce is a
+	// path this file does not walk.
+	for _, at := range sortedKeys(s.pinned) {
+		if _, claimed := s.literal[at]; !claimed {
+			s.literal[at] = s.pinned[at]
 		}
 	}
 
 	return s.armLiterals(record.GetRootId())
+}
+
+// sortedKeys is a map's keys in ascending order, so that a walk over one is a
+// walk two runs make alike.
+func sortedKeys[V any](m map[uint64]V) []uint64 {
+	out := make([]uint64, 0, len(m))
+	for key := range m {
+		out = append(out, key)
+	}
+
+	slices.Sort(out)
+
+	return out
 }
 
 // armLiterals is the predicate literal of every arm the case selects.
@@ -475,7 +549,15 @@ func (s *synth) require(id uint64, over bool) error {
 				"a producer MUST carry at least two and MUST NOT carry the same literal twice; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 		}
 
-		s.literal[predicate.GetFieldId()] = test.BytesOneOf.GetValues()[0]
+		// The first literal at the record tier, where the record is what a case
+		// is about; the one the file tier is covering where a transition is.
+		// Every literal of a set is the file tier's to reach, one case each.
+		at := s.pick[id]
+		if at < 0 || at >= len(test.BytesOneOf.GetValues()) {
+			at = 0
+		}
+
+		s.literal[predicate.GetFieldId()] = test.BytesOneOf.GetValues()[at]
 	default:
 		return malformed("a predicate carries no test",
 			"the set is closed and a predicate carries one member of it; see docs/ir/SPEC.md, \"Discriminator predicates\"")
@@ -660,16 +742,20 @@ func (s *synth) walkVariant(id uint64, v *irpb.Variant, expr, item string) error
 		if i == chosen {
 			body, at = arm, expr+"."+name
 
-			s.checks = append(s.checks, fmt.Sprintf(
-				"if %s == nil {\nt.Fatalf(%q)\n}", at,
-				qualify(item, originalOf(arm))+": the record holds no arm, and its bytes select this one"))
+			if s.only == nil {
+				s.checks = append(s.checks, fmt.Sprintf(
+					"if %s == nil {\nt.Fatalf(%q)\n}", at,
+					qualify(item, originalOf(arm))+": the record holds no arm, and its bytes select this one"))
+			}
 
 			continue
 		}
 
-		s.checks = append(s.checks, fmt.Sprintf(
-			"if %s != nil {\nt.Errorf(%q)\n}", expr+"."+name,
-			qualify(item, originalOf(arm))+": the record holds this arm, and its bytes select another"))
+		if s.only == nil {
+			s.checks = append(s.checks, fmt.Sprintf(
+				"if %s != nil {\nt.Errorf(%q)\n}", expr+"."+name,
+				qualify(item, originalOf(arm))+": the record holds this arm, and its bytes select another"))
+		}
 	}
 
 	if body.GetGroup() != nil {
@@ -703,15 +789,25 @@ func (s *synth) occurrences(rep *irpb.Repetition, item, target string) (int, boo
 	case *irpb.Repetition_Variable:
 		n := 0
 
-		if field, ok := count.Variable.GetCount().(*irpb.VariableCount_FieldId); ok {
-			n = s.counts[field.FieldId]
+		switch count := count.Variable.GetCount().(type) {
+		case *irpb.VariableCount_FieldId:
+			n = s.counts[count.FieldId]
+		case *irpb.VariableCount_RegisterId:
+			// At the file tier the automaton has run, so the register holds a
+			// number and the generated reader sizes the table from it. At the
+			// record tier [synth.registers] is nil and this is none, which is
+			// the paragraph above.
+			n = s.registers[count.RegisterId]
 		}
 
-		// A slice, so its length is something the case states before it indexes
-		// into it — and a Fatalf, because everything after it does index.
-		s.checks = append(s.checks, fmt.Sprintf(
-			"if len(%s) != %d {\nt.Fatalf(%q, len(%s), %d)\n}",
-			target, n, item+": got %d occurrences, want %d", target, n))
+		if s.only == nil {
+			// A slice, so its length is something the case states before it
+			// indexes into it — and a Fatalf, because everything after it does
+			// index.
+			s.checks = append(s.checks, fmt.Sprintf(
+				"if len(%s) != %d {\nt.Fatalf(%q, len(%s), %d)\n}",
+				target, n, item+": got %d occurrences, want %d", target, n))
+		}
 
 		return n, true, nil
 	default:
@@ -786,15 +882,39 @@ func (s *synth) field(id uint64, f *irpb.Field, target, item string) error {
 			"a discriminator literal is a value the field it names can hold and write back unchanged; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
 
+	s.runs = append(s.runs, chunk{body: body, note: note(item, at, pictureNote(f))})
+
+	if !s.asserts(id) {
+		return nil
+	}
+
 	check, err := s.assertion(f, target, item, value)
 	if err != nil {
 		return err
 	}
 
-	s.runs = append(s.runs, chunk{body: body, note: note(item, at, pictureNote(f))})
 	s.checks = append(s.checks, check)
 
 	return nil
+}
+
+// asserts is whether a case states the value one item holds.
+//
+// Every one of them at the record tier, where a record is what the case is
+// about. At the file tier only the field the transition's predicate names: the
+// case is about the framing and the order records come in, each record already
+// has a case of its own one file over, and a whole ledger's fields written out
+// record by record is a literal nobody reads to the end. See README.md,
+// "Decided: the file tier asserts the record types, their order and the
+// discriminator".
+func (s *synth) asserts(id uint64) bool {
+	if s.only == nil {
+		return true
+	}
+
+	_, want := s.only[id]
+
+	return want
 }
 
 // value is the value one item holds in a case: the one a predicate requires of

@@ -31,12 +31,14 @@ and writing its own bytes; `file_roundtrip_test.go` asserts the layer above —
 the framing around a record, the order records come in, and the two ends of a
 file. The other five packages beside this one are the same assertions under the
 other framings; [`../README.md`](../README.md) says which is which. Both carry
-`roundtrip` in the name because `file_test.go` is a name `cpybkc-gen-go` itself
-will write, for the file tier of the generated tests.
+`roundtrip` in the name because `file_test.go` is the name `cpybkc-gen-go` itself
+writes, for the file tier of the generated tests.
 
-`records_test.go` **is** output and is pinned like every other file here: one
-case per record type and per variant arm, each carrying that record's bytes as a
-literal. `SHAPE-RECORD` is in the descriptor for it — no transition admits that
+`records_test.go` and `file_test.go` **are** output and are pinned like every
+other file here: the first is one case per record type and per variant arm, each
+carrying that record's bytes as a literal, and the second one case per path
+through the automaton, carrying a whole file with the record descriptor word in
+front of each record. `SHAPE-RECORD` is in the descriptor for it — no transition admits that
 record, and it is where COMP-6, COMP-2, COMP-5 and the two USAGEs beside INDEX
 that the IR derives no logical value for get a case the compiler and `go test
 -race` actually run.
