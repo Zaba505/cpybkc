@@ -67,7 +67,7 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:], os.Stdin); err != nil {
+	if err := run(os.Args[1:], os.Stdin, os.Stderr); err != nil {
 		report(os.Stderr, err)
 
 		// docs/plugin/SPEC.md attaches no meaning to a particular non-zero
@@ -83,8 +83,11 @@ func main() {
 //
 // stdin is a parameter for the same reason: `--descriptor -` is a form a plugin
 // MUST accept even though cpybkc never emits it, and a test that had to move
-// this process's own standard input could not assert it.
-func run(args []string, stdin io.Reader) error {
+// this process's own standard input could not assert it. stderr is one for the
+// third: a generation that succeeded can still have something to say — a
+// construct it wrote no test for — and a test that could not read those lines
+// could not tell a case that was skipped from one that was never owed.
+func run(args []string, stdin io.Reader, stderr io.Writer) error {
 	inv, err := parse(args)
 	if err != nil {
 		return err
@@ -123,7 +126,7 @@ func run(args []string, stdin io.Reader) error {
 		return fmt.Errorf("the descriptor is not a cpybkc IR message: %w", err)
 	}
 
-	return generate(&d, inv.out, inv.options)
+	return generate(stderr, &d, inv.out, inv.options)
 }
 
 // readDescriptor is the descriptor's bytes, from the path the invocation named

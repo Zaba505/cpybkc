@@ -7,6 +7,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +56,7 @@ func TestTheGeneratedPackageIsTheGolden(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -221,7 +222,7 @@ func TestAnItemCarryingNoNameIsRefused(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+		err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var refusal *malformedError
 		if !errors.As(err, &refusal) {
@@ -320,7 +321,7 @@ func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T)
 	} {
 		out := t.TempDir()
 
-		err := generate(tc.descriptor, out, options{packageName: goldenPackage, importPath: goldenImport})
+		err := generate(io.Discard, tc.descriptor, out, options{packageName: goldenPackage, importPath: goldenImport})
 
 		var refusal *fillerError
 		if !errors.As(err, &refusal) {
@@ -378,7 +379,7 @@ func TestAFillerGroupInsideAFillerGroupIsFlattenedToTheNamedLevel(t *testing.T) 
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -419,7 +420,7 @@ func TestAnUnnamedGroupThatContainsItselfIsRefused(t *testing.T) {
 	}
 
 	var refusal *malformedError
-	if err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport}); !errors.As(err, &refusal) {
+	if err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport}); !errors.As(err, &refusal) {
 		t.Fatalf("a FILLER group containing itself generated %v, want a malformed descriptor", err)
 	}
 }
@@ -446,7 +447,7 @@ func TestAMemberLiftedOutOfAFillerGroupCollidesLikeAnyOther(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var collision *collisionError
 	if !errors.As(err, &collision) {
@@ -482,7 +483,7 @@ func TestAFillerAloneDeclaresTheZeroFillItsWriterNeeds(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -521,7 +522,7 @@ func TestAFillerInsideAnArmOfAnAlternationIsRetainedLikeAnyOther(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -550,7 +551,7 @@ func TestADescriptorCarryingNoRecordWritesOnlyTheDocFile(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(descriptorAt(supportedIRVersion), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, descriptorAt(supportedIRVersion), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -619,7 +620,7 @@ func TestAVariantCarryingOneArmIsRefused(t *testing.T) {
 
 	out := t.TempDir()
 
-	err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport})
+	err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport})
 
 	var refusal *malformedError
 	if !errors.As(err, &refusal) {
@@ -686,7 +687,7 @@ func TestTwoNamesThatMungeToOneIdentifierAreRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+			err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var collision *collisionError
 			if !errors.As(err, &collision) {
@@ -739,7 +740,7 @@ func TestARenameIsTheIdentifierAndTheCopybookNameIsStillOnThePage(t *testing.T) 
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -827,7 +828,7 @@ func TestARenameWithNoGoIdentifierInItIsRefusedAndSaysSo(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+		err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var unmungeable *unmungeableError
 		if !errors.As(err, &unmungeable) {
@@ -866,7 +867,7 @@ func TestARenameToNothingIsMalformedRatherThanIgnored(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var refusal *malformedError
 	if !errors.As(err, &refusal) {
@@ -895,7 +896,7 @@ func TestANameWithNoGoIdentifierInItIsRefused(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+		err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var unmungeable *unmungeableError
 		if !errors.As(err, &unmungeable) {
@@ -957,7 +958,7 @@ func TestAFieldMissingAnEncodingAxisIsRefused(t *testing.T) {
 				},
 			}
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+			err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var refusal *malformedError
 			if !errors.As(err, &refusal) {
@@ -1041,7 +1042,7 @@ func TestAMalformedDescriptorIsReportedRatherThanGeneratedFrom(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+			err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var refusal *malformedError
 			if !errors.As(err, &refusal) {

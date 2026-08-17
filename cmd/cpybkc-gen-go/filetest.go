@@ -67,11 +67,17 @@ var fileCaseIdentifiers = map[string]struct{}{
 //
 // Absent for a descriptor whose automaton admits no record, exactly as
 // [fileMachine] is: a tier covering a file that is not emitted has nothing to
-// cover. Absent too where no field of the descriptor gives an encoding to read.
-func fileTests(d *irpb.Descriptor, opts options) (string, error) {
+// cover. Absent too where no field of the descriptor gives an encoding to read,
+// and where no goal it carries is one a file this generator can lay out reaches.
+//
+// The [skipped] list is what has no case: a transition predicate no file
+// reaches, or an automaton offering no accepting path at all. Reported by
+// [generate] rather than here, and never a refusal of the generation — see
+// README.md, "When a descriptor admits no checkable file".
+func fileTests(d *irpb.Descriptor, opts options) (string, []skipped, error) {
 	t, err := newFiletest(d, opts)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Absent where the automaton admits no record, and where no field of the
@@ -80,11 +86,11 @@ func fileTests(d *irpb.Descriptor, opts options) (string, error) {
 	// rules are the only thing this function adds to [newFiletest] and the two
 	// cannot come to disagree about what a descriptor is.
 	if t.file == nil || !t.admits() || t.synth == nil {
-		return "", nil
+		return "", nil, nil
 	}
 
 	if opts.importPath == "" {
-		return "", fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"%s %s=<path> is required for a descriptor whose automaton admits a record: the generated tests are an external test package, so they import the package beside them by path, and %s names a scratch directory rather than where the files end up",
 			optFlag, importPathOption, outFlag)
 	}
@@ -164,10 +170,17 @@ type filetest struct {
 
 // source is the whole of [fileTestFile]: the header, the external test
 // package's clause, the imports and the cases.
-func (t *filetest) source() (string, error) {
-	files, err := t.cover()
+func (t *filetest) source() (string, []skipped, error) {
+	files, skips, err := t.cover()
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+
+	// Absent where no goal was reached at all, by the rule this tier already
+	// meets for an automaton admitting no record: what is left is a package
+	// clause over an import block nothing uses, which Go refuses to compile.
+	if len(files) == 0 {
+		return "", skips, nil
 	}
 
 	alias := t.opts.packageName
@@ -183,7 +196,7 @@ func (t *filetest) source() (string, error) {
 	for _, one := range files {
 		source, err := t.testCase(one, alias, used)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		funcs = append(funcs, source)
@@ -214,9 +227,7 @@ func (t *filetest) source() (string, error) {
 
 	var b strings.Builder
 
-	b.WriteString(generatedBy)
-	b.WriteString("\n\n")
-	b.WriteString(commentLines(fmt.Sprintf(`The file tier of this package's generated tests: one case per path through the
+	doc := fmt.Sprintf(`The file tier of this package's generated tests: one case per path through the
 automaton this layout describes, and between them every transition predicate it
 carries and every literal of a set-membership one.
 
@@ -229,7 +240,15 @@ the file on your desk: the comment column names each run, the offset inside its
 record, and the picture.
 
 Nothing here is yours to edit — this directory is regenerated whole. Put your
-own tests in a package of your own that imports %s.`, t.opts.packageName)))
+own tests in a package of your own that imports %s.`, t.opts.packageName)
+
+	if len(skips) != 0 {
+		doc += "\n\n" + uncovered(skips)
+	}
+
+	b.WriteString(generatedBy)
+	b.WriteString("\n\n")
+	b.WriteString(commentLines(doc))
 	b.WriteString("package ")
 	b.WriteString(t.opts.packageName)
 	b.WriteString("_test\n\nimport (\n")
@@ -252,7 +271,7 @@ own tests in a package of your own that imports %s.`, t.opts.packageName)))
 		b.WriteString("\n")
 	}
 
-	return b.String(), nil
+	return b.String(), skips, nil
 }
 
 // spends is whether a case's file already writes the identifier, which is what
@@ -376,19 +395,30 @@ func (t *filetest) literalsOf(id uint64) ([][]byte, error) {
 // the path it walks, and the path is the shortest the automaton offers — and it
 // is why two predicates on one path cost one case rather than two.
 //
-// A goal no file reaches is refused rather than skipped. A predicate no case
-// covers is one whose spelling an adopter finds out about from a production
-// file, and an automaton carrying an edge nothing can take is a bug in whatever
-// produced the descriptor rather than a gap this generator may write around.
-func (t *filetest) cover() ([]*laid, error) {
+// A goal no file reaches is **skipped and said out loud**, which is #266's
+// answer and a reversal of the one this function shipped with. It used to refuse
+// the generation, on the argument that an edge nothing can take is a bug in
+// whatever produced the descriptor rather than a gap to write around — and that
+// argument is still true and is still what the note says. What changed is the
+// price: refusing cost the adopter their reader and writer as well as the case,
+// and a package that reads their file is worth more than a spot-check of one.
+// The gap is not silent, which is the half the old posture was really defending:
+// it is a `warning:` naming the predicate, and a line in the generated file
+// naming it again where the terminal cannot lose it.
+//
+// The skips come back in goal order, which is the automaton's own — states in
+// ascending identifier order, each state's transitions in the order it evaluates
+// them — so two runs over one descriptor skip the same goals in the same order.
+func (t *filetest) cover() ([]*laid, []skipped, error) {
 	all, err := t.goals()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var (
-		out  []*laid
-		done = make(map[goal]struct{})
+		out   []*laid
+		skips []skipped
+		done  = make(map[goal]struct{})
 	)
 
 	for _, want := range all {
@@ -398,7 +428,13 @@ func (t *filetest) cover() ([]*laid, error) {
 
 		one, err := t.reach(want)
 		if err != nil {
-			return nil, err
+			if !advisory(err) {
+				return nil, nil, err
+			}
+
+			skips = append(skips, skippedGoal(t.names(want), err))
+
+			continue
 		}
 
 		for _, met := range one.meets {
@@ -408,7 +444,38 @@ func (t *filetest) cover() ([]*laid, error) {
 		out = append(out, one)
 	}
 
-	return out, nil
+	return out, skips, nil
+}
+
+// names is the goal as a diagnostic names it: the construct with no case.
+//
+// A phrase rather than a node number on its own, because a number is a fact
+// about the descriptor and the adopter is holding a copybook. What identifies a
+// predicate to them is the item it tests and the bytes it tests for; the node
+// number is carried beside those for whoever is reading the descriptor itself,
+// which is the other reader this diagnostic has.
+func (t *filetest) names(want goal) string {
+	if want.automaton {
+		return "the automaton"
+	}
+
+	node, ok := t.nodes[want.predicate]
+	if !ok {
+		return fmt.Sprintf("the predicate the descriptor carries as node %d", want.predicate)
+	}
+
+	field := "a field"
+	if target, ok := t.nodes[node.GetPredicate().GetFieldId()]; ok {
+		field = originalOf(target)
+	}
+
+	values, err := t.literalsOf(want.predicate)
+	if err != nil || want.pick >= len(values) {
+		return fmt.Sprintf("the predicate on %s the descriptor carries as node %d", field, want.predicate)
+	}
+
+	return fmt.Sprintf("the predicate the descriptor carries as node %d, which selects a record on %s holding %q",
+		want.predicate, field, string(values[want.pick]))
 }
 
 // reach is the file that covers one goal, or the diagnostic saying no file does.
@@ -437,35 +504,33 @@ func (t *filetest) reach(want goal) (*laid, error) {
 }
 
 // unreachable is the diagnostic for a goal no path reaches.
+//
+// The construct is not in the message: [warn] opens the line with it, and
+// [filetest.names] is where its wording lives. What is here is why, and the note
+// under it — which still says the descriptor is wrong, because it is. What it no
+// longer says is that the generation is refused over it; see [filetest.cover].
+//
+// Two whys, and the difference is worth keeping. A descriptor whose automaton
+// offers no accepting path at all has no file of any kind to show, and is a
+// shape [resolve] does not produce — every state of a compiled sequencing
+// expression is a position in an expression that terminates, so acceptance is
+// always reachable from it. It is checked all the same, because nothing screens
+// a descriptor in front of a plugin (docs/plugin/SPEC.md, "The version check,
+// and why there is no handshake") and `--descriptor` is a path a person can hand
+// this program. A single predicate nothing reaches is the reachable one: a
+// second guard contradicting the first is a descriptor a producer can write.
 func (t *filetest) unreachable(want goal, refused []string) error {
-	what := "the automaton offers no path from its start state to a state that accepts"
-
-	if !want.automaton {
-		node, ok := t.nodes[want.predicate]
-		if !ok {
-			return unresolved(want.predicate)
-		}
-
-		values, err := t.literalsOf(want.predicate)
-		if err != nil {
-			return err
-		}
-
-		field := "a field"
-		if target, ok := t.nodes[node.GetPredicate().GetFieldId()]; ok {
-			field = originalOf(target)
-		}
-
-		what = fmt.Sprintf("no file this layout describes reaches the predicate the descriptor carries as node %d, which selects a record on %s holding %q",
-			want.predicate, field, string(values[want.pick]))
+	what := "no path this generator can lay out reaches it"
+	if want.automaton {
+		what = "the automaton offers no path from its start state to a state that accepts"
 	}
 
-	rule := "every transition of the automaton is one some file takes: a predicate no path reaches selects a record no file can hold, which is a bug in whatever produced the descriptor rather than a gap the generated tests may be written around"
+	rule := "every transition of the automaton is one some file takes: a predicate no path reaches selects a record no file can hold, which is a bug in whatever produced the descriptor rather than something to change in the copybook"
 	if len(refused) != 0 {
 		rule += "\nthe paths tried, and what each could not satisfy:\n- " + strings.Join(refused, "\n- ")
 	}
 
-	return malformed(what, rule)
+	return &uncoverableError{What: what, Rule: rule}
 }
 
 // step is one record of a synthesized file: which state it was admitted from,

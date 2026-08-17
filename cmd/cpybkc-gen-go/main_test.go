@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func TestRunRefusesADescriptorAVersionNewerThanThisGeneratorImplements(t *testin
 	ahead := irpb.IrVersion(int32(supportedIRVersion) + 1)
 
 	out := t.TempDir()
-	err := run(vector(t, marshal(t, descriptorAt(ahead)), out), nothing())
+	err := run(vector(t, marshal(t, descriptorAt(ahead)), out), nothing(), io.Discard)
 
 	var refusal *unsupportedVersionError
 	if !errors.As(err, &refusal) {
@@ -102,7 +103,7 @@ func TestRunRefusesADescriptorStatingNoVersionAtAll(t *testing.T) {
 
 	out := t.TempDir()
 
-	err := run(vector(t, marshal(t, descriptorAt(irpb.IrVersion_IR_VERSION_UNSPECIFIED)), out), nothing())
+	err := run(vector(t, marshal(t, descriptorAt(irpb.IrVersion_IR_VERSION_UNSPECIFIED)), out), nothing(), io.Discard)
 
 	var refusal *unsupportedVersionError
 	if !errors.As(err, &refusal) {
@@ -122,7 +123,7 @@ func TestRunGeneratesFromADescriptorItImplements(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := run(vector(t, marshal(t, descriptorAt(supportedIRVersion)), out), nothing()); err != nil {
+	if err := run(vector(t, marshal(t, descriptorAt(supportedIRVersion)), out), nothing(), io.Discard); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -148,7 +149,7 @@ func TestRunReadsTheDescriptorFromStandardInput(t *testing.T) {
 
 	args := []string{descriptorFlag, standardInput, outFlag, out, optFlag, packageNameOption + "=" + packageName}
 
-	if err := run(args, stdin); err != nil {
+	if err := run(args, stdin, io.Discard); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -168,7 +169,7 @@ func TestTheSameDescriptorAndOptionsGenerateTheSameBytes(t *testing.T) {
 	bytesOf := func() map[string]string {
 		out := t.TempDir()
 
-		if err := run(vector(t, marshal(t, descriptorAt(supportedIRVersion)), out), nothing()); err != nil {
+		if err := run(vector(t, marshal(t, descriptorAt(supportedIRVersion)), out), nothing(), io.Discard); err != nil {
 			t.Fatalf("run: %v", err)
 		}
 
@@ -206,7 +207,7 @@ func TestRunRefusesADescriptorThatIsNotAnIRMessage(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := run(vector(t, []byte("this is not a descriptor"), out), nothing()); err == nil {
+	if err := run(vector(t, []byte("this is not a descriptor"), out), nothing(), io.Discard); err == nil {
 		t.Fatal("run generated from bytes that are not a descriptor")
 	}
 
@@ -229,7 +230,7 @@ func TestRunReportsADescriptorItCannotRead(t *testing.T) {
 		optFlag, packageNameOption + "=" + packageName,
 	}
 
-	if err := run(args, nothing()); err == nil {
+	if err := run(args, nothing(), io.Discard); err == nil {
 		t.Error("run accepted a descriptor path that names no file")
 	}
 }

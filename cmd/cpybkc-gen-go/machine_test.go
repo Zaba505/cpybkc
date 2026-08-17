@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestTheGeneratedFileMachinesAreTheGoldens(t *testing.T) {
 
 			name := dir[strings.LastIndex(dir, "/")+1:]
 
-			if err := generate(descriptor(), out, options{packageName: name, importPath: goldenModule + dir}); err != nil {
+			if err := generate(io.Discard, descriptor(), out, options{packageName: name, importPath: goldenModule + dir}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
@@ -412,7 +413,7 @@ func TestADescriptorWhoseAutomatonAdmitsNothingWritesNoFileMachine(t *testing.T)
 
 			out := t.TempDir()
 
-			if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+			if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
