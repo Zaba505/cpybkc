@@ -409,10 +409,23 @@ func (t *filetest) literalsOf(id uint64) ([][]byte, error) {
 // The skips come back in goal order, which is the automaton's own — states in
 // ascending identifier order, each state's transitions in the order it evaluates
 // them — so two runs over one descriptor skip the same goals in the same order.
+//
+// One skip per *cause* and not one per goal. An automaton offering no accepting
+// path fails every goal it carries, and reporting that once per predicate would
+// be a page of warnings about one fact — enough on a real copybook to reach the
+// cap on its own and push out what the record tier had to say.
 func (t *filetest) cover() ([]*laid, []skipped, error) {
 	all, err := t.goals()
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// Asked once, before any goal is walked. Every candidate path ends in a walk
+	// to an accepting state, so a start state with none makes every goal
+	// unreachable for the same reason — and that reason is about the automaton
+	// rather than about any predicate on it.
+	if _, accepts := t.shortestAccepting(t.index[t.file.GetStartStateId()]); !accepts {
+		return nil, []skipped{skippedGoal("the automaton", t.unreachable(goal{automaton: true}, nil))}, nil
 	}
 
 	var (
@@ -432,7 +445,12 @@ func (t *filetest) cover() ([]*laid, []skipped, error) {
 				return nil, nil, err
 			}
 
-			skips = append(skips, skippedGoal(t.names(want), err))
+			construct, err2 := t.names(want)
+			if err2 != nil {
+				return nil, nil, err2
+			}
+
+			skips = append(skips, skippedGoal(construct, err))
 
 			continue
 		}
@@ -454,14 +472,34 @@ func (t *filetest) cover() ([]*laid, []skipped, error) {
 // predicate to them is the item it tests and the bytes it tests for; the node
 // number is carried beside those for whoever is reading the descriptor itself,
 // which is the other reader this diagnostic has.
-func (t *filetest) names(want goal) string {
+//
+// It returns an error rather than a fallback phrase for the two shapes that are
+// not a wording problem: a goal naming a node the descriptor does not carry, and
+// a predicate whose literals cannot be read. Both are malformed descriptors
+// rather than layouts with no checkable file, both were refusals before #266,
+// and both stay refusals — a warning about a construct the reader cannot go and
+// look at is worse than the refusal it replaced. [advisory] agrees on the first
+// of them independently, which is belt and braces rather than duplication: this
+// is where the shape is met, and that is where the policy is.
+func (t *filetest) names(want goal) (string, error) {
 	if want.automaton {
-		return "the automaton"
+		return "the automaton", nil
 	}
 
 	node, ok := t.nodes[want.predicate]
 	if !ok {
-		return fmt.Sprintf("the predicate the descriptor carries as node %d", want.predicate)
+		return "", unresolved(want.predicate)
+	}
+
+	values, err := t.literalsOf(want.predicate)
+	if err != nil {
+		return "", err
+	}
+
+	if want.pick >= len(values) {
+		return "", malformed(fmt.Sprintf("node %d is covered for its literal at index %d, and carries %s",
+			want.predicate, want.pick, plural(len(values), "literal")),
+			"a predicate testing equality carries one literal and a set-membership one carries the members; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
 
 	field := "a field"
@@ -469,13 +507,8 @@ func (t *filetest) names(want goal) string {
 		field = originalOf(target)
 	}
 
-	values, err := t.literalsOf(want.predicate)
-	if err != nil || want.pick >= len(values) {
-		return fmt.Sprintf("the predicate on %s the descriptor carries as node %d", field, want.predicate)
-	}
-
 	return fmt.Sprintf("the predicate the descriptor carries as node %d, which selects a record on %s holding %q",
-		want.predicate, field, string(values[want.pick]))
+		want.predicate, field, string(values[want.pick])), nil
 }
 
 // reach is the file that covers one goal, or the diagnostic saying no file does.

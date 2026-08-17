@@ -46,6 +46,26 @@ type skipped struct {
 	// kept is what the descriptor produced anyway, as the closing note names
 	// it.
 	kept string
+
+	// recorded is whether the generated test file this skip belongs to was
+	// written, and therefore names it too.
+	//
+	// It decides whether the skip may be dropped by the cap. A skip the file
+	// names has a second home and can be truncated on standard error without
+	// being lost; a skip belonging to a tier that ended up with no case at all
+	// has only the terminal, and truncating that one loses the construct's name
+	// for good. See [reportSkips].
+	recorded bool
+}
+
+// recording marks each skip with whether the tier that produced it wrote a file
+// naming it.
+func recording(skips []skipped, wrote bool) []skipped {
+	for at := range skips {
+		skips[at].recorded = wrote
+	}
+
+	return skips
 }
 
 // summary is the skip as the one line a generated file's comment carries.
@@ -54,7 +74,7 @@ type skipped struct {
 // paragraphs is not one. The notes under the warning are where the rest is, and
 // the terminal is where a reader who wants them is already looking.
 func (s skipped) summary() string {
-	first, _ := messageLines(s.why)
+	first, _ := messageLines(s.why, "this generator wrote no case and said nothing about why")
 
 	return s.construct + severitySeparator + first
 }
@@ -111,39 +131,72 @@ func (e *uncoverableError) Notes() []string { return []string{e.Rule} }
 // is one this generator writes the package around, rather than one it refuses
 // the whole generation on.
 //
-// Everything is, except a charset cobol-go's codec ships no table for. The rule
-// is deliberately that way round, and the reason is the order [generate]
-// composes in: the four files that *are* the package are composed before either
-// tier of tests, so a descriptor that reaches a synthesizer at all is one this
-// generator has already emitted a reader and a writer for. A failure only the
-// synthesizer meets is therefore a failure to synthesize a file to check them
-// with — not a failure to describe the layout — and withholding the package over
-// it would hand the adopter nothing in place of something.
+// Everything is, but for the two below. The rule is deliberately that way round,
+// and the reason is the order [generate] composes in: the four files that *are*
+// the package are composed before either tier of tests, so a descriptor that
+// reaches a synthesizer at all is one this generator has already emitted a
+// reader and a writer for. A failure only the synthesizer meets is therefore a
+// failure to synthesize a file to check them with — not a failure to describe
+// the layout — and withholding the package over it would hand the adopter
+// nothing in place of something.
 //
-// [unsupportedCharsetError] is the exception because it is the one refusal that
-// is *also* about the generated code: a charset codec has no table for is a
-// charset the emitted reader cannot read the file in either. It is refused on
-// sight where the accessors are emitted (see [charsetCall]) and so never reaches
-// a synthesizer today; this check is what keeps that true if it ever does, and
-// is why the charset case has one diagnostic rather than two saying the same
-// thing differently.
+// # Why this is not an allow-list
+//
+// The safer-looking shape is the other one: name the refusals that *are*
+// advisory and fail on everything else, so that a fatal condition added to the
+// synthesizer later cannot ship as a warning without somebody deciding it
+// should. It cannot be written today, and the reason is worth knowing before
+// anyone tries. `synth.go` raises the great majority of its refusals as
+// [malformedError], and it raises both kinds that way — *this predicate's
+// literal is not the width of the field it tests* is a producer bug, and *no one
+// number of occurrences is inside every bound declared for this count* is a
+// layout with no checkable file, and they are the same type. An allow-list
+// therefore has to reclassify every one of those sites, and a site put on the
+// wrong side of it in the direction the allow-list makes cheap — calling an
+// unsynthesizable layout a producer bug — restores exactly the failure this
+// story removed: an adopter losing their reader over a spot-check.
+//
+// So the classification is a *deny-list of shapes that are never about the
+// bytes*, it is short, and it is pinned:
+// [TestEveryRefusalThisPackageRaisesHasADecidedClassification] enumerates every
+// error type this package defines, so one added without a line there fails.
+//
+// The two:
+//
+//   - [unsupportedCharsetError], because it is the one refusal that is *also*
+//     about the generated code — a charset codec has no table for is a charset
+//     the emitted reader cannot read the file in either. It is refused on sight
+//     where the accessors are emitted (see [charsetCall]) and so never reaches a
+//     synthesizer today; this check is what keeps that true if it ever does, and
+//     is why the charset case has one diagnostic rather than two saying the same
+//     thing differently.
+//   - a [malformedError] carrying a Reference, which is [unresolved]: a
+//     reference to a node the message does not contain. There is no layout there
+//     to be unable to synthesize — the descriptor does not describe one — so the
+//     answer is the refusal it always was, rather than a warning about a
+//     construct nobody can go and look at.
 func advisory(err error) bool {
 	var charset *unsupportedCharsetError
+	if errors.As(err, &charset) {
+		return false
+	}
 
-	return !errors.As(err, &charset)
+	var malformed *malformedError
+	if errors.As(err, &malformed) && malformed.Reference != 0 {
+		return false
+	}
+
+	return true
 }
 
-// reportedSkips is how many constructs a generation names on standard error
-// before it stops and says how many are left.
+// reportedSkips is how many constructs a generation may drop from standard
+// error before it stops naming them and says how many are left.
 //
 // Capped because the diagnostics are read in a terminal beside every other
 // generator cpybkc ran, and a copybook whose every record type carries an item
 // this generator cannot synthesize would otherwise bury all of them. Ten is
 // enough that the ordinary case — one record type, or two — is never truncated,
 // and small enough that the pathological one stays readable.
-//
-// The list is not lost when it is capped: each generated test file names every
-// construct it could not cover, and that file is checked in.
 const reportedSkips = 10
 
 // reportSkips writes what the generated tests do not cover.
@@ -152,20 +205,38 @@ const reportedSkips = 10
 // file tier, so that two runs over one descriptor write the same lines in the
 // same order — docs/plugin/SPEC.md's determinism reaches the diagnostics as well
 // as the output.
+//
+// The cap applies only to a skip the generated file *also* names. That is what
+// makes truncating one safe: the terminal is scrollback and the file is checked
+// in, so a construct named in both loses nothing by being dropped from the
+// first. A tier that skipped every construct it had writes no file, and those
+// skips have nowhere else to be named — so they are written whatever the count,
+// and the cap falls on the ones that are recoverable. The alternative was a
+// count where a name should have been, for the only constructs a reader could
+// not go and look up.
 func reportSkips(w io.Writer, skips []skipped) {
-	for at, one := range skips {
-		if at == reportedSkips {
-			diagnostic(w, severityWarning,
-				fmt.Sprintf("%s of this layout have no generated test either",
-					plural(len(skips)-at, "further construct")))
-			diagnostic(w, severityNote,
-				"every construct a written test file could not cover is named in that file, and a tier left with nothing to cover writes no file at all; see "+refusalSection)
+	var written, dropped int
 
-			return
+	for _, one := range skips {
+		if one.recorded && written >= reportedSkips {
+			dropped++
+
+			continue
 		}
 
 		warn(w, one)
+
+		written++
 	}
+
+	if dropped == 0 {
+		return
+	}
+
+	diagnostic(w, severityWarning,
+		fmt.Sprintf("%s of this layout have no generated test either", plural(dropped, "further construct")))
+	diagnostic(w, severityNote,
+		"each of them is named in the generated test file it belongs to, which is why this list rather than that one is the one that stops; see "+refusalSection)
 }
 
 // uncovered is the paragraph a generated test file carries naming what it does

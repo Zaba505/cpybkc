@@ -169,21 +169,43 @@ func recordTests(d *irpb.Descriptor, opts options) (string, []skipped, error) {
 // is an import nothing in the file uses, which is generated code that does not
 // compile, and a name a discarded case spent is a suffix on some later case that
 // nothing in the descriptor explains. [filetest.source] keeps the same invariant
-// from the other side, per accepted case.
+// from the other side, per accepted case, and
+// [TestADiscardedCaseLeavesNoImportNothingUses] is what holds both — `go/format`
+// runs over the composed file and reports neither.
+//
+// # Why two maps and not a copy of the synthesizer
+//
+// Because those two are the only state that survives a case. [synth.layOut]
+// opens every case by resetting the record's bytes, its runs, its assertions and
+// its arms, and [synth.discriminators] and [synth.chooseCounts] each allocate a
+// fresh map at the top of the case that reads them — so a case abandoned halfway
+// leaves nothing behind for the next one to read. `needs` and `used` are
+// deliberately *not* per case: they are what the file's import block and its
+// function names are built from, and are the two things a discarded case can
+// leave a mark on. A field added to [synth] that accumulates across cases has to
+// be added here as well, which is what this paragraph is for.
 func coverRecord(s *synth, node *irpb.Node, typ, alias string, used map[string]struct{}) ([]string, error) {
 	needs, spent := maps.Clone(s.needs), maps.Clone(used)
 
 	funcs, err := recordCases(s, node, typ, alias, used)
 	if err != nil {
-		s.needs = needs
-
-		clear(used)
-		maps.Copy(used, spent)
+		// Cleared and refilled rather than reassigned, both of them. The caller
+		// holds `used`, and `s.needs` is read through an embedded pointer as
+		// well as through `s` — a field swapped on one of those is a field two
+		// readers disagree about, and restoring the contents cannot be.
+		restore(s.needs, needs)
+		restore(used, spent)
 
 		return nil, err
 	}
 
 	return funcs, nil
+}
+
+// restore puts a map back the way a snapshot found it, in place.
+func restore(live, snapshot map[string]struct{}) {
+	clear(live)
+	maps.Copy(live, snapshot)
 }
 
 // recordCases is one record type's cases: one for the type and one per arm of an

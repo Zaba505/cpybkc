@@ -787,6 +787,14 @@ descriptors differing in one field can produce different **sets of files**. That
 is already true of `file.go`, which is not written when the automaton admits no
 record; this only widens it.
 
+Two shapes are **not** softened, and they are the deny-list `advisory` reads: a
+charset `codec` ships no table for (case 2 below), and a reference to a node the
+descriptor does not carry. The second has no layout to be unable to synthesize —
+the descriptor does not describe one — so it stays the refusal it always was
+rather than becoming a warning about a construct nobody can go and look at. The
+classification of every error type this generator raises is pinned by a test, so
+one added later cannot become a warning by default.
+
 #### The four cases
 
 1. **No finite accepting path.** The automaton offers no walk from its start
@@ -857,10 +865,22 @@ noisy about. So it is one line per skipped construct rather than one line naming
 a count, because the adopter reading it is deciding whether their file is
 covered, and a count does not answer that.
 
+One line per **cause**, though, and not one per goal. An automaton offering no
+accepting path fails every goal the file tier carries, and saying that once per
+predicate would be a page of warnings about one fact.
+
 The list is **capped** on standard error — those lines go to a terminal beside
 every other generator `cpybkc` ran, and a copybook whose every record type
 carries the same unsynthesizable item would otherwise bury all of them. The cap
-is announced when it is reached, and the whole list is in the generated file.
+is announced when it is reached.
+
+The cap applies **only to a construct the generated file also names**, and that
+is what makes truncating safe rather than lossy: the terminal is scrollback and
+the directory is checked in, so a construct in both loses nothing by being
+dropped from the first. A tier that skipped every construct it had writes no
+file, and those names exist nowhere else — so they are written whatever the
+count. A number where a name should be, for the only constructs a reader cannot
+go and look up, would be the worst of the three options.
 
 #### Decided: the generated file records what is missing
 

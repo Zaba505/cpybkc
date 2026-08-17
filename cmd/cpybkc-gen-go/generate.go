@@ -167,7 +167,12 @@ func generate(w io.Writer, descriptor *irpb.Descriptor, out string, opts options
 	// this program is only entitled to say once the package is on disk. A
 	// generation that failed after a tier was skipped writes no warning at all:
 	// it wrote no package for the warning to be about.
-	reportSkips(w, append(recordSkips, fileSkips...))
+	// Each skip is marked with whether the tier that produced it wrote a file
+	// naming it, because that is what decides whether the cap may drop it. Asked
+	// of the composed source rather than tracked inside the tier: "was a file
+	// written" is [generate]'s question and nowhere else's, and a tier answering
+	// it separately is a second answer that can disagree.
+	reportSkips(w, append(recording(recordSkips, tests != ""), recording(fileSkips, files != "")...))
 
 	return nil
 }

@@ -24,6 +24,17 @@ type malformedError struct {
 
 	// Rule is the requirement the descriptor broke, as the `note:` line.
 	Rule string
+
+	// Reference is the node identifier a reference did not resolve to, and zero
+	// for every other way a descriptor is malformed.
+	//
+	// Carried so that this one shape is *distinguishable*, because it is the one
+	// this generator never writes around: a reference to a node the message does
+	// not contain is a descriptor that does not exist rather than a layout this
+	// generator cannot synthesize bytes for, and [advisory] refuses it on that
+	// basis wherever it is met. Everything else here is a sentence, and a
+	// sentence is not something to branch on.
+	Reference uint64
 }
 
 // malformed is a [malformedError], spelled at its use sites the way a sentence
@@ -35,8 +46,11 @@ func malformed(what, rule string) error {
 // unresolved is the commonest of them: a reference to an identifier no node
 // carries.
 func unresolved(id uint64) error {
-	return malformed(fmt.Sprintf("the descriptor references node %d, and carries no node with that identifier", id),
-		"every reference must resolve to a node in the same message, of a kind the referring position admits; see docs/ir/SPEC.md, \"Identity, ordering and determinism\"")
+	return &malformedError{
+		What:      fmt.Sprintf("the descriptor references node %d, and carries no node with that identifier", id),
+		Rule:      "every reference must resolve to a node in the same message, of a kind the referring position admits; see docs/ir/SPEC.md, \"Identity, ordering and determinism\"",
+		Reference: id,
+	}
 }
 
 // Error implements the error interface.

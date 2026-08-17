@@ -9,9 +9,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,6 +72,48 @@ func TestAnAutomatonThatNeverAcceptsIsWarnedAboutRatherThanRefused(t *testing.T)
 	if _, ok := out[fileTestFile]; ok {
 		t.Errorf("a file tier was written for an automaton no file walks:\n%s", out[fileTestFile])
 	}
+
+	saidAbout(t, stderr, 1, "the automaton", "offers no path from its start state to a state that accepts")
+}
+
+// TestAnAutomatonThatNeverAcceptsIsOneWarningAndNotOnePerPredicate is the same
+// case over a descriptor that has something to fan out into.
+//
+// Every candidate path ends in a walk to an accepting state, so a start state
+// with none fails *every* goal the automaton carries — and a warning per goal
+// would be a page of lines about one fact, enough on a real copybook to reach the
+// cap on its own and push out whatever the record tier had to say. The other case
+// 1 test uses a descriptor with no transition predicate at all, where one goal and
+// one cause are the same thing and this could not be seen.
+func TestAnAutomatonThatNeverAcceptsIsOneWarningAndNotOnePerPredicate(t *testing.T) {
+	t.Parallel()
+
+	d := countedDescriptor()
+
+	for _, node := range d.GetNodes() {
+		if node.GetState() != nil {
+			node.GetState().Accepts = false
+		}
+	}
+
+	// The premise: this descriptor carries goals to fan out into. Asserted rather
+	// than assumed, so that a fixture losing its predicates turns this test off
+	// loudly rather than quietly.
+	one, err := newFiletest(d, options{packageName: goldenPackage, importPath: goldenImport})
+	if err != nil {
+		t.Fatalf("newFiletest: %v", err)
+	}
+
+	goals, err := one.goals()
+	if err != nil {
+		t.Fatalf("goals: %v", err)
+	}
+
+	if len(goals) < 2 {
+		t.Fatalf("the descriptor carries %d goal(s), and this test is about many becoming one", len(goals))
+	}
+
+	_, stderr := generated(t, d, options{packageName: goldenPackage, importPath: goldenImport})
 
 	saidAbout(t, stderr, 1, "the automaton", "offers no path from its start state to a state that accepts")
 }
@@ -138,19 +185,8 @@ func TestAnUnsupportedCharsetStillFailsTheGeneration(t *testing.T) {
 func TestAnItemTheSynthesizerCannotLayOutCostsItsRecordsCaseAndNothingElse(t *testing.T) {
 	t.Parallel()
 
-	// SUMMARY-RECORD is selected on TYPE-CODE, which is one byte wide, against a
-	// literal of two.
-	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: withNodes(func(nodes []*irpb.Node) []*irpb.Node {
-		for _, node := range nodes {
-			if node.GetId() == 52 {
-				node.GetPredicate().GetBytesEqual().Value = []byte("\xe2\xe2")
-			}
-		}
-
-		return nodes
-	})}
-
-	out, stderr := generated(t, d, options{packageName: goldenPackage, importPath: goldenImport})
+	out, stderr := generated(t, itemRefusingDescriptor(),
+		options{packageName: goldenPackage, importPath: goldenImport})
 
 	tests, ok := out[recordsTestFile]
 	if !ok {
@@ -198,17 +234,8 @@ func TestAnItemTheSynthesizerCannotLayOutCostsItsRecordsCaseAndNothingElse(t *te
 func TestACountNoNumberSatisfiesCostsTheCasesThatNeedIt(t *testing.T) {
 	t.Parallel()
 
-	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: withNodes(func(nodes []*irpb.Node) []*irpb.Node {
-		for _, node := range nodes {
-			if node.GetId() == 124 {
-				node.GetGroup().Repetition = counted(22, 5, 9)
-			}
-		}
-
-		return nodes
-	})}
-
-	out, stderr := generated(t, d, options{packageName: goldenPackage, importPath: goldenImport})
+	out, stderr := generated(t, countRefusingDescriptor(),
+		options{packageName: goldenPackage, importPath: goldenImport})
 
 	for _, name := range []string{generatedFile, recordsFile, codecFile, fileMachineFile} {
 		if _, ok := out[name]; !ok {
@@ -225,11 +252,217 @@ func TestACountNoNumberSatisfiesCostsTheCasesThatNeedIt(t *testing.T) {
 // The refusal path changes what is *added* — a case, or a whole tier — and never
 // what already exists. Held against the emitters rather than against a golden,
 // because a golden agrees with whatever was generated last and this is a claim
-// about two code paths agreeing.
+// about two code paths agreeing. All four files, `doc.go` included: it is the one
+// composed inline in [generate] rather than by an emitter, which makes it the one
+// a change routing anything about a skip into the output would reach first.
+//
+// Over both shapes of refusal, because they cost different things. Case 4 costs a
+// file-tier case, and case 3 costs a record-tier one — and case 3 is the only one
+// that runs [coverRecord]'s rollback, so a descriptor that never skips a *record*
+// would not exercise it here at all.
 func TestTheFourFilesAreWhatTheyWouldHaveBeen(t *testing.T) {
 	t.Parallel()
 
-	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: withNodes(func(nodes []*irpb.Node) []*irpb.Node {
+	for name, d := range map[string]*irpb.Descriptor{
+		"a count no number satisfies":          countRefusingDescriptor(),
+		"an item the synthesizer cannot spell": itemRefusingDescriptor(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := options{packageName: goldenPackage, importPath: goldenImport}
+
+			out, _ := generated(t, d, opts)
+
+			structs, err := records(d, opts)
+			if err != nil {
+				t.Fatalf("records: %v", err)
+			}
+
+			methods, err := codecMethods(d, opts)
+			if err != nil {
+				t.Fatalf("codecMethods: %v", err)
+			}
+
+			machine, err := fileMachine(d, opts)
+			if err != nil {
+				t.Fatalf("fileMachine: %v", err)
+			}
+
+			// A slice rather than a map, so that a run reporting two differences
+			// reports them in one order. This is a test about determinism and its
+			// own output may as well be.
+			for _, want := range []struct{ name, source string }{
+				{generatedFile, fmt.Sprintf("%s\n\npackage %s\n", generatedBy, opts.packageName)},
+				{recordsFile, structs},
+				{codecFile, methods},
+				{fileMachineFile, machine},
+			} {
+				formatted, err := format.Source([]byte(want.source))
+				if err != nil {
+					t.Fatalf("formatting %s: %v", want.name, err)
+				}
+
+				if out[want.name] != string(formatted) {
+					t.Errorf("%s is not what the emitter produced for this descriptor:\n got:\n%s\nwant:\n%s",
+						want.name, out[want.name], formatted)
+				}
+			}
+		})
+	}
+}
+
+// TestADiscardedCaseLeavesNoImportNothingUses is the invariant [coverRecord] and
+// [filetest.source] both exist for, and the one nothing else would catch.
+//
+// A case this generator lays out and then throws away has already spent imports
+// and function names out of state the whole file shares. `go/format` runs over
+// the result and reports neither an import nothing uses nor an identifier nothing
+// reads — both are type-check failures, not syntax ones — so a regression in the
+// rollback produces a directory that fails `go build` while every other assertion
+// in this file passes.
+//
+// Both shapes, because the two tiers keep the invariant with different code: the
+// record tier by snapshot and restore, the file tier by collecting the imports of
+// accepted cases only.
+func TestADiscardedCaseLeavesNoImportNothingUses(t *testing.T) {
+	t.Parallel()
+
+	for name, d := range map[string]*irpb.Descriptor{
+		"a record tier that discarded a case": itemRefusingDescriptor(),
+		"a file tier that discarded a path":   countRefusingDescriptor(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			out, _ := generated(t, d, options{packageName: goldenPackage, importPath: goldenImport})
+
+			written := 0
+
+			for _, file := range []string{recordsTestFile, fileTestFile} {
+				source, ok := out[file]
+				if !ok {
+					continue
+				}
+
+				written++
+
+				for _, unused := range unusedImports(t, file, source) {
+					t.Errorf("%s imports %s and nothing in it uses that name:\n%s", file, unused, source)
+				}
+			}
+
+			if written == 0 {
+				t.Fatal("neither tier wrote a file, so this asserts nothing")
+			}
+		})
+	}
+}
+
+// unusedImports is every import of a Go source file whose name no selector in
+// that file reaches for.
+//
+// Written out rather than reached for through a type checker because this
+// package imports irpb and the standard library and nothing else, and a test
+// that dragged in golang.org/x/tools would be the first dependency of its kind
+// here. The check is exact enough for generated code, whose every use of an
+// import is `name.Something`.
+func unusedImports(t *testing.T, name, source string) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, name, source, 0)
+	if err != nil {
+		t.Fatalf("parsing the generated %s: %v", name, err)
+	}
+
+	reached := make(map[string]struct{})
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if selector, ok := n.(*ast.SelectorExpr); ok {
+			if ident, ok := selector.X.(*ast.Ident); ok {
+				reached[ident.Name] = struct{}{}
+			}
+		}
+
+		return true
+	})
+
+	var unused []string
+
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			t.Fatalf("the generated %s carries an import path that is not a string: %s", name, spec.Path.Value)
+		}
+
+		under := lastElement(path)
+		if spec.Name != nil {
+			under = spec.Name.Name
+		}
+
+		if _, ok := reached[under]; !ok {
+			unused = append(unused, spec.Path.Value)
+		}
+	}
+
+	slices.Sort(unused)
+
+	return unused
+}
+
+// TestRunSucceedsAndSaysSoWhenACaseIsSkipped is the exit status half of the
+// decision, at the boundary that owns it.
+//
+// [generate] is where every other test here drives the refusal from, and it
+// returns an error rather than setting one — so nothing below it would notice if
+// `run` grew a path that turned a skipped case into a failed invocation. cpybkc
+// discards the whole output directory on a non-zero exit, so that path would cost
+// the adopter the package this decision exists to give them.
+func TestRunSucceedsAndSaysSoWhenACaseIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	args := []string{
+		descriptorFlag, descriptorFile(t, itemRefusingDescriptor()),
+		outFlag, out,
+		optFlag, packageNameOption + "=" + goldenPackage,
+		optFlag, importPathOption + "=" + goldenImport,
+	}
+
+	var stderr bytes.Buffer
+
+	if err := run(args, nothing(), &stderr); err != nil {
+		t.Fatalf("run refused a descriptor it emits a package for: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(out, recordsFile)); err != nil {
+		t.Errorf("the package was not written: %v", err)
+	}
+
+	saidAbout(t, stderr.String(), 2, "SUMMARY-RECORD", "TYPE-CODE")
+}
+
+// descriptorFile writes a descriptor where an invocation can name it.
+func descriptorFile(t *testing.T, d *irpb.Descriptor) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "descriptor.binpb")
+
+	if err := os.WriteFile(path, marshal(t, d), 0o644); err != nil {
+		t.Fatalf("writing the descriptor: %v", err)
+	}
+
+	return path
+}
+
+// countRefusingDescriptor is case 4: one register sizing two tables whose
+// declared bounds have no number in common, so no file the automaton admits
+// carries the record that holds them.
+func countRefusingDescriptor() *irpb.Descriptor {
+	return &irpb.Descriptor{Version: supportedIRVersion, Nodes: withNodes(func(nodes []*irpb.Node) []*irpb.Node {
 		for _, node := range nodes {
 			if node.GetId() == 124 {
 				node.GetGroup().Repetition = counted(22, 5, 9)
@@ -238,39 +471,20 @@ func TestTheFourFilesAreWhatTheyWouldHaveBeen(t *testing.T) {
 
 		return nodes
 	})}
+}
 
-	opts := options{packageName: goldenPackage, importPath: goldenImport}
-
-	out, _ := generated(t, d, opts)
-
-	structs, err := records(d, opts)
-	if err != nil {
-		t.Fatalf("records: %v", err)
-	}
-
-	methods, err := codecMethods(d, opts)
-	if err != nil {
-		t.Fatalf("codecMethods: %v", err)
-	}
-
-	machine, err := fileMachine(d, opts)
-	if err != nil {
-		t.Fatalf("fileMachine: %v", err)
-	}
-
-	for name, source := range map[string]string{
-		recordsFile: structs, codecFile: methods, fileMachineFile: machine,
-	} {
-		want, err := format.Source([]byte(source))
-		if err != nil {
-			t.Fatalf("formatting %s: %v", name, err)
+// itemRefusingDescriptor is case 3: SUMMARY-RECORD is selected on TYPE-CODE,
+// which is one byte wide, against a literal of two.
+func itemRefusingDescriptor() *irpb.Descriptor {
+	return &irpb.Descriptor{Version: supportedIRVersion, Nodes: withNodes(func(nodes []*irpb.Node) []*irpb.Node {
+		for _, node := range nodes {
+			if node.GetId() == 52 {
+				node.GetPredicate().GetBytesEqual().Value = []byte("\xe2\xe2")
+			}
 		}
 
-		if out[name] != string(want) {
-			t.Errorf("%s is not what the emitter produced for this descriptor:\n got:\n%s\nwant:\n%s",
-				name, out[name], want)
-		}
-	}
+		return nodes
+	})}
 }
 
 // TestARefusalIsTheSameFilesAndTheSameLinesEveryRun is docs/plugin/SPEC.md's
@@ -282,17 +496,7 @@ func TestTheFourFilesAreWhatTheyWouldHaveBeen(t *testing.T) {
 func TestARefusalIsTheSameFilesAndTheSameLinesEveryRun(t *testing.T) {
 	t.Parallel()
 
-	descriptor := func() *irpb.Descriptor {
-		return &irpb.Descriptor{Version: supportedIRVersion, Nodes: withNodes(func(nodes []*irpb.Node) []*irpb.Node {
-			for _, node := range nodes {
-				if node.GetId() == 124 {
-					node.GetGroup().Repetition = counted(22, 5, 9)
-				}
-			}
-
-			return nodes
-		})}
-	}
+	descriptor := countRefusingDescriptor
 
 	opts := options{packageName: goldenPackage, importPath: goldenImport}
 
@@ -345,50 +549,207 @@ func TestTheGoldenDescriptorsSaySomethingOnlyWhenTheyHaveTo(t *testing.T) {
 	}
 }
 
-// TestTheWarningsAreCappedAndSayTheyWereCapped is the answer to a copybook whose
-// every record type carries the same unsynthesizable item.
+// TestTheWarningsAreCappedOnlyWhereTheNamesSurviveElsewhere is the answer to a
+// copybook whose every record type carries the same unsynthesizable item.
 //
 // The lines go to a terminal beside every other generator cpybkc ran, so the
 // list is capped and the cap is announced — a truncated list nobody is told
-// about is worse than a long one. The generated file is where the whole list
-// lives, and the note says so.
-func TestTheWarningsAreCappedAndSayTheyWereCapped(t *testing.T) {
+// about is worse than a long one. But the cap only applies where the generated
+// test file names the construct too, because that file is what makes truncating
+// the terminal safe. A tier that skipped every construct it had writes no file,
+// so those names exist nowhere else and are written whatever the count.
+func TestTheWarningsAreCappedOnlyWhereTheNamesSurviveElsewhere(t *testing.T) {
 	t.Parallel()
 
-	var skips []skipped
+	skips := func(recorded bool) []skipped {
+		var out []skipped
 
-	for at := range reportedSkips + 3 {
-		skips = append(skips, skippedRecord(fmt.Sprintf("RECORD-%d", at), fmt.Sprintf("Record%d", at),
-			errors.New("it holds an item this generator cannot lay out")))
+		for at := range reportedSkips + 3 {
+			out = append(out, skippedRecord(fmt.Sprintf("RECORD-%d", at), fmt.Sprintf("Record%d", at),
+				errors.New("it holds an item this generator cannot lay out")))
+		}
+
+		return recording(out, recorded)
 	}
 
-	var stderr bytes.Buffer
+	for name, tc := range map[string]struct {
+		recorded bool
+		warnings int
+	}{
+		// Named in the generated file as well, so ten in full and one more
+		// saying how many were dropped.
+		"the tier wrote a file": {recorded: true, warnings: reportedSkips + 1},
 
-	reportSkips(&stderr, skips)
+		// Named nowhere else. Every one of them is written and no cap line is,
+		// because nothing was dropped.
+		"the tier wrote none": {recorded: false, warnings: reportedSkips + 3},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	written := lines(stderr.String())
+			var stderr bytes.Buffer
 
-	warnings := 0
+			all := skips(tc.recorded)
 
-	for _, line := range written {
-		if strings.HasPrefix(line, severityWarning+severitySeparator) {
-			warnings++
+			reportSkips(&stderr, all)
+
+			warnings := 0
+
+			for _, line := range lines(stderr.String()) {
+				if strings.HasPrefix(line, severityWarning+severitySeparator) {
+					warnings++
+				}
+			}
+
+			if warnings != tc.warnings {
+				t.Errorf("%d warnings were written for %d skipped constructs, want %d:\n%s",
+					warnings, len(all), tc.warnings, stderr.String())
+			}
+
+			// Every construct's own name is on the page in the uncapped case,
+			// and the last three are not in the capped one.
+			for at := reportedSkips; at < len(all); at++ {
+				named := strings.Contains(stderr.String(), fmt.Sprintf("RECORD-%d ", at))
+				if named == tc.recorded {
+					t.Errorf("RECORD-%d named=%v, want %v:\n%s", at, named, !tc.recorded, stderr.String())
+				}
+			}
+
+			if !tc.recorded {
+				return
+			}
+
+			if !strings.Contains(stderr.String(), plural(len(all)-reportedSkips, "further construct")) {
+				t.Errorf("the diagnostics do not say how many constructs were left unnamed:\n%s", stderr.String())
+			}
+
+			if !strings.Contains(stderr.String(), refusalSection) {
+				t.Errorf("the diagnostics do not say where the whole list is:\n%s", stderr.String())
+			}
+		})
+	}
+}
+
+// TestAdvisoryRefusesTheTwoShapesThatAreNotAboutTheBytes pins the
+// classification [advisory] makes, on the guard itself.
+//
+// Both of its false branches are unreachable through a generation today — a
+// charset codec has no table for is refused where the accessors are emitted, and
+// a dangling node reference is met by the struct emitter first — so a test that
+// only drove descriptors through [generate] would prove the paths that bypass
+// this function rather than this function.
+func TestAdvisoryRefusesTheTwoShapesThatAreNotAboutTheBytes(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"a charset codec ships no table for": {
+			err: &unsupportedCharsetError{Charset: irpb.Charset_CHARSET_CP500}, want: false,
+		},
+		"a reference to a node the descriptor does not carry": {err: unresolved(42), want: false},
+		"the same, wrapped": {err: fmt.Errorf("laying out X: %w", unresolved(42)), want: false},
+		"a layout with no checkable file": {
+			err: malformed("a count no number satisfies", "see the SPEC"), want: true,
+		},
+		"a refusal with no type of its own": {err: errors.New("something the synthesizer met"), want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := advisory(tc.err); got != tc.want {
+				t.Errorf("advisory(%v) is %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEveryRefusalThisPackageRaisesHasADecidedClassification is what keeps
+// [advisory]'s deny-list from going stale.
+//
+// A refusal type added to errors.go and raised inside a synthesizer ships as a
+// warning by default, and defaults are what nobody decides. So every error type
+// this package defines is listed here with the side it falls on, and adding one
+// without adding a line fails this test rather than quietly changing what a
+// generation refuses.
+func TestEveryRefusalThisPackageRaisesHasADecidedClassification(t *testing.T) {
+	t.Parallel()
+
+	decided := map[string]struct {
+		err  error
+		want bool
+	}{
+		"malformedError":            {err: malformed("what", "rule"), want: true},
+		"malformedError/unresolved": {err: unresolved(7), want: false},
+		"collisionError": {err: &collisionError{
+			Go: "Total", Cobol: []colliding{{Original: "TOTAL"}, {Original: "TOTAL-X"}}, Where: "a record",
+		}, want: true},
+		"unmungeableError":        {err: &unmungeableError{Kind: "record", Cobol: "123"}, want: true},
+		"fillerError":             {err: &fillerError{Kind: "a group", In: "REC", Because: "it repeats"}, want: true},
+		"unsupportedCharsetError": {err: &unsupportedCharsetError{Charset: irpb.Charset_CHARSET_CP500}, want: false},
+		"mixedEncodingError":      {err: &mixedEncodingError{Axis: "charset", First: "A", Second: "B"}, want: true},
+		"unsupportedVersionError": {err: &unsupportedVersionError{Descriptor: supportedIRVersion}, want: true},
+		"uncoverableError":        {err: &uncoverableError{What: "what", Rule: "rule"}, want: true},
+	}
+
+	// The list above is the whole of it, held against the source so that a type
+	// added beside them cannot be left off. Types rather than values, because a
+	// refusal is a type here and the classification is made by errors.As.
+	for _, name := range refusalTypes(t) {
+		if _, ok := decided[name]; !ok {
+			t.Errorf("%s is an error type this package defines and nothing here says whether it is advisory; add it to this table and to %s",
+				name, "advisory's doc if it is not")
 		}
 	}
 
-	// One per construct named in full, and one more saying how many were not.
-	if warnings != reportedSkips+1 {
-		t.Errorf("%d warnings were written for %d skipped constructs, want %d",
-			warnings, len(skips), reportedSkips+1)
+	for name, tc := range decided {
+		if got := advisory(tc.err); got != tc.want {
+			t.Errorf("advisory(%s) is %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// refusalTypes is every type declared in this package whose name ends in
+// `Error`, read from the source rather than listed.
+//
+// File by file rather than through parser.ParseDir, which is deprecated for a
+// reason that applies here: it associates files with packages without reading
+// build tags. This walk wants every non-test file in the directory and says so.
+func refusalTypes(t *testing.T) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading this package's directory: %v", err)
 	}
 
-	if !strings.Contains(stderr.String(), plural(len(skips)-reportedSkips, "further construct")) {
-		t.Errorf("the diagnostics do not say how many constructs were left unnamed:\n%s", stderr.String())
+	var out []string
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+
+		ast.Inspect(file, func(n ast.Node) bool {
+			spec, ok := n.(*ast.TypeSpec)
+			if ok && strings.HasSuffix(spec.Name.Name, "Error") {
+				out = append(out, spec.Name.Name)
+			}
+
+			return true
+		})
 	}
 
-	if !strings.Contains(stderr.String(), refusalSection) {
-		t.Errorf("the diagnostics do not say where the whole list is:\n%s", stderr.String())
-	}
+	slices.Sort(out)
+
+	return out
 }
 
 // TestEveryDiagnosticAWarningWritesKeepsTheContractsForm holds

@@ -49,7 +49,7 @@ type noted interface {
 // cost of getting this wrong is a diagnostic filed under the wrong level rather
 // than one lost; that is a reason to be careful, not a reason to rely on it.
 func report(w io.Writer, err error) {
-	first, rest := messageLines(err)
+	first, rest := messageLines(err, "the generator failed and said nothing about why")
 
 	diagnostic(w, severityError, first)
 
@@ -74,7 +74,7 @@ func report(w io.Writer, err error) {
 // reads and writes their file. See README.md, "When a descriptor admits no
 // checkable file".
 func warn(w io.Writer, one skipped) {
-	first, rest := messageLines(one.why)
+	first, rest := messageLines(one.why, "the generator wrote no case and said nothing about why")
 
 	diagnostic(w, severityWarning, "no test was generated for "+one.construct+severitySeparator+first)
 
@@ -91,14 +91,20 @@ func warn(w io.Writer, one skipped) {
 // Two things follow. Any line after the first of a message that arrived with
 // newlines in it, which is what keeps a wrapped error from writing a second
 // line that no severity opens, and the notes it carries as [noted].
-func messageLines(err error) (string, []string) {
+//
+// silence is what to say when the error's message is empty, and it is a
+// parameter because the two severities are silent about different things: an
+// `error:` is a generation that failed, and a `warning:` is a case that was not
+// written. One sentence covering both would have to drop the verb, and the verb
+// is the whole of what the line says.
+func messageLines(err error, silence string) (string, []string) {
 	message := err.Error()
 	if strings.TrimSpace(message) == "" {
 		// A bare `error: ` says nothing a level could be attached to, and
 		// docs/plugin/SPEC.md has cpybkc treat it as text. An error with no
 		// message is a bug in this program, and it is reported as one rather
 		// than as silence beside a non-zero exit.
-		message = "the generator said nothing about why, which is a bug in " + pluginName
+		message = silence + ", which is a bug in " + pluginName
 	}
 
 	lines := strings.Split(message, "\n")
