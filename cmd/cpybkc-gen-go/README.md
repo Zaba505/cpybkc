@@ -114,18 +114,20 @@ describes — `codec.go` carries
 [the decode and encode methods](#decoding-and-encoding), and `file.go` carries
 [the file-level reader and writer](#reading-and-writing-a-file).
 
-Beside them, [the generated tests](#the-generated-tests) come in two tiers that
-mirror the two source files whose output they cover. `records_test.go` is the
-record tier: one case per record type and per variant arm, each decoding a
-synthesized literal, asserting every decoded field against a value written out
-beside it, and encoding it back byte for byte. `file_test.go` is the file tier:
-one case per path the automaton admits, over the framing around a record and the
-order records come in, so that every transition predicate and every literal of a
-set-membership predicate is exercised by some case.
+Beside them, [the generated tests](#the-generated-tests) come in two tiers.
+`records_test.go` is the record tier, and it covers `records.go` and `codec.go`
+together — a struct and the two methods that fill it are one thing to a case:
+one case per record type and per variant arm, each decoding a synthesized
+literal, asserting every exported field against a value written out beside it,
+and encoding it back byte for byte. `file_test.go` is the file tier and covers
+`file.go`: the framing around a record and the order records come in, with a
+case for every transition predicate and every literal of a set-membership
+predicate the automaton carries.
 
-Each file is written exactly when the file it covers is, and nothing else turns
-it off ([written unconditionally](#decided-the-test-files-are-written-unconditionally)).
-A descriptor carrying no record node produces only `doc.go` — a file holding a
+Each test file is written exactly when the files it covers are, and nothing else
+turns it off ([written
+unconditionally](#decided-the-test-files-are-written-unconditionally)). A
+descriptor carrying no record node produces only `doc.go` — a file holding a
 package clause and no declaration says nothing `doc.go` does not, and a tier with
 no record to make a case out of has nothing to write. One whose automaton admits
 no record produces neither `file.go` nor `file_test.go`, for the same reason.
@@ -692,8 +694,9 @@ you check against the world.
 
 ### Decided: the test files are written unconditionally
 
-There is no `tests=` option. Both files come out of every generation the way the
-other four do.
+There is no `tests=` option. Both files come out of every generation that
+produces the files they cover, exactly as those files themselves do — there is
+no switch, and the emission rule in [Output](#output) is the whole of it.
 
 An adopter who has to discover a flag is an adopter who never gets the
 spot-check — and the spot-check is worth most on the first generation of a
@@ -722,6 +725,15 @@ applied to a whole record instead of to one predicate literal:
 > as text because it happened to be printable would print `"@"` for a literal
 > that is a space in your file.
 
+The rule keys on the **descriptor's charset**, not on each item's kind, because
+a case's bytes are one literal and a literal has one spelling. A record whose
+items are not text under any charset — `COMP`, `COMP-3` — therefore reads as
+escapes inside the string literal an ASCII descriptor gets, and what to do about
+a mixed record is
+[#264](https://github.com/Zaba505/cpybkc/issues/264)'s to settle when the first
+bytes are actually emitted. The keying was decided here; where the line falls
+inside an ASCII record was not.
+
 What is added here is only which spelling helps at which end. For an EBCDIC file
 the slice is the honest spelling and also the useful one — it pastes into
 `hexdump` beside the dataset. For an ASCII file the string literal is readable
@@ -733,15 +745,28 @@ with them the picture the copybook wrote sits beside the bytes it produced.
 ### Decided: a case asserts round-trip and field values, over every discriminator path
 
 One case does three things, in this order. It decodes its bytes; it asserts
-every decoded field against a value written out beside it; it re-encodes the
-record and asserts the bytes came back byte for byte.
+every **exported** field against a value written out beside it; it re-encodes
+the record and asserts the bytes came back byte for byte. Unexported state — the
+[slack a record retains](#where-the-slack-goes) — is named by no case and is
+covered by the round-trip half alone, which is the point of [the package
+clause](#the-package-clause).
 
-The field-value half is not redundant with the round-trip half. Round-trip alone
-is satisfied by a decoder and an encoder that agree with each other and with
-nothing else — it says the walk is *consistent*, not that it lands where the
-descriptor says. It is also the half that makes the literal legible: *these five
-bytes are the order id, and they read as 12345* is the sentence that turns a
-wall of hex into a spot-check, and a byte literal on its own cannot say it.
+The expected values are the ones the synthesizer wrote into the bytes in the
+first place. That makes the field-value half the generated decoder checked
+against `codec`'s own `Writer` — a second implementation of the same layout,
+which is what makes it a check rather than an echo, and it is why an offset or a
+width the generated walk got wrong shows up as a field that reads as something
+else. What it does not survive is a bug the synthesizer and the generated
+decoder share, which is the cancellation [What they catch, and what they
+cannot](#what-they-catch-and-what-they-cannot) describes and this half does not
+escape.
+
+So the field-value half is not redundant with the round-trip half. Round-trip
+alone is satisfied by a decoder and an encoder that agree with each other — it
+says the walk is *consistent*, not that it lands where the bytes were put. It is
+also the half that makes the literal legible: *these five bytes are the order
+id, and they read as 12345* is the sentence that turns a wall of hex into a
+spot-check, and a byte literal on its own cannot say it.
 
 Coverage is not one happy path. **Every record type, every variant arm, every
 transition predicate and every literal of a set-membership predicate** is
@@ -801,9 +826,12 @@ hand-written side moves.** The generated name is seen by every adopter of this
 generator and cannot be renamed by any of them; the hand-written files are this
 repository's own, read by contributors who can be told once. Trading the
 adopter-facing name away to keep six internal ones would buy nothing and cost
-the only one that is a contract. The two hand-written files become
-`record_roundtrip_test.go` and `file_roundtrip_test.go`, renamed as a pair so
-that which layer each asserts stays legible once `file_test.go` means something
+the only one that is a contract. Exactly seven files move, and here is the whole
+of it: the `file_test.go` in each of the six packages becomes
+`file_roundtrip_test.go`, and `orders` — the one package that also carries a
+record-level `roundtrip_test.go` — has that become `record_roundtrip_test.go`.
+The second rename is not forced by a collision; it goes with the first so that
+which layer each file asserts stays legible once `file_test.go` means something
 else in the same directory.
 
 The rename lands with the first change to what is emitted
@@ -845,6 +873,14 @@ Everything the generated cases touch is exported, so anything they can do yours
 can too; what they cover is that the descriptor's own records read and write,
 and what is yours to cover is what your program does with them.
 
+The golden packages under [`internal/`](internal/) are not a counter-example,
+though they look like one: they hold hand-written `_test.go` files in a
+directory that is otherwise generated output. They are checked into *this*
+repository and regenerated by a test that compares bytes — they never travel the
+scratch-directory merge an adopter's output does, and the golden comparison
+skips a `_test.go` file for that reason. Nothing in a project cpybkc generates
+into works that way.
+
 ### A separate `cpybkc-gen-gotest`, considered and rejected
 
 Recorded so that it is not proposed again. The contract permits it:
@@ -864,8 +900,10 @@ entry, a second binary on `PATH`, a second thing to version — bought for a
 capability nobody asked for, since these files are not optional and there is no
 one who wants the package without them.
 
-`docs/plugin/SPEC.md` needs no word for any of this, and gets none. The contract
-fixes *where* a generator writes and what it may not do — not how many files it
-writes, nor what any of them is for — so two more files from this generator are
-already inside it. A clause about test output would be a rule about one
-generator written into the document that governs all of them.
+### `docs/plugin/SPEC.md` needs no word
+
+Nothing here changes the plugin contract, and nothing in it needs adding. The
+contract fixes *where* a generator writes and what it may not do — not how many
+files it writes, nor what any of them is for — so two more files from this
+generator are already inside it. A clause about test output would be a rule
+about one generator written into the document that governs all of them.
