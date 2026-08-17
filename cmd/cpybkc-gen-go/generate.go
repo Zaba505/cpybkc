@@ -102,6 +102,18 @@ func generate(descriptor *irpb.Descriptor, out string, opts options) error {
 		sources[fileMachineFile] = machine
 	}
 
+	// The file tier, written exactly when the file it covers is and by the same
+	// test: a tier over a reader and a writer that were not emitted has nothing
+	// to cover.
+	files, err := fileTests(descriptor, opts)
+	if err != nil {
+		return err
+	}
+
+	if files != "" {
+		sources[fileTestFile] = files
+	}
+
 	names := make([]string, 0, len(sources))
 	for name := range sources {
 		names = append(names, name)
