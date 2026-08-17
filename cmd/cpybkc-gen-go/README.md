@@ -796,12 +796,19 @@ The rule, in the order it is applied:
   read back through `codec`, rather than the bytes themselves.
 - **A count field holds the number of occurrences its tables were laid out
   with**, because the generated writer derives the count it emits from `len()`
-  of those tables. Anything else is a case whose bytes cannot come back.
+  of those tables. Anything else is a case whose bytes cannot come back. Where a
+  predicate also names that field, the predicate wins and the *tables* follow
+  the literal's own number: the emitted decoder reads its occurrences out of
+  those bytes, so a number chosen against the literal is a literal the case
+  cannot read back.
 - **A variable table takes its declared minimum**, or one occurrence where that
   minimum is zero — so every shape in the record appears at least once, and the
   literal stays short enough to read. Where one count sizes two tables the
   number chosen is the largest any of them asks for, and a count whose tables
   cannot agree on one is refused rather than emitted as a case that cannot pass.
+  A table inside an **arm** counts towards that number whichever arm the case
+  selects, because an occurrence holding a variant is read whole before any of it
+  is decoded and the width of that read is summed from the *first* arm.
   A table counted by a **register** takes none: [the decode method has no
   register file](#a-table-counted-by-a-register), so a record decoded from
   nothing but bytes carries no occurrences of one.

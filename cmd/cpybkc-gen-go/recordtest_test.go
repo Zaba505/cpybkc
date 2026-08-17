@@ -9,6 +9,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -141,8 +143,8 @@ func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 
 	source := written(t, out)[recordsTestFile]
 
-	// Five records, one of which — ENTRY-RECORD — carries an alternation of two
-	// arms.
+	// Six records, one of which — ENTRY-RECORD — carries an alternation of two
+	// arms, and one of which — SHAPE-RECORD — no transition admits.
 	for _, name := range []string{
 		"func TestOrderRecordReadsBackTheBytesItWasReadFrom(",
 		"func TestTrailerRecordReadsBackTheBytesItWasReadFrom(",
@@ -150,13 +152,14 @@ func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 		"func TestTableRecordReadsBackTheBytesItWasReadFrom(",
 		"func TestEntryRecordReadsBackTheBytesItWasReadFrom(",
 		"func TestEntryRecordHoldingEntrySummaryReadsBackTheBytesItWasReadFrom(",
+		"func TestShapeRecordReadsBackTheBytesItWasReadFrom(",
 	} {
 		if !strings.Contains(source, name) {
 			t.Errorf("no case is named %s", strings.TrimSuffix(strings.TrimPrefix(name, "func "), "("))
 		}
 	}
 
-	if got, want := strings.Count(source, "\nfunc Test"), 6; got != want {
+	if got, want := strings.Count(source, "\nfunc Test"), 7; got != want {
 		t.Errorf("the record tier carries %d cases, and the descriptor asks for %d", got, want)
 	}
 }
@@ -231,7 +234,7 @@ func TestAnAsciiDescriptorSpellsItsBytesAsAReadableString(t *testing.T) {
 
 	source := spelling(t, irpb.Charset_CHARSET_ASCII)
 
-	if !strings.Contains(source, "in := []byte(\"AAAAA\" + // LINE-TEXT @0 X(5)\n\t\t\"FF\") // LINE-CODE @5 X(2)") {
+	if !strings.Contains(source, "in := []byte(\"AAAAA\" + // LINE-TEXT @0 X(5)\n\t\t\"FF\" + // LINE-CODE @5 X(2)") {
 		t.Errorf("an ASCII descriptor did not spell its bytes as a string:\n%s", source)
 	}
 
@@ -254,21 +257,50 @@ func TestAnEbcdicDescriptorSpellsItsBytesAsHex(t *testing.T) {
 	}
 }
 
-// spelling is the record tier of a one-item descriptor read under charset.
+// TestAnAsciiDescriptorEscapesTheBytesThatAreNotCharacters is the half of the
+// charset-aware spelling a mixed record turns on.
+//
+// A case's bytes are one literal and a literal has one spelling, so a `COMP`
+// item inside an ASCII record reads as escapes inside the string rather than
+// moving the whole record to hex. A record whose *charset* is ASCII is a record
+// whose readable items read; the items that are not characters under any charset
+// are the ones a reader was going to check against a hex dump either way.
+func TestAnAsciiDescriptorEscapesTheBytesThatAreNotCharacters(t *testing.T) {
+	t.Parallel()
+
+	source := spelling(t, irpb.Charset_CHARSET_ASCII)
+
+	if !strings.Contains(source, `"\xff\xf8") // LINE-COUNT @7 S9(4) BINARY`) {
+		t.Errorf("an item that is not characters under any charset did not read as escapes:\n%s", source)
+	}
+
+	if strings.Contains(source, "in := []byte{") {
+		t.Errorf("a mixed record moved the whole literal to hex:\n%s", source)
+	}
+}
+
+// spelling is the record tier of a three-item descriptor read under charset.
+//
+// Three items rather than one: the concatenation is what carries the comment
+// column in the string spelling, and the binary item is the run that is not
+// characters under any charset.
 func spelling(t *testing.T, charset irpb.Charset) string {
 	t.Helper()
 
-	text, code := alphanumeric(3, "LINE-TEXT", 5), alphanumeric(4, "LINE-CODE", 2)
+	items := []*irpb.Node{
+		alphanumeric(3, "LINE-TEXT", 5),
+		alphanumeric(4, "LINE-CODE", 2),
+		binary(5, "LINE-COUNT", 2, 4, true),
+	}
 
-	text.GetField().GetEncoding().Charset = charset
-	code.GetField().GetEncoding().Charset = charset
+	for _, item := range items {
+		item.GetField().GetEncoding().Charset = charset
+	}
 
-	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
+	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: append([]*irpb.Node{
 		record(1, "LINE-RECORD", 2),
-		group(2, "LINE-RECORD", nil, 3, 4),
-		text,
-		code,
-	}}
+		group(2, "LINE-RECORD", nil, 3, 4, 5),
+	}, items...)}
 
 	out := t.TempDir()
 
@@ -279,74 +311,95 @@ func spelling(t *testing.T, charset irpb.Charset) string {
 	return written(t, out)[recordsTestFile]
 }
 
-// TestEveryItemShapeThisGeneratorEmitsIsSynthesized is the criterion the
-// goldens cannot state on their own.
+// TestAPackageNamedAfterOneOfTheCasesOwnIdentifiersStillCompiles is the shape a
+// generated package's name being the adopter's makes possible.
 //
-// Between them the six pin alphanumeric, zoned DISPLAY, COMP-3, binary COMP,
-// COMP-1, INDEX, a numeric-edited item, a fixed OCCURS, an OCCURS DEPENDING ON,
-// a variant and its arms, a slack node and an item the copybook gives no
-// data-name — and the compiler runs those cases, so those shapes are checked by
-// bytes rather than by a reading. The three left over are here, and the
-// assertion is the strong one available without a second module: the literal is
-// exactly as wide as the sum of the widths the descriptor states, which is the
-// arithmetic a wrong accessor or a missed item would break.
+// `package bytes`, `package testing`, `package codec` and `package big` are all
+// names this file already spends — on an import, or on a local a case declares —
+// and every one of them is a package this generator has to be able to write
+// tests for rather than one it may refuse. Where the name is spent the import
+// takes an alias, and the parser is what says the result is Go.
+func TestAPackageNamedAfterOneOfTheCasesOwnIdentifiersStillCompiles(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"bytes", "testing", "codec", "big", "record", "in", "out"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
+				record(1, "LINE-RECORD", 2),
+				group(2, "LINE-RECORD", nil, 3),
+				alphanumeric(3, "LINE-TEXT", 5),
+			}}
+
+			// Both spellings of the path: one whose last element is the package's
+			// own name, which is what an adopter's tree usually looks like, and one
+			// whose is not.
+			for _, path := range []string{"example.com/x/" + name, "example.com/x/gen"} {
+				out := t.TempDir()
+
+				if err := generate(d, out, options{packageName: name, importPath: path}); err != nil {
+					t.Fatalf("generate into %s: %v", path, err)
+				}
+
+				source := written(t, out)[recordsTestFile]
+
+				if _, err := parser.ParseFile(token.NewFileSet(), recordsTestFile, source, 0); err != nil {
+					t.Fatalf("the record tier of package %s at %s is not Go: %v\n%s", name, path, err, source)
+				}
+
+				if strings.Count(source, strconv.Quote(path)) != 1 {
+					t.Errorf("package %s at %s does not import itself exactly once:\n%s", name, path, source)
+				}
+			}
+		})
+	}
+}
+
+// TestEveryItemShapeThisGeneratorEmitsIsSynthesized names the shapes the record
+// tier has to lay bytes down for, and where each of them is checked.
+//
+// This is a listing rather than the check itself, and that is the point: every
+// one of these is in a golden package, so the compiler sees the Go type the
+// emitted assertion gives it and `go test -race` runs the round trip over the
+// bytes. A test asserting only that the source *mentions* an item would pass a
+// wrong Go type and a value the item cannot hold; the goldens do not.
 func TestEveryItemShapeThisGeneratorEmitsIsSynthesized(t *testing.T) {
 	t.Parallel()
 
-	comp2 := numericItem(4, "RATE", irpb.Usage_USAGE_COMP_2, 8, 0, 0, false)
-	comp2.GetField().Picture = nil
-
-	pointer := &irpb.Node{Id: 7, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width: 4, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_POINTER,
-		Names: &irpb.Names{Original: "ANCHOR"},
-	}}}
-
-	national := &irpb.Node{Id: 8, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width: 6, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_NATIONAL,
-		Names: &irpb.Names{Original: "WIDE-TEXT"},
-	}}}
-
-	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
-		record(1, "SHAPE-RECORD", 2),
-		group(2, "SHAPE-RECORD", nil, 3, 4, 5, 6, 7, 8),
-		comp6(3, "TALLY", 3, 5, 0),
-		comp2,
-		comp5(5, "WIDE-COUNT", 8, 18, true),
-		comp5(6, "UNSIGNED-COUNT", 2, 4, false),
-		pointer,
-		national,
-	}}
-
-	out := t.TempDir()
-
-	if err := generate(d, out, options{packageName: "shape", importPath: "example.com/shape"}); err != nil {
-		t.Fatalf("generate: %v", err)
+	// Every item [emitter.fieldType] has a row for, and the two shapes that are
+	// not items at all, against the record of internal/orders that carries one.
+	shapes := map[string]string{
+		"alphanumeric DISPLAY":   "CUSTOMER-NAME",
+		"numeric DISPLAY":        "ORDER-ID",
+		"numeric-edited":         "PRINTED-TOTAL(1)",
+		"PACKED-DECIMAL":         "ORDER-TOTAL",
+		"PACKED-DECIMAL, big":    "GRAND-TOTAL",
+		"COMP-6":                 "TALLY",
+		"BINARY":                 "QUANTITY",
+		"COMP-5":                 "WIDE-COUNT",
+		"COMP-5, unsigned":       "UNSIGNED-COUNT",
+		"COMP-1":                 "EXCHANGE-RATE",
+		"COMP-2":                 "RATE",
+		"INDEX":                  "TABLE-INDEX",
+		"POINTER":                "ANCHOR",
+		"NATIONAL":               "WIDE-TEXT",
+		"a fixed OCCURS":         "LINE-ITEM(1).SKU",
+		"an OCCURS DEPENDING ON": "DETAIL(1).DETAIL-TEXT",
+		"a variant arm":          "ENTRY(1).ENTRY-DETAIL.DETAIL-SKU",
+		"a nameless item":        "FILLER",
+		"a slack node":           "(slack)",
 	}
 
-	source := written(t, out)[recordsTestFile]
+	source, ok := written(t, goldenDir)[recordsTestFile]
+	if !ok {
+		t.Fatalf("%s carries no %s", goldenDir, recordsTestFile)
+	}
 
-	// One assertion per item, and one comment column naming it.
-	for _, item := range []string{"TALLY", "RATE", "WIDE-COUNT", "UNSIGNED-COUNT", "ANCHOR", "WIDE-TEXT"} {
+	for shape, item := range shapes {
 		if !strings.Contains(source, item+" @") {
-			t.Errorf("no run of the literal is annotated with %s", item)
+			t.Errorf("no run of a case's literal is annotated with %s, which is where %s is synthesized", item, shape)
 		}
-
-		if !strings.Contains(source, `t.Errorf("`+item+`: got`) {
-			t.Errorf("no assertion names %s", item)
-		}
-	}
-
-	_, body, cut := strings.Cut(source, "in := []byte{")
-	if !cut {
-		t.Fatalf("the case carries no literal:\n%s", source)
-	}
-
-	literal, _, _ := strings.Cut(body, "\n\t}")
-
-	// 3 + 8 + 8 + 2 + 4 + 6, which is what the descriptor states and what a
-	// wrong accessor would not produce.
-	if got, want := strings.Count(literal, "0x"), 31; got != want {
-		t.Errorf("the literal is %d bytes wide and the descriptor states %d:\n%s", got, want, source)
 	}
 }
 
@@ -358,5 +411,105 @@ func golden() []string {
 		dirs = append(dirs, dir)
 	}
 
+	slices.Sort(dirs)
+
 	return dirs
+}
+
+// TestATableInsideAnArmIsLaidOutAgainstTheCountTheDecoderReads is the second of
+// the two ways a case's bytes could disagree with the walk that reads them.
+//
+// An occurrence holding a variant is read whole before any of it is decoded, and
+// the width of that read is summed from the **first** arm whichever arm the
+// occurrence turns out to hold. So a count feeding a table inside an arm governs
+// the layout of every case over that record — and a synthesizer that only
+// counted the tables outside a variant would lay down an occurrence of the wrong
+// length and fail on `UnmarshalCOBOL` with a message naming neither cause.
+func TestATableInsideAnArmIsLaidOutAgainstTheCountTheDecoderReads(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
+		record(1, "SEG-RECORD", 2),
+		group(2, "SEG-RECORD", nil, 3, 4),
+		zoned(3, "N-COUNT", 1, 1, 0, false),
+		group(4, "SEG", constant(2), 5, 6),
+		alphanumeric(5, "SEG-TYPE", 1),
+		variant(6, armOf(7, 9), armOf(8, 11)),
+		equals(7, 5, "\xc1"),
+		equals(8, 5, "\xc2"),
+		group(9, "SEG-A", nil, 10),
+		group(10, "ITEM", depending(3, 0, 2), 13),
+		group(11, "SEG-B", nil, 12),
+		alphanumeric(12, "SEG-B-TEXT", 2),
+		alphanumeric(13, "ITEM-TEXT", 2),
+	}}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: "seg", importPath: "example.com/seg"}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsTestFile]
+
+	// One occurrence of ITEM, so N-COUNT holds 1 — and every case over this
+	// record holds the same 1, because the occurrence's width is summed from
+	// SEG-A whichever arm the case selects.
+	if got := strings.Count(source, `t.Errorf("N-COUNT: got %d, want %d", record.NCount, 1)`); got != 2 {
+		t.Errorf("N-COUNT is asserted against 1 in %d of the 2 cases:\n%s", got, source)
+	}
+
+	if !strings.Contains(source, "if len(record.Seg[0].SegA.Item) != 1 {") {
+		t.Errorf("the table inside the arm is not laid out with the occurrence its count states:\n%s", source)
+	}
+}
+
+// TestACountFieldADiscriminatorPinsIsLaidOutAtTheLiteralsOwnNumber is the first
+// of them.
+//
+// A predicate states the bytes a field holds outright, and the generated decoder
+// reads that field's number of occurrences out of those bytes. So where one
+// field is both a discriminator and an OCCURS DEPENDING ON count, the literal's
+// own number is the number of occurrences the case is laid out with — a case
+// that chose its own would be a case whose literal it cannot read back.
+func TestACountFieldADiscriminatorPinsIsLaidOutAtTheLiteralsOwnNumber(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
+		{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+			Framing:      &irpb.File_DescriptorWord{DescriptorWord: &irpb.DescriptorWord{}},
+			StartStateId: 2,
+		}}},
+		{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{3}}}},
+		{Id: 4, Kind: &irpb.Node_State{State: &irpb.State{Accepts: true}}},
+		{Id: 3, Kind: &irpb.Node_Transition{Transition: &irpb.Transition{
+			RecordId: 5, NextStateId: 4, PredicateId: new(uint64(9)),
+		}}},
+
+		// The discriminator is the count: three occurrences, spelled as the
+		// EBCDIC digit the predicate tests for.
+		equals(9, 7, "\xf3"),
+
+		record(5, "RUN-RECORD", 6),
+		group(6, "RUN-RECORD", nil, 7, 8),
+		zoned(7, "RUN-COUNT", 1, 1, 0, false),
+		group(8, "RUN", depending(7, 0, 5), 10),
+		alphanumeric(10, "RUN-TEXT", 2),
+	}}
+
+	out := t.TempDir()
+
+	if err := generate(d, out, options{packageName: "run", importPath: "example.com/run"}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsTestFile]
+
+	if !strings.Contains(source, `t.Errorf("RUN-COUNT: got %d, want %d", record.RunCount, 3)`) {
+		t.Errorf("RUN-COUNT is not asserted against the number its predicate pins it to:\n%s", source)
+	}
+
+	if !strings.Contains(source, "if len(record.Run) != 3 {") {
+		t.Errorf("the table is not laid out with the occurrences its discriminated count states:\n%s", source)
+	}
 }

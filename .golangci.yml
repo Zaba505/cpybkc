@@ -54,3 +54,20 @@ linters:
     - modernize
     - staticcheck
     - unused
+
+issues:
+  # Generated files are linted like every other file, which is not
+  # golangci-lint's default: v2 excludes a file carrying a `// Code generated …
+  # DO NOT EDIT.` header from every linter unless this says otherwise.
+  #
+  # The default is right for a repository whose generated code is somebody
+  # else's output. It is wrong here, because generated Go is this repository's
+  # *product*: the packages under cmd/cpybkc-gen-go/internal and example/ledger
+  # are checked in as packages rather than as fixtures precisely so that the
+  # compiler and the linter reach them, and a rule the linter skipped there is a
+  # rule an adopter's tree would break on with nothing here to have said so.
+  # cpybkc-gen-go writes tests now (#264), and `errcheck`, `govet`,
+  # `staticcheck`, `unused` and `modernize` reaching a generated `_test.go` is
+  # the whole of what makes "the generated tests are clean under this file" a
+  # statement rather than a hope.
+  exclude-generated: disable

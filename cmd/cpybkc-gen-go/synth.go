@@ -164,11 +164,15 @@ func (s *synth) layOut(node *irpb.Node, expr string, arms map[uint64]int) error 
 
 	s.w = w
 
-	if err := s.chooseCounts(record.GetRootId()); err != nil {
+	// The discriminators first, because one of them may name a count field:
+	// a predicate states the bytes that field holds outright, and a number of
+	// occurrences chosen without reading it would be a number the literal
+	// disagrees with. See [synth.chooseCounts].
+	if err := s.discriminators(node.GetId(), record); err != nil {
 		return err
 	}
 
-	if err := s.discriminators(node.GetId(), record); err != nil {
+	if err := s.chooseCounts(record.GetRootId()); err != nil {
 		return err
 	}
 
@@ -193,8 +197,19 @@ func (s *synth) layOut(node *irpb.Node, expr string, arms map[uint64]int) error 
 // its tables asks for — and a count whose tables cannot agree on one is refused
 // here rather than emitted as a case that cannot pass.
 //
-// The walk is [coder.collectCounts]'s: groups, and not the arms of a variant,
-// because that is the set of tables the generated writer counts.
+// A **discriminated** count field overrides all of that. A predicate states the
+// bytes that field holds outright, and the emitted decoder reads its number of
+// occurrences out of those bytes — so a number chosen here against the literal
+// would be a literal the case cannot read back, and the failure would name
+// neither the predicate nor the table. The literal's own number wins, and a
+// literal outside a table's declared bounds is refused here rather than emitted.
+//
+// The walk follows the arms of a variant. [coder.collectCounts] does not, and
+// the two are asking different questions: that one is the set of tables the
+// generated *writer* derives a count from, and this one is the set of tables a
+// case's bytes have to be laid out consistently with — which includes the ones
+// inside an arm, because [coder.width] sizes an occurrence from the first arm
+// whichever arm the occurrence holds.
 func (s *synth) chooseCounts(rootID uint64) error {
 	s.counts = make(map[uint64]int)
 
@@ -206,23 +221,20 @@ func (s *synth) chooseCounts(rootID uint64) error {
 	}
 
 	for _, id := range order {
-		chosen := 1
+		node, ok := s.nodes[id]
+		if !ok {
+			return unresolved(id)
+		}
 
-		for _, use := range uses[id] {
-			if n := int(use.GetMinOccurrences()); n > chosen {
-				chosen = n
-			}
+		chosen, err := s.countFor(id, node, uses[id])
+		if err != nil {
+			return err
 		}
 
 		for _, use := range uses[id] {
-			if chosen > int(use.GetMaxOccurrences()) {
-				node, ok := s.nodes[id]
-				if !ok {
-					return unresolved(id)
-				}
-
+			if chosen < int(use.GetMinOccurrences()) || chosen > int(use.GetMaxOccurrences()) {
 				return malformed(fmt.Sprintf(
-					"%s counts more than one table of a record and no one number of occurrences is inside every one of their bounds",
+					"%s counts a table of a record and no one number of occurrences is inside every bound declared for it",
 					originalOf(node)),
 					"one count sizes every table naming it, so the range a record can carry is the overlap of the declared ones; see docs/ir/SPEC.md, \"One count may size two tables, and a writer refuses to choose\"")
 			}
@@ -234,8 +246,47 @@ func (s *synth) chooseCounts(rootID uint64) error {
 	return nil
 }
 
-// countUses is every repetition of the group id naming a count field, by that
-// field's identifier, and the order the counts were first met in.
+// countFor is the number of occurrences one count field's tables are laid out
+// with: what a predicate pins it to where one does, and the story's rule
+// otherwise.
+func (s *synth) countFor(id uint64, node *irpb.Node, uses []*irpb.VariableCount) (int, error) {
+	if want, ok := s.literal[id]; ok {
+		field := node.GetField()
+		if field == nil {
+			return 0, malformed(fmt.Sprintf("node %d counts an OCCURS DEPENDING ON and is not a field node", id),
+				"a count is a field of the record being read or a register an earlier transition bound")
+		}
+
+		value, err := s.readBack(field, want)
+		if err != nil {
+			return 0, err
+		}
+
+		number, numeric := integral(value)
+		if !numeric {
+			return 0, malformed(fmt.Sprintf(
+				"a predicate pins %s, which counts an OCCURS DEPENDING ON, to bytes that are not a number",
+				originalOf(node)),
+				"a count is a numeric field; see docs/ir/SPEC.md, \"A count is in hand before the extent it decides\"")
+		}
+
+		return number, nil
+	}
+
+	chosen := 1
+
+	for _, use := range uses {
+		if n := int(use.GetMinOccurrences()); n > chosen {
+			chosen = n
+		}
+	}
+
+	return chosen, nil
+}
+
+// countUses is every repetition naming a count field that this case lays bytes
+// down for, by that field's identifier, and the order the counts were first met
+// in.
 func (s *synth) countUses(id uint64, into map[uint64][]*irpb.VariableCount, order []uint64) ([]uint64, error) {
 	members, err := s.flattened(id)
 	if err != nil {
@@ -255,6 +306,31 @@ func (s *synth) countUses(id uint64, into map[uint64][]*irpb.VariableCount, orde
 			rep = kind.Field.GetRepetition()
 		case *irpb.Node_Group:
 			rep = kind.Group.GetRepetition()
+		case *irpb.Node_Variant:
+			// Every arm, not only the one this case selects. An occurrence
+			// holding a variant is read whole before any of it is decoded, and
+			// [coder.width] sizes that read from the **first** arm whichever
+			// arm the occurrence turns out to hold — so a count feeding a table
+			// inside any arm governs the layout of every case, and choosing it
+			// per case would make one case's bytes the wrong length for the
+			// read the generated decoder makes.
+			for _, a := range kind.Variant.GetArms() {
+				body, err := s.armBody(a)
+				if err != nil {
+					return nil, err
+				}
+
+				if body.GetGroup() == nil {
+					continue
+				}
+
+				order, err = s.countUses(body.GetId(), into, order)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			continue
 		default:
 			continue
 		}
@@ -461,15 +537,19 @@ func (s *synth) walkGroup(id uint64, expr, item string) error {
 				return err
 			}
 
-			s.opaque(int(width), qualify(item, "FILLER"), note)
+			if err := s.opaque(int(width), qualify(item, "FILLER"), note); err != nil {
+				return err
+			}
 
 			continue
 		}
 
 		switch kind := member.GetKind().(type) {
 		case *irpb.Node_Slack:
-			s.opaque(int(kind.Slack.GetWidth()), qualify(item, "(slack)"),
-				plural(int(kind.Slack.GetWidth()), "byte")+" no item covers")
+			if err := s.opaque(int(kind.Slack.GetWidth()), qualify(item, "(slack)"),
+				plural(int(kind.Slack.GetWidth()), "byte")+" no item covers"); err != nil {
+				return err
+			}
 		case *irpb.Node_Field:
 			if err := s.walkField(memberID, kind.Field, expr, item); err != nil {
 				return err
@@ -649,7 +729,7 @@ func (s *synth) occurrences(rep *irpb.Repetition, item, target string) (int, boo
 // emitting what was read would emit zeros — [zeroFillDeclaration] is exactly
 // that run — so a case whose slack were zeros would pass whether the bytes
 // survived or not.
-func (s *synth) opaque(width int, item, picture string) {
+func (s *synth) opaque(width int, item, picture string) error {
 	at := int(s.w.Offset())
 
 	body := make([]byte, width)
@@ -657,11 +737,18 @@ func (s *synth) opaque(width int, item, picture string) {
 		body[i] = opaqueByte(at + i)
 	}
 
-	// WriteBytes writes what it is given and cannot fail on the value, so the
-	// error is the io.Writer's — and the io.Writer is a bytes.Buffer.
-	_ = s.w.WriteBytes(body)
+	// Reported rather than discarded, and by the same route [synth.field]
+	// reports its own: the io.Writer under this one is a bytes.Buffer, so an
+	// I/O failure is not the thing being guarded against — a run codec itself
+	// refuses is, and a refusal swallowed here would come out as a literal
+	// silently short with no diagnostic anywhere.
+	if err := s.w.WriteBytes(body); err != nil {
+		return fmt.Errorf("laying out %s: %w", item, err)
+	}
 
 	s.runs = append(s.runs, chunk{body: body, note: note(item, at, picture)})
+
+	return nil
 }
 
 // opaqueByte is one byte of a run nothing names, chosen by where it sits.
@@ -699,8 +786,13 @@ func (s *synth) field(id uint64, f *irpb.Field, target, item string) error {
 			"a discriminator literal is a value the field it names can hold and write back unchanged; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
 
+	check, err := s.assertion(f, target, item, value)
+	if err != nil {
+		return err
+	}
+
 	s.runs = append(s.runs, chunk{body: body, note: note(item, at, pictureNote(f))})
-	s.checks = append(s.checks, s.assertion(target, item, value))
+	s.checks = append(s.checks, check)
 
 	return nil
 }
@@ -845,14 +937,34 @@ func (s *synth) write(f *irpb.Field, value any) error {
 
 	switch f.GetUsage() {
 	case irpb.Usage_USAGE_COMP_1:
-		return s.w.WriteFloat32(value.(float32))
+		v, ok := value.(float32)
+		if !ok {
+			return mistyped(f, value, "float32")
+		}
+
+		return s.w.WriteFloat32(v)
 	case irpb.Usage_USAGE_COMP_2:
-		return s.w.WriteFloat64(value.(float64))
+		v, ok := value.(float64)
+		if !ok {
+			return mistyped(f, value, "float64")
+		}
+
+		return s.w.WriteFloat64(v)
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
-		return s.w.WriteBytes(value.([]byte))
+		v, ok := value.([]byte)
+		if !ok {
+			return mistyped(f, value, "[]byte")
+		}
+
+		return s.w.WriteBytes(v)
 	case irpb.Usage_USAGE_DISPLAY:
 		if picture.GetCategory() != irpb.Category_CATEGORY_NUMERIC {
-			return s.w.WriteAlphanumeric(value.(string), int(f.GetWidth()))
+			v, ok := value.(string)
+			if !ok {
+				return mistyped(f, value, "string")
+			}
+
+			return s.w.WriteAlphanumeric(v, int(f.GetWidth()))
 		}
 
 		position, err := signPositionValue(f)
@@ -865,8 +977,10 @@ func (s *synth) write(f *irpb.Field, value any) error {
 			return s.w.WriteZonedInt32(v, int(picture.GetDigits()), position)
 		case int64:
 			return s.w.WriteZonedInt64(v, int(picture.GetDigits()), position)
+		case *big.Int:
+			return s.w.WriteZonedBig(v, int(picture.GetDigits()), position)
 		default:
-			return s.w.WriteZonedBig(value.(*big.Int), int(picture.GetDigits()), position)
+			return mistyped(f, value, "int32, int64 or *big.Int")
 		}
 	case irpb.Usage_USAGE_PACKED_DECIMAL:
 		if err := numeric(f); err != nil {
@@ -878,8 +992,10 @@ func (s *synth) write(f *irpb.Field, value any) error {
 			return s.w.WritePackedInt32(v, int(picture.GetDigits()), signednessValue(f))
 		case int64:
 			return s.w.WritePackedInt64(v, int(picture.GetDigits()), signednessValue(f))
+		case *big.Int:
+			return s.w.WritePackedBig(v, int(picture.GetDigits()), signednessValue(f))
 		default:
-			return s.w.WritePackedBig(value.(*big.Int), int(picture.GetDigits()), signednessValue(f))
+			return mistyped(f, value, "int32, int64 or *big.Int")
 		}
 	case irpb.Usage_USAGE_COMP_6:
 		if err := unsignedPacked(f); err != nil {
@@ -891,8 +1007,10 @@ func (s *synth) write(f *irpb.Field, value any) error {
 			return s.w.WriteComp6Int32(v, int(picture.GetDigits()))
 		case int64:
 			return s.w.WriteComp6Int64(v, int(picture.GetDigits()))
+		case *big.Int:
+			return s.w.WriteComp6Big(v, int(picture.GetDigits()))
 		default:
-			return s.w.WriteComp6Big(value.(*big.Int), int(picture.GetDigits()))
+			return mistyped(f, value, "int32, int64 or *big.Int")
 		}
 	case irpb.Usage_USAGE_BINARY, irpb.Usage_USAGE_COMP_5:
 		if err := numeric(f); err != nil {
@@ -904,6 +1022,20 @@ func (s *synth) write(f *irpb.Field, value any) error {
 		return malformed(fmt.Sprintf("an item carries USAGE %d, which this generator does not know", int32(f.GetUsage())),
 			"docs/ir/SPEC.md requires a consumer to refuse a member of a closed set it does not recognise rather than fall back to one it does")
 	}
+}
+
+// mistyped is the refusal a value of the wrong Go type gets.
+//
+// Two tables decide that type — [emitter.fieldType], which the struct emitter
+// and [synth.number] read, and this one, which the accessor is chosen from —
+// and they agreeing is an invariant nothing enforces on its own. So a
+// disagreement is a diagnostic rather than a panic: a plugin that panics reports
+// a broken pipe to cpybkc, and what an adopter would then be looking at is a
+// crash where a sentence about their copybook belongs.
+func mistyped(f *irpb.Field, value any, want string) error {
+	return malformed(fmt.Sprintf("%s is laid out from a %T and its accessor takes %s",
+		f.GetNames().GetOriginal(), value, want),
+		"the Go type an item takes is README.md's table, and one table decides it for the struct field and for the accessor alike")
 }
 
 // writeBinary is [synth.write]'s binary half, which has one more family than
@@ -940,12 +1072,14 @@ func (s *synth) writeBinary(f *irpb.Field, value any) error {
 		}
 
 		return s.w.WriteBinaryUint64(v, digits, sign)
-	default:
+	case *big.Int:
 		if comp5 {
-			return s.w.WriteComp5Big(value.(*big.Int), digits, sign)
+			return s.w.WriteComp5Big(v, digits, sign)
 		}
 
-		return s.w.WriteBinaryBig(value.(*big.Int), digits, sign)
+		return s.w.WriteBinaryBig(v, digits, sign)
+	default:
+		return mistyped(f, value, "int16, int32, int64, uint64 or *big.Int")
 	}
 }
 
@@ -1121,36 +1255,38 @@ func signednessValue(f *irpb.Field) codec.Signedness {
 // read and the value the bytes were laid out with. Verbose, and deliberately so
 // — a failing generated case is read by somebody who did not write it, and
 // everything they need is on the line that failed.
-func (s *synth) assertion(target, item string, value any) string {
+func (s *synth) assertion(f *irpb.Field, target, item string, value any) (string, error) {
 	switch v := value.(type) {
 	case string:
 		return fmt.Sprintf("if %s != %s {\nt.Errorf(%q, %s, %s)\n}",
-			target, strconv.Quote(v), item+": got %q, want %q", target, strconv.Quote(v))
+			target, strconv.Quote(v), item+": got %q, want %q", target, strconv.Quote(v)), nil
 	case int16:
-		return integerAssertion(target, item, strconv.FormatInt(int64(v), 10))
+		return integerAssertion(target, item, strconv.FormatInt(int64(v), 10)), nil
 	case int32:
-		return integerAssertion(target, item, strconv.FormatInt(int64(v), 10))
+		return integerAssertion(target, item, strconv.FormatInt(int64(v), 10)), nil
 	case int64:
-		return integerAssertion(target, item, strconv.FormatInt(v, 10))
+		return integerAssertion(target, item, strconv.FormatInt(v, 10)), nil
 	case uint64:
-		return integerAssertion(target, item, strconv.FormatUint(v, 10))
+		return integerAssertion(target, item, strconv.FormatUint(v, 10)), nil
 	case float32:
 		return fmt.Sprintf("if %s != %s {\nt.Errorf(%q, %s, %s)\n}",
 			target, strconv.FormatFloat(float64(v), 'g', -1, 32), item+": got %v, want %v",
-			target, strconv.FormatFloat(float64(v), 'g', -1, 32))
+			target, strconv.FormatFloat(float64(v), 'g', -1, 32)), nil
 	case float64:
 		return fmt.Sprintf("if %s != %s {\nt.Errorf(%q, %s, %s)\n}",
 			target, strconv.FormatFloat(v, 'g', -1, 64), item+": got %v, want %v",
-			target, strconv.FormatFloat(v, 'g', -1, 64))
+			target, strconv.FormatFloat(v, 'g', -1, 64)), nil
 	case []byte:
 		return fmt.Sprintf("if want := %s; !bytes.Equal(%s, want) {\nt.Errorf(%q, %s, want)\n}",
-			byteSlice(v), target, item+": got % x, want % x", target)
-	default:
+			byteSlice(v), target, item+": got % x, want % x", target), nil
+	case *big.Int:
 		s.needs[bigIntImport] = struct{}{}
 
 		return fmt.Sprintf(
 			"if want, _ := new(big.Int).SetString(%s, 10); %s == nil || %s.Cmp(want) != 0 {\nt.Errorf(%q, %s, want)\n}",
-			strconv.Quote(value.(*big.Int).String()), target, target, item+": got %v, want %v", target)
+			strconv.Quote(v.String()), target, target, item+": got %v, want %v", target), nil
+	default:
+		return "", mistyped(f, value, "one of the Go types README.md's table gives an item")
 	}
 }
 
@@ -1260,4 +1396,28 @@ func fillerNote(e *emitter, f *irpb.Field) (string, error) {
 	}
 
 	return pictureNote(f) + " " + occurs, nil
+}
+
+// integral is a value one of codec's numeric accessors returned, as an int, and
+// whether it was one of them at all.
+//
+// The set is [emitter.fieldType]'s numeric half — the four integer types and
+// the big one — because that is what [synth.number] and [synth.readBack] can
+// hand back for a numeric item. Anything else is an item that is not numeric,
+// and the caller says so rather than this saying zero.
+func integral(value any) (int, bool) {
+	switch number := value.(type) {
+	case int16:
+		return int(number), true
+	case int32:
+		return int(number), true
+	case int64:
+		return int(number), true
+	case uint64:
+		return int(number), true
+	case *big.Int:
+		return int(number.Int64()), true
+	default:
+		return 0, false
+	}
 }

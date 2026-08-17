@@ -1381,6 +1381,35 @@ func ordersDescriptor() *irpb.Descriptor {
 			group(70, "ENTRY-SUMMARY", nil, 71, 72),
 			alphanumeric(71, "SUMMARY-TEXT", 4),
 			slack(72, 2),
+
+			// The item shapes the five records above do not reach, so that
+			// every Go type this generator's table gives an item is one the
+			// compiler and `go test -race` see: COMP-6, COMP-2, a COMP-5 item
+			// wide enough for an int64, an unsigned COMP-5 one read through
+			// codec's uint64 family, and the two USAGEs beside INDEX that the
+			// IR derives no logical value for.
+			//
+			// No transition admits it, and that is the second thing it is here
+			// for: a record type the automaton cannot reach is a layout bug an
+			// adopter would want shown rather than silently skipped, so the
+			// record tier makes a case for it like any other.
+			record(80, "SHAPE-RECORD", 81),
+			group(81, "SHAPE-RECORD", nil, 82, 83, 84, 85, 86, 87),
+			comp6(82, "TALLY", 3, 5, 0),
+			{Id: 83, Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width: 8, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_COMP_2,
+				Names: &irpb.Names{Original: "RATE"},
+			}}},
+			comp5(84, "WIDE-COUNT", 8, 18, true),
+			comp5(85, "UNSIGNED-COUNT", 2, 4, false),
+			{Id: 86, Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width: 4, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_POINTER,
+				Names: &irpb.Names{Original: "ANCHOR"},
+			}}},
+			{Id: 87, Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width: 6, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_NATIONAL,
+				Names: &irpb.Names{Original: "WIDE-TEXT"},
+			}}},
 		},
 	}
 }

@@ -8,7 +8,7 @@ package main
 import (
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,16 +25,35 @@ import (
 // where the whole of that decision is, and nothing here re-opens it.
 const recordsTestFile = "records_test.go"
 
-// caseIdentifiers are the identifiers a generated case declares.
+// caseIdentifiers are every identifier a generated case's file already spends,
+// which is what the generated package may not be imported under.
 //
-// They are here so that a package whose own name is one of them still produces
-// a file that compiles: the import is aliased where it would otherwise be
-// shadowed by a local this file declares. A generated package's name is the
-// adopter's, so `package in` is a package this generator has to be able to
-// write tests for rather than one it may refuse.
+// Two kinds, and both of them matter. The **locals** a case declares — `t`,
+// `in`, `r`, `record`, `out`, `w`, `want` — shadow the import from the point
+// they are declared, so `var record ledger.LedgerHeader` inside `package record`
+// would make the second `record.Encoding()` name the struct. The **packages**
+// the file imports — `bytes`, `testing`, `codec`, `big` — collide with it
+// outright: `package bytes` generated into `.../x/bytes` puts `"bytes"` in the
+// import block twice, and generated into `.../x/pkg` puts an alias `bytes` beside
+// the standard library's.
+//
+// A generated package's name is the adopter's, so `package codec` is a package
+// this generator has to be able to write tests for rather than one it may
+// refuse. Where the name is spent, [shadowAlias] is imported under instead.
 var caseIdentifiers = map[string]struct{}{
 	"t": {}, "in": {}, "r": {}, "record": {}, "out": {}, "w": {}, "want": {},
+	"bytes": {}, "testing": {}, lastElement(codecImport): {}, lastElement(bigIntImport): {},
 }
+
+// shadowAlias is what the generated package is imported under where its own name
+// is one this file has already spent.
+//
+// It is not itself in [caseIdentifiers] and cannot become one: the identifiers
+// there are this generator's own, so a name it never writes is a name nothing
+// can collide with. It is unexported and short for the same reason every other
+// identifier in a generated case is — the file is read by somebody debugging a
+// failure, not written by anybody.
+const shadowAlias = "pkg"
 
 // recordTests is the source of [recordsTestFile] for this descriptor, or the
 // empty string where there is nothing for a case to be made out of.
@@ -91,7 +110,7 @@ func recordTests(d *irpb.Descriptor, opts options) (string, error) {
 
 	alias := opts.packageName
 	if _, shadowed := caseIdentifiers[alias]; shadowed {
-		alias = "pkg"
+		alias = shadowAlias
 	}
 
 	var (
@@ -131,7 +150,7 @@ func testSource(funcs []string, needs map[string]struct{}, opts options, alias s
 		paths = append(paths, path)
 	}
 
-	sort.Strings(paths)
+	slices.Sort(paths)
 
 	var b strings.Builder
 
@@ -356,7 +375,7 @@ func (s *synth) testCase(node *irpb.Node, typ string, one generatedCase, alias s
 		one.name, item))
 
 	if one.selects != "" {
-		doc += fmt.Sprintf("\n\nThe alternation this case is for holds %s.", one.selects)
+		doc += "\n\n" + wrapped(fmt.Sprintf("The alternation this case is for holds %s.", one.selects))
 	}
 
 	var b strings.Builder

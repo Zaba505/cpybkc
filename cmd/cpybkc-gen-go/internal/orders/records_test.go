@@ -511,3 +511,68 @@ func TestEntryRecordHoldingEntrySummaryReadsBackTheBytesItWasReadFrom(t *testing
 		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
 	}
 }
+
+// TestShapeRecordReadsBackTheBytesItWasReadFrom is SHAPE-RECORD: the bytes
+// below, every field they decode into, and the same bytes written back.
+func TestShapeRecordReadsBackTheBytesItWasReadFrom(t *testing.T) {
+	t.Parallel()
+
+	in := []byte{
+		0x00, 0x00, 0x01, // TALLY @0 9(5) COMP-6
+		0x41, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // RATE @3 COMP-2
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf4, // WIDE-COUNT @11 S9(18) COMP-5
+		0x00, 0x14, // UNSIGNED-COUNT @19 9(4) COMP-5
+		0xb5, 0xb6, 0xb7, 0xb8, // ANCHOR @21 POINTER
+		0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, // WIDE-TEXT @25 NATIONAL
+	}
+
+	r, err := codec.NewReader(bytes.NewReader(in), orders.Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewReader: %v", err)
+	}
+
+	var record orders.ShapeRecord
+
+	if err := record.UnmarshalCOBOL(r); err != nil {
+		t.Fatalf("UnmarshalCOBOL: %v", err)
+	}
+
+	if record.Tally != 1 {
+		t.Errorf("TALLY: got %d, want %d", record.Tally, 1)
+	}
+
+	if record.Rate != 4.5 {
+		t.Errorf("RATE: got %v, want %v", record.Rate, 4.5)
+	}
+
+	if record.WideCount != -12 {
+		t.Errorf("WIDE-COUNT: got %d, want %d", record.WideCount, -12)
+	}
+
+	if record.UnsignedCount != 20 {
+		t.Errorf("UNSIGNED-COUNT: got %d, want %d", record.UnsignedCount, 20)
+	}
+
+	if want := []byte{0xb5, 0xb6, 0xb7, 0xb8}; !bytes.Equal(record.Anchor, want) {
+		t.Errorf("ANCHOR: got % x, want % x", record.Anchor, want)
+	}
+
+	if want := []byte{0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe}; !bytes.Equal(record.WideText, want) {
+		t.Errorf("WIDE-TEXT: got % x, want % x", record.WideText, want)
+	}
+
+	var out bytes.Buffer
+
+	w, err := codec.NewWriter(&out, orders.Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewWriter: %v", err)
+	}
+
+	if err := record.MarshalCOBOL(w); err != nil {
+		t.Fatalf("MarshalCOBOL: %v", err)
+	}
+
+	if !bytes.Equal(out.Bytes(), in) {
+		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
+	}
+}
