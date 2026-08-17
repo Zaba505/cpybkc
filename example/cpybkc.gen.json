@@ -5,6 +5,7 @@
     "ledger/codec.go",
     "ledger/doc.go",
     "ledger/file.go",
-    "ledger/records.go"
+    "ledger/records.go",
+    "ledger/records_test.go"
   ]
 }

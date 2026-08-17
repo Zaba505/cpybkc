@@ -6,7 +6,8 @@
       "out": "ledger",
       "options": {
         "package_name": "ledger",
-        "receiver": "p"
+        "receiver": "p",
+        "import_path": "github.com/Zaba505/cpybkc/example/ledger"
       }
     },
     {

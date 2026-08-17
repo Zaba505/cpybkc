@@ -45,7 +45,7 @@ func TestTheGeneratedFileMachinesAreTheGoldens(t *testing.T) {
 
 			name := dir[strings.LastIndex(dir, "/")+1:]
 
-			if err := generate(descriptor(), out, options{packageName: name}); err != nil {
+			if err := generate(descriptor(), out, options{packageName: name, importPath: goldenModule + dir}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
@@ -412,7 +412,7 @@ func TestADescriptorWhoseAutomatonAdmitsNothingWritesNoFileMachine(t *testing.T)
 
 			out := t.TempDir()
 
-			if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+			if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
@@ -516,7 +516,7 @@ func TestTheFileMachineRefusesADescriptorItCannotWalk(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := fileMachine(&irpb.Descriptor{Version: supportedIRVersion, Nodes: tc.nodes}, options{packageName: "counted"})
+			_, err := fileMachine(&irpb.Descriptor{Version: supportedIRVersion, Nodes: tc.nodes}, options{packageName: "counted", importPath: goldenModule + "internal/counted"})
 			if err == nil {
 				t.Fatal("the emitter accepted a descriptor it cannot walk")
 			}
@@ -552,7 +552,7 @@ func TestARecordMungingToTheReadersOwnNameIsRefused(t *testing.T) {
 				return nodes
 			})
 
-			_, err := fileMachine(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes}, options{packageName: "counted"})
+			_, err := fileMachine(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes}, options{packageName: "counted", importPath: goldenModule + "internal/counted"})
 			if err == nil {
 				t.Fatalf("a record called %s was emitted beside the reader of the same name", name)
 			}
@@ -626,7 +626,7 @@ func binding(transition, bind uint64) func([]*irpb.Node) []*irpb.Node {
 func TestNoRegisterIsReadThatNoBindingHasWritten(t *testing.T) {
 	t.Parallel()
 
-	source, err := fileMachine(countedDescriptor(), options{packageName: "counted"})
+	source, err := fileMachine(countedDescriptor(), options{packageName: "counted", importPath: goldenModule + "internal/counted"})
 	if err != nil {
 		t.Fatalf("fileMachine: %v", err)
 	}

@@ -296,30 +296,9 @@ func signedness(f *irpb.Field) string {
 // descriptor whose items disagree describes a file there is no single Encoding
 // to read.
 func (c *coder) profile(d *irpb.Descriptor) (string, error) {
-	var (
-		enc  *irpb.Encoding
-		from string
-	)
-
-	for _, node := range d.GetNodes() {
-		field := node.GetField()
-		if field == nil {
-			continue
-		}
-
-		if err := resolved(field.GetEncoding()); err != nil {
-			return "", err
-		}
-
-		if enc == nil {
-			enc, from = field.GetEncoding(), originalOf(node)
-
-			continue
-		}
-
-		if axis := disagreement(enc, field.GetEncoding()); axis != "" {
-			return "", &mixedEncodingError{Axis: axis, First: from, Second: originalOf(node)}
-		}
+	enc, err := descriptorEncoding(d)
+	if err != nil {
+		return "", err
 	}
 
 	if enc == nil {
@@ -354,6 +333,44 @@ ByteOrder: %s,
 Float: %s,
 }
 }`, encodingFunc, charset, signConvention(enc.GetSignConvention()), byteOrder(enc.GetByteOrder()), floatFormat(enc.GetFloatFormat())), nil
+}
+
+// descriptorEncoding is the one encoding every field of the descriptor carries,
+// or nil where it carries no field for one to be read off.
+//
+// A function rather than a step of [coder.profile] because two files need the
+// answer and neither may reach it a second way: the profile the generated
+// package declares and the profile the generated tests lay their bytes out
+// under are the same four axes, and a descriptor whose items disagree has to be
+// refused with the same diagnostic whichever one asked.
+func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
+	var (
+		enc  *irpb.Encoding
+		from string
+	)
+
+	for _, node := range d.GetNodes() {
+		field := node.GetField()
+		if field == nil {
+			continue
+		}
+
+		if err := resolved(field.GetEncoding()); err != nil {
+			return nil, err
+		}
+
+		if enc == nil {
+			enc, from = field.GetEncoding(), originalOf(node)
+
+			continue
+		}
+
+		if axis := disagreement(enc, field.GetEncoding()); axis != "" {
+			return nil, &mixedEncodingError{Axis: axis, First: from, Second: originalOf(node)}
+		}
+	}
+
+	return enc, nil
 }
 
 // disagreement is the first of the four axes two encodings differ on, or the

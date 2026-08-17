@@ -19,10 +19,19 @@ project in this repository that runs more than one generator, which is what make
 it the place [one thing the plugin contract
 asserts](#one-descriptor-two-generators) can be tested at all.
 
-`ledger/roundtrip_test.go` is neither. It is a test file, so it is not part of
-the package the regeneration below pins, and it lives *inside* the generated
-package rather than beside it because one of its assertions reaches a field
-nothing outside can — see [Slack](#slack-and-why-a-test-lives-inside-the-package).
+`ledger/roundtrip_test.go` is neither. It is hand-written, and it lives *inside*
+the generated package rather than beside it because one of its assertions reaches
+a field nothing outside can — see
+[Slack](#slack-and-why-a-test-lives-inside-the-package). The regeneration below
+leaves it alone.
+
+`ledger/records_test.go` **is** generated, and it is pinned like every other
+generated file. `cpybkc-gen-go` writes one case per record type and per variant
+arm, each carrying the bytes it reads as a literal with the item, the offset and
+the picture in the comment column — the record read against the layout rather
+than against a file, which is the spot-check an adopter makes before opening a
+real dataset. The two kinds of `_test.go` are told apart by the
+`// Code generated … DO NOT EDIT.` header rather than by the suffix.
 
 ## Why this exists
 

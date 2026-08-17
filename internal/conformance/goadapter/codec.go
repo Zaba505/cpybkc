@@ -17,6 +17,21 @@ import (
 // programName is the codec program's only source file.
 const programName = "main.go"
 
+// importPath is the path the go tool names a generated package by.
+//
+// One function because two callers need the same answer and a disagreement
+// between them is not a thing either would notice: the codec program imports
+// the package under this path, and the generator is handed it so that the tests
+// it writes beside the package import it under the same one.
+func (c *conversation) importPath(generated string) (string, error) {
+	imported, err := filepath.Rel(c.root, generated)
+	if err != nil {
+		return "", fmt.Errorf("failed to name the generated package to the go tool: %w", err)
+	}
+
+	return modulePath + "/" + filepath.ToSlash(imported), nil
+}
+
 // writeProgram writes the program that reads one entry's bytes with the code the
 // generator produced, holds the records it read, and writes them back out when
 // it is asked to.
@@ -26,16 +41,16 @@ const programName = "main.go"
 // turns a mistake in the template into an error here rather than into a
 // compilation failure attributed to the generated code.
 func (c *conversation) writeProgram(dir, generated string) error {
-	imported, err := filepath.Rel(c.root, generated)
+	imported, err := c.importPath(generated)
 	if err != nil {
-		return fmt.Errorf("failed to name the generated package to the go tool: %w", err)
+		return err
 	}
 
 	data := struct {
 		Import    string
 		Roundtrip string
 	}{
-		Import:    modulePath + "/" + filepath.ToSlash(imported),
+		Import:    imported,
 		Roundtrip: roundtripCommand,
 	}
 

@@ -14,12 +14,21 @@ request, rather than by a test that would have to invoke one.
 
 Nothing imports them. They are `internal/` so that nothing outside this command
 can, and each holds no hand-written **declaration** — one added by hand would
-fail its golden test, which is the right answer. A `_test.go` file is the
-exception and is not one: a test binary is not the package, and `written` skips
-one for that reason. The round-trip assertions live *inside* each package
-because some of them cannot be stated from outside — the bytes retained for a
-slack node are unexported, so a run of the wrong length is something only code
-in the package can hand a writer.
+fail its golden test, which is the right answer.
+
+Two kinds of `_test.go` file sit in each of them, and the `// Code generated …
+DO NOT EDIT.` header is what tells them apart. `records_test.go` is **output**:
+`cpybkc-gen-go` writes one case per record and per variant arm, each carrying
+the bytes it reads as a literal, and `written` pins it byte for byte like every
+other generated file. Everything else — `file_roundtrip_test.go` in all six, and
+`record_roundtrip_test.go` in `orders` — is hand-written and is skipped, because
+those assertions live *inside* each package for a reason the generated ones do
+not have: the bytes retained for a slack node are unexported, so a run of the
+wrong length is something only code in the package can hand a writer.
+
+The hand-written names carry `roundtrip` because `file_test.go` is a name
+`cpybkc-gen-go` itself will write, for the file tier; see [the names, and which
+side moves](../README.md#the-names-and-which-side-moves).
 
 ## Why there is more than one
 
