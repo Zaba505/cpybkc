@@ -75,6 +75,20 @@ func generate(descriptor *irpb.Descriptor, out string, opts options) error {
 		sources[codecFile] = methods
 	}
 
+	// The record tier of the generated tests, written exactly when the two
+	// files it covers are and turned off by nothing: there is no `tests=`
+	// option, because an adopter who has to discover a flag is an adopter who
+	// never gets the spot-check the literal exists to be. See README.md,
+	// "Decided: the test files are written unconditionally".
+	tests, err := recordTests(descriptor, opts)
+	if err != nil {
+		return err
+	}
+
+	if tests != "" {
+		sources[recordsTestFile] = tests
+	}
+
 	machine, err := fileMachine(descriptor, opts)
 	if err != nil {
 		return err

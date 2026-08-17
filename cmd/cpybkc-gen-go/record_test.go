@@ -29,6 +29,19 @@ const (
 	goldenDir     = "internal/orders"
 )
 
+// goldenModule is where the golden packages sit in this module, and
+// goldenImport is the import path the one above answers to.
+//
+// The generated tests are an external test package, so they reach the package
+// beside them by importing it, and the path is not something this generator can
+// derive — `--out` is a scratch directory. Here it is a constant because these
+// packages have a settled home; in a manifest it is `--opt import_path=<path>`.
+// See [importPathOption].
+const (
+	goldenModule = "github.com/Zaba505/cpybkc/cmd/cpybkc-gen-go/"
+	goldenImport = goldenModule + goldenDir
+)
+
 // TestTheGeneratedPackageIsTheGolden generates from [ordersDescriptor] and
 // holds every byte of the result against the package checked in beside this
 // command.
@@ -42,7 +55,7 @@ func TestTheGeneratedPackageIsTheGolden(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage}); err != nil {
+	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -208,7 +221,7 @@ func TestAnItemCarryingNoNameIsRefused(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var refusal *malformedError
 		if !errors.As(err, &refusal) {
@@ -307,7 +320,7 @@ func TestAFillerThatCannotBePlacedIsRefusedAndIsNotCalledMalformed(t *testing.T)
 	} {
 		out := t.TempDir()
 
-		err := generate(tc.descriptor, out, options{packageName: goldenPackage})
+		err := generate(tc.descriptor, out, options{packageName: goldenPackage, importPath: goldenImport})
 
 		var refusal *fillerError
 		if !errors.As(err, &refusal) {
@@ -365,7 +378,7 @@ func TestAFillerGroupInsideAFillerGroupIsFlattenedToTheNamedLevel(t *testing.T) 
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -406,7 +419,7 @@ func TestAnUnnamedGroupThatContainsItselfIsRefused(t *testing.T) {
 	}
 
 	var refusal *malformedError
-	if err := generate(d, t.TempDir(), options{packageName: goldenPackage}); !errors.As(err, &refusal) {
+	if err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport}); !errors.As(err, &refusal) {
 		t.Fatalf("a FILLER group containing itself generated %v, want a malformed descriptor", err)
 	}
 }
@@ -433,7 +446,7 @@ func TestAMemberLiftedOutOfAFillerGroupCollidesLikeAnyOther(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var collision *collisionError
 	if !errors.As(err, &collision) {
@@ -469,7 +482,7 @@ func TestAFillerAloneDeclaresTheZeroFillItsWriterNeeds(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -508,7 +521,7 @@ func TestAFillerInsideAnArmOfAnAlternationIsRetainedLikeAnyOther(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -537,7 +550,7 @@ func TestADescriptorCarryingNoRecordWritesOnlyTheDocFile(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(descriptorAt(supportedIRVersion), out, options{packageName: goldenPackage}); err != nil {
+	if err := generate(descriptorAt(supportedIRVersion), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -606,7 +619,7 @@ func TestAVariantCarryingOneArmIsRefused(t *testing.T) {
 
 	out := t.TempDir()
 
-	err := generate(d, out, options{packageName: goldenPackage})
+	err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport})
 
 	var refusal *malformedError
 	if !errors.As(err, &refusal) {
@@ -673,7 +686,7 @@ func TestTwoNamesThatMungeToOneIdentifierAreRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var collision *collisionError
 			if !errors.As(err, &collision) {
@@ -726,7 +739,7 @@ func TestARenameIsTheIdentifierAndTheCopybookNameIsStillOnThePage(t *testing.T) 
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage}); err != nil {
+	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -814,7 +827,7 @@ func TestARenameWithNoGoIdentifierInItIsRefusedAndSaysSo(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var unmungeable *unmungeableError
 		if !errors.As(err, &unmungeable) {
@@ -853,7 +866,7 @@ func TestARenameToNothingIsMalformedRatherThanIgnored(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var refusal *malformedError
 	if !errors.As(err, &refusal) {
@@ -882,7 +895,7 @@ func TestANameWithNoGoIdentifierInItIsRefused(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var unmungeable *unmungeableError
 		if !errors.As(err, &unmungeable) {
@@ -944,7 +957,7 @@ func TestAFieldMissingAnEncodingAxisIsRefused(t *testing.T) {
 				},
 			}
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var refusal *malformedError
 			if !errors.As(err, &refusal) {
@@ -1028,7 +1041,7 @@ func TestAMalformedDescriptorIsReportedRatherThanGeneratedFrom(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage})
+			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var refusal *malformedError
 			if !errors.As(err, &refusal) {
@@ -1368,6 +1381,35 @@ func ordersDescriptor() *irpb.Descriptor {
 			group(70, "ENTRY-SUMMARY", nil, 71, 72),
 			alphanumeric(71, "SUMMARY-TEXT", 4),
 			slack(72, 2),
+
+			// The item shapes the five records above do not reach, so that
+			// every Go type this generator's table gives an item is one the
+			// compiler and `go test -race` see: COMP-6, COMP-2, a COMP-5 item
+			// wide enough for an int64, an unsigned COMP-5 one read through
+			// codec's uint64 family, and the two USAGEs beside INDEX that the
+			// IR derives no logical value for.
+			//
+			// No transition admits it, and that is the second thing it is here
+			// for: a record type the automaton cannot reach is a layout bug an
+			// adopter would want shown rather than silently skipped, so the
+			// record tier makes a case for it like any other.
+			record(80, "SHAPE-RECORD", 81),
+			group(81, "SHAPE-RECORD", nil, 82, 83, 84, 85, 86, 87),
+			comp6(82, "TALLY", 3, 5, 0),
+			{Id: 83, Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width: 8, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_COMP_2,
+				Names: &irpb.Names{Original: "RATE"},
+			}}},
+			comp5(84, "WIDE-COUNT", 8, 18, true),
+			comp5(85, "UNSIGNED-COUNT", 2, 4, false),
+			{Id: 86, Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width: 4, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_POINTER,
+				Names: &irpb.Names{Original: "ANCHOR"},
+			}}},
+			{Id: 87, Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width: 6, Encoding: resolvedEncoding(), Usage: irpb.Usage_USAGE_NATIONAL,
+				Names: &irpb.Names{Original: "WIDE-TEXT"},
+			}}},
 		},
 	}
 }
@@ -1538,11 +1580,19 @@ func resolvedEncoding() *irpb.Encoding {
 
 // written is every generated Go file in a directory, by name.
 //
-// A `_test.go` file is not one. The golden package is output checked in byte
-// for byte and holds no hand-written declaration, but a test binary is not the
-// package — and the round-trip assertions over the generated methods have to
-// run *inside* it, because the bytes retained for a slack node are unexported
+// A `_test.go` file may or may not be one, and the header is what tells them
+// apart: a file opening with the `// Code generated … DO NOT EDIT.` line
+// [generatedBy] emits is output and is pinned byte for byte like everything
+// else, and one that does not is this repository's own.
+//
+// Both kinds sit in the same directories. The generated cases are output —
+// records_test.go is written by every generation that writes the files it
+// covers — and the hand-written round-trip assertions have to run *inside* the
+// golden package, because the bytes retained for a slack node are unexported
 // and a wrong-length run is a thing only code in the package can hand a writer.
+// So the golden pins one set and ignores the other, and the header is the
+// signal because it is the one every generated file in this repository already
+// carries and the one no hand-written file may.
 func written(t *testing.T, dir string) map[string]string {
 	t.Helper()
 
@@ -1554,11 +1604,17 @@ func written(t *testing.T, dir string) map[string]string {
 	files := make(map[string]string, len(entries))
 
 	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+		if filepath.Ext(entry.Name()) != ".go" {
 			continue
 		}
 
-		files[entry.Name()] = contents(t, filepath.Join(dir, entry.Name()))
+		body := contents(t, filepath.Join(dir, entry.Name()))
+
+		if strings.HasSuffix(entry.Name(), "_test.go") && !strings.HasPrefix(body, generatedBy) {
+			continue
+		}
+
+		files[entry.Name()] = body
 	}
 
 	return files

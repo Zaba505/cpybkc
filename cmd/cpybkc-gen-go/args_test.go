@@ -43,6 +43,31 @@ func TestParseReadsTheVectorCpybkcEmits(t *testing.T) {
 	}
 }
 
+// TestParseReadsTheImportPath is the option this generator cannot derive.
+//
+// `--out` is a private scratch directory cpybkc creates and discards, so it
+// names neither the module nor the directory the files end up in — and the
+// generated tests are an external test package, which reaches the package
+// beside it by importing it. So the path is stated in the manifest, and the
+// last element of it need not be the package's name.
+func TestParseReadsTheImportPath(t *testing.T) {
+	t.Parallel()
+
+	inv, err := parse([]string{
+		descriptorFlag, "/tmp/one/descriptor.binpb",
+		outFlag, "/tmp/two",
+		optFlag, packageNameOption + "=orders",
+		optFlag, importPathOption + "=example.com/warehouse/v2",
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if inv.options.importPath != "example.com/warehouse/v2" {
+		t.Errorf("%s is %q", importPathOption, inv.options.importPath)
+	}
+}
+
 // TestParseReadsTheReceiver is the one option that changes the generated
 // source without changing what it does.
 //
@@ -135,6 +160,7 @@ func TestParseRefusesAVectorThisContractCannotProduce(t *testing.T) {
 	out := []string{outFlag, "/tmp/two"}
 	pkg := []string{optFlag, packageNameOption + "=orders"}
 	receiver := []string{optFlag, receiverOption + "=o"}
+	imported := []string{optFlag, importPathOption + "=example.com/orders"}
 
 	testCases := []struct {
 		name string
@@ -165,6 +191,12 @@ func TestParseRefusesAVectorThisContractCannotProduce(t *testing.T) {
 		{name: "a package name that is blank", args: join(descriptor, out, []string{optFlag, packageNameOption + "=_"})},
 		{name: "a package name that is init", args: join(descriptor, out, []string{optFlag, packageNameOption + "=init"})},
 		{name: "a package name that is not an identifier", args: join(descriptor, out, []string{optFlag, packageNameOption + "=order records"})},
+		{name: "the import path twice", args: join(descriptor, out, pkg, imported, imported)},
+		{name: "an import path that is empty", args: join(descriptor, out, pkg, []string{optFlag, importPathOption + "="})},
+		{name: "an import path with an empty element", args: join(descriptor, out, pkg, []string{optFlag, importPathOption + "=example.com//orders"})},
+		{name: "an import path that is absolute", args: join(descriptor, out, pkg, []string{optFlag, importPathOption + "=/example.com/orders"})},
+		{name: "an import path carrying a space", args: join(descriptor, out, pkg, []string{optFlag, importPathOption + "=example.com/order records"})},
+		{name: "an import path carrying a quote", args: join(descriptor, out, pkg, []string{optFlag, importPathOption + "=example.com/\"orders"})},
 	}
 
 	for _, testCase := range testCases {

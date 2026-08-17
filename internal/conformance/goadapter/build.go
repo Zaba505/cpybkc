@@ -51,6 +51,17 @@ const (
 	// to make that program not compile.
 	packageOption = "package_name"
 
+	// importOption is the option cpybkc-gen-go takes the generated package's own
+	// import path as, which it needs because the tests it writes are an external
+	// test package and reach the package beside them by importing it.
+	//
+	// This adapter's to supply for the reason the package name is, and it can
+	// supply it for a reason a generator cannot: the scratch tree is this
+	// package's own, so where a generation lands is a fact this file already
+	// holds — [conversation.writeProgram] names the same package to the go tool
+	// out of the same two parts.
+	importOption = "import_path"
+
 	// descriptorName is what the descriptor a codec program reads is written as.
 	// It is the binary encoding, which is the form docs/plugin/SPEC.md calls
 	// canonical and the form the frame carried it in.
@@ -232,11 +243,19 @@ func (c *conversation) emit(ctx context.Context, i int, asked requestEntry) (*bu
 		}
 	}
 
+	imported, err := c.importPath(generated)
+	if err != nil {
+		return nil, err
+	}
+
 	invocation := plugin.Invocation{
-		Name:    c.adapter.Name,
-		Path:    c.adapter.Generator,
-		Out:     generated,
-		Options: append([]plugin.Option{{Key: packageOption, Value: packageName}}, c.adapter.Options...),
+		Name: c.adapter.Name,
+		Path: c.adapter.Generator,
+		Out:  generated,
+		Options: append([]plugin.Option{
+			{Key: packageOption, Value: packageName},
+			{Key: importOption, Value: imported},
+		}, c.adapter.Options...),
 	}
 
 	// A generator's own output is surfaced on standard error, where it is a

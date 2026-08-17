@@ -33,7 +33,10 @@ them:
 {
   "name": "go",
   "out": "gen",
-  "options": {"package_name": "orders"}
+  "options": {
+    "package_name": "orders",
+    "import_path": "example.com/warehouse/gen"
+  }
 }
 ```
 
@@ -42,6 +45,7 @@ them:
 | Key | Required | What it is |
 |---|---|---|
 | `package_name` | yes | The Go package the generated files declare. It must be a Go identifier that is neither a keyword, the blank identifier, nor `init`. |
+| `import_path` | yes, where the descriptor carries a record | The Go import path the generated package will answer to once it has been merged. |
 | `receiver` | no | The identifier the decode and encode methods declare their receiver under. It must be an unexported Go identifier that is not a blank. Defaults to `x`. |
 
 An option this generator does not recognise is an **error**, not something
@@ -56,6 +60,25 @@ contract forbids it to derive anything from — and a scratch directory whose na
 cpybkc chooses and varies between runs. A package name taken from either would
 make the output a function of a path, which is what the contract's *Determinism*
 forbids.
+
+`import_path` is required wherever [the generated tests](#the-generated-tests)
+are written, which is wherever the descriptor carries a record. They are an
+**external** test package — `package <name>_test` — so they reach the package
+beside them by importing it, by path, and that path is the one thing about the
+output this generator cannot see. `--out` is a private scratch directory cpybkc
+creates for one invocation and discards (`docs/plugin/SPEC.md`, *The scratch
+directory*), so it names neither the module nor the directory the files end up
+in, and walking up from it for a `go.mod` would find whatever happens to sit
+above a temporary directory. A missing one is an **error** rather than a run
+that quietly skips the tests: a silent skip is exactly the switch [the test
+files are written
+unconditionally](#decided-the-test-files-are-written-unconditionally) says this
+generator does not have.
+
+The last element of the path need not be the package's own name — an adopter is
+free to generate `package ledger` into `.../accounting/v2` — and where they
+differ the generated import carries the alias that makes it read as the package
+does.
 
 `receiver` is an option rather than something derived from each record's name
 because Go's convention for a receiver is a shop's rather than a generator's —
@@ -107,7 +130,7 @@ run has succeeded. Two runs given the same descriptor and the same options
 produce byte-identical files: nothing in the output comes from the clock, the
 environment, the host, the user or the paths in the argument vector.
 
-So far that is six files: four that are the package, and two that are its tests.
+So far that is five files: four that are the package, and one that is its tests.
 `doc.go` carries the package clause and nothing else, `records.go` carries
 [the record structs](#the-record-structs) — one per record the descriptor
 describes — `codec.go` carries
@@ -123,6 +146,13 @@ and encoding it back byte for byte. `file_test.go` is the file tier and covers
 `file.go`: the framing around a record and the order records come in, with a
 case for every transition predicate and every literal of a set-membership
 predicate the automaton carries.
+
+The record tier is written today. The file tier is
+[#265](https://github.com/Zaba505/cpybkc/issues/265)'s and is not emitted yet,
+so a generation currently produces five files rather than six — which is why the
+hand-written `file_test.go` in each of [the golden
+packages](internal/) has already moved out of its way; see [the names, and which
+side moves](#the-names-and-which-side-moves).
 
 Each test file is written exactly when the files it covers are, and nothing else
 turns it off ([written
@@ -731,8 +761,12 @@ items are not text under any charset — `COMP`, `COMP-3` — therefore reads as
 escapes inside the string literal an ASCII descriptor gets, and what to do about
 a mixed record is
 [#264](https://github.com/Zaba505/cpybkc/issues/264)'s to settle when the first
-bytes are actually emitted. The keying was decided here; where the line falls
-inside an ASCII record was not.
+bytes are actually emitted, and it settled it the same way the keying was
+settled: the record is one literal, so a run of `COMP` bytes inside an ASCII
+record reads as `\xNN` escapes inside the string rather than moving the whole
+record to hex. A record whose *charset* is ASCII is a record whose readable
+items read, and the two or three items that are not characters under any charset
+are the ones a reader was going to check against a hex dump either way.
 
 What is added here is only which spelling helps at which end. For an EBCDIC file
 the slice is the honest spelling and also the useful one — it pastes into
@@ -741,6 +775,81 @@ the way the file is readable, and hex would put a transcription step between you
 and the check you came to make. The per-item comments are what make the slice
 checkable at all: without them a wrong offset is invisible in a run of hex, and
 with them the picture the copybook wrote sits beside the bytes it produced.
+
+### Where a case's values come from
+
+The bytes in a case are synthesized, and *which* value each item holds is a
+**rule** rather than a set of numbers somebody picked. That is deliberate and it
+is here rather than in the code because it is what a reviewer needs when a
+regenerated golden lands: an arbitrary value is not reviewable, and a value that
+moves when an unrelated item is inserted makes every regeneration a diff nobody
+can read.
+
+The rule, in the order it is applied:
+
+- **A discriminated field holds the literal its predicate requires.** Both kinds
+  count — the transition predicate that tells this record from the others in the
+  file, and the arm predicate that selects the arm the case is *for* — and where
+  one field is both, the arm wins, because the arm is the thing being covered. A
+  set-membership predicate contributes its first literal; every literal of one
+  is the file tier's to cover. The case asserts the *value* those bytes mean,
+  read back through `codec`, rather than the bytes themselves.
+- **A count field holds the number of occurrences its tables were laid out
+  with**, because the generated writer derives the count it emits from `len()`
+  of those tables. Anything else is a case whose bytes cannot come back. Where a
+  predicate also names that field, the predicate wins and the *tables* follow
+  the literal's own number: the emitted decoder reads its occurrences out of
+  those bytes, so a number chosen against the literal is a literal the case
+  cannot read back.
+- **A variable table takes its declared minimum**, or one occurrence where that
+  minimum is zero — so every shape in the record appears at least once, and the
+  literal stays short enough to read. Where one count sizes two tables the
+  number chosen is the largest any of them asks for, and a count whose tables
+  cannot agree on one is refused rather than emitted as a case that cannot pass.
+  A table inside an **arm** counts towards that number whichever arm the case
+  selects, because an occurrence holding a variant is read whole before any of it
+  is decoded and the width of that read is summed from the *first* arm.
+  A table counted by a **register** takes none: [the decode method has no
+  register file](#a-table-counted-by-a-register), so a record decoded from
+  nothing but bytes carries no occurrences of one.
+- **Everything else takes a value derived from the item's own picture and its
+  position in the record.** An alphanumeric item holds one letter repeated
+  across the whole of it, chosen by its offset — a run, because the two things a
+  reader is holding the literal against are the item's width and its offset, and
+  both are visible at a glance in one: a field a byte too narrow is a run a
+  character short, and a field at the wrong offset is a run starting on the
+  wrong letter. A numeric item holds its own offset plus one, reduced to what
+  the picture's digit count admits and **negated where the picture carries an
+  S**, because the sign is the half of a zoned or packed field a positive value
+  never exercises. A float holds `offset + 1.5`, which is exact in both formats.
+  An item the IR derives no value for at all — `INDEX`, `POINTER`, `NATIONAL` —
+  holds bytes numbered from its offset.
+- **A slack node, and an item the copybook gives no data-name, hold bytes that
+  are neither zero nor either charset's space.** That is the whole of what makes
+  `ir/SPEC.md`'s *Slack survives a read* an assertion rather than a coincidence:
+  a writer that filled the run instead of emitting what it read would emit
+  zeros, so a case whose slack were zeros would pass whether the bytes survived
+  or not.
+
+Nothing in a chosen value comes from the clock, the environment, the host or a
+path, which is `docs/plugin/SPEC.md`'s *Determinism* over the one file of this
+generator's output whose values are chosen rather than copied.
+
+#### The one predicate this generator inverts, and why that is not the rule it stands next to
+
+`ir/SPEC.md`'s *A writer evaluates a predicate, it never inverts one* is a rule
+about **writers**: the value a predicate tests is the caller's, over a record
+the caller built, so a writer checks it and reports a record satisfying none
+rather than quietly storing the literal the predicate wanted. Nothing emitted
+here changes that — the generated writer still refuses, and these cases are what
+show it *accepting* the record it should.
+
+What happens at generation time is a different act. There is no caller. The
+descriptor states the literal outright, and laying it into a record this
+generator is inventing decides nothing on anybody's behalf; a case that ignored
+it would instead show an adopter a run of bytes their own reader would never
+admit. The site is commented to say so, because a reader meeting it beside that
+rule deserves the distinction rather than a suspicion.
 
 ### Decided: a case asserts round-trip and field values, over every discriminator path
 
@@ -834,10 +943,20 @@ The second rename is not forced by a collision; it goes with the first so that
 which layer each file asserts stays legible once `file_test.go` means something
 else in the same directory.
 
-The rename lands with the first change to what is emitted
-([#264](https://github.com/Zaba505/cpybkc/issues/264)) rather than ahead of it.
-Today's names collide with nothing, and a rename made before the file it makes
-room for exists is a rename nothing in the tree explains.
+The rename landed with the first change to what is emitted
+([#264](https://github.com/Zaba505/cpybkc/issues/264)) rather than ahead of it,
+so that a rename and the file it makes room for are one diff rather than two —
+and so that the seven moved files are read beside the reason they moved. The
+collision itself is still not live, because the file tier is
+[#265](https://github.com/Zaba505/cpybkc/issues/265)'s; what the rename buys is
+that the tier can land without a rename landing in the same pull request as the
+file that collides with it, which is a diff nobody can read.
+
+The golden packages hold both kinds of `_test.go` for that reason, and the two
+tests that pin them tell one from the other by the `// Code generated … DO NOT
+EDIT.` header rather than by name. It is the honest signal — every generated
+file in this repository already carries it, no hand-written one may, and a rule
+keyed on a name would have to be changed again the next time a tier is added.
 
 ### The package clause
 
@@ -878,8 +997,10 @@ though they look like one: they hold hand-written `_test.go` files in a
 directory that is otherwise generated output. They are checked into *this*
 repository and regenerated by a test that compares bytes — they never travel the
 scratch-directory merge an adopter's output does, and the golden comparison
-skips a `_test.go` file for that reason. Nothing in a project cpybkc generates
-into works that way.
+tells the hand-written files from the generated ones by the `// Code generated …
+DO NOT EDIT.` header rather than by the `_test.go` suffix, so a generated case
+is still pinned byte for byte while a hand-written one beside it is left alone.
+Nothing in a project cpybkc generates into works that way.
 
 ### A separate `cpybkc-gen-gotest`, considered and rejected
 

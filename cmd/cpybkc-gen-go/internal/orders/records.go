@@ -189,3 +189,24 @@ type EntryRecord struct {
 		}
 	}
 }
+
+// ShapeRecord is the SHAPE-RECORD record, as docs/ir/SPEC.md resolved it.
+type ShapeRecord struct {
+	// Tally is TALLY — numeric, COMP-6, 5 digits, unsigned, 3 bytes.
+	Tally int32
+
+	// Rate is RATE — COMP-2, 8 bytes.
+	Rate float64
+
+	// WideCount is WIDE-COUNT — numeric, COMP-5, 18 digits, signed, 8 bytes.
+	WideCount int64
+
+	// UnsignedCount is UNSIGNED-COUNT — numeric, COMP-5, 4 digits, unsigned, 2 bytes.
+	UnsignedCount uint64
+
+	// Anchor is ANCHOR — POINTER, 4 bytes.
+	Anchor []byte
+
+	// WideText is WIDE-TEXT — NATIONAL, 6 bytes.
+	WideText []byte
+}

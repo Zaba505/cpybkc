@@ -42,7 +42,7 @@ func TestARecordLevelRedefineGeneratesOneTypePerAlternative(t *testing.T) {
 	descriptor := transactions(t, renamedRecords)
 
 	out := t.TempDir()
-	if err := generate(descriptor, out, options{packageName: "txn"}); err != nil {
+	if err := generate(descriptor, out, options{packageName: "txn", importPath: "example.com/txn"}); err != nil {
 		t.Fatalf("generating from three alternatives of one 01-level: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestThreeAlternativesUnrenamedStillCollide(t *testing.T) {
 
 	descriptor := transactions(t, plainRecords)
 
-	err := generate(descriptor, t.TempDir(), options{packageName: "txn"})
+	err := generate(descriptor, t.TempDir(), options{packageName: "txn", importPath: "example.com/txn"})
 	if err == nil {
 		t.Fatal("three record types called TXN-REC generate without a collision")
 	}

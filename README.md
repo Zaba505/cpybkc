@@ -123,7 +123,11 @@ laptop as in CI:
     {
       "name": "go",
       "out": "gen",
-      "options": {"package_name": "orders", "receiver": "o"}
+      "options": {
+        "package_name": "orders",
+        "import_path": "example.com/warehouse/gen",
+        "receiver": "o"
+      }
     },
     {
       "name": "json-schema",

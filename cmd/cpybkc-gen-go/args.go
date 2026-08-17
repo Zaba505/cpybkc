@@ -8,7 +8,9 @@ package main
 import (
 	"fmt"
 	"go/token"
+	"slices"
 	"strings"
+	"unicode"
 )
 
 // The argument vector docs/plugin/SPEC.md fixes, and nothing else:
@@ -168,6 +170,24 @@ const packageNameOption = "package_name"
 // type, which is the one shape the convention rules out.
 const receiverOption = "receiver"
 
+// importPathOption is the Go import path the generated package will answer to
+// once cpybkc has merged it into the project tree.
+//
+// It is the one fact about the output this generator cannot derive and cannot
+// do without. The generated tests are an external test package — `package
+// <name>_test`, which docs/plugin/SPEC.md's neighbour decision in README.md
+// settled — and an external test package reaches the package beside it by
+// importing it, by path. The path is not knowable from anything else in the
+// invocation: `--out` is a private scratch directory cpybkc creates and
+// discards (docs/plugin/SPEC.md, "The scratch directory"), so it names neither
+// the module nor the directory the files end up in, and walking up from it for
+// a go.mod would find whatever happens to be above a temporary directory.
+//
+// So it is stated in the manifest, once, beside the package name it goes with.
+// Required only where the descriptor carries a record — a package with no
+// record has no record-tier test file to write and therefore nothing to import.
+const importPathOption = "import_path"
+
 // defaultReceiver is what the methods take where the manifest says nothing.
 //
 // A name rather than a letter, and deliberately not the initial of anything:
@@ -191,6 +211,11 @@ type options struct {
 	// receiver is the identifier the decode and encode methods declare their
 	// receiver under, empty where the invocation named none.
 	receiver string
+
+	// importPath is the Go import path the generated package will have once it
+	// is merged, empty where the invocation named none. See
+	// [importPathOption].
+	importPath string
 }
 
 // receiverName is the receiver the methods take, which is [defaultReceiver]
@@ -239,8 +264,21 @@ func (o *options) set(pair string) error {
 		}
 
 		o.receiver = value
+	case importPathOption:
+		if o.importPath != "" {
+			return fmt.Errorf("%s %s was passed more than once", optFlag, key)
+		}
+
+		if !isImportPath(value) {
+			return fmt.Errorf(
+				"%s=%q is not a Go import path: it is a non-empty slash-separated path carrying no space, quote, control character or empty element",
+				importPathOption, value)
+		}
+
+		o.importPath = value
 	default:
-		return fmt.Errorf("this generator has no option %q; it takes %s and %s", key, packageNameOption, receiverOption)
+		return fmt.Errorf("this generator has no option %q; it takes %s, %s and %s",
+			key, packageNameOption, receiverOption, importPathOption)
 	}
 
 	return nil
@@ -279,4 +317,33 @@ func isPackageName(s string) bool {
 // receiver for, whatever the copybook spells.
 func isReceiverName(s string) bool {
 	return token.IsIdentifier(s) && s != "_" && !token.IsExported(s)
+}
+
+// isImportPath reports whether s can stand inside the quotes of an import
+// declaration.
+//
+// The compiler's rule and no more: the specification leaves an import path
+// implementation-defined beyond "a non-empty string using only characters
+// belonging to Unicode's L, M, N, P and S categories", and the module system
+// layers conventions on top of it that are not this generator's to enforce. A
+// path is checked for the faults that would produce a file which does not
+// compile — an empty path, an empty element, whitespace, a quote, a control
+// character — and everything else is taken as written, because refusing a path
+// `go build` would have accepted is a refusal an adopter cannot work around.
+func isImportPath(s string) bool {
+	if s == "" || strings.HasPrefix(s, "/") || strings.HasSuffix(s, "/") {
+		return false
+	}
+
+	if slices.Contains(strings.Split(s, "/"), "") {
+		return false
+	}
+
+	for _, r := range s {
+		if r == '"' || r == '`' || r == '\\' || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
+	}
+
+	return true
 }

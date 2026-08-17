@@ -44,6 +44,8 @@ var (
 	_ codec.Marshaler   = (*TableRecord)(nil)
 	_ codec.Unmarshaler = (*EntryRecord)(nil)
 	_ codec.Marshaler   = (*EntryRecord)(nil)
+	_ codec.Unmarshaler = (*ShapeRecord)(nil)
+	_ codec.Marshaler   = (*ShapeRecord)(nil)
 )
 
 // zeroFill is what a writer emits for a slack node — or for an item the copybook
@@ -693,6 +695,89 @@ func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 		if err = w.WriteBytes(occurrence1.Bytes()); err != nil {
 			return fmt.Errorf("ENTRY-RECORD: writing its bytes in occurrence %d of ENTRY: %w", i0, err)
 		}
+	}
+
+	return nil
+}
+
+// UnmarshalCOBOL reads one SHAPE-RECORD out of r, in the order docs/ir/SPEC.md
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
+//
+// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// of the file in hand, and Encoding is what this descriptor resolved.
+func (x *ShapeRecord) UnmarshalCOBOL(r *codec.Reader) error {
+	var err error
+
+	if x.Tally, err = r.ReadComp6Int32(5); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: reading TALLY: %w", err)
+	}
+
+	if x.Rate, err = r.ReadFloat64(); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: reading RATE: %w", err)
+	}
+
+	if x.WideCount, err = r.ReadComp5Int64(18); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: reading WIDE-COUNT: %w", err)
+	}
+
+	if x.UnsignedCount, err = r.ReadComp5Uint64(4); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: reading UNSIGNED-COUNT: %w", err)
+	}
+
+	if x.Anchor, err = r.ReadBytes(4); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: reading ANCHOR: %w", err)
+	}
+
+	if x.WideText, err = r.ReadBytes(6); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: reading WIDE-TEXT: %w", err)
+	}
+
+	return nil
+}
+
+// MarshalCOBOL writes this SHAPE-RECORD into w, in the order docs/ir/SPEC.md
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
+//
+// It is codec's Marshaler. Two values are the descriptor's rather than the
+// caller's and are supplied rather than taken from the record: an OCCURS
+// DEPENDING ON count is emitted as the number of occurrences written, and
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
+func (x *ShapeRecord) MarshalCOBOL(w *codec.Writer) error {
+	var err error
+
+	if err = w.WriteComp6Int32(x.Tally, 5); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: writing TALLY: %w", err)
+	}
+
+	if err = w.WriteFloat64(x.Rate); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: writing RATE: %w", err)
+	}
+
+	if err = w.WriteComp5Int64(x.WideCount, 18, codec.Signed); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: writing WIDE-COUNT: %w", err)
+	}
+
+	if err = w.WriteComp5Uint64(x.UnsignedCount, 4, codec.Unsigned); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: writing UNSIGNED-COUNT: %w", err)
+	}
+
+	if len(x.Anchor) != 4 {
+		return fmt.Errorf("SHAPE-RECORD: ANCHOR is 4 bytes and the record holds %d for it", len(x.Anchor))
+	}
+	if err = w.WriteBytes(x.Anchor); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: writing ANCHOR: %w", err)
+	}
+
+	if len(x.WideText) != 6 {
+		return fmt.Errorf("SHAPE-RECORD: WIDE-TEXT is 6 bytes and the record holds %d for it", len(x.WideText))
+	}
+	if err = w.WriteBytes(x.WideText); err != nil {
+		return fmt.Errorf("SHAPE-RECORD: writing WIDE-TEXT: %w", err)
 	}
 
 	return nil
