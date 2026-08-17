@@ -7,6 +7,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -132,7 +133,7 @@ func TestTheFourAxesAreTheDescriptorsAndNotADefault(t *testing.T) {
 
 			out := t.TempDir()
 
-			if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+			if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
@@ -170,7 +171,7 @@ func TestACharsetCodecShipsNoTableForIsRefused(t *testing.T) {
 			},
 		}
 
-		err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+		err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 		var refusal *unsupportedCharsetError
 		if !errors.As(err, &refusal) {
@@ -226,7 +227,7 @@ func TestItemsThatDisagreeAboutTheFileTheyAreInAreRefused(t *testing.T) {
 				},
 			}
 
-			err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+			err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 			var refusal *mixedEncodingError
 			if !errors.As(err, &refusal) {
@@ -269,7 +270,7 @@ func TestATableCountedByARegisterReadsTheOccurrencesTheRecordAlreadyCarries(t *t
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -306,7 +307,7 @@ func TestARecordThatWouldBeCalledEncodingIsRefused(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var collision *collisionError
 	if !errors.As(err, &collision) {
@@ -340,7 +341,7 @@ func TestASignedDisplayItemWithNoSignPositionIsRefused(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var refusal *malformedError
 	if !errors.As(err, &refusal) {
@@ -424,7 +425,7 @@ func TestAComp6ItemIsReadAndWrittenWithComp6Accessors(t *testing.T) {
 
 			out := t.TempDir()
 
-			if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+			if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
@@ -465,7 +466,7 @@ func TestASignedComp6ItemIsRefused(t *testing.T) {
 		},
 	}
 
-	err := generate(d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
 
 	var refusal *malformedError
 	if !errors.As(err, &refusal) {
@@ -484,7 +485,7 @@ func TestTheReceiverIsTheManifestsAndNotThisGeneratorsChoice(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport, receiver: "o"}); err != nil {
+	if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport, receiver: "o"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -508,7 +509,7 @@ func TestGeneratingTwiceWritesTheSameBytes(t *testing.T) {
 	first, second := t.TempDir(), t.TempDir()
 
 	for _, out := range []string{first, second} {
-		if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 			t.Fatalf("generate: %v", err)
 		}
 	}
@@ -529,7 +530,7 @@ func TestADescriptorCarryingNoRecordWritesNoMethods(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(descriptorAt(supportedIRVersion), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, descriptorAt(supportedIRVersion), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -655,7 +656,7 @@ func TestABinaryItemsSignSelectsTheAccessorAndNotJustItsArgument(t *testing.T) {
 
 			out := t.TempDir()
 
-			if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+			if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 
@@ -690,7 +691,7 @@ func TestTheGeneratorReachesCodecsUnsignedBinaryAccessors(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -772,7 +773,7 @@ func TestAnUnsignedBinaryRegisterSourceIsRangeCheckedRatherThanWidenedSilently(t
 
 			out := t.TempDir()
 
-			if err := generate(d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+			if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 				t.Fatalf("generate: %v", err)
 			}
 

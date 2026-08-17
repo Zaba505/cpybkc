@@ -67,11 +67,21 @@ const shadowAlias = "pkg"
 // absent for one: a tier with no record to make a case out of has nothing to
 // write. Absent too where no field of the descriptor gives an encoding to read
 // — a case reads its bytes under the generated Encoding, and a descriptor with
-// no field declares none.
-func recordTests(d *irpb.Descriptor, opts options) (string, error) {
+// no field declares none — and where every record type it carries is one this
+// generator cannot synthesize bytes for, which is the same rule seen from the
+// far end.
+//
+// The [skipped] list is the record types with no case, in the order the node
+// list carries them, and it is returned rather than reported here so that
+// nothing is said out loud until the package it is about is on disk. A record
+// type this generator cannot lay out costs its case and nothing else: the struct
+// and the two methods were composed before this function was called and are
+// exactly what they would have been. See README.md, "When a descriptor admits no
+// checkable file".
+func recordTests(d *irpb.Descriptor, opts options) (string, []skipped, error) {
 	e, err := newEmitter(d)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	c := &coder{emitter: e, receiver: opts.receiverName()}
@@ -85,27 +95,27 @@ func recordTests(d *irpb.Descriptor, opts options) (string, error) {
 	}
 
 	if len(records) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
 
 	enc, err := descriptorEncoding(d)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if enc == nil {
-		return "", nil
+		return "", nil, nil
 	}
 
 	if opts.importPath == "" {
-		return "", fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"%s %s=<path> is required for a descriptor carrying a record: the generated tests are an external test package, so they import the package beside them by path, and %s names a scratch directory rather than where the files end up",
 			optFlag, importPathOption, outFlag)
 	}
 
 	s, err := newSynth(c, d, enc)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	alias := opts.packageName
@@ -115,36 +125,117 @@ func recordTests(d *irpb.Descriptor, opts options) (string, error) {
 
 	var (
 		funcs []string
+		skips []skipped
 		used  = make(map[string]struct{})
 	)
 
 	for _, node := range records {
 		typ, err := recordName(node.GetRecord().GetNames())
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 
-		cases, err := c.cases(node.GetRecord(), typ, used)
+		cases, err := coverRecord(s, node, typ, alias, used)
 		if err != nil {
-			return "", err
-		}
-
-		for _, one := range cases {
-			source, err := s.testCase(node, typ, one, alias)
-			if err != nil {
-				return "", err
+			if !advisory(err) {
+				return "", nil, err
 			}
 
-			funcs = append(funcs, source)
+			skips = append(skips, skippedRecord(node.GetRecord().GetNames().GetOriginal(), typ, err))
+
+			continue
 		}
+
+		funcs = append(funcs, cases...)
 	}
 
-	return testSource(funcs, s.needs, opts, alias), nil
+	// Absent where every record type was skipped, by the rule a descriptor
+	// carrying no record node already meets: what would be left is a package
+	// clause and an import block over no case, which is not a file — and, since
+	// Go refuses an import nothing uses, is not one that compiles either.
+	if len(funcs) == 0 {
+		return "", skips, nil
+	}
+
+	return testSource(funcs, s.needs, opts, alias, skips), skips, nil
+}
+
+// coverRecord is every case one record type contributes, or the refusal saying
+// this generator cannot synthesize bytes for it.
+//
+// The synthesizer's accumulated imports and the case names already spent are
+// restored where the record is refused, and that is not tidiness. Both are
+// shared across every case in the file: an import a discarded case reached for
+// is an import nothing in the file uses, which is generated code that does not
+// compile, and a name a discarded case spent is a suffix on some later case that
+// nothing in the descriptor explains. [filetest.source] keeps the same invariant
+// from the other side, per accepted case, and
+// [TestADiscardedCaseLeavesNoImportNothingUses] is what holds both — `go/format`
+// runs over the composed file and reports neither.
+//
+// # Why two maps and not a copy of the synthesizer
+//
+// Because those two are the only state that survives a case. [synth.layOut]
+// opens every case by resetting the record's bytes, its runs, its assertions and
+// its arms, and [synth.discriminators] and [synth.chooseCounts] each allocate a
+// fresh map at the top of the case that reads them — so a case abandoned halfway
+// leaves nothing behind for the next one to read. `needs` and `used` are
+// deliberately *not* per case: they are what the file's import block and its
+// function names are built from, and are the two things a discarded case can
+// leave a mark on. A field added to [synth] that accumulates across cases has to
+// be added here as well, which is what this paragraph is for.
+func coverRecord(s *synth, node *irpb.Node, typ, alias string, used map[string]struct{}) ([]string, error) {
+	needs, spent := maps.Clone(s.needs), maps.Clone(used)
+
+	funcs, err := recordCases(s, node, typ, alias, used)
+	if err != nil {
+		// Cleared and refilled rather than reassigned, both of them. The caller
+		// holds `used`, and `s.needs` is read through an embedded pointer as
+		// well as through `s` — a field swapped on one of those is a field two
+		// readers disagree about, and restoring the contents cannot be.
+		restore(s.needs, needs)
+		restore(used, spent)
+
+		return nil, err
+	}
+
+	return funcs, nil
+}
+
+// restore puts a map back the way a snapshot found it, in place.
+func restore(live, snapshot map[string]struct{}) {
+	clear(live)
+	maps.Copy(live, snapshot)
+}
+
+// recordCases is one record type's cases: one for the type and one per arm of an
+// alternation inside it.
+func recordCases(s *synth, node *irpb.Node, typ, alias string, used map[string]struct{}) ([]string, error) {
+	cases, err := s.cases(node.GetRecord(), typ, used)
+	if err != nil {
+		return nil, err
+	}
+
+	var funcs []string
+
+	for _, one := range cases {
+		source, err := s.testCase(node, typ, one, alias)
+		if err != nil {
+			return nil, err
+		}
+
+		funcs = append(funcs, source)
+	}
+
+	return funcs, nil
 }
 
 // testSource is the file the cases were written into: the generated-file
 // header, the external test package's clause, the imports, and the cases.
-func testSource(funcs []string, needs map[string]struct{}, opts options, alias string) string {
+//
+// skips are the record types with no case here, named in the header where they
+// survive the terminal the generation ran in. See [uncovered].
+func testSource(funcs []string, needs map[string]struct{}, opts options, alias string, skips []skipped) string {
 	paths := []string{"bytes", "testing", codecImport, opts.importPath}
 	for path := range needs {
 		paths = append(paths, path)
@@ -154,9 +245,7 @@ func testSource(funcs []string, needs map[string]struct{}, opts options, alias s
 
 	var b strings.Builder
 
-	b.WriteString(generatedBy)
-	b.WriteString("\n\n")
-	b.WriteString(commentLines(fmt.Sprintf(`The record tier of this package's generated tests: one case per record the
+	doc := fmt.Sprintf(`The record tier of this package's generated tests: one case per record the
 layout describes, and one per arm of an alternation inside one.
 
 Each case carries the bytes it reads as a literal, decodes them, checks every
@@ -167,7 +256,15 @@ comment column names the item, the offset summed from the widths ahead of it,
 and the picture.
 
 Nothing here is yours to edit — this directory is regenerated whole. Put your
-own tests in a package of your own that imports %s.`, opts.packageName)))
+own tests in a package of your own that imports %s.`, opts.packageName)
+
+	if len(skips) != 0 {
+		doc += "\n\n" + uncovered(skips)
+	}
+
+	b.WriteString(generatedBy)
+	b.WriteString("\n\n")
+	b.WriteString(commentLines(doc))
 	b.WriteString("package ")
 	b.WriteString(opts.packageName)
 	b.WriteString("_test\n\nimport (\n")

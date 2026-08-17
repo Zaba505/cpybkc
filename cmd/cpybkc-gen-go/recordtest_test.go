@@ -9,6 +9,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ func TestTheRecordTierIsWrittenForEveryDescriptorCarryingARecord(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -54,7 +55,7 @@ func TestADescriptorCarryingNoRecordWritesNoRecordTier(t *testing.T) {
 
 	empty := &irpb.Descriptor{Version: supportedIRVersion}
 
-	if err := generate(empty, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, empty, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -75,7 +76,7 @@ func TestADescriptorCarryingNoRecordWritesNoRecordTier(t *testing.T) {
 func TestADescriptorCarryingARecordAndNoImportPathIsRefused(t *testing.T) {
 	t.Parallel()
 
-	err := generate(ordersDescriptor(), t.TempDir(), options{packageName: goldenPackage})
+	err := generate(io.Discard, ordersDescriptor(), t.TempDir(), options{packageName: goldenPackage})
 	if err == nil {
 		t.Fatalf("a descriptor carrying a record generated with no %s", importPathOption)
 	}
@@ -137,7 +138,7 @@ func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 
 	out := t.TempDir()
 
-	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -178,7 +179,7 @@ func TestACaseSelectingAnArmHoldsTheLiteralThatArmsPredicateRequires(t *testing.
 
 	out := t.TempDir()
 
-	if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+	if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -211,7 +212,7 @@ func TestTheRecordTierIsDeterministic(t *testing.T) {
 	first, second := t.TempDir(), t.TempDir()
 
 	for _, out := range []string{first, second} {
-		if err := generate(ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		if err := generate(io.Discard, ordersDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
 			t.Fatalf("generate: %v", err)
 		}
 	}
@@ -304,7 +305,7 @@ func spelling(t *testing.T, charset irpb.Charset) string {
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: "line", importPath: "example.com/line"}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: "line", importPath: "example.com/line"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -338,7 +339,7 @@ func TestAPackageNamedAfterOneOfTheCasesOwnIdentifiersStillCompiles(t *testing.T
 			for _, path := range []string{"example.com/x/" + name, "example.com/x/gen"} {
 				out := t.TempDir()
 
-				if err := generate(d, out, options{packageName: name, importPath: path}); err != nil {
+				if err := generate(io.Discard, d, out, options{packageName: name, importPath: path}); err != nil {
 					t.Fatalf("generate into %s: %v", path, err)
 				}
 
@@ -446,7 +447,7 @@ func TestATableInsideAnArmIsLaidOutAgainstTheCountTheDecoderReads(t *testing.T) 
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: "seg", importPath: "example.com/seg"}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: "seg", importPath: "example.com/seg"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 
@@ -499,7 +500,7 @@ func TestACountFieldADiscriminatorPinsIsLaidOutAtTheLiteralsOwnNumber(t *testing
 
 	out := t.TempDir()
 
-	if err := generate(d, out, options{packageName: "run", importPath: "example.com/run"}); err != nil {
+	if err := generate(io.Discard, d, out, options{packageName: "run", importPath: "example.com/run"}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 

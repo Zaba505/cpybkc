@@ -68,12 +68,12 @@ func TestTheFileTierCoversEveryTransitionPredicate(t *testing.T) {
 				t.Fatalf("goals: %v", err)
 			}
 
-			source, err := fileTests(descriptor(), opts)
+			source, _, err := fileTests(descriptor(), opts)
 			if err != nil {
 				t.Fatalf("fileTests: %v", err)
 			}
 
-			files, err := one.cover()
+			files, _, err := one.cover()
 			if err != nil {
 				t.Fatalf("cover: %v", err)
 			}
@@ -152,7 +152,7 @@ func TestEveryLiteralOfASetMembershipPredicateGetsACase(t *testing.T) {
 		t.Fatalf("newFiletest: %v", err)
 	}
 
-	files, err := one.cover()
+	files, _, err := one.cover()
 	if err != nil {
 		t.Fatalf("cover: %v", err)
 	}
@@ -176,15 +176,19 @@ func TestEveryLiteralOfASetMembershipPredicateGetsACase(t *testing.T) {
 	}
 }
 
-// TestAPredicateNoFileReachesIsRefused keeps a gap from being generated
-// quietly.
+// TestAPredicateNoFileReachesIsSkippedAndNamed keeps a gap from being generated
+// quietly, which is what this generator has always owed a descriptor it cannot
+// walk. What it no longer does is refuse the generation over one.
 //
-// A transition no file can take is a bug in whatever produced the descriptor:
-// it selects a record the automaton describes and no reader will ever admit.
-// This generator refuses it rather than writing the cases it could reach and
-// saying nothing about the one it could not, which is the same answer it gives
-// everywhere else a descriptor cannot be walked.
-func TestAPredicateNoFileReachesIsRefused(t *testing.T) {
+// A transition no file can take is still a bug in whatever produced the
+// descriptor — it selects a record the automaton describes and no reader will
+// ever admit — and the note under the warning still says so. #266 is why the
+// price changed: refusing cost the adopter the file-level reader and writer as
+// well as the case, and a package that reads their file is worth more than a
+// spot-check of one. So the cases that *can* be reached are written, the one
+// that cannot is named on standard error and again in the generated file, and
+// nothing is silent.
+func TestAPredicateNoFileReachesIsSkippedAndNamed(t *testing.T) {
 	t.Parallel()
 
 	// The transition admitting SUMMARY-RECORD is given a second guard over the
@@ -201,14 +205,37 @@ func TestAPredicateNoFileReachesIsRefused(t *testing.T) {
 		return nodes
 	})
 
-	_, err := fileTests(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes},
+	source, skips, err := fileTests(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes},
 		options{packageName: "counted", importPath: goldenModule + "internal/counted"})
-	if err == nil {
-		t.Fatal("the file tier was written for a descriptor carrying a predicate no file reaches")
+	if err != nil {
+		t.Fatalf("fileTests: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "no file this layout describes reaches the predicate") {
-		t.Errorf("the refusal reads %q and does not name the predicate no file reaches", err)
+	if source == "" {
+		t.Fatal("no file tier at all was written for a descriptor carrying one predicate no file reaches")
+	}
+
+	if len(skips) != 1 {
+		t.Fatalf("the tier skipped %d goals, want the one predicate no file reaches: %v", len(skips), skips)
+	}
+
+	// The construct, not the fact that something is missing: what sends a reader
+	// to the descriptor is the predicate node, the item it tests and the bytes it
+	// tests for.
+	for _, want := range []string{"predicate", "TYPE-CODE"} {
+		if !strings.Contains(skips[0].construct, want) {
+			t.Errorf("the skip names %q, which does not say %q", skips[0].construct, want)
+		}
+	}
+
+	// And again in the file, because the terminal the generation ran in is
+	// scrollback and this directory is checked in. By the pieces rather than by
+	// the whole phrase: the comment is wrapped, so a line break falls somewhere
+	// inside it and where is not this test's business.
+	for _, want := range []string{"node 52", "TYPE-CODE"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("the generated file does not name %q, and it could not cover it:\n%s", want, source)
+		}
 	}
 }
 
@@ -233,7 +260,7 @@ func TestADescriptorWhoseAutomatonAdmitsNoRecordWritesNoFileTier(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			source, err := fileTests(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes},
+			source, _, err := fileTests(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes},
 				options{packageName: "counted", importPath: goldenModule + "internal/counted"})
 			if err != nil {
 				t.Fatalf("fileTests: %v", err)
@@ -263,13 +290,13 @@ func TestTheFileTierIsTheSameBytesTwice(t *testing.T) {
 			name := dir[strings.LastIndex(dir, "/")+1:]
 			opts := options{packageName: name, importPath: goldenModule + dir}
 
-			first, err := fileTests(descriptor(), opts)
+			first, _, err := fileTests(descriptor(), opts)
 			if err != nil {
 				t.Fatalf("fileTests: %v", err)
 			}
 
 			for range 10 {
-				again, err := fileTests(descriptor(), opts)
+				again, _, err := fileTests(descriptor(), opts)
 				if err != nil {
 					t.Fatalf("fileTests: %v", err)
 				}

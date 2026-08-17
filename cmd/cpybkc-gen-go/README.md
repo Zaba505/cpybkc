@@ -122,6 +122,13 @@ Everything this program has to say goes to standard error as
 only severities. A non-zero exit means the invocation failed and cpybkc discards
 the output directory; no particular non-zero value means anything beyond that.
 
+`warning` has one use, and it is the middle severity for the reason the middle
+severity exists: the generation succeeded and something is missing from it. A
+construct this generator emits a reader and a writer for and cannot synthesize a
+checkable file for costs its generated test and nothing else, and the warning is
+what says which construct and why — see [When a descriptor admits no checkable
+file](#when-a-descriptor-admits-no-checkable-file).
+
 ## Output
 
 Every file is written beneath `--out`, which cpybkc creates empty for this
@@ -158,6 +165,13 @@ descriptor carrying no record node produces only `doc.go` — a file holding a
 package clause and no declaration says nothing `doc.go` does not, and a tier with
 no record to make a case out of has nothing to write. One whose automaton admits
 no record produces neither `file.go` nor `file_test.go`, for the same reason.
+
+There is one more way a test file is absent, and it is a property of the
+descriptor rather than of the invocation: a tier every one of whose cases this
+generator cannot synthesize bytes for has nothing left to write either. That is
+never silent — see [When a descriptor admits no checkable
+file](#when-a-descriptor-admits-no-checkable-file) — and it never changes the
+four files, which are composed before either tier is.
 
 The codec version assertions
 ([#53](https://github.com/Zaba505/cpybkc/issues/53)) land beside them, in a
@@ -736,6 +750,171 @@ run* is not a choice a checked-in manifest should have to state.
 The cost is two files in a directory that was never yours to edit (see [Your own
 tests do not go here](#your-own-tests-do-not-go-here)), and `go test` running
 them is the whole of what they ask of you.
+
+*Unconditionally* is about **options**, not about descriptors. A construct this
+generator cannot synthesize bytes for still costs its case, and what happens then
+is the next section.
+
+### When a descriptor admits no checkable file
+
+Some descriptors admit no file this generator can synthesize bytes for. The
+answer is **not** a refusal, and it is not a generated test that fails the first
+time you run it either — an adopter whose first `go test` in a brand new package
+is red has been told nothing about whether their layout is wrong, this generator
+is wrong, or the test is describing something it could not describe.
+
+**A construct with no checkable file costs its case and nothing else.** The four
+files that are the package are written exactly as they would have been, the case
+is not, and the omission is said out loud twice: as a `warning:` on standard
+error, and as a line in the generated test file itself.
+
+```
+warning: no test was generated for the record type ORD-DETAIL (OrdDetail): …
+note: …
+note: its struct, its decoder and its encoder are generated as usual; see
+  cmd/cpybkc-gen-go/README.md, "When a descriptor admits no checkable file"
+```
+
+The argument is one of proportion. A package that reads and writes your file is
+worth more than a spot-check of it, and refusing to generate one over a test
+would make the spot-check a **cost** of adopting rather than a benefit — the
+exact inversion the generated tests exist to avoid. An adopter with one item this
+generator cannot lay out bytes for should still get their reader.
+
+What that costs, and it is worth stating rather than discovering: the output is
+no longer a function of the descriptor in the sense a reader might assume. Two
+descriptors differing in one field can produce different **sets of files**. That
+is already true of `file.go`, which is not written when the automaton admits no
+record; this only widens it.
+
+Two shapes are **not** softened, and they are the deny-list `advisory` reads: a
+charset `codec` ships no table for (case 2 below), and a reference to a node the
+descriptor does not carry. The second has no layout to be unable to synthesize —
+the descriptor does not describe one — so it stays the refusal it always was
+rather than becoming a warning about a construct nobody can go and look at. The
+classification of every error type this generator raises is pinned by a test, so
+one added later cannot become a warning by default.
+
+#### The four cases
+
+1. **No finite accepting path.** The automaton offers no walk from its start
+   state to a state that accepts, so there is no file of any kind to show. The
+   file tier is not written and the warning names the automaton.
+
+   This is a shape `resolve` **does not produce**, and that was established
+   rather than assumed: the automaton is compiled from a sequencing expression,
+   every state of it is a position in an expression that terminates, and
+   acceptance is therefore reachable from all of them. It is checked all the same
+   because nothing screens a descriptor in front of a plugin — there is no
+   handshake ([The IR version check](#the-ir-version-check)) and `--descriptor`
+   is a path a person can hand this program. The finding is recorded beside the
+   check, in `filetest.unreachable`, so the next reader does not delete it as
+   dead. It is also not a check that could hang: the walk is a bounded
+   breadth-first search over the states, and a state is visited once.
+
+2. **A charset `cobol-go/codec` ships no table for.** **This one still fails the
+   generation**, and it is the only one that does. A charset `codec` has no table
+   for is a charset the *generated code* cannot read the file in either, so there
+   is nothing to keep — the package would be a reader that cannot read. It is
+   refused where the accessors are emitted, before any synthesizer runs, so it
+   reaches you as the one `unsupportedCharsetError` diagnostic and never as a
+   second one saying the same thing differently.
+
+3. **An item `codec` cannot lay out.** Every usage the IR carries is one the
+   synthesizer lays out today: `COMP-1` and `COMP-2` through `codec`'s float
+   accessors, `INDEX`, `POINTER` and `NATIONAL` as the bytes [the IR says they
+   are](#cobol-to-go), and the rest through the same table the emitted accessor
+   is chosen from. A usage this generator does not know is refused by the *struct*
+   emitter, which runs first, so it fails the generation and never reaches a
+   synthesizer at all.
+
+   What is left for this case is an item whose **value** cannot be synthesized —
+   a discriminator literal that is not the width of the field it tests is the
+   reachable one — and the record type it belongs to loses its case. Numeric
+   editing is not in this category: an edited item is [a `string` of the edited
+   text](#cobol-to-go), which lays out like any other.
+
+4. **A count that cannot be satisfied.** An `OCCURS DEPENDING ON` whose declared
+   bounds cannot be reconciled with a guard on the register the count feeds, or
+   one count sizing two tables that want different numbers — `docs/ir/SPEC.md`'s
+   *"One count may size two tables, and a writer refuses to choose"*, met at
+   generation time instead of at run time. The tier that refuses is the one the
+   contradiction is in: a *file* the automaton cannot walk costs a file-tier
+   case, and a count contradicting itself inside one record costs that record's
+   case.
+
+#### Every refusal names the layout construct
+
+A diagnostic here names the **record**, the **item**, the **usage** or the
+**count**, and never only the fact that generation was incomplete. *Could not
+generate tests* sends you to read this generator; *`TYPE-CODE` is 1 byte wide,
+against a literal of 2* sends you to the line of the copybook it is about.
+
+A record type is named by the copybook **and** by the Go type it becomes —
+`ORD-DETAIL (OrdDetail)` — because the copybook name is the half you can act on
+and the Go type is what you are looking at in the generated directory. A
+predicate is named by its node, the item it tests and the bytes it tests for,
+which identifies it to whoever is reading the descriptor as well as to whoever is
+reading the copybook.
+
+#### Decided: partial coverage is a warning per construct
+
+A record type that cannot be synthesized while its five siblings can leaves a
+test file that **looks complete and is not**, and that is the case worth being
+noisy about. So it is one line per skipped construct rather than one line naming
+a count, because the adopter reading it is deciding whether their file is
+covered, and a count does not answer that.
+
+One line per **cause**, though, and not one per goal. An automaton offering no
+accepting path fails every goal the file tier carries, and saying that once per
+predicate would be a page of warnings about one fact.
+
+The list is **capped** on standard error — those lines go to a terminal beside
+every other generator `cpybkc` ran, and a copybook whose every record type
+carries the same unsynthesizable item would otherwise bury all of them. The cap
+is announced when it is reached.
+
+The cap applies **only to a construct the generated file also names**, and that
+is what makes truncating safe rather than lossy: the terminal is scrollback and
+the directory is checked in, so a construct in both loses nothing by being
+dropped from the first. A tier that skipped every construct it had writes no
+file, and those names exist nowhere else — so they are written whatever the
+count. A number where a name should be, for the only constructs a reader cannot
+go and look up, would be the worst of the three options.
+
+#### Decided: the generated file records what is missing
+
+The header comment of each generated test file names every construct that file
+could not cover.
+
+The terminal a generation ran in is scrollback; this directory is checked in. Put
+the fact in the file and a copybook that grows an item this generator cannot
+synthesize turns into a **line a reviewer sees in a diff** — which is an argument
+for it rather than against, and the same one that puts the per-item comment
+column beside a case's bytes. A tier left with no case at all writes no file, so
+that fact lives only in the warning; there is nothing for a package clause and an
+import block over no case to be.
+
+#### Determinism holds through a refusal
+
+The same unsynthesizable descriptor produces the same files **and the same
+diagnostics** on every run, in the same order: record tier first, then file tier,
+each walking its constructs in the order `docs/ir/SPEC.md` fixes. `cpybkc` reads
+those lines, so an order that came from a map walk would be a diff in something.
+
+The warnings are written **after** the files are on disk. Every one of them says
+the package was generated anyway, and that is a sentence this program is only
+entitled to say once it is true — a generation that fails after a case was
+skipped writes no warning, because it wrote no package for the warning to be
+about.
+
+#### Not settled: a fixed `OCCURS` too large to be readable
+
+A table of ten thousand fixed occurrences is a descriptor whose honest answer is
+*no useful test* — the literal would be a megabyte of source nobody reads — and
+it is the same shape as the four above without being a correctness question. No
+bound is imposed today. If one is wanted, it belongs here, as a fifth case with
+a warning naming the table.
 
 ### Decided: bytes are spelled charset-aware
 
