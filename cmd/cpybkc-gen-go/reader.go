@@ -43,7 +43,23 @@ func (f *filer) emitReader(b *strings.Builder, walks [][]transition) error {
 	line(b, "// register file the automaton remembers in, whatever the file's size.")
 	line(b, "type %s struct {", readerType)
 	line(b, "src *bufio.Reader")
-	line(b, "enc codec.Encoding")
+
+	if f.how.bounded() {
+		line(b, "")
+		line(b, "// cr decodes the record in hand, and is the only one this reader builds:")
+		line(b, "// the framing states a record's length, so the bytes are held before")
+		line(b, "// anything decodes them and [%s.admit] rewinds this onto each record", readerType)
+		line(b, "// rather than constructing one over it. Everything the encoding derives —")
+		line(b, "// the zoned decimal byte tables, the alphanumeric translation table and the")
+		line(b, "// scratch buffers every field is read into — is built once for the file and")
+		line(b, "// survives every rewind, which is why the encoding is not kept beside it:")
+		line(b, "// codec.Reader carries it, and one that could be swapped under a half-read")
+		line(b, "// record is what codec refuses to allow.")
+		line(b, "cr *codec.Reader")
+	} else {
+		line(b, "enc codec.Encoding")
+	}
+
 	line(b, "")
 	line(b, "// state is where in the automaton the read is, as a position in the switch")
 	line(b, "// [%s.Next] walks. The descriptor's state nodes are numbered by ascending", readerType)
@@ -132,13 +148,32 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "return nil, codec.ErrNilReader")
 	line(b, "}")
 	line(b, "")
-	line(b, "if err := enc.Validate(); err != nil {")
-	line(b, "return nil, err")
-	line(b, "}")
+
+	if f.how.bounded() {
+		line(b, "// The one decoder this reader builds, over no bytes until a record is in")
+		line(b, "// hand. Construction is what validates the encoding, and it reports the")
+		line(b, "// same error for the same axis that enc.Validate does, so nothing is")
+		line(b, "// checked twice here.")
+		line(b, "cr, err := codec.NewBytesReader(nil, enc)")
+		line(b, "if err != nil {")
+		line(b, "return nil, err")
+		line(b, "}")
+	} else {
+		line(b, "if err := enc.Validate(); err != nil {")
+		line(b, "return nil, err")
+		line(b, "}")
+	}
+
 	line(b, "")
 	line(b, "return &%s{", readerType)
 	line(b, "src: bufio.NewReaderSize(r, %s),", readAheadConst)
-	line(b, "enc: enc,")
+
+	if f.how.bounded() {
+		line(b, "cr: cr,")
+	} else {
+		line(b, "enc: enc,")
+	}
+
 	line(b, "state: %d,", f.index[f.file.GetStartStateId()])
 
 	if f.how == delimited && f.placement == irpb.DelimiterPlacement_DELIMITER_PLACEMENT_SEPARATOR {
@@ -916,14 +951,15 @@ func (f *filer) emitAdmit(b *strings.Builder) {
 	line(b, "func (r *%s) admit(rec %s) error {", readerType, recordInterface)
 
 	if f.how.bounded() {
-		line(b, "src := bytes.NewReader(r.data)")
+		line(b, "// The record's bytes are in hand, so the decoder is rewound onto them rather")
+		line(b, "// than built over them. A rewind keeps everything the encoding derives and")
+		line(b, "// swaps only the bytes, which is a construction and an allocation this")
+		line(b, "// reader does not make per record — and it puts the offset back to zero, so")
+		line(b, "// every offset codec reports is counted from the start of this record")
+		line(b, "// rather than from the start of the file.")
+		line(b, "r.cr.Reset(r.data)")
 		line(b, "")
-		line(b, "cr, err := codec.NewReader(src, r.enc)")
-		line(b, "if err != nil {")
-		line(b, "return fmt.Errorf(\"reading record %%d: %%w\", r.ordinal, err)")
-		line(b, "}")
-		line(b, "")
-		line(b, "if err := rec.UnmarshalCOBOL(cr); err != nil {")
+		line(b, "if err := rec.UnmarshalCOBOL(r.cr); err != nil {")
 		line(b, "if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {")
 		line(b, "return fmt.Errorf(\"the framing states record %%d is %%d bytes and the extent of the record it admits is longer than that: %%v\", r.ordinal, len(r.data), err)")
 		line(b, "}")
@@ -933,9 +969,11 @@ func (f *filer) emitAdmit(b *strings.Builder) {
 		line(b, "")
 		line(b, "// The framing checked against the extent, which is what a framed file buys")
 		line(b, "// over an unframed one: a wrong width or a mis-selected transition is an")
-		line(b, "// error at the record it happened on rather than silence.")
-		line(b, "if src.Len() != 0 {")
-		line(b, "return fmt.Errorf(\"the framing states record %%d is %%d bytes and the extent of the record it admits is %%d\", r.ordinal, len(r.data), len(r.data)-src.Len())")
+		line(b, "// error at the record it happened on rather than silence. The extent is what")
+		line(b, "// the decoder consumed, which is its offset: the rewind above is what makes")
+		line(b, "// that a count of this record rather than of the file.")
+		line(b, "if r.cr.Offset() != int64(len(r.data)) {")
+		line(b, "return fmt.Errorf(\"the framing states record %%d is %%d bytes and the extent of the record it admits is %%d\", r.ordinal, len(r.data), r.cr.Offset())")
 		line(b, "}")
 		line(b, "")
 		line(b, "return nil")
@@ -949,6 +987,15 @@ func (f *filer) emitAdmit(b *strings.Builder) {
 	if f.keepsBytes {
 		line(b, "r.raw = r.raw[:0]")
 		line(b, "")
+	}
+
+	line(b, "// One decoder per record, which is what this framing costs and the two that")
+	line(b, "// state a record's length do not pay: the framing says nothing about where")
+	line(b, "// this record ends, so the record's bytes are drawn off the same input the")
+	line(b, "// framing came off and are never held. A decoder is rewound onto bytes, and")
+	line(b, "// there are none to rewind this one onto, so it is built over the stream.")
+
+	if f.keepsBytes {
 		line(b, "cr, err := codec.NewReader(&%s{src: r.src, into: &r.raw}, r.enc)", recordingType)
 	} else {
 		line(b, "cr, err := codec.NewReader(r.src, r.enc)")

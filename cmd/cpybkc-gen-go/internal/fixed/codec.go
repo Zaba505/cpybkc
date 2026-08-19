@@ -97,6 +97,14 @@ func fresh[T any](p *T) *T {
 func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
 
+	// entry1 reads one occurrence of ENTRY, which carries a variant and so is read
+	// whole before it is walked. It is built here rather than inside the loop
+	// over those occurrences, and rewound onto each occurrence's bytes there.
+	var entry1 *codec.Reader
+	if entry1, err = codec.NewBytesReader(nil, r.Encoding()); err != nil {
+		return fmt.Errorf("LEDGER-RECORD: building the decoder the occurrences of ENTRY are read through: %w", err)
+	}
+
 	if x.LedgerId, err = r.ReadAlphanumeric(4); err != nil {
 		return fmt.Errorf("LEDGER-RECORD: reading LEDGER-ID: %w", err)
 	}
@@ -106,10 +114,7 @@ func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 		if occurrence1, err = r.ReadBytes(7); err != nil {
 			return fmt.Errorf("LEDGER-RECORD: reading its bytes in occurrence %d of ENTRY: %w", i0, err)
 		}
-		var entry1 *codec.Reader
-		if entry1, err = codec.NewReader(bytes.NewReader(occurrence1), r.Encoding()); err != nil {
-			return fmt.Errorf("LEDGER-RECORD: reading over its bytes in occurrence %d of ENTRY: %w", i0, err)
-		}
+		entry1.Reset(occurrence1)
 		if x.Entry[i0].EntryType, err = entry1.ReadAlphanumeric(1); err != nil {
 			return fmt.Errorf("LEDGER-RECORD: reading ENTRY-TYPE in occurrence %d of ENTRY: %w", i0, err)
 		}
