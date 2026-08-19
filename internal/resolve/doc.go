@@ -93,6 +93,13 @@
 // given field's bytes — charset does not touch packed decimal — is
 // `codec/SPEC.md`'s question and is not asked here.
 //
+// It is asked about one value, and only because that value is a statement about
+// the item rather than about how to read it. [layoutmodel.None] says the item's
+// bytes are a payload and not characters, which an alphanumeric DISPLAY item's
+// may be, a zoned or edited item's may not, and a packed or binary item's are
+// not a question — so an override carrying it is held to the copybook here,
+// where the copybook is open ([CharsetNoneError]).
+//
 // The rest of what docs/ir/SPEC.md puts on a field node beside the axes — its
 // USAGE, and the attributes that follow from its PICTURE — is not computed here
 // and is not copied here. `cobol-go` has already inherited the USAGE down the

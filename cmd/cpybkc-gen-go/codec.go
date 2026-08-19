@@ -843,6 +843,15 @@ func (c *coder) encodeRepeated(b *strings.Builder, rep *irpb.Repetition, expr, i
 
 // encodeField emits the one accessor call an elementary item takes.
 func (c *coder) encodeField(b *strings.Builder, f *irpb.Field, value string, s scope) error {
+	opaque, err := opaqueDisplay(f)
+	if err != nil {
+		return err
+	}
+
+	if opaque {
+		return c.encodeOpaque(b, f, value, s)
+	}
+
 	if raw, err := c.rawWidth(f); err != nil {
 		return err
 	} else if raw {
@@ -859,6 +868,62 @@ func (c *coder) encodeField(b *strings.Builder, f *irpb.Field, value string, s s
 
 	line(b, "if err = %s; err != nil {", call)
 	line(b, "%s", wrapf(s, "writing "+f.GetNames().GetOriginal()))
+	line(b, "}")
+
+	return nil
+}
+
+// encodeOpaque emits the statements that write an item no charset governs.
+//
+// Three terms, and they are the three the run retained for an item the copybook
+// gives no data-name already takes, for the same reason: the field is a []byte,
+// and a []byte is whatever the caller left in it. What made that unnecessary
+// for every other DISPLAY item was codec's WriteAlphanumeric, which takes the
+// declared width and pads a short value out to it. WriteBytes takes no width
+// and pads nothing, so the width this item occupies in the record is enforced
+// by the statements below or by nothing at all.
+//
+//   - nil writes zero bytes, out of the run [zeroFillDeclaration] holds. A
+//     record a caller built rather than read has to be writable, and there is
+//     no pad byte to reach for instead: the space that pads a text item is a
+//     value this item may legitimately hold, which is the whole reason it does
+//     not go through the alphanumeric writer. Zero is the choice, and it is
+//     written here rather than left to be read out of the emitted code.
+//   - a run of the wrong length is reported. Truncating it would drop bytes
+//     the caller supplied and padding it would add bytes they did not, and
+//     either one moves every item behind it in the record.
+//   - anything else is written as it stands, which is [coder.writeCall]'s
+//     WriteBytes.
+func (c *coder) encodeOpaque(b *strings.Builder, f *irpb.Field, value string, s scope) error {
+	width := f.GetWidth()
+	item := f.GetNames().GetOriginal()
+
+	// The same call [zeroFillDeclaration] is sized by, so that the run this
+	// emits a slice of is declared wide enough for it. Reused rather than
+	// counted a second way: a second mechanism for the same width is a second
+	// thing to keep in step with the declaration, and it would go out of step
+	// silently — the generated package would compile and slice out of range.
+	c.retain(b, width)
+
+	call, err := c.writeCall(f, value, s.rw)
+	if err != nil {
+		return err
+	}
+
+	line(b, "switch {")
+	line(b, "case %s == nil:", value)
+	line(b, "if err = %s.WriteBytes(%s[:%d]); err != nil {", s.rw, zeroFillHelper, width)
+	line(b, "%s", wrapf(s, "writing "+plural(int(width), "zero byte")+" for "+item+", which this record carries no bytes for"))
+	line(b, "}")
+	line(b, "case len(%s) != %d:", value, width)
+	line(b, "%s", failf(s, fmt.Sprintf(
+		"a writer reports the bytes of %s rather than truncating or padding them, and %s is %s and the record holds %%d for it",
+		item, item, plural(int(width), "byte")),
+		"len("+value+")"))
+	line(b, "default:")
+	line(b, "if err = %s; err != nil {", call)
+	line(b, "%s", wrapf(s, "writing "+item))
+	line(b, "}")
 	line(b, "}")
 
 	return nil

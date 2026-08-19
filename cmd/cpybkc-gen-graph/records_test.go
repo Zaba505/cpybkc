@@ -399,6 +399,32 @@ func TestAUsageDecidesWhetherAPictureBelongs(t *testing.T) {
 		"a pointer":       {field: &irpb.Field{Usage: irpb.Usage_USAGE_POINTER, Width: 4}, usage: "POINTER", picture: notAnItem},
 		"a national item": {field: &irpb.Field{Usage: irpb.Usage_USAGE_NATIONAL, Width: 8}, usage: "NATIONAL", picture: notAnItem},
 
+		// An item whose layout gave it no charset. The picture is spelled as
+		// the copybook wrote it and the column says the bytes are not
+		// characters, which is the one thing about the item nothing else in
+		// the row states.
+		"a display item no charset governs": {
+			field: &irpb.Field{
+				Usage: irpb.Usage_USAGE_DISPLAY, Width: 8,
+				Picture:  &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+				Encoding: &irpb.Encoding{Charset: irpb.Charset_CHARSET_NONE},
+			},
+			usage:   "DISPLAY",
+			picture: "X(8), no charset",
+		},
+
+		// The same charset on a usage it does not govern. A packed item's
+		// bytes are not characters under any charset, so there is nothing for
+		// the column to add and it adds nothing.
+		"a packed item whose encoding says none": {
+			field: &irpb.Field{
+				Usage: irpb.Usage_USAGE_PACKED_DECIMAL, Width: 3, Picture: numeric(5, 0),
+				Encoding: &irpb.Encoding{Charset: irpb.Charset_CHARSET_NONE},
+			},
+			usage:   "PACKED-DECIMAL",
+			picture: "9(5)",
+		},
+
 		"a display item carrying no picture": {
 			field:   &irpb.Field{Usage: irpb.Usage_USAGE_DISPLAY, Width: 4},
 			refused: "USAGE DISPLAY carries no picture",

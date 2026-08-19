@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -277,6 +278,71 @@ func TestAnAsciiDescriptorEscapesTheBytesThatAreNotCharacters(t *testing.T) {
 
 	if strings.Contains(source, "in := []byte{") {
 		t.Errorf("a mixed record moved the whole literal to hex:\n%s", source)
+	}
+}
+
+// TestACaseForAnItemNoCharsetGovernsIsMadeOfBytesNoCharsetSurvives is what
+// makes the generated case an assertion rather than a coincidence.
+//
+// A case whose payload happened to be printable ASCII would pass whether the
+// item went through ReadBytes or ReadAlphanumeric, because a run of letters
+// survives a code page and a trim unchanged. So the synthesized value carries
+// the three things that do not: a 0x00 no run of characters would hold and a
+// writer filling the field would emit, a 0x20 the trailing-space trim deletes,
+// and bytes above 0x7F a charset table translates.
+func TestACaseForAnItemNoCharsetGovernsIsMadeOfBytesNoCharsetSurvives(t *testing.T) {
+	t.Parallel()
+
+	body := payloadValue(0, 6)
+
+	if len(body) != 6 {
+		t.Fatalf("the payload for a six-byte item is %d bytes", len(body))
+	}
+
+	for name, want := range map[string]byte{
+		"the byte a writer filling the field would emit": 0x00,
+		"the byte the trailing-space trim deletes":       0x20,
+	} {
+		if !bytes.Contains(body, []byte{want}) {
+			t.Errorf("the payload % x carries no 0x%02x, which is %s", body, want, name)
+		}
+	}
+
+	high := false
+
+	for _, b := range body {
+		if b > 0x7F {
+			high = true
+		}
+	}
+
+	if !high {
+		t.Errorf("every byte of the payload % x is below 0x80, so a charset table would leave it alone", body)
+	}
+
+	// And the case that carries it. The literal is the bytes the item writes
+	// rather than bytes this test believes it writes: [synth.write] drives the
+	// same codec call the generated encoder will.
+	d := &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
+		record(1, "LINE-RECORD", 2),
+		group(2, "LINE-RECORD", nil, 3, 4),
+		alphanumeric(3, "LINE-TEXT", 5),
+		opaque(4, "LINE-FLAGS", 6),
+	}}
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: "line", importPath: "example.com/line"}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsTestFile]
+
+	// Laid down after a five-byte text item, so the payload is the one for
+	// offset 5 rather than the one checked above.
+	want := "if want := " + byteSlice(payloadValue(5, 6)) + "; !bytes.Equal(record.LineFlags, want)"
+	if !strings.Contains(source, want) {
+		t.Errorf("%s does not assert the payload as %s:\n%s", recordsTestFile, want, source)
 	}
 }
 

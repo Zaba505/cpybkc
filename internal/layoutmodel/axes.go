@@ -67,15 +67,24 @@ func (a Axis) String() string {
 // why it is a method on the axis rather than four lists the messages reach for
 // by hand: an axis and the set it admits are one fact, and a message naming the
 // wrong set is a message that sends an adopter looking in the wrong place.
-func (a Axis) Values() []string {
+//
+// The set is positional, which is why the caller has to say where the value was
+// written. `(charset none)` is a statement about one item's bytes, so it is
+// admitted on an `encoding-override`, which names an item, and not on the
+// `encoding` profile, which names none (docs/layout/SPEC.md, "A byte is not a
+// character, and such an item has no charset"). The other three axes admit the
+// same values in both positions and ignore the argument; charset is the axis the
+// two positions differ on, and one axis differing is what makes this a parameter
+// rather than a second method nobody would remember to call.
+//
+// The position is a bool rather than a named pair of positions because there are
+// two of them and there is no third: the format has one profile form and one
+// override form, and a type declared for the pair would be a set that reads as
+// though it could grow.
+func (a Axis) Values(override bool) []string {
 	switch a {
 	case AxisCharset:
-		values := make([]string, 0, len(charsets))
-		for _, charset := range charsets {
-			values = append(values, string(charset))
-		}
-
-		return values
+		return charsetValues(override)
 	case AxisSignConvention:
 		return []string{
 			string(SignEBCDIC),
@@ -92,12 +101,13 @@ func (a Axis) Values() []string {
 	}
 }
 
-// admits reports whether value is one the axis takes.
-func (a Axis) admits(value string) bool {
-	return slices.Contains(a.Values(), value)
+// admits reports whether value is one the axis takes where it was written.
+func (a Axis) admits(value string, override bool) bool {
+	return slices.Contains(a.Values(override), value)
 }
 
-// Charset is a character set the charset axis admits.
+// Charset is a value the charset axis admits: one of the code pages below, or
+// [None], which says the item has no characters to have a code page for.
 //
 // The set is bounded and every member is named here. `cobol-go`'s `codec` is
 // forbidden from depending on golang.org/x/text, so every code page it supports
@@ -109,10 +119,11 @@ func (a Axis) admits(value string) bool {
 // A code page added to `codec/SPEC.md`'s charset axis is added here, and here
 // alone: schema/layout.sexpr deliberately declares `charset` as an open symbol
 // so that this registry is the only place in this repository the members are
-// written down. It is still a change to what a layout may say, so it advances
-// the published schema's version under docs/layout/SPEC.md's "The version is in
-// the file, and it moves with the format", even though no declaration in that
-// file moves with it.
+// written down — which held for [None] as well, and is why the schema needed no
+// change when it was added. It is still a change to what a layout may say, so it
+// advances the published schema's version under docs/layout/SPEC.md's "The
+// version is in the file, and it moves with the format", even though no
+// declaration in that file moves with it.
 type Charset string
 
 // The code pages a layout may name. The EBCDIC ones are spelled as
@@ -135,11 +146,61 @@ const (
 	ASCII Charset = "ascii"
 )
 
+// None is the charset axis's answer that the item's bytes are not characters at
+// all: a payload, read and written as it stands, with nothing translating it,
+// trimming it or padding it.
+//
+// A `PIC X` item routinely carries one — a status flag whose documented values
+// are the bytes 0x01 through 0x03, a region identifier holding a hexadecimal
+// value — and read through any code page it becomes a character nobody can
+// print or compare, while the trailing-space trim a fixed-width text field gets
+// deletes a payload byte that happens to be that code page's space. Neither loss
+// is reported and neither is recoverable, which is the silent failure every axis
+// is declared to prevent, so the axis that answers how an item's bytes become
+// characters answers here that they do not (docs/layout/SPEC.md, "A byte is not
+// a character, and such an item has no charset", #275).
+//
+// It is deliberately not in [charsets], and so is neither in what [Charsets]
+// hands back nor found by [LookupCharset]. That registry answers one question —
+// which code pages somebody has written a table for — and it is the published
+// answer: a code page added to `codec/SPEC.md`'s charset axis is added there and
+// nowhere else. `none` names no table and no encoding, so a registry holding it
+// would answer that question with a member that is not a code page, and every
+// caller listing the code pages would have to remember to drop one. What the
+// axis admits is a second question, whose answer is larger than the registry and
+// depends on where the value was written, and [Axis.Values] is where it is
+// answered.
+const None Charset = "none"
+
 // charsets is the registry, in the order docs/layout/SPEC.md names them: the
 // EBCDIC code pages by number, then the identity charset.
 var charsets = []Charset{CP037, CP500, CP1047, CP1140, ASCII}
 
-// Charsets is every code page the charset axis admits.
+// charsetValues is what the charset axis admits where the value was written: the
+// code pages, and on an override alone [None] behind them.
+//
+// [None] comes last because that is the order docs/layout/SPEC.md's table states
+// it in — "as above, or `none`" — and because a diagnostic naming the set is
+// read as a list of code pages an adopter may have misspelled, with the value
+// that is not a code page at the end of it rather than among them.
+func charsetValues(override bool) []string {
+	values := make([]string, 0, len(charsets)+1)
+	for _, charset := range charsets {
+		values = append(values, string(charset))
+	}
+
+	if override {
+		values = append(values, string(None))
+	}
+
+	return values
+}
+
+// Charsets is every code page this project has a table for.
+//
+// It is the registry and not the axis: [None] is a value the axis admits and is
+// not a code page, so it is not here. A caller wanting what a layout may write
+// wants [Axis.Values], which knows where the value is being written.
 //
 // The slice is a copy, so a caller cannot edit the registry by writing to what
 // it was handed.
@@ -149,6 +210,9 @@ func Charsets() []Charset {
 
 // LookupCharset resolves a code page written in a layout, reporting whether it
 // is one this project supports.
+//
+// `none` is not found here, for [Charsets]'s reason: this resolves a code page,
+// and [None] is the statement that the item has none.
 func LookupCharset(value string) (Charset, bool) {
 	for _, charset := range charsets {
 		if string(charset) == value {
@@ -219,7 +283,13 @@ const (
 // [ReadProfile] answers it before handing anything back: the [Axes] on a
 // [Profile] is always complete and the one on an [Override] never is empty.
 type Axes struct {
-	// Charset is the code page, or the empty string where none is stated.
+	// Charset is the code page, [None] where an override says the item's bytes
+	// are not characters, or the empty string where nothing is stated.
+	//
+	// The empty string and [None] are not the same thing said twice. The first
+	// is nobody having answered how these bytes become characters, which is the
+	// hole the whole layer exists to refuse; the second is the answer that they
+	// do not.
 	Charset Charset
 
 	// SignConvention is how an overpunched sign is spelled, or the empty

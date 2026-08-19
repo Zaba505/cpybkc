@@ -49,17 +49,32 @@ const (
 )
 
 // formOf is the form an item's value takes, read exactly in the order the
-// format states: usage first, and category only where usage did not decide.
+// format states: usage first, then the charset, and category only where neither
+// of those decided.
 //
 // The order is not an implementation detail. The two floating-point usages
 // carry CATEGORY_NUMERIC and are not written as numbers, so a reader that keyed
 // on category alone would hold a COMP-1 to the decimal grammar and refuse every
 // entry that carries one.
+//
+// The charset step is read between them, and it is the only step that reads an
+// axis rather than the item's own attributes. An item declared to carry a
+// payload rather than characters carries CATEGORY_ALPHANUMERIC all the same —
+// the copybook says PIC X either way, and category is what the copybook fixed
+// rather than what the layout then said about it — so category cannot tell the
+// two apart and the axis is what does. It comes after the usages because those
+// have no charset governing them, so a COMP-1 under a group declared to carry
+// bytes is still a float. See docs/conformance/SPEC.md, "Which form a value
+// takes is decided by the descriptor".
 func formOf(field *irpb.Field) form {
 	switch field.GetUsage() {
 	case irpb.Usage_USAGE_COMP_1, irpb.Usage_USAGE_COMP_2:
 		return formFloat
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
+		return formBytes
+	}
+
+	if field.GetEncoding().GetCharset() == irpb.Charset_CHARSET_NONE {
 		return formBytes
 	}
 

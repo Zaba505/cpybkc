@@ -184,12 +184,13 @@ func options(t *testing.T, source string, copybooks map[string]string, redefines
 		})
 
 		resolved, err := resolve.Resolve(record, resolve.Options{
-			Copybook:  path,
-			Dialect:   copybook.IBMEnterprise(),
-			Framing:   framing,
-			Reading:   layoutmodel.ODOSlide,
-			Encoding:  profile.Axes,
-			Redefines: stated(t, redefines, discriminator.Record, record),
+			Copybook:          path,
+			Dialect:           copybook.IBMEnterprise(),
+			Framing:           framing,
+			Reading:           layoutmodel.ODOSlide,
+			Encoding:          profile.Axes,
+			EncodingOverrides: overriding(t, profile, discriminator.Record, record),
+			Redefines:         stated(t, redefines, discriminator.Record, record),
 		})
 		if err != nil {
 			t.Fatalf("resolving %s: %v", discriminator.Record, err)
@@ -213,6 +214,41 @@ func options(t *testing.T, source string, copybooks map[string]string, redefines
 	opts.Automaton = automaton
 
 	return opts
+}
+
+// overriding is the layout's `encoding-override` forms that name items of one
+// record, resolved against the copybook the pipeline built.
+//
+// Resolving an item reference is `project`'s in the shipped pipeline, and this
+// is the smallest thing that stands in for it: the reference's path is walked
+// from the record's top-level item down, one name per level, which is what
+// docs/layout/SPEC.md says the path is. A reference naming another record is
+// left alone rather than failing, because an override may name any record in the
+// layout and only one record is being resolved here.
+func overriding(t *testing.T, profile *layoutmodel.Profile, name string, record *copybook.Field) []resolve.EncodingOverride {
+	t.Helper()
+
+	var overrides []resolve.EncodingOverride
+
+	for _, override := range profile.Overrides {
+		if override.Item.Record != name {
+			continue
+		}
+
+		item := record
+
+		for _, step := range override.Item.Path {
+			item = fieldNamed(t, item, step)
+		}
+
+		overrides = append(overrides, resolve.EncodingOverride{
+			Pos:  override.Pos,
+			Item: item,
+			Axes: override.Axes,
+		})
+	}
+
+	return overrides
 }
 
 // redefiner states a test's redefines against the copybook the pipeline built,

@@ -494,6 +494,15 @@ func (r literalResolver) bytes(literal layoutmodel.Literal) (Value, string) {
 // truncated: a comparison against a prefix is the reading that reports a match
 // on bytes the adopter never asked about.
 func (r literalResolver) text(literal layoutmodel.Literal) (Value, string) {
+	// An item the layout says carries no characters is reported as that rather
+	// than as an item nobody stated a charset for. The two are opposite faults —
+	// one is an unanswered question and this is the answer — and the way out of
+	// this one is to write the bytes, which the message names.
+	if r.axes.Charset == layoutmodel.None {
+		return Value{}, itemName(r.field) + " carries no charset, so text has no bytes on it" +
+			" — write what is in the file as (bytes \"…\")"
+	}
+
 	charset, exact := charsetOf(r.axes.Charset)
 	if charset == nil {
 		return Value{}, "the charset is not stated on " + itemName(r.field)

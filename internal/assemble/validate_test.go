@@ -314,6 +314,94 @@ func TestASignedComp6FieldIsRefused(t *testing.T) {
 	})
 }
 
+// TestCharsetNoneIsHeldToTheItemItCanMeanSomethingFor is the guard against a
+// producer that is not this one.
+//
+// `resolve` reports the same fault against the layout that wrote it, with the
+// line, so nothing this repository assembles reaches here; a descriptor arriving
+// from a third-party producer has no line to be reported against and this is the
+// only place it can be caught. CHARSET_NONE says the field's bytes are a payload
+// rather than characters, which is a reading only an alphanumeric DISPLAY item
+// admits.
+//
+// The inert cases are held to as firmly as the refused ones. A packed or binary
+// field carries the axis and nothing reads it, exactly as it carries a code page
+// nothing reads, and that is what lets a layout name a group holding numbers —
+// so a pass that refused CHARSET_NONE wherever it is not read would refuse the
+// descriptors this repository actually produces.
+func TestCharsetNoneIsHeldToTheItemItCanMeanSomethingFor(t *testing.T) {
+	tests := []struct {
+		name    string
+		usage   irpb.Usage
+		picture *irpb.Picture
+		says    string
+	}{
+		{
+			name:    "an alphanumeric DISPLAY field is what the value is for",
+			usage:   irpb.Usage_USAGE_DISPLAY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+		},
+		{
+			name:    "a zoned field",
+			usage:   irpb.Usage_USAGE_DISPLAY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4},
+			says:    "carries charset none and is a DISPLAY item of category numeric",
+		},
+		{
+			name:    "an alphabetic field",
+			usage:   irpb.Usage_USAGE_DISPLAY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHABETIC},
+			says:    "carries charset none and is a DISPLAY item of category alphabetic",
+		},
+		{
+			name:    "a numeric-edited field",
+			usage:   irpb.Usage_USAGE_DISPLAY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC_EDITED, Digits: 4},
+			says:    "carries charset none and is a DISPLAY item of category numeric-edited",
+		},
+		{
+			name:    "an alphanumeric-edited field",
+			usage:   irpb.Usage_USAGE_DISPLAY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC_EDITED},
+			says:    "carries charset none and is a DISPLAY item of category alphanumeric-edited",
+		},
+		{
+			name:    "a packed field, which the charset does not govern",
+			usage:   irpb.Usage_USAGE_PACKED_DECIMAL,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4},
+		},
+		{
+			name:    "a binary field, which the charset does not govern",
+			usage:   irpb.Usage_USAGE_BINARY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4},
+		},
+		{
+			name:  "a POINTER field, which has no PICTURE at all",
+			usage: irpb.Usage_USAGE_POINTER,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			d := valid()
+			field := node(t, d, 3).GetField()
+			field.GetEncoding().Charset = irpb.Charset_CHARSET_NONE
+			field.Usage = test.usage
+			field.Picture = test.picture
+
+			if test.says == "" {
+				if err := Validate(d); err != nil {
+					t.Fatalf("the descriptor was refused: %v", err)
+				}
+
+				return
+			}
+
+			refused(t, d, test.says)
+		})
+	}
+}
+
 // TestAnOverrideWithNoOriginalIsRefused holds the original to being present even
 // where a substitute is, which is what lets generated code point back at the
 // copybook it came from.

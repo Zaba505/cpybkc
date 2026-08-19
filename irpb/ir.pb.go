@@ -256,6 +256,27 @@ const (
 	Charset_CHARSET_CP1140      Charset = 4
 	// ASCII, the identity translation.
 	Charset_CHARSET_ASCII Charset = 5
+	// No charset: the item's bytes are a payload and not characters at all.
+	//
+	// It is not a code page and not an identity translation. A PIC X item is
+	// routinely used to carry a binary payload — a status flag whose documented
+	// values are 0x01 through 0x03, a region identifier holding a hex value —
+	// and decoding one through any charset produces a value nobody can read,
+	// print or compare, while the trailing-space trim ReadAlphanumeric applies
+	// deletes a payload byte that happens to be the charset's space. Neither is
+	// recoverable, and no charset makes such an item text, so the axis that
+	// answers "how do these bytes become characters" answers here that they do
+	// not.
+	//
+	// A field carrying it MUST be USAGE_DISPLAY with CATEGORY_ALPHANUMERIC. A
+	// consumer MUST read and write its bytes as they stand, MUST apply no
+	// translation and MUST strip and add no padding. See docs/ir/SPEC.md, "An
+	// item with no charset carries bytes, not characters".
+	//
+	// Adding it does not advance IrVersion, for the reason stated above: a
+	// consumer that does not know it refuses the descriptor on sight rather than
+	// reading the item as text.
+	Charset_CHARSET_NONE Charset = 6
 )
 
 // Enum value maps for Charset.
@@ -267,6 +288,7 @@ var (
 		3: "CHARSET_CP1047",
 		4: "CHARSET_CP1140",
 		5: "CHARSET_ASCII",
+		6: "CHARSET_NONE",
 	}
 	Charset_value = map[string]int32{
 		"CHARSET_UNSPECIFIED": 0,
@@ -275,6 +297,7 @@ var (
 		"CHARSET_CP1047":      3,
 		"CHARSET_CP1140":      4,
 		"CHARSET_ASCII":       5,
+		"CHARSET_NONE":        6,
 	}
 )
 
@@ -3442,14 +3465,15 @@ const file_cpybkc_ir_v1_ir_proto_rawDesc = "" +
 	"\x1fDELIMITER_PLACEMENT_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDELIMITER_PLACEMENT_TERMINATOR\x10\x01\x12!\n" +
 	"\x1dDELIMITER_PLACEMENT_SEPARATOR\x10\x02\x12+\n" +
-	"'DELIMITER_PLACEMENT_OPTIONAL_TERMINATOR\x10\x03*\x83\x01\n" +
+	"'DELIMITER_PLACEMENT_OPTIONAL_TERMINATOR\x10\x03*\x95\x01\n" +
 	"\aCharset\x12\x17\n" +
 	"\x13CHARSET_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rCHARSET_CP037\x10\x01\x12\x11\n" +
 	"\rCHARSET_CP500\x10\x02\x12\x12\n" +
 	"\x0eCHARSET_CP1047\x10\x03\x12\x12\n" +
 	"\x0eCHARSET_CP1140\x10\x04\x12\x11\n" +
-	"\rCHARSET_ASCII\x10\x05*\xb2\x01\n" +
+	"\rCHARSET_ASCII\x10\x05\x12\x10\n" +
+	"\fCHARSET_NONE\x10\x06*\xb2\x01\n" +
 	"\x0eSignConvention\x12\x1f\n" +
 	"\x1bSIGN_CONVENTION_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16SIGN_CONVENTION_EBCDIC\x10\x01\x12 \n" +

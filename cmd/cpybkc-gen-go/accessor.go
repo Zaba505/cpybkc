@@ -37,6 +37,21 @@ func (c *coder) readCall(f *irpb.Field, rdr string) (string, error) {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
 		return fmt.Sprintf("%s.ReadBytes(%d)", rdr, f.GetWidth()), nil
 	case irpb.Usage_USAGE_DISPLAY:
+		// An item no charset governs is read as the bytes it is, by the same
+		// accessor the three usages above take: ReadBytes translates nothing
+		// and trims nothing, which is the whole of what such an item asks for.
+		// Asked before the category is looked at, so that a DISPLAY item
+		// carrying no charset and no alphanumeric picture is refused here as
+		// well as in [emitter.fieldType]. See [opaqueDisplay].
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return "", err
+		}
+
+		if opaque {
+			return fmt.Sprintf("%s.ReadBytes(%d)", rdr, f.GetWidth()), nil
+		}
+
 		if f.GetPicture().GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := c.fieldType(f); err != nil {
 				return "", err
@@ -106,6 +121,20 @@ func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
 		return fmt.Sprintf("%s.WriteBytes(%s)", wtr, value), nil
 	case irpb.Usage_USAGE_DISPLAY:
+		// WriteBytes takes no width, which is the one thing WriteAlphanumeric
+		// did for this item and no longer does: it padded a short value to the
+		// declared width. So the width is enforced by the statements
+		// [coder.encodeOpaque] wraps this call in rather than by codec, and
+		// this returns the call alone.
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return "", err
+		}
+
+		if opaque {
+			return fmt.Sprintf("%s.WriteBytes(%s)", wtr, value), nil
+		}
+
 		if f.GetPicture().GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := c.fieldType(f); err != nil {
 				return "", err
@@ -343,6 +372,28 @@ Float: %s,
 // package declares and the profile the generated tests lay their bytes out
 // under are the same four axes, and a descriptor whose items disagree has to be
 // refused with the same diagnostic whichever one asked.
+//
+// # An item no charset governs is not a party to the agreement
+//
+// A field carrying CHARSET_NONE states that its bytes are governed by no axis,
+// so it cannot disagree with an item that names one: it makes no claim about
+// the file's encoding to be in conflict with. It is skipped here rather than
+// compared, which is what lets a status flag holding a hex value sit in the
+// same record as a text item without turning the pair into a descriptor whose
+// items disagree — and refusing that pair would be refusing the ordinary case
+// this charset was added for.
+//
+// Skipped after [resolved] has been run on it, not instead. All four axes are
+// still set on such a field and CHARSET_NONE is one of the set values, so a
+// producer that left an axis unresolved is caught on an opaque item exactly as
+// it is on a text one.
+//
+// Where *every* field is opaque nothing is left to read an encoding off and
+// this returns nil, which is the answer a descriptor carrying no field at all
+// already gives: no [encodingFunc] is declared and the caller passes their own
+// Encoding to codec. That is the correct answer rather than a gap — there is
+// no charset, sign convention, byte order or float format the descriptor
+// stated, so there is none for it to hand anybody.
 func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
 	var (
 		enc  *irpb.Encoding
@@ -357,6 +408,12 @@ func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
 
 		if err := resolved(field.GetEncoding()); err != nil {
 			return nil, err
+		}
+
+		if opaque, err := opaqueDisplay(field); err != nil {
+			return nil, err
+		} else if opaque {
+			continue
 		}
 
 		if enc == nil {
@@ -392,6 +449,15 @@ func disagreement(a, b *irpb.Encoding) string {
 
 // charsetCall is the codec constructor for a charset, and a refusal for one
 // codec ships no table for.
+//
+// CHARSET_NONE falls into the refusal and is meant to: it is not a table codec
+// is missing, it is an item that asks for no table, and no such item reaches
+// here. The only caller is [coder.profile], over the encoding
+// [descriptorEncoding] read off the descriptor's fields, and that walk skips
+// every opaque field — so a charset of none is either never the answer or is
+// no answer at all, which [coder.profile] has already returned on. A case
+// returning some codec charset for it would be this generator picking a
+// translation for bytes the descriptor said were not text.
 func charsetCall(charset irpb.Charset) (string, error) {
 	switch charset {
 	case irpb.Charset_CHARSET_CP037:
@@ -416,6 +482,8 @@ func charsetName(charset irpb.Charset) string {
 		return "cp1140"
 	case irpb.Charset_CHARSET_ASCII:
 		return "ASCII"
+	case irpb.Charset_CHARSET_NONE:
+		return "none"
 	default:
 		return "a charset the descriptor does not name"
 	}

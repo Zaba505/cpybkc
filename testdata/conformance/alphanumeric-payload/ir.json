@@ -1,0 +1,177 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "unframed": {},
+        "start_state_id": "10"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "TXN-RECORD"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4",
+          "9"
+        ],
+        "names": {
+          "original": "TXN-RECORD"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-KEY"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "group": {
+        "member_ids": [
+          "5",
+          "6",
+          "7",
+          "8"
+        ],
+        "names": {
+          "original": "TXN-PAYLOAD"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_NONE",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-STATUS"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_NONE",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-REGION"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "field": {
+        "width": 256,
+        "encoding": {
+          "charset": "CHARSET_NONE",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-BYTES"
+        }
+      }
+    },
+    {
+      "id": "8",
+      "field": {
+        "width": 2,
+        "encoding": {
+          "charset": "CHARSET_NONE",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-PAD"
+        }
+      }
+    },
+    {
+      "id": "9",
+      "field": {
+        "width": 6,
+        "encoding": {
+          "charset": "CHARSET_ASCII",
+          "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "TXN-NAME"
+        }
+      }
+    },
+    {
+      "id": "10",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "11"
+        ]
+      }
+    },
+    {
+      "id": "11",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "10"
+      }
+    }
+  ]
+}

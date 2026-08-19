@@ -347,8 +347,10 @@ For an elementary item, the form is a function of the descriptor's `usage` and
    item](#a-float-is-written-exactly-and-never-as-a-json-number).
 2. `USAGE_INDEX`, `USAGE_POINTER` or `USAGE_NATIONAL` — [a run of
    bytes](#index-pointer-and-national-are-base64).
-3. Otherwise `CATEGORY_NUMERIC` — [a number](#a-number-is-a-decimal-string).
-4. Otherwise — `CATEGORY_ALPHABETIC`, `CATEGORY_ALPHANUMERIC`,
+3. Otherwise `CHARSET_NONE` — [a run of
+   bytes](#an-item-with-no-charset-is-a-run-of-bytes-as-well) (#275).
+4. Otherwise `CATEGORY_NUMERIC` — [a number](#a-number-is-a-decimal-string).
+5. Otherwise — `CATEGORY_ALPHABETIC`, `CATEGORY_ALPHANUMERIC`,
    `CATEGORY_NUMERIC_EDITED` or `CATEGORY_ALPHANUMERIC_EDITED` —
    [characters](#characters-and-why-trailing-spaces-do-not-survive).
 
@@ -357,6 +359,15 @@ Usage is read before category because the two floating-point usages carry
 is characters in a character encoding this format does not decide. An
 implementation that keyed on category alone would write a `COMP-1` as decimal
 digits and be wrong for every value with a fraction.
+
+The charset is read after both and before category for the same kind of reason.
+It is the only step that reads an axis rather than the item's own attributes,
+and it is there because an item declared to carry no charset carries
+`CATEGORY_ALPHANUMERIC` all the same — the copybook says `PIC X` either way, and
+category is what the copybook fixed rather than what the layout then said about
+it. It comes after the two usage steps because those usages have no charset that
+governs them, so a `COMP-1` under a group declared to carry bytes must still be
+written as a float.
 
 ### A group, a table and a variant
 
@@ -421,7 +432,12 @@ pads back out to the declared width from the value it was given.
 
 The cost is stated rather than hidden: an item whose data genuinely ends in a
 space cannot be told apart from one that was padded, and this format has no way
-to write that item down. That is accepted. Space padding is universal in the
+to write that item down *as characters*. That is accepted. An item whose bytes
+are a payload rather than text has a way, and it is the declaration [an item
+with no charset is a run of bytes as
+well](#an-item-with-no-charset-is-a-run-of-bytes-as-well) describes: such an
+item is not in these four categories' rule at all, and its `0x20` survives
+(#275). Space padding is universal in the
 files this corpus is about, and a rule that preserved the padding would make
 every entry's expected value depend on a width the value language does not
 carry.
@@ -588,6 +604,28 @@ format's to interpret. An `INDEX` or a `POINTER` holds an implementation's own
 representation, and a `NATIONAL` item holds a character encoding the descriptor
 records and this document does not decide; base64 states exactly what was there
 and claims nothing about what it means.
+
+### An item with no charset is a run of bytes as well
+
+An item whose resolved charset says it has none — [an item with no charset
+carries bytes, not
+characters](../ir/SPEC.md#an-item-with-no-charset-carries-bytes-not-characters)
+— is written as a JSON string of its bytes in base64, under exactly the rules
+above: RFC 4648 section 4's alphabet, padded, canonical, no line break (#275).
+
+Its length is the field's width, always. The three usages above have no
+padding rule to escape, and this one does: an item written as
+[characters](#characters-and-why-trailing-spaces-do-not-survive) loses its
+trailing spaces, and an item written this way loses nothing at all. That is the
+point of the declaration rather than a detail of it, so a values document
+holding fewer bytes than the field is wide is one no correct writer produced.
+
+Base64 rather than characters, for the reason the three usages above take it:
+the content is not this format's to interpret. What makes this one different is
+that the *copybook* said it was characters and the layout overruled it, which is
+a thing only the descriptor knows — so a runner **MUST** read the charset off
+the field rather than deciding from the copybook's category what a `PIC X` item
+holds.
 
 ### A file the reader refused
 
@@ -933,12 +971,13 @@ to every row.
 | [`ir.json`](#irjson) | #66 `conformance`; the canonical rendering it is held to, #20 `ir` |
 | [`values.json`](#valuesjson) | #66 `conformance` |
 | [`offsets.json` is reserved](#offsetsjson-is-reserved) | #194 `conformance` for the reservation; the discussion it comes from is #193, and no story specifies its content |
-| [Which form a value takes is decided by the descriptor](#which-form-a-value-takes-is-decided-by-the-descriptor) | #66 `conformance`; #194 `conformance` for stating it as a procedure over `usage` and `category` |
+| [Which form a value takes is decided by the descriptor](#which-form-a-value-takes-is-decided-by-the-descriptor) | #66 `conformance`; #194 `conformance` for stating it as a procedure over `usage` and `category`; #275 for the charset step between them |
 | [A group, a table and a variant](#a-group-a-table-and-a-variant) | #66 `conformance` |
 | [Characters, and why trailing spaces do not survive](#characters-and-why-trailing-spaces-do-not-survive) | #66 `conformance` for the behaviour the corpus already expects; #194 `conformance` for deciding it and writing it down |
 | [A number is a decimal string](#a-number-is-a-decimal-string) | #66 `conformance` for the form; #194 `conformance` for the canonical spelling, including negative zero; #196 `conformance` for the loader that enforces it |
 | [A float is written exactly, and never as a JSON number](#a-float-is-written-exactly-and-never-as-a-json-number) | #194 `conformance` decides the form; #195 `conformance` writes and compares it, and migrates the float entries |
 | [`INDEX`, `POINTER` and `NATIONAL` are base64](#index-pointer-and-national-are-base64) | #66 `conformance` for base64; #194 `conformance` for the alphabet and the padding; #196 `conformance` for enforcing them |
+| [An item with no charset is a run of bytes as well](#an-item-with-no-charset-is-a-run-of-bytes-as-well) | #275 `layout` for the declaration, and the routing step and the entry that covers it |
 | [A file the reader refused](#a-file-the-reader-refused) | #66 `conformance` |
 | [Comparison is over the written form](#comparison-is-over-the-written-form) | #68 `conformance` for the comparison; #195 and #196 `conformance` for it being over the written form |
 | [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it; #198 `conformance` for the split between what a runner is asked and how it is asked, which moved the second half to [`adapter/SPEC.md`](../adapter/SPEC.md) |

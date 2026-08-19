@@ -12,6 +12,7 @@ import (
 
 	"github.com/Zaba505/cobol-go/copybook"
 
+	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
@@ -614,5 +615,299 @@ func TestTheCompletenessAssertionPassesEveryResolutionThisPackageProduces(t *tes
 	r.assertResolved(records)
 	if r.faults.Failed() {
 		t.Fatalf("the assertion faulted on a resolution this package produced: %v", r.faults.Err())
+	}
+}
+
+// payloadSource is the shape #275 is about, and the shape a group override has
+// to be able to reach across: a status flag and a region identifier whose bytes
+// are a payload, beside items of every kind whose bytes are not.
+const payloadSource = `01 REGION-REC.
+   05 R-NAME PIC X(20).
+   05 R-STATUS PIC X.
+   05 R-CODE PIC X(2).
+   05 R-COUNT PIC 9(4).
+   05 R-AMOUNT PIC S9(7)V99 COMP-3.
+   05 R-INDEX PIC S9(4) COMP.
+`
+
+// noneOn is the override a layout writes to say an item carries a payload, with
+// the position the layout wrote it at, so that a diagnostic about it names the
+// line an adopter can change.
+func noneOn(t *testing.T, record *copybook.Field, name string) EncodingOverride {
+	t.Helper()
+
+	return EncodingOverride{
+		Pos:  layout.Pos{File: "orders.sexpr", Line: 7, Column: 1},
+		Item: fieldNamed(t, record, name),
+		Axes: layoutmodel.Axes{Charset: layoutmodel.None},
+	}
+}
+
+// TestAnOverrideSaysAnItemCarriesNoCharacters is docs/layout/SPEC.md's "A byte
+// is not a character, and such an item has no charset" as this package meets it:
+// the item the override names carries `none`, every other item carries the
+// profile's code page, and the other three axes are left where they were.
+func TestAnOverrideSaysAnItemCarriesNoCharacters(t *testing.T) {
+	t.Parallel()
+
+	record := resolveUnder(t, payloadSource, mainframe(), func(field *copybook.Field) []EncodingOverride {
+		return []EncodingOverride{noneOn(t, field, "R-STATUS")}
+	})
+
+	if got := encodingOf(t, record, "R-STATUS").Charset; got != layoutmodel.None {
+		t.Errorf("the overridden item carries the charset %q, want none", got)
+	}
+
+	// The rest of the axes are the profile's on the overridden item too: an
+	// override restates the axes it names and no others, and `none` is one
+	// value of one axis rather than a statement about the item's encoding.
+	axes := encodingOf(t, record, "R-STATUS")
+	if axes.SignConvention != mainframe().SignConvention ||
+		axes.ByteOrder != mainframe().ByteOrder ||
+		axes.FloatFormat != mainframe().FloatFormat {
+		t.Errorf("the overridden item carries %+v, want the profile's other three axes", axes)
+	}
+
+	for _, name := range []string{"R-NAME", "R-CODE", "R-COUNT", "R-AMOUNT", "R-INDEX"} {
+		if got := encodingOf(t, record, name).Charset; got != layoutmodel.CP037 {
+			t.Errorf("%s carries the charset %q, want the profile's cp037", name, got)
+		}
+	}
+}
+
+// TestCharsetNoneOnAGroupReachesTheItemsUnderItAndFaultsOnNone is the
+// inertness the group case depends on: `none` reaches every elementary item
+// under the group it names, governs the alphanumeric ones, and is as
+// unremarkable on the packed and binary ones as a code page already is.
+//
+// The zoned item is left out of the group deliberately — it is the one item
+// under a mixed group that `none` cannot mean anything for, and it has a test of
+// its own below.
+func TestCharsetNoneOnAGroupReachesTheItemsUnderItAndFaultsOnNone(t *testing.T) {
+	t.Parallel()
+
+	record := resolveUnder(t, `01 R.
+   05 PAYLOAD.
+      10 P-FLAG PIC X.
+      10 P-BODY.
+         15 P-DEEP PIC X(4).
+      10 P-AMOUNT PIC S9(7)V99 COMP-3.
+      10 P-INDEX PIC S9(4) COMP.
+   05 OUTSIDE PIC X(4).
+`, mainframe(), func(field *copybook.Field) []EncodingOverride {
+		return []EncodingOverride{noneOn(t, field, "PAYLOAD")}
+	})
+
+	for _, name := range []string{"P-FLAG", "P-DEEP", "P-AMOUNT", "P-INDEX"} {
+		if got := encodingOf(t, record, name).Charset; got != layoutmodel.None {
+			t.Errorf("%s under the overridden group carries the charset %q, want none", name, got)
+		}
+	}
+
+	if got := encodingOf(t, record, "OUTSIDE").Charset; got != layoutmodel.CP037 {
+		t.Errorf("the item beside the overridden group carries the charset %q, want the profile's cp037", got)
+	}
+}
+
+// TestCharsetNoneIsHeldToItemsItCanMeanSomethingFor is the diagnostic half.
+//
+// Three answers, one per case: legal on an alphanumeric DISPLAY item, a fault on
+// any other DISPLAY item, and inert on every usage the charset does not govern.
+// The third is what lets an override name a group holding numbers, so a change
+// that made `none` a fault everywhere it is not read would pass the first two
+// cases and break the shape the story is about.
+func TestCharsetNoneIsHeldToItemsItCanMeanSomethingFor(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		source string
+		item   string
+		fault  string
+	}{
+		{
+			name:   "an alphanumeric DISPLAY item is what the value is for",
+			source: "01 R.\n   05 F PIC X(4).\n",
+			item:   "F",
+		},
+		{
+			name:   "a zoned item's digit zone is read through the charset",
+			source: "01 R.\n   05 F PIC 9(4).\n",
+			item:   "F",
+			fault: "in record R, charset none reaches F, and a zoned decimal item's digit zone and separate" +
+				" sign are read through the charset, so it would be left with no reading at all",
+		},
+		{
+			name:   "a signed zoned item, whose separate sign is read through it too",
+			source: "01 R.\n   05 F PIC S9(4) SIGN LEADING SEPARATE.\n",
+			item:   "F",
+			fault: "in record R, charset none reaches F, and a zoned decimal item's digit zone and separate" +
+				" sign are read through the charset, so it would be left with no reading at all",
+		},
+		{
+			name:   "an alphabetic item is characters by declaration",
+			source: "01 R.\n   05 F PIC A(4).\n",
+			item:   "F",
+			fault:  "in record R, charset none reaches F, and an item of category alphabetic is characters by declaration",
+		},
+		{
+			name:   "a numeric-edited item is characters by declaration",
+			source: "01 R.\n   05 F PIC ZZ9.99.\n",
+			item:   "F",
+			fault:  "in record R, charset none reaches F, and an item of category numeric-edited is characters by declaration",
+		},
+		{
+			name:   "an alphanumeric-edited item is characters by declaration",
+			source: "01 R.\n   05 F PIC XXBXX.\n",
+			item:   "F",
+			fault: "in record R, charset none reaches F, and an item of category alphanumeric-edited is" +
+				" characters by declaration",
+		},
+		{
+			name:   "a packed item is one the charset does not govern",
+			source: "01 R.\n   05 F PIC S9(7)V99 COMP-3.\n",
+			item:   "F",
+		},
+		{
+			name:   "a binary item is one the charset does not govern",
+			source: "01 R.\n   05 F PIC S9(4) COMP.\n",
+			item:   "F",
+		},
+		{
+			name:   "a COMP-6 item is one the charset does not govern",
+			source: "01 R.\n   05 F PIC 9(4) COMP-6.\n",
+			item:   "F",
+		},
+		{
+			name:   "a COMP-5 item is one the charset does not govern",
+			source: "01 R.\n   05 F PIC S9(4) COMP-5.\n",
+			item:   "F",
+		},
+		{
+			name:   "a floating point item is one the charset does not govern",
+			source: "01 R.\n   05 F COMP-1.\n",
+			item:   "F",
+		},
+		{
+			name:   "an INDEX item is one the charset does not govern",
+			source: "01 R.\n   05 F USAGE INDEX.\n",
+			item:   "F",
+		},
+		{
+			name:   "a POINTER item is one the charset does not govern",
+			source: "01 R.\n   05 F USAGE POINTER.\n",
+			item:   "F",
+		},
+		{
+			// A FILLER is reached the same way and reported against never: no
+			// accessor is generated for it and no item reference can name it,
+			// so the diagnostic would name an item the adopter cannot address.
+			name:   "a FILLER a group override reaches, whatever its PICTURE says",
+			source: "01 R.\n   05 G.\n      10 FILLER PIC 9(4).\n      10 F PIC X(2).\n",
+			item:   "G",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			field := recordOf(t, testCase.source)
+			_, err := Resolve(field, Options{
+				Copybook:          "test.cpy",
+				Dialect:           copybook.IBMEnterprise(),
+				Encoding:          mainframe(),
+				EncodingOverrides: []EncodingOverride{noneOn(t, field, testCase.item)},
+			})
+
+			var fault *CharsetNoneError
+			if testCase.fault == "" {
+				if errors.As(err, &fault) {
+					t.Fatalf("charset none reported %v, and the charset does not govern this item", err)
+				}
+				if err != nil {
+					t.Fatalf("resolving: %v", err)
+				}
+
+				return
+			}
+
+			if !errors.As(err, &fault) {
+				t.Fatalf("resolving reported %v, want a CharsetNoneError", err)
+			}
+
+			want := "orders.sexpr:7:1: " + testCase.fault + "\n  test.cpy:2:4: " + testCase.item + " is declared here"
+			if got := fault.Error(); got != want {
+				t.Errorf("reported\n%s\nwant\n%s", got, want)
+			}
+		})
+	}
+}
+
+// TestCharsetNoneNamesTheLayoutAndTheCopybook is docs/layout/SPEC.md's "Every
+// diagnostic carries a span, and some carry two" for this fault: the override is
+// the line the adopter wrote and the copybook may not be theirs to change, so a
+// diagnostic naming only one of them names the half they cannot fix.
+func TestCharsetNoneNamesTheLayoutAndTheCopybook(t *testing.T) {
+	t.Parallel()
+
+	field := recordOf(t, "01 R.\n   05 G.\n      10 QTY PIC 9(4).\n")
+	_, err := Resolve(field, Options{
+		Copybook:          "cpy/region.cpy",
+		Dialect:           copybook.IBMEnterprise(),
+		Encoding:          mainframe(),
+		EncodingOverrides: []EncodingOverride{noneOn(t, field, "G")},
+	})
+
+	var fault *CharsetNoneError
+	if !errors.As(err, &fault) {
+		t.Fatalf("resolving reported %v, want a CharsetNoneError", err)
+	}
+
+	spans := fault.Diagnostic().Spans
+	if len(spans) != 2 {
+		t.Fatalf("the fault carries %d spans, want the layout's and the copybook's", len(spans))
+	}
+
+	// The layout span is the override the adopter wrote, and not the group it
+	// named: the group is where the value arrived, and the form is where it
+	// was written.
+	if spans[0].File != "orders.sexpr" || spans[0].Line != 7 {
+		t.Errorf("the first span is %s, want the encoding-override in the layout", spans[0])
+	}
+
+	if spans[1].File != "cpy/region.cpy" || spans[1].Note == "" {
+		t.Errorf("the second span is %s %q, want the item's entry and a note saying so", spans[1], spans[1].Note)
+	}
+}
+
+// TestAnInnerOverrideRestoringACodePageIsNotAFault is why the check reads the
+// encoding in effect at the item rather than the overrides as written: an
+// adopter who says a group is payload and then says one item in it is text has
+// said something consistent, and reporting the outer statement against the inner
+// item would be a diagnostic about a layout that is right.
+func TestAnInnerOverrideRestoringACodePageIsNotAFault(t *testing.T) {
+	t.Parallel()
+
+	record := resolveUnder(t, `01 R.
+   05 G.
+      10 FLAG PIC X.
+      10 QTY PIC 9(4).
+`, mainframe(), func(field *copybook.Field) []EncodingOverride {
+		return []EncodingOverride{
+			noneOn(t, field, "G"),
+			{
+				Item: fieldNamed(t, field, "QTY"),
+				Axes: layoutmodel.Axes{Charset: layoutmodel.ASCII},
+			},
+		}
+	})
+
+	if got := encodingOf(t, record, "FLAG").Charset; got != layoutmodel.None {
+		t.Errorf("FLAG carries the charset %q, want the group's none", got)
+	}
+
+	if got := encodingOf(t, record, "QTY").Charset; got != layoutmodel.ASCII {
+		t.Errorf("QTY carries the charset %q, want the inner override's ascii", got)
 	}
 }

@@ -963,6 +963,15 @@ func (s *synth) value(id uint64, f *irpb.Field, at int) (any, error) {
 
 		return body, nil
 	case irpb.Usage_USAGE_DISPLAY:
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return nil, err
+		}
+
+		if opaque {
+			return payloadValue(at, int(f.GetWidth())), nil
+		}
+
 		if f.GetPicture().GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := s.fieldType(f); err != nil {
 				return nil, err
@@ -986,6 +995,46 @@ func (s *synth) value(id uint64, f *irpb.Field, at int) (any, error) {
 // to a width no copybook chose.
 func textValue(at, width int) string {
 	return strings.Repeat(string(rune('A'+at%26)), width)
+}
+
+// payloadValue is what an item no charset governs holds: a run that is not
+// text, so that a case fails if anything treated it as text.
+//
+// The first two bytes are 0x00 and 0x20, and the rest climb from 0x80 through
+// the byte values no charset renders as a printable character. Every one of
+// those three is a specific claim the case would otherwise not make:
+//
+//   - 0x00 is a byte no run of characters would carry and the byte a writer
+//     filling the field would emit. It is first, so a field written from a
+//     zeroed record rather than from its value is a literal whose *second*
+//     byte already differs.
+//   - 0x20 is the space ReadAlphanumeric trims off the tail of a text item and
+//     the byte WriteAlphanumeric pads a short one with. Held at a fixed
+//     position rather than at the end because it must survive a read, not
+//     merely be present.
+//   - the high bytes are what a charset table would translate. A run of
+//     printable ASCII survives cp037 and back unchanged in the places it
+//     matters, so a case made of one would pass whether the translation
+//     happened or not.
+//
+// Derived from the item's offset like every other value here, so that nothing
+// comes from the clock or the environment, and so that the same item at a
+// different offset is a different literal.
+func payloadValue(at, width int) []byte {
+	body := make([]byte, width)
+
+	for i := range body {
+		switch i {
+		case 0:
+			body[i] = 0x00
+		case 1:
+			body[i] = 0x20
+		default:
+			body[i] = byte(0x80 + (at+i)%0x70)
+		}
+	}
+
+	return body
 }
 
 // magnitude is the number an item with no predicate over it holds.
@@ -1078,6 +1127,23 @@ func (s *synth) write(f *irpb.Field, value any) error {
 
 		return s.w.WriteBytes(v)
 	case irpb.Usage_USAGE_DISPLAY:
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return err
+		}
+
+		if opaque {
+			v, ok := value.([]byte)
+			if !ok {
+				return mistyped(f, value, "[]byte")
+			}
+
+			// No width, exactly as [coder.writeCall] emits none: the
+			// generated encoder checks the length itself and so does
+			// [synth.value], which hands this a run of the item's own width.
+			return s.w.WriteBytes(v)
+		}
+
 		if picture.GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			v, ok := value.(string)
 			if !ok {
@@ -1239,6 +1305,15 @@ func (s *synth) read(r *codec.Reader, f *irpb.Field) (any, error) {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
 		return r.ReadBytes(int(f.GetWidth()))
 	case irpb.Usage_USAGE_DISPLAY:
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return nil, err
+		}
+
+		if opaque {
+			return r.ReadBytes(int(f.GetWidth()))
+		}
+
 		if picture.GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := s.fieldType(f); err != nil {
 				return nil, err
