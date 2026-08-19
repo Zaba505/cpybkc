@@ -287,37 +287,57 @@ func TestAnAsciiDescriptorEscapesTheBytesThatAreNotCharacters(t *testing.T) {
 // A case whose payload happened to be printable ASCII would pass whether the
 // item went through ReadBytes or ReadAlphanumeric, because a run of letters
 // survives a code page and a trim unchanged. So the synthesized value carries
-// the three things that do not: a 0x00 no run of characters would hold and a
-// writer filling the field would emit, a 0x20 the trailing-space trim deletes,
-// and bytes above 0x7F a charset table translates.
+// the things that do not: bytes above 0x7F a charset table translates, a 0x20
+// the trailing-space trim deletes, and a 0x00 no run of characters would hold.
+//
+// Pinned at the narrow widths as well as at six. A one-byte `PIC X` status flag
+// is the item this charset was added for, and a run that only makes its claims
+// from six bytes up makes none of them there: a case for such an item would be
+// a run a code page leaves alone, or worse, the zeros a writer emits for a
+// record carrying no value, which no case could tell a written value from.
 func TestACaseForAnItemNoCharsetGovernsIsMadeOfBytesNoCharsetSurvives(t *testing.T) {
 	t.Parallel()
 
-	body := payloadValue(0, 6)
+	// The widths each claim first has room for: every width holds a byte a
+	// charset would translate, two bytes hold the space as well, and three hold
+	// all three.
+	for _, width := range []int{1, 2, 6} {
+		body := payloadValue(0, width)
 
-	if len(body) != 6 {
-		t.Fatalf("the payload for a six-byte item is %d bytes", len(body))
-	}
-
-	for name, want := range map[string]byte{
-		"the byte a writer filling the field would emit": 0x00,
-		"the byte the trailing-space trim deletes":       0x20,
-	} {
-		if !bytes.Contains(body, []byte{want}) {
-			t.Errorf("the payload % x carries no 0x%02x, which is %s", body, want, name)
+		if len(body) != width {
+			t.Fatalf("the payload for a %d-byte item is %d bytes", width, len(body))
 		}
-	}
 
-	high := false
-
-	for _, b := range body {
-		if b > 0x7F {
-			high = true
+		if bytes.Equal(body, make([]byte, width)) {
+			t.Errorf("the payload for a %d-byte item is the zero fill a writer emits for a record that carries no value", width)
 		}
-	}
 
-	if !high {
-		t.Errorf("every byte of the payload % x is below 0x80, so a charset table would leave it alone", body)
+		high := false
+
+		for _, b := range body {
+			if b > 0x7F {
+				high = true
+			}
+		}
+
+		if !high {
+			t.Errorf("every byte of the payload % x is below 0x80, so a charset table would leave it alone", body)
+		}
+
+		for _, claim := range []struct {
+			byte  byte
+			from  int
+			about string
+		}{
+			{byte: 0x20, from: 2, about: "the byte the trailing-space trim deletes"},
+			{byte: 0x00, from: 3, about: "the byte no run of characters would hold"},
+		} {
+			if width < claim.from || bytes.Contains(body, []byte{claim.byte}) {
+				continue
+			}
+
+			t.Errorf("the payload % x is %d bytes and carries no 0x%02x, which is %s", body, width, claim.byte, claim.about)
+		}
 	}
 
 	// And the case that carries it. The literal is the bytes the item writes

@@ -589,14 +589,19 @@ accent characters wrongly.
 Items whose descriptor gives them **all four** axes are what `Encoding()` is
 read off, and they have to agree: `codec` carries one `Encoding` per `Reader`,
 so a descriptor whose items disagree on any axis describes a file there is no
-single `Encoding` for, and that is reported. An item whose charset is
-[`none`](#an-item-that-carries-bytes-rather-than-characters) is not part of that
-agreement — it states that no axis governs its bytes, so it makes no claim about
-the file to disagree with, and a byte item sitting beside a `cp037` text item
-leaves `Encoding()` naming `cp037`. A descriptor **every** item of which carries
-`none` states nothing about the file at all, and no `Encoding()` is generated
-for it; you pass your own, exactly as you would for a descriptor holding no
-item.
+single `Encoding` for, and that is reported.
+
+The agreement is per **axis**, not per item. An item whose charset is
+[`none`](#an-item-that-carries-bytes-rather-than-characters) is not a party to
+the **charset** half of it — it states that its bytes become characters under no
+code page, so it makes no claim there to disagree with, and a byte item sitting
+beside a `cp037` text item leaves `Encoding()` naming `cp037`. Its sign
+convention, byte order and float format are claims like any other item's and are
+held to the agreement, because an `encoding-override` may name a **group**, and
+a group holds packed and binary items whose sign and byte order are read
+whatever the charset says. A descriptor **no** item of which states a charset
+states nothing about the file at all, and no `Encoding()` is generated for it;
+you pass your own, exactly as you would for a descriptor holding no item.
 
 ### What the writer supplies, and what it refuses to
 

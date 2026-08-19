@@ -120,11 +120,11 @@ func TestAxisValuesAreTheClosedSets(t *testing.T) {
 				t.Errorf("axis renders as %q, want %q", got, testCase.tag)
 			}
 
-			if got := testCase.axis.Values(false); !slices.Equal(got, testCase.want) {
+			if got := testCase.axis.Values(inProfile); !slices.Equal(got, testCase.want) {
 				t.Errorf("the profile admits %v, want %v", got, testCase.want)
 			}
 
-			if got := testCase.axis.Values(true); !slices.Equal(got, testCase.override) {
+			if got := testCase.axis.Values(inOverride); !slices.Equal(got, testCase.override) {
 				t.Errorf("an override admits %v, want %v", got, testCase.override)
 			}
 		})
@@ -137,11 +137,11 @@ func TestAxisValuesAreTheClosedSets(t *testing.T) {
 func TestOnlyAnOverrideAdmitsCharsetNone(t *testing.T) {
 	t.Parallel()
 
-	if AxisCharset.admits(string(None), false) {
+	if AxisCharset.admits(string(None), inProfile) {
 		t.Error("the encoding profile admits charset none, which is a statement about one item")
 	}
 
-	if !AxisCharset.admits(string(None), true) {
+	if !AxisCharset.admits(string(None), inOverride) {
 		t.Error("an encoding-override does not admit charset none")
 	}
 

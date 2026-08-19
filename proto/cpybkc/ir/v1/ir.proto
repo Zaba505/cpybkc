@@ -472,9 +472,13 @@ enum Charset {
   // translation and MUST strip and add no padding. See docs/ir/SPEC.md, "An
   // item with no charset carries bytes, not characters".
   //
-  // Adding it does not advance IrVersion, for the reason stated above: a
-  // consumer that does not know it refuses the descriptor on sight rather than
-  // reading the item as text.
+  // Adding it does not advance IrVersion, and not for the reason stated above.
+  // A code page a consumer has no table for is one it cannot emit a reader for
+  // at all; this value is one it could translate through and would be wrong to,
+  // so the refusal rule is a rule rather than a mechanism here. What carries it
+  // is that closed sets are settled before the first release and IR_VERSION_1
+  // is the version being assembled. See docs/ir/SPEC.md, "An item with no
+  // charset carries bytes, not characters".
   CHARSET_NONE = 6;
 }
 

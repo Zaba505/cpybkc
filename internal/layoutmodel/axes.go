@@ -40,6 +40,30 @@ const (
 // [Axes.Missing] or [Axes.Stated]; this is what those and the reader iterate.
 var allAxes = []Axis{AxisCharset, AxisSignConvention, AxisByteOrder, AxisFloatFormat}
 
+// position is where in a layout an axis value was written: on the `encoding`
+// profile, or on an `encoding-override`.
+//
+// It is here because what an axis admits depends on it. `(charset none)` is a
+// statement about one item's bytes, so it is admitted on the form that names an
+// item and not on the one that names none (docs/layout/SPEC.md, "A byte is not a
+// character, and such an item has no charset") — and the other three axes admit
+// the same values wherever they stand.
+//
+// A named pair rather than a bool because the reader of `Values(inOverride)`
+// learns what is being asked and the reader of `Values(true)` learns only that
+// something is. It is unexported for the same reason [None] is not in the
+// registry: the two positions are the two forms this package's own reader walks,
+// and nothing outside it has a form to be in.
+type position int
+
+const (
+	// inProfile is the `encoding` form, which names no item.
+	inProfile position = iota
+
+	// inOverride is an `encoding-override` form, which names one.
+	inOverride
+)
+
 // String is the tag a layout writes the axis as.
 //
 // It is the layout spelling rather than a prose name because every message this
@@ -73,18 +97,13 @@ func (a Axis) String() string {
 // admitted on an `encoding-override`, which names an item, and not on the
 // `encoding` profile, which names none (docs/layout/SPEC.md, "A byte is not a
 // character, and such an item has no charset"). The other three axes admit the
-// same values in both positions and ignore the argument; charset is the axis the
+// same values in both positions and ignore [position]; charset is the axis the
 // two positions differ on, and one axis differing is what makes this a parameter
 // rather than a second method nobody would remember to call.
-//
-// The position is a bool rather than a named pair of positions because there are
-// two of them and there is no third: the format has one profile form and one
-// override form, and a type declared for the pair would be a set that reads as
-// though it could grow.
-func (a Axis) Values(override bool) []string {
+func (a Axis) Values(where position) []string {
 	switch a {
 	case AxisCharset:
-		return charsetValues(override)
+		return charsetValues(where)
 	case AxisSignConvention:
 		return []string{
 			string(SignEBCDIC),
@@ -102,8 +121,8 @@ func (a Axis) Values(override bool) []string {
 }
 
 // admits reports whether value is one the axis takes where it was written.
-func (a Axis) admits(value string, override bool) bool {
-	return slices.Contains(a.Values(override), value)
+func (a Axis) admits(value string, where position) bool {
+	return slices.Contains(a.Values(where), value)
 }
 
 // Charset is a value the charset axis admits: one of the code pages below, or
@@ -183,13 +202,13 @@ var charsets = []Charset{CP037, CP500, CP1047, CP1140, ASCII}
 // it in — "as above, or `none`" — and because a diagnostic naming the set is
 // read as a list of code pages an adopter may have misspelled, with the value
 // that is not a code page at the end of it rather than among them.
-func charsetValues(override bool) []string {
+func charsetValues(where position) []string {
 	values := make([]string, 0, len(charsets)+1)
 	for _, charset := range charsets {
 		values = append(values, string(charset))
 	}
 
-	if override {
+	if where == inOverride {
 		values = append(values, string(None))
 	}
 

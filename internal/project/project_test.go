@@ -1133,3 +1133,66 @@ func TestCharsetNoneOverAnItemThatIsCharactersNamesBothFiles(t *testing.T) {
 		t.Errorf("the diagnostic names REG-CODE, whose bytes charset none can mean something for:\n%s", rendered)
 	}
 }
+
+// TestCharsetNoneOverAFillerIsBuiltRatherThanRefusedTwiceOver is the two stages
+// agreeing, pinned by running one descriptor past both of them.
+//
+// `resolve` blesses a FILLER an override reaches whatever its PICTURE says, for
+// a reason `assemble` shares: an item COBOL gives no data-name is read as the
+// bytes it is, no accessor is generated for it, and no item reference can name
+// it, so its charset is never read. Two passes reading the same rule differently
+// is a layout one stage admits and the next refuses, with the second diagnostic
+// naming a node id and no file, line or name — so the agreement is asserted
+// here, where a descriptor goes through both, rather than separately in each.
+func TestCharsetNoneOverAFillerIsBuiltRatherThanRefusedTwiceOver(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "region.cpy"), fixed(
+		"01  REG-REC.",
+		"    05  REG-TYPE       PIC X(1).",
+		"    05  REG-BODY.",
+		"        10  REG-CODE   PIC X(2).",
+		"        10  FILLER     PIC 9(4).",
+	))
+
+	write(t, filepath.Join(dir, "region.sexpr"), `(encoding
+  (charset cp037) (sign-convention ebcdic)
+  (byte-order big-endian) (float-format hfp))
+(encoding-override (item REGION REG-BODY) (charset none))
+(framing (recfm F) (lrecl 7))
+(record REGION (copybook "region.cpy" REG-REC))
+(discriminate REGION single-record-type)
+(sequence (* REGION))
+`)
+	write(t, filepath.Join(dir, manifest.Name), `{"layout": "region.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	run, err := project.Load(filepath.Join(dir, manifest.Name))
+	if err != nil {
+		t.Fatalf("a group override reaching a FILLER does not build:\n%s", diag.Render(err))
+	}
+
+	// And the override did reach it. A build that passed because the FILLER
+	// never carried the charset would prove nothing about the rule, so the
+	// unnamed field is found by the shape a FILLER has — no names message at
+	// all — and held to carrying the value the override wrote.
+	found := false
+
+	for _, node := range run.Descriptor.GetNodes() {
+		field := node.GetField()
+		if field == nil || field.GetNames() != nil {
+			continue
+		}
+
+		found = true
+
+		if got := field.GetEncoding().GetCharset(); got != irpb.Charset_CHARSET_NONE {
+			t.Errorf("the FILLER under the override carries %s, want %s", got, irpb.Charset_CHARSET_NONE)
+		}
+	}
+
+	if !found {
+		t.Error("the descriptor carries no unnamed field, so the copybook's FILLER never reached it")
+	}
+}

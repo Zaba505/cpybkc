@@ -356,8 +356,17 @@ func (v *validator) field(id uint64, field *irpb.Field) {
 	// a layout name a group. Nor is it read where the category is unspecified:
 	// that is already a fault above where there is a PICTURE to read it from, and
 	// reporting it again under another description would name one thing twice.
+	//
+	// Nor on a field carrying no names message at all, which is an item COBOL
+	// gave no data-name. `resolve` skips a FILLER here for a reason this pass
+	// shares: such an item is read as the bytes it is whatever its PICTURE says,
+	// no accessor is generated for it and no item reference can name it, so its
+	// charset is never read and there is nothing for this rule to protect. A
+	// fault raised on one is also the fault `resolve` does *not* raise, so
+	// refusing it here would refuse a descriptor the stage before this one
+	// blessed, with a diagnostic naming a node id and no line.
 	if field.GetEncoding().GetCharset() == irpb.Charset_CHARSET_NONE &&
-		field.GetUsage() == irpb.Usage_USAGE_DISPLAY {
+		field.GetUsage() == irpb.Usage_USAGE_DISPLAY && field.GetNames() != nil {
 		switch category := field.GetPicture().GetCategory(); category {
 		case irpb.Category_CATEGORY_UNSPECIFIED, irpb.Category_CATEGORY_ALPHANUMERIC:
 		default:

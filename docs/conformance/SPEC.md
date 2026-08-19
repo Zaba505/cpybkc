@@ -613,12 +613,20 @@ characters](../ir/SPEC.md#an-item-with-no-charset-carries-bytes-not-characters)
 — is written as a JSON string of its bytes in base64, under exactly the rules
 above: RFC 4648 section 4's alphabet, padded, canonical, no line break (#275).
 
-Its length is the field's width, always. The three usages above have no
-padding rule to escape, and this one does: an item written as
+Its length **MUST** be the field's width. The three usages above have no padding
+rule to escape, and this one does: an item written as
 [characters](#characters-and-why-trailing-spaces-do-not-survive) loses its
 trailing spaces, and an item written this way loses nothing at all. That is the
 point of the declaration rather than a detail of it, so a values document
 holding fewer bytes than the field is wide is one no correct writer produced.
+
+It is the one rule in this section a loader cannot check, and that is a property
+of the value language rather than an omission: a values document carries no
+widths, and the only place a width is written down is the descriptor, which
+[a loader](#comparison-is-over-the-written-form) is not otherwise required to
+read. What catches a short value is the comparison — an entry's own bytes are
+the width, so a generator that trimmed one differs from the entry there — and a
+runner **MUST NOT** be expected to notice it any earlier.
 
 Base64 rather than characters, for the reason the three usages above take it:
 the content is not this format's to interpret. What makes this one different is

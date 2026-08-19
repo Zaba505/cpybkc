@@ -234,6 +234,71 @@ func TestALiteralThatCannotBeResolvedIsReportedAndNotGuessed(t *testing.T) {
 	}
 }
 
+// TestATextLiteralAgainstAnItemNoCharsetGovernsIsReportedAsThat is the fault
+// `(charset none)` introduces on the discrimination side, held apart from the
+// fault it would otherwise be mistaken for.
+//
+// A text literal is resolved through the target item's charset, and an item the
+// layout says carries no characters has none for it to go through. That is the
+// axis *answered* — the adopter said these bytes are a payload — and the way out
+// is to write what is in the file as `(bytes "…")`, which the message names. The
+// fault it must not be reported as is "the charset is not stated", which is the
+// axis *unanswered*: an adopter told to state a charset they deliberately
+// declined to state has been sent to undo the thing they meant.
+func TestATextLiteralAgainstAnItemNoCharsetGovernsIsReportedAsThat(t *testing.T) {
+	t.Parallel()
+
+	record := recordOf(t, typed)
+
+	file, err := layout.Parse("layout.sexpr", strings.NewReader(oneRecord(`(equals (item ONLY T-TYPE) "ABC")`)))
+	if err != nil {
+		t.Fatalf("parsing the layout: %v", err)
+	}
+
+	sequence, err := layoutmodel.ReadSequence(file)
+	if err != nil {
+		t.Fatalf("reading the sequencing layer: %v", err)
+	}
+
+	discrimination, err := layoutmodel.ReadDiscrimination(file)
+	if err != nil {
+		t.Fatalf("reading the discrimination layer: %v", err)
+	}
+
+	// Assembled here rather than through [compileLayout] because the override
+	// is the subject: T-TYPE is a `PIC X(3)`, which is the one shape `none` is
+	// admitted on, so nothing refuses the layout before the literal is reached.
+	_, err = CompileSequence(Sequencing{
+		Sequence:          sequence,
+		Dialect:           copybook.IBMEnterprise(),
+		Reading:           layoutmodel.ODOSlide,
+		Encoding:          mainframe(),
+		EncodingOverrides: []EncodingOverride{noneOn(t, record, "T-TYPE")},
+		Records: []SequencedRecord{{
+			Name:          "ONLY",
+			Copybook:      "only.cpy",
+			Item:          record,
+			Discriminator: discrimination.Records[0].Strategy,
+		}},
+	})
+
+	var literal *PredicateLiteralError
+	if !errors.As(err, &literal) {
+		t.Fatalf("compiling reported %v, want a PredicateLiteralError", err)
+	}
+
+	for _, want := range []string{"T-TYPE", "carries no charset", `(bytes "…")`} {
+		if !strings.Contains(literal.Error(), want) {
+			t.Errorf("the diagnostic does not name %s: %s", want, literal.Error())
+		}
+	}
+
+	// Reported instead of the unanswered-axis message and not on the way to it.
+	if strings.Contains(literal.Error(), "the charset is not stated on") {
+		t.Errorf("the diagnostic reads as an item nobody stated a charset for: %s", literal.Error())
+	}
+}
+
 // TestADiscriminatorTestingAFieldOfAnotherRecordIsRejected, which is the half of
 // docs/ir/SPEC.md's containment rule that needs a copybook, plus the half
 // `layoutmodel` checks, reached by a caller that assembled a strategy itself.

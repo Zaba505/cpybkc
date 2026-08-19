@@ -1542,7 +1542,16 @@ func categorized(id uint64, name string, width uint32, category irpb.Category) *
 // and not a licence to leave one unresolved — and the charset is the fifth
 // value rather than the unset one.
 func opaque(id uint64, name string, width uint32) *irpb.Node {
-	node := alphanumeric(id, name, width)
+	return noCharset(alphanumeric(id, name, width))
+}
+
+// noCharset is the charset axis answering none on an item of any usage.
+//
+// [opaque] is the one shape that reading is admitted on. This is the same axis
+// on the items beside it, which is what an `encoding-override` naming a *group*
+// leaves behind: the override reaches every item under the group, and a group
+// holds packed, binary and floating-point items the charset governs nothing of.
+func noCharset(node *irpb.Node) *irpb.Node {
 	node.GetField().GetEncoding().Charset = irpb.Charset_CHARSET_NONE
 
 	return node

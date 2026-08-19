@@ -246,7 +246,7 @@ func TestReadProfileAcceptsEveryAdmittedValue(t *testing.T) {
 	t.Parallel()
 
 	for _, axis := range allAxes {
-		for _, value := range axis.Values(true) {
+		for _, value := range axis.Values(inOverride) {
 			t.Run(fmt.Sprintf("%s %s", axis, value), func(t *testing.T) {
 				t.Parallel()
 

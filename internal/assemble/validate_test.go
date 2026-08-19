@@ -334,6 +334,7 @@ func TestCharsetNoneIsHeldToTheItemItCanMeanSomethingFor(t *testing.T) {
 		name    string
 		usage   irpb.Usage
 		picture *irpb.Picture
+		filler  bool
 		says    string
 	}{
 		{
@@ -379,6 +380,19 @@ func TestCharsetNoneIsHeldToTheItemItCanMeanSomethingFor(t *testing.T) {
 			name:  "a POINTER field, which has no PICTURE at all",
 			usage: irpb.Usage_USAGE_POINTER,
 		},
+		{
+			// The picture that faults on a named item, on an item COBOL gave
+			// no data-name. `resolve` blesses this one — a FILLER is read as
+			// the bytes it is whatever its PICTURE says, no accessor is
+			// generated for it and no item reference can name it, so its
+			// charset is never read — and a pass refusing here what the stage
+			// before it passed would turn down a descriptor this repository
+			// produces, naming a node id and no item.
+			name:    "a FILLER, whose charset nothing reads",
+			usage:   irpb.Usage_USAGE_DISPLAY,
+			picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: 4},
+			filler:  true,
+		},
 	}
 
 	for _, test := range tests {
@@ -388,6 +402,10 @@ func TestCharsetNoneIsHeldToTheItemItCanMeanSomethingFor(t *testing.T) {
 			field.GetEncoding().Charset = irpb.Charset_CHARSET_NONE
 			field.Usage = test.usage
 			field.Picture = test.picture
+
+			if test.filler {
+				field.Names = nil
+			}
 
 			if test.says == "" {
 				if err := Validate(d); err != nil {

@@ -1807,19 +1807,33 @@ same rule [Slack survives a read](#slack-survives-a-read) already puts on a run
 of bytes no item covers, reached from the other direction — those bytes are
 retained rather than reconstructed for exactly this reason.
 
-**Adding it did not advance the version.** [What breaks
-it](#what-breaks-it) turns on whether a conforming consumer can ignore a change
-and remain correct, and this is not a change such a consumer can ignore: one
-that read the item as text would trim it, translate it, and be wrong about 236
-of the 256 values a byte may hold. What makes it additive all the same is that
-no consumer *can* ignore it. The charset axis is an enumeration a consumer
-**MUST** refuse an unrecognised value of rather than falling back to one it
-knows, so a generator built before this value existed meets it as a number it
-does not have and refuses the descriptor on sight. The distinction is the one
-that section already draws between a field, which an old consumer sees nothing
-of, and a value, which arrives as itself and can be refused; a marker carried as
-a new field on the field node would have been the first, and would have had to
-advance the version.
+**Adding it did not advance the version, and the reason is not the one it looks
+like.** `Charset` is a closed set, and [What breaks it](#what-breaks-it) calls
+adding a member to one breaking — a consumer that read this item as text would
+trim it, translate it, and be wrong about 236 of the 256 values a byte may hold.
+That bullet is right and this is not an exception to it. It is the case its own
+last sentence describes: the sets are enumerated **before the first release**
+rather than after it, `IR_VERSION_1` is the version being assembled and not one
+anything has yet been held to, and there is nothing to advance from. Every other
+closed set in this document was settled that way; the charset axis is being
+settled the same way, once.
+
+What is deliberately **not** the argument is that an old consumer would refuse
+it. A consumer **MUST** refuse a charset it does not recognise, and that is a
+rule this document places on consumers rather than a mechanism protobuf
+provides: an unknown enum value is preserved as its own number, so a consumer
+whose `switch` has no default falls through rather than failing. This project's
+own `cpybkc-gen-graph` read the charset in exactly one place and refused
+nothing; it was changed alongside this value, and had it not been it would have
+gone on printing an item's width as a count of characters. The rule is worth
+stating and is not worth resting a version decision on.
+
+The two are not the same claim for a *code page*, which is why the enum's own
+note may rest on refusal where this section does not. A consumer handed a code
+page it has no table for cannot emit a reader at all, so it fails whether or not
+it remembered the rule; a consumer handed this value has a translation it could
+apply and would be wrong to. After the first release, a member added to this set
+— or to any other — is breaking, and the version moves.
 
 ## Names
 

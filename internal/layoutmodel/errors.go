@@ -70,7 +70,7 @@ func (e *MissingAxisError) Error() string {
 // layout spells it, `little` for `little-endian`.
 //
 // The set it names is the one admitted where the value was written, which is why
-// it carries [AxisValueError.Override]. `none` is a charset an override may
+// it carries [AxisValueError.Position]. `none` is a charset an override may
 // write and the profile may not, so a message on the profile that offered it
 // would send an adopter to write a line that is itself a diagnostic, and one on
 // an override that withheld it would hide the value they were looking for.
@@ -84,16 +84,18 @@ type AxisValueError struct {
 	// Value is what was written.
 	Value string
 
-	// Override is whether the value stands under an `encoding-override` rather
-	// than under the `encoding` profile.
-	Override bool
+	// Position is which of the two forms the value stands under, which is what
+	// decides the set the message names. Its zero value is the profile, the
+	// position that admits the smaller set — so a value assembled without it
+	// offers an adopter nothing the profile would refuse.
+	Position position
 }
 
 // Error implements the error interface.
 func (e *AxisValueError) Error() string {
 	return fmt.Sprintf(
 		"%s: %s is one of %s, and this one says %s",
-		e.Pos, e.Axis, and(e.Axis.Values(e.Override)), quote(e.Value),
+		e.Pos, e.Axis, and(e.Axis.Values(e.Position)), quote(e.Value),
 	)
 }
 

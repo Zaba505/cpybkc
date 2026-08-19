@@ -308,15 +308,16 @@ func TestAnItemNoCharsetGovernsIsBytesOnBothSides(t *testing.T) {
 	}
 }
 
-// TestAnItemNoCharsetGovernsIsNotAPartyToTheEncodingAgreement is the byte item
+// TestAnItemNoCharsetGovernsIsNotAPartyToTheCharsetAgreement is the byte item
 // beside a text item, which is the ordinary shape rather than an exotic one.
 //
 // A descriptor whose items disagree on an axis is refused, because codec
-// carries one Encoding per Reader. An item stating that no axis governs its
-// bytes makes no claim about the file to disagree with, so it is skipped rather
-// than compared — and the alternative, refusing the pair, would refuse the very
-// case this charset was added for: a status flag sitting in a cp037 record.
-func TestAnItemNoCharsetGovernsIsNotAPartyToTheEncodingAgreement(t *testing.T) {
+// carries one Encoding per Reader. An item stating that its bytes become
+// characters under no code page makes no claim about the file's charset to
+// disagree with, so it takes no part in that comparison — and the alternative,
+// comparing it, would refuse the very case this charset was added for: a status
+// flag sitting in a cp037 record.
+func TestAnItemNoCharsetGovernsIsNotAPartyToTheCharsetAgreement(t *testing.T) {
 	t.Parallel()
 
 	d := &irpb.Descriptor{
@@ -345,16 +346,105 @@ func TestAnItemNoCharsetGovernsIsNotAPartyToTheEncodingAgreement(t *testing.T) {
 	}
 }
 
+// TestAGroupOverrideReachingEveryUsageUnderItStillGenerates is the shape an
+// `encoding-override` naming a group actually produces.
+//
+// docs/layout/SPEC.md, docs/ir/SPEC.md and this command's README all say the
+// same thing: `(charset none)` is inert on every usage the charset does not
+// govern, because an override names an item and that item **MAY** be a group,
+// and a group holds items of every usage. So the packed item below carries
+// CHARSET_NONE and is a packed item still — it is read through its digits, not
+// through a code page — and the descriptor it sits in resolves to the charset
+// the items the charset does govern carry.
+//
+// It is pinned here because the per-field reading of the agreement generates
+// for the alphanumeric item and refuses this: a packed field skipped by nothing
+// and compared on all four axes disagrees with every text field beside it, and
+// the whole descriptor is turned down over an item the charset was never read
+// on.
+func TestAGroupOverrideReachingEveryUsageUnderItStillGenerates(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "REGION-RECORD", 2),
+			group(2, "REGION-RECORD", nil, 3, 4, 5),
+			alphanumeric(3, "REG-CODE", 2),
+			noCharset(packed(4, "REG-AMT", 4, 7, 2, true)),
+			noCharset(binary(5, "REG-COUNT", 2, 4, true)),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[codecFile]
+
+	// The charset is the one item that stated one, and the other two are read
+	// as the numbers they are rather than as bytes.
+	for _, want := range []string{
+		"codec.CP037()",
+		"r.ReadPackedInt32(7)",
+		"r.ReadBinaryInt16(4)",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not carry %q:\n%s", codecFile, want, source)
+		}
+	}
+}
+
+// TestAnItemNoCharsetGovernsIsStillHeldToTheOtherThreeAxes is the other
+// direction of the same split, and the reason it is a split rather than a skip.
+//
+// Stating no charset is a statement about the charset and about nothing else. A
+// packed item's sign convention and a binary item's byte order are read whether
+// its charset is cp037, none, or anything else, and an `encoding-override` may
+// set those axes too — so a field that dropped out of the agreement entirely
+// would be a field whose byte order this generator never checked and whose
+// numbers come back reversed with nothing reporting it.
+func TestAnItemNoCharsetGovernsIsStillHeldToTheOtherThreeAxes(t *testing.T) {
+	t.Parallel()
+
+	item := noCharset(binary(4, "REG-COUNT", 2, 4, true))
+	item.GetField().GetEncoding().ByteOrder = irpb.ByteOrder_BYTE_ORDER_LITTLE_ENDIAN
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "REGION-RECORD", 2),
+			group(2, "REGION-RECORD", nil, 3, 4),
+			alphanumeric(3, "REG-CODE", 2),
+			item,
+		},
+	}
+
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+
+	var refusal *mixedEncodingError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("generate returned %v, want a refusal", err)
+	}
+
+	for _, want := range []string{"REG-CODE", "REG-COUNT", "byte order"} {
+		if !strings.Contains(refusal.Error(), want) {
+			t.Errorf("the refusal reads %q and does not name %s", refusal, want)
+		}
+	}
+}
+
 // TestADescriptorEveryItemOfWhichCarriesNoCharsetDeclaresNoEncoding is the
 // consequence of the rule above, taken to the end of its range.
 //
-// Where no item is a party to the agreement there is nothing to read an
-// Encoding off, which is the answer a descriptor carrying no field at all
-// already gives: no helper, and the caller passes their own. It is the right
-// answer rather than a gap — the descriptor states no charset, no sign
-// convention, no byte order and no float format, so there is none to hand
-// anybody — and this is here because the alternative is a nil dereference
-// somewhere in the walk rather than an omission anybody decided on.
+// Where no item states a charset there is nothing to read an Encoding off, which
+// is the answer a descriptor carrying no field at all already gives: no helper,
+// and the caller passes their own. It is the right answer rather than a gap —
+// the descriptor states no charset for the file its records live in, so there is
+// none to hand anybody — and this is here because the alternative is a nil
+// dereference somewhere in the walk rather than an omission anybody decided on.
 func TestADescriptorEveryItemOfWhichCarriesNoCharsetDeclaresNoEncoding(t *testing.T) {
 	t.Parallel()
 
