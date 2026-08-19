@@ -18,7 +18,7 @@ go 1.26.2
 
 require (
 	github.com/Zaba505/cpybkc v0.0.3
-	github.com/parquet-go/parquet-go v0.30.1
+	github.com/parquet-go/parquet-go v0.32.0
 )
 
 require (

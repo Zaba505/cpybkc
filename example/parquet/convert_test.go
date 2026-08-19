@@ -23,6 +23,7 @@ import (
 
 	"github.com/Zaba505/cpybkc/example/ledger"
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/format"
 )
 
 // postingsPerType is how many of the six posting types the fixtures cycle
@@ -462,13 +463,17 @@ func assertDecimal(t *testing.T, file []byte, path string, precision, scale int3
 		node = next
 	}
 
-	logical := node.Type().LogicalType()
-	if logical == nil || logical.Decimal == nil {
+	decimal := (*format.DecimalType)(nil)
+	if logical := node.Type().LogicalType(); logical != nil {
+		decimal, _ = logical.Value.(*format.DecimalType)
+	}
+
+	if decimal == nil {
 		t.Fatalf("%s is not annotated DECIMAL: an unscaled integer written without one is a number whose scale only the copybook knows", path)
 	}
 
-	if logical.Decimal.Precision != precision || logical.Decimal.Scale != scale {
-		t.Errorf("%s is DECIMAL(%d,%d), want DECIMAL(%d,%d)", path, logical.Decimal.Precision, logical.Decimal.Scale, precision, scale)
+	if decimal.Precision != precision || decimal.Scale != scale {
+		t.Errorf("%s is DECIMAL(%d,%d), want DECIMAL(%d,%d)", path, decimal.Precision, decimal.Scale, precision, scale)
 	}
 }
 
