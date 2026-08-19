@@ -8,12 +8,11 @@ package layoutmodel
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // profile is the whole pipeline a caller runs: parse the source, then read the
@@ -605,9 +604,9 @@ func TestFaultsAreAssertable(t *testing.T) {
 
 // TestTheSpecsWorkedExampleReads is the staleness gate over the layer.
 //
-// docs/layout/SPEC.md's "A layout, end to end" appendix is the layout the
-// document shows an adopter, and it is read out of the document rather than
-// copied here for the reason
+// docs/layout/SPEC.md's "A layout, end to end" appendix is one of the two
+// layouts the document shows an adopter, and it is read out of the document
+// rather than copied here for the reason
 // [github.com/Zaba505/cpybkc/internal/layout]'s tests read it: an encoding form
 // the example writes and this reader does not read would otherwise be invisible
 // until somebody pasted the example into a file.
@@ -617,7 +616,7 @@ func TestFaultsAreAssertable(t *testing.T) {
 func TestTheSpecsWorkedExampleReads(t *testing.T) {
 	t.Parallel()
 
-	read, err := profile(t, specExample(t))
+	read, err := profile(t, specExample(t, layoutdoc.NativeExample))
 	if err != nil {
 		t.Fatalf("the reader rejects SPEC.md's own worked example: %v", err)
 	}
@@ -652,60 +651,91 @@ func TestTheSpecsWorkedExampleReads(t *testing.T) {
 	}
 }
 
-// specExample returns the layout in docs/layout/SPEC.md's "A layout, end to end"
-// appendix: the first fenced block under that heading.
+// TestTheSpecsConvertedExampleReads is the same gate over the second layout, and
+// over the claim the layer exists to make.
 //
-// [github.com/Zaba505/cpybkc/internal/layout]'s tests read the same block, with
-// their own copy of this. Two are a duplication worth leaving until a third
-// package wants one, at which point what they share is a helper and not three
-// readings of a document.
-func specExample(t *testing.T) string {
+// "All four, always, with no default for any" says the combination real files
+// hit most often is one no compiler produces — ASCII characters, EBCDIC signs
+// and mainframe byte order — and that it is expressible only because the four
+// axes are stated separately. Until the second appendix that claim was made in
+// prose and shown nowhere, so nothing here read it. This is the layout that
+// makes it, read back one axis at a time.
+//
+// It earns two things the native example cannot. Two overrides on one profile,
+// which is what makes "an override is per item" a rule the reader is held to
+// rather than a sentence; and `none` on the charset axis of one of them, which
+// is the only value an override admits that a profile does not.
+func TestTheSpecsConvertedExampleReads(t *testing.T) {
+	t.Parallel()
+
+	read, err := profile(t, specExample(t, layoutdoc.ConvertedExample))
+	if err != nil {
+		t.Fatalf("the reader rejects SPEC.md's own converted example: %v", err)
+	}
+
+	want := Axes{
+		Charset:        ASCII,
+		SignConvention: SignTranslatedEBCDIC,
+		ByteOrder:      BigEndian,
+		FloatFormat:    HFP,
+	}
+
+	if read.Axes != want {
+		t.Errorf("the profile reads as %+v, want %+v", read.Axes, want)
+	}
+
+	// The two overrides, in the order the layout writes them, and what each one
+	// leaves the profile saying. The payload item moves one axis and the
+	// passed-through block moves two, which is the whole of "an override
+	// replaces the profile's value axis by axis, for that item alone".
+	payload := want
+	payload.Charset = None
+
+	passthrough := want
+	passthrough.Charset = CP037
+	passthrough.SignConvention = SignEBCDIC
+
+	wantOverrides := []struct {
+		item    string
+		applied Axes
+	}{
+		{item: "(item SETTLE-DETAIL SD-REGION)", applied: payload},
+		{item: "(item SETTLE-HEADER SH-PASSTHROUGH)", applied: passthrough},
+	}
+
+	if len(read.Overrides) != len(wantOverrides) {
+		t.Fatalf("read %d overrides out of the converted appendix, want %d", len(read.Overrides), len(wantOverrides))
+	}
+
+	for i, want := range wantOverrides {
+		override := read.Overrides[i]
+
+		if got := override.Item.String(); got != want.item {
+			t.Errorf("override %d is on %s, want %s", i, got, want.item)
+		}
+
+		if got := read.Applied(override); got != want.applied {
+			t.Errorf("override %d applies as %+v, want %+v", i, got, want.applied)
+		}
+	}
+}
+
+// specExample returns the worked example under heading in docs/layout/SPEC.md.
+//
+// This package, [github.com/Zaba505/cpybkc/internal/layout] and
+// [github.com/Zaba505/cpybkc/internal/layoutschema] now share one reading of
+// the document, which is what the note that used to sit here asked for: two
+// copies were worth leaving until a third package wanted one. Two examples read
+// by three packages is that arrival, and
+// [github.com/Zaba505/cpybkc/internal/layoutdoc] is the helper it became — see
+// there for why an example is located by a heading of its own.
+func specExample(t *testing.T, heading string) string {
 	t.Helper()
 
-	spec, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "layout", "SPEC.md"))
+	example, err := layoutdoc.Example(heading)
 	if err != nil {
-		t.Fatalf("read the layout SPEC: %v", err)
-	}
-
-	_, appendix, found := strings.Cut(string(spec), "## Appendix: A layout, end to end")
-	if !found {
-		t.Fatal("the layout SPEC has no \"A layout, end to end\" appendix")
-	}
-
-	_, block, found := strings.Cut(appendix, "```\n")
-	if !found {
-		t.Fatal("the appendix carries no fenced code block")
-	}
-
-	example, _, found := strings.Cut(block, "```")
-	if !found {
-		t.Fatal("the appendix's fenced code block is not closed")
+		t.Fatalf("read the layout SPEC's worked example: %v", err)
 	}
 
 	return example
-}
-
-// repoRoot walks up from the test's working directory to the directory holding
-// go.mod, which for this module is the repository root and so the directory
-// docs/ sits in.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("working directory: %v", err)
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("no go.mod above the test's working directory")
-		}
-
-		dir = parent
-	}
 }

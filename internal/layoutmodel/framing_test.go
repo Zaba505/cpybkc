@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // framingOf is the whole pipeline a caller runs: parse the source, then read the
@@ -841,7 +842,7 @@ func TestFramingFaultsAreAssertable(t *testing.T) {
 func TestTheSpecsWorkedExampleFrames(t *testing.T) {
 	t.Parallel()
 
-	read, err := framingOf(t, specExample(t))
+	read, err := framingOf(t, specExample(t, layoutdoc.NativeExample))
 	if err != nil {
 		t.Fatalf("the reader rejects SPEC.md's own worked example: %v", err)
 	}

@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	sexpr "github.com/z5labs/sexpr-go"
+
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // TestParseBuildsAPositionedAST is the criterion this package exists for, and
@@ -116,7 +118,7 @@ func TestParseBuildsAPositionedAST(t *testing.T) {
 func TestEveryNodeCarriesTheFileItWasReadFrom(t *testing.T) {
 	t.Parallel()
 
-	file, err := Parse("orders.sexpr", strings.NewReader(specExample(t)))
+	file, err := Parse("orders.sexpr", strings.NewReader(specExample(t, layoutdoc.NativeExample)))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -144,15 +146,15 @@ func TestEveryNodeCarriesTheFileItWasReadFrom(t *testing.T) {
 // TestTheSpecsWorkedExampleParses is the staleness gate over the notation.
 //
 // docs/layout/SPEC.md's "A layout, end to end" appendix is the layout the
-// document shows an adopter, and it is the one layout in this repository nobody
-// wrote against this reader. Reading it out of the document rather than copying
-// it here is the point: a change to the notation the appendix followed and the
-// reader did not would otherwise be invisible until an adopter pasted the
-// example into a file.
+// document shows an adopter, and it is one of the two layouts in this
+// repository nobody wrote against this reader. Reading it out of the document
+// rather than copying it here is the point: a change to the notation the
+// appendix followed and the reader did not would otherwise be invisible until
+// an adopter pasted the example into a file.
 func TestTheSpecsWorkedExampleParses(t *testing.T) {
 	t.Parallel()
 
-	file, err := Parse("orders.sexpr", strings.NewReader(specExample(t)))
+	file, err := Parse("orders.sexpr", strings.NewReader(specExample(t, layoutdoc.NativeExample)))
 	if err != nil {
 		t.Fatalf("the reader rejects SPEC.md's own worked example: %v", err)
 	}
@@ -162,6 +164,43 @@ func TestTheSpecsWorkedExampleParses(t *testing.T) {
 	// than something the walk above absorbs.
 	if len(file.Forms) != 14 {
 		t.Errorf("read %d top-level forms out of the appendix, want 14: %s", len(file.Forms), strings.Join(tags(file), ", "))
+	}
+}
+
+// TestTheSpecsConvertedExampleParses is the same gate over the second layout the
+// document shows an adopter.
+//
+// It is a second appendix rather than a second block under the first one, and
+// so a second heading here rather than a position among the first section's
+// blocks — [github.com/Zaba505/cpybkc/internal/layoutdoc] is where that is
+// argued. What it earns over [TestTheSpecsWorkedExampleParses] is the notation
+// the native example has no reason to write: two overrides on one layout, one
+// of them setting the charset axis to `none`.
+func TestTheSpecsConvertedExampleParses(t *testing.T) {
+	t.Parallel()
+
+	file, err := Parse("settlement.sexpr", strings.NewReader(specExample(t, layoutdoc.ConvertedExample)))
+	if err != nil {
+		t.Fatalf("the reader rejects SPEC.md's own converted example: %v", err)
+	}
+
+	// Stated for [TestTheSpecsWorkedExampleParses]'s reason, and it is a
+	// different number from that example's on purpose: a heading that came back
+	// with the wrong section's layout would pass a count shared between them.
+	if len(file.Forms) != 13 {
+		t.Errorf("read %d top-level forms out of the converted appendix, want 13: %s", len(file.Forms), strings.Join(tags(file), ", "))
+	}
+
+	var overrides int
+
+	for _, form := range file.Forms {
+		if form.Tag == "encoding-override" {
+			overrides++
+		}
+	}
+
+	if overrides != 2 {
+		t.Errorf("the converted appendix carries %d encoding-override forms, want 2: %s", overrides, strings.Join(tags(file), ", "))
 	}
 }
 
@@ -798,113 +837,19 @@ func tags(file *File) []string {
 	return names
 }
 
-// specExample returns docs/layout/SPEC.md's worked example.
-func specExample(t *testing.T) string {
+// specExample returns docs/layout/SPEC.md's worked example under heading.
+//
+// The document carries two of them and each is located by its own heading; the
+// reasoning is [github.com/Zaba505/cpybkc/internal/layoutdoc]'s, and so is the
+// one reading of the document that this package, layoutschema and layoutmodel
+// now share.
+func specExample(t *testing.T, heading string) string {
 	t.Helper()
 
-	return fencedBlock(t, section(t, "## Appendix: A layout, end to end"))
-}
-
-// fencedBlock returns the first fenced code block in body.
-func fencedBlock(t *testing.T, body string) string {
-	t.Helper()
-
-	var (
-		block []string
-		open  bool
-	)
-
-	for line := range strings.SplitSeq(body, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			if open {
-				return strings.Join(block, "\n")
-			}
-
-			open = true
-
-			continue
-		}
-
-		if open {
-			block = append(block, line)
-		}
-	}
-
-	t.Fatal("no fenced code block found")
-
-	return ""
-}
-
-// section returns the text of SPEC.md under heading, up to the next heading at
-// the same level or above.
-func section(t *testing.T, heading string) string {
-	t.Helper()
-
-	level := strings.IndexFunc(heading, func(r rune) bool { return r != '#' })
-
-	var (
-		body  []string
-		found bool
-	)
-
-	for line := range strings.SplitSeq(specText(t), "\n") {
-		if line == heading {
-			found = true
-
-			continue
-		}
-
-		if !found {
-			continue
-		}
-
-		if strings.HasPrefix(line, "#") && strings.IndexFunc(line, func(r rune) bool { return r != '#' }) <= level {
-			break
-		}
-
-		body = append(body, line)
-	}
-
-	if !found {
-		t.Fatalf("the layout SPEC has no %q section", heading)
-	}
-
-	return strings.Join(body, "\n")
-}
-
-// specText reads docs/layout/SPEC.md.
-func specText(t *testing.T) string {
-	t.Helper()
-
-	b, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "layout", "SPEC.md"))
+	example, err := layoutdoc.Example(heading)
 	if err != nil {
-		t.Fatalf("read the layout SPEC: %v", err)
+		t.Fatalf("read the layout SPEC's worked example: %v", err)
 	}
 
-	return string(b)
-}
-
-// repoRoot walks up from the test's working directory to the directory holding
-// go.mod, which for this module is the repository root and so the directory
-// docs/ sits in.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("working directory: %v", err)
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("no go.mod above the test's working directory")
-		}
-
-		dir = parent
-	}
+	return example
 }
