@@ -84,19 +84,54 @@ func placementOf(placement layoutmodel.Placement) irpb.DelimiterPlacement {
 	return irpb.DelimiterPlacement_DELIMITER_PLACEMENT_UNSPECIFIED
 }
 
-// encodingOf is the four resolved axes, on the field they govern.
+// encodingOf is the five resolved axes, on the field they govern.
 //
-// All four, on every field, with no profile node for one to inherit from: the
+// All five, on every field, with no profile node for one to inherit from: the
 // pair a layout writes — one profile and per-item overrides over it — was
 // applied by `resolve`, and what a field carries is the result
 // (docs/ir/SPEC.md, "The encoding profile, applied").
-func encodingOf(axes layoutmodel.Axes) *irpb.Encoding {
+//
+// Four of them arrive as [layoutmodel.Axes], which is what a layout author
+// wrote, and the fifth arrives on its own because nobody wrote it: the binary
+// width staircase is the dialect's, and it reaches here as the staircase
+// `resolve` actually laid the record out under rather than as a setting read a
+// second time. Taking it as a parameter beside the axes is what keeps that
+// true — an `encodingOf` that reached for a dialect itself would be a second
+// reading of the same decision, and the failure this whole story is about is
+// two readings of it disagreeing.
+func encodingOf(axes layoutmodel.Axes, binary copybook.BinarySize) *irpb.Encoding {
 	return &irpb.Encoding{
 		Charset:        charsetOf(axes.Charset),
 		SignConvention: signConventionOf(axes.SignConvention),
 		ByteOrder:      byteOrderOf(axes.ByteOrder),
 		FloatFormat:    floatFormatOf(axes.FloatFormat),
+		BinarySize:     binarySizeOf(binary),
 	}
+}
+
+// binarySizeOf is the width staircase a compiler applies to USAGE BINARY items,
+// as the IR spells it.
+//
+// The mapping is total over `copybook`'s declared members and the unset value
+// maps to the unspecified one, which [unresolved] refuses — the same shape
+// every other axis has here. There is no arm answering a staircase for a value
+// that names none: a plausible default is exactly what makes a wrong staircase
+// invisible, and `copybook.NewLayout` has already refused an undeclared one
+// before any record reaches this package, so the unspecified arm is reached
+// only by a caller who assembled a record `resolve` never produced.
+func binarySizeOf(binary copybook.BinarySize) irpb.BinarySize {
+	switch binary {
+	case copybook.BinarySize248:
+		return irpb.BinarySize_BINARY_SIZE_248
+	case copybook.BinarySize1248:
+		return irpb.BinarySize_BINARY_SIZE_1248
+	case copybook.BinarySizeSmallest:
+		return irpb.BinarySize_BINARY_SIZE_SMALLEST
+	case copybook.BinarySizeFull:
+		return irpb.BinarySize_BINARY_SIZE_FULL
+	}
+
+	return irpb.BinarySize_BINARY_SIZE_UNSPECIFIED
 }
 
 // charsetOf is the code page governing alphanumeric data, the digit zone of

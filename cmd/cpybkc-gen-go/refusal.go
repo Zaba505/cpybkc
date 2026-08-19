@@ -161,7 +161,7 @@ func (e *uncoverableError) Notes() []string { return []string{e.Rule} }
 // [TestEveryRefusalThisPackageRaisesHasADecidedClassification] enumerates every
 // error type this package defines, so one added without a line there fails.
 //
-// The two:
+// The three:
 //
 //   - [unsupportedCharsetError], because it is the one refusal that is *also*
 //     about the generated code — a charset codec has no table for is a charset
@@ -170,6 +170,10 @@ func (e *uncoverableError) Notes() []string { return []string{e.Rule} }
 //     synthesizer today; this check is what keeps that true if it ever does, and
 //     is why the charset case has one diagnostic rather than two saying the same
 //     thing differently.
+//   - [unsupportedBinarySizeError], for exactly that reason a second time. A
+//     binary width staircase codec has no member for is one the emitted reader
+//     cannot lay a record out under, so there is no generated package to warn
+//     about a spot-check in; see [binarySize].
 //   - a [malformedError] carrying a Reference, which is [unresolved]: a
 //     reference to a node the message does not contain. There is no layout there
 //     to be unable to synthesize — the descriptor does not describe one — so the
@@ -178,6 +182,11 @@ func (e *uncoverableError) Notes() []string { return []string{e.Rule} }
 func advisory(err error) bool {
 	var charset *unsupportedCharsetError
 	if errors.As(err, &charset) {
+		return false
+	}
+
+	var binary *unsupportedBinarySizeError
+	if errors.As(err, &binary) {
 		return false
 	}
 

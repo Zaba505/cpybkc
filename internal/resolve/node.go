@@ -251,6 +251,26 @@ type Record struct {
 	// alternatives of one copybook record apart — the IR carries the
 	// copybook's name, which is the same on both.
 	Alternatives []*copybook.Field
+
+	// Binary is the width staircase every COMP, COMP-4 and COMP-5 item below
+	// [Record.Root] was laid out under: [Options.Dialect]'s, copied here by
+	// [Resolve].
+	//
+	// It travels with the record because it is not a fact about the record's
+	// *shape* that a reader could recover from the shape. Every width and
+	// every offset in the tree was computed under it, and a consumer laying
+	// bytes out under a different staircase gets a record that is the right
+	// length and wrong from the first binary item onwards — which is not
+	// something the bytes can be asked about. Carrying it beside the widths it
+	// produced is what lets `assemble` state it in the IR without asking a
+	// second time where the dialect came from, and what makes the two
+	// answers impossible to give differently.
+	//
+	// It is `copybook`'s enum rather than this package's: the staircase is
+	// `copybook`'s decision here — [copybook.NewLayout] is what applied it —
+	// and a second spelling of it in this package would be a second place for
+	// the mapping onto `codec`'s to go wrong.
+	Binary copybook.BinarySize
 }
 
 // Extent reports the record's length in bytes: the width of its top level.

@@ -40,7 +40,8 @@
           "charset": "CHARSET_CP037",
           "sign_convention": "SIGN_CONVENTION_EBCDIC",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_DISPLAY",
         "picture": {
@@ -59,7 +60,8 @@
           "charset": "CHARSET_CP037",
           "sign_convention": "SIGN_CONVENTION_EBCDIC",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_DISPLAY",
         "picture": {
@@ -78,7 +80,8 @@
           "charset": "CHARSET_CP037",
           "sign_convention": "SIGN_CONVENTION_EBCDIC",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_PACKED_DECIMAL",
         "picture": {
@@ -99,7 +102,8 @@
           "charset": "CHARSET_CP037",
           "sign_convention": "SIGN_CONVENTION_EBCDIC",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_DISPLAY",
         "picture": {

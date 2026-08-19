@@ -64,6 +64,15 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   profile declares (charset, sign convention, byte order, float format) and for
   the rule that none of them has a default. The profile layer is a way of
   writing that structure down, not a second definition of it.
+
+  That document declares **five** settings a reader needs, and the profile
+  writes four of them. The fifth is the binary width staircase — how many bytes
+  a `COMP` item of *n* digits occupies — and it is missing here on purpose: the
+  other four are properties of the *bytes in hand*, which is what an adopter
+  holding a file can answer, while the staircase is a property of the *compiler
+  that produced the file*, which is a dialect setting. See [The binary width
+  staircase is the compiler's, not the
+  file's](#the-binary-width-staircase-is-the-compilers-not-the-files).
   <https://github.com/Zaba505/cobol-go/blob/main/codec/SPEC.md>
 - **`cobol-go`'s root `SPEC.md`** — normative for the copybook syntax a record
   definition binds to, and so for what counts as a resolvable field name.
@@ -372,11 +381,15 @@ stream](#lrecl-and-blksize-describe-the-dataset-not-the-stream)).
 | `byte-order` | 1 | `big-endian`, `little-endian` |
 | `float-format` | 1 | `ieee-754`, `hfp` |
 
-The four axes are `codec/SPEC.md`'s and this layer is a way of writing them
+These four axes are `codec/SPEC.md`'s and this layer is a way of writing them
 down. Which axis governs which item's bytes — charset does not touch packed
 decimal — is answered there and not here. The charset values are not enumerated
 in this document either: a code page added to that axis would otherwise have to
 be added to this one before an adopter could name it.
+
+They are four of that document's five. The one it declares and this form does
+not carry is the binary width staircase, and [the section
+below](#the-binary-width-staircase-is-the-compilers-not-the-files) is why.
 
 The sign conventions are the one place a value is respelled, because
 `codec/SPEC.md` names them as Go identifiers and a layout is data. The mapping
@@ -478,13 +491,16 @@ bytes become characters. For this item the answer is that they do not.
 
 **It is a value on this axis and not a fifth axis.** A fifth axis would have to
 be stated on every `encoding` form by the rule above, which turns a property of
-one item into a declaration every layout that already exists has to add, and it
-would be an axis `codec/SPEC.md` does not have — [The encoding
-profile](#the-encoding-profile) is a way of writing that document's four axes
-down, and a fifth invented here would make that sentence false. Nor is it a form
-of its own beside `rename`: `rename` is about names and this is about bytes, and
-a form whose only content is its own presence is the boolean this format does
-not take ([What this document delegates](#what-this-document-delegates)).
+one item into a declaration every layout that already exists has to add — and
+the thing being stated is *the absence of a claim about one item*, which is not
+a shape an axis takes. `codec/SPEC.md` does declare a fifth setting, and it is
+not this one: it is the binary width staircase, which is a property of the
+compiler rather than of the bytes and is [not written in a layout at
+all](#the-binary-width-staircase-is-the-compilers-not-the-files). Nor is a
+charset of none a form of its own beside `rename`: `rename` is about names and
+this is about bytes, and a form whose only content is its own presence is the
+boolean this format does not take ([What this document
+delegates](#what-this-document-delegates)).
 
 **It is written on an override and never on the profile.** A layout stating
 `(charset none)` on its `encoding` form is a diagnostic. A file has a character
@@ -508,6 +524,42 @@ declared as either of them is characters by declaration.
 
 What the resolved side carries, and what a generator does with it, is
 [`ir/SPEC.md`](../ir/SPEC.md#an-item-with-no-charset-carries-bytes-not-characters)'s.
+
+### The binary width staircase is the compiler's, not the file's
+
+`codec/SPEC.md` declares five settings a reader needs and the `encoding` profile
+writes four. The fifth is the width staircase applied to `BINARY`, `COMP`,
+`COMP-4` and `COMP-5` items: `PIC S9(2) COMP` is **two** bytes under IBM
+Enterprise COBOL and **one** under GnuCOBOL's default, and the widths run
+2/4/8/16, 1/2/4/8/16, smallest-that-fits, or always-eight depending on the
+compiler and its options.
+
+A layout **MUST NOT** state it, and there is no form for one. The reason is the
+line [All four, always, with no default for
+any](#all-four-always-with-no-default-for-any) already draws: the four axes are
+answerable by an adopter holding the file — what its characters are, how its
+signs are spelled, which end its integers start at, which floating-point format
+it is in — and each is a property of those bytes. The staircase is not. It is a
+property of the program that *wrote* the file, fixed when that program was
+compiled, and an adopter reads it off the compiler and its options rather than
+off the extract in front of them. Putting a compiler setting on a form that
+describes bytes would make the profile two things at once, which is the
+distinction [the axes are independent and are not a dialect
+flag](#all-four-always-with-no-default-for-any) exists to keep.
+
+Where it comes from instead is the **dialect** — the same setting that decides
+whether `SYNCHRONIZED` inserts slack and how wide a `USAGE INDEX` item is — and
+resolution carries it into the IR as a resolved fact about every field, which is
+`ir/SPEC.md`'s [A binary item's width is the staircase, not the
+digits](../ir/SPEC.md). A layout that could state a staircase and a dialect that
+states a different one would be two answers to one question with nothing to
+choose between them, so this format states none.
+
+**How a layout says which dialect its copybooks were compiled under is not yet
+part of this format.** Until it is, an implementation resolves under one it
+picks, and it is `ir/SPEC.md` that requires it to *say* which — a descriptor
+carries the staircase its widths were computed under, so a consumer never has to
+assume one.
 
 ## Physical framing
 
@@ -2108,7 +2160,7 @@ and neither is a second profile.
 | Section | Implemented by |
 |---|---|
 | [The surface syntax](#the-surface-syntax) | #22 `layout` |
-| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273 |
+| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
 | [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |

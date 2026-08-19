@@ -410,12 +410,12 @@ message Field {
   Repetition repetition = 6;
 }
 
-// Encoding is the four axes of an encoding, resolved.
+// Encoding is the five axes of an encoding, resolved.
 //
-// A producer MUST set all four on every field and MUST NOT leave one unset. A
+// A producer MUST set all five on every field and MUST NOT leave one unset. A
 // consumer MUST NOT supply a default for a missing axis and MUST treat a field
 // missing one as a malformed descriptor: an IR that reached a generator with an
-// axis unresolved is a bug in resolve, and every one of the four fails silently
+// axis unresolved is a bug in resolve, and every one of the five fails silently
 // when wrong.
 //
 // Carried per field and not as a node, so nothing can point at it and nothing
@@ -426,11 +426,69 @@ message Field {
 // that no default survives into it. A record whose fields disagree about
 // charset is therefore the ordinary case here rather than an exception. See
 // docs/ir/SPEC.md, "The encoding profile, applied".
+//
+// # Four of them are the layout's and the fifth is the dialect's
+//
+// The first four are properties of the *bytes*, and a layout author writes them
+// on the `encoding` profile and its overrides. binary_size is a property of the
+// *compiler* the file was produced by, which is docs/layout/SPEC.md's dialect,
+// and a layout author does not write it at all: a producer resolves it from the
+// dialect it computed the record's widths under and puts it here so that the
+// widths a consumer reads are the widths the producer laid out. See
+// docs/ir/SPEC.md, "A binary item's width is the staircase, not the digits".
+//
+// It sits on Encoding rather than on the file node because it is consumed
+// exactly where the other four are — an encoding is what a consumer hands its
+// byte reader — and a fifth thing to gather from a second place is a fifth
+// thing to forget. That it does not vary between the fields of one descriptor
+// is a property of how a producer resolves it, not a licence to carry it once.
 message Encoding {
   Charset charset = 1;
   SignConvention sign_convention = 2;
   ByteOrder byte_order = 3;
   FloatFormat float_format = 4;
+  BinarySize binary_size = 5;
+}
+
+// BinarySize is the width staircase a compiler applies to USAGE BINARY items —
+// BINARY, COMP, COMPUTATIONAL, COMP-4 and COMP-5.
+//
+// A binary item's width is a staircase in its digit count and never the digit
+// count itself, and which staircase is a property of the compiler that produced
+// the file rather than of the copybook: PIC S9(2) COMP is two bytes under IBM
+// Enterprise COBOL and one under GnuCOBOL's default. Nothing in the file
+// disagrees with the wrong answer — a wrong staircase shifts every field after
+// the first binary item it touches — so a producer states it and a consumer
+// MUST NOT infer it. Widths per member are cobol-go's codec/SPEC.md, "Binary
+// widths by digit count", and are not restated here.
+//
+// The members and their spellings are GnuCOBOL's `binary-size` runtime option,
+// which is the only place all four have names anybody has written down.
+//
+// A producer MUST NOT emit BINARY_SIZE_UNSPECIFIED. It is not "the usual one":
+// the 1--2 digit row is a real fork between compilers, so there is no staircase
+// a consumer could fall back to that is right more often than it is silently
+// wrong.
+enum BinarySize {
+  BINARY_SIZE_UNSPECIFIED = 0;
+
+  // 2/4/8/16 bytes by digit count: IBM Enterprise COBOL, Micro Focus under its
+  // IBM-compatible directives, and GnuCOBOL's `binary-size: 2-4-8`.
+  BINARY_SIZE_248 = 1;
+
+  // 1/2/4/8/16 bytes by digit count: GnuCOBOL's default `binary-size:
+  // 1-2-4-8`, which gives a 1--2 digit item one byte where BINARY_SIZE_248
+  // gives it two.
+  BINARY_SIZE_1248 = 2;
+
+  // GnuCOBOL's `binary-size: 1--8`: the smallest byte count from 1 to 8 whose
+  // signed range holds the digits, and sixteen beyond eighteen digits. It is
+  // the only staircase with 3, 5, 6 and 7-byte steps.
+  BINARY_SIZE_SMALLEST = 3;
+
+  // GnuCOBOL's `binary-size: full`: always eight bytes, and sixteen beyond
+  // eighteen digits.
+  BINARY_SIZE_FULL = 4;
 }
 
 // Charset governs alphanumeric character data, the digit zone of zoned decimal,

@@ -917,23 +917,29 @@ func opaqueDisplay(f *irpb.Field) (bool, error) {
 	return true, nil
 }
 
-// resolved refuses a field whose encoding leaves one of its four axes unset.
+// resolved refuses a field whose encoding leaves one of its five axes unset.
 //
-// One of the four decides a Go type and three do not: a charset of none is what
+// One of the five decides a Go type and four do not: a charset of none is what
 // makes an item's field a []byte rather than a string, and nothing here turns
-// on the sign convention, the byte order or the float format. All four are
-// checked all the same, because docs/ir/SPEC.md puts the check on every
-// consumer and every one of the four fails silently when wrong. An IR that
-// reached a generator with an axis unresolved is a bug upstream of it, and a
-// generator that emitted a struct for it would be the last thing in a position
-// to say so.
+// on the sign convention, the byte order, the float format or the binary width
+// staircase. All five are checked all the same, because docs/ir/SPEC.md puts
+// the check on every consumer and every one of the five fails silently when
+// wrong. An IR that reached a generator with an axis unresolved is a bug
+// upstream of it, and a generator that emitted a struct for it would be the
+// last thing in a position to say so.
+//
+// The staircase is the one that fails silently *furthest* from where it is
+// wrong: it moves no bytes of the item it governs, it moves the offset of
+// everything behind that item, and codec has no way to notice — which is why
+// cobol-go gave codec.Encoding a required axis for it rather than a default,
+// and why the check here has no arm that supplies one either.
 func resolved(enc *irpb.Encoding) error {
 	if enc == nil {
 		return malformed("an item carries no encoding",
-			"a producer must set all four axes on every field, and a consumer may not supply a default for one; see docs/ir/SPEC.md, \"The encoding profile, applied\"")
+			"a producer must set all five axes on every field, and a consumer may not supply a default for one; see docs/ir/SPEC.md, \"The encoding profile, applied\"")
 	}
 
-	unset := make([]string, 0, 4)
+	unset := make([]string, 0, 5)
 
 	if enc.GetCharset() == irpb.Charset_CHARSET_UNSPECIFIED {
 		unset = append(unset, "charset")
@@ -951,12 +957,16 @@ func resolved(enc *irpb.Encoding) error {
 		unset = append(unset, "float format")
 	}
 
+	if enc.GetBinarySize() == irpb.BinarySize_BINARY_SIZE_UNSPECIFIED {
+		unset = append(unset, "binary size")
+	}
+
 	if len(unset) == 0 {
 		return nil
 	}
 
 	return malformed(fmt.Sprintf("an item's encoding leaves %s unresolved", english(unset)),
-		"a producer must set all four axes on every field, and a consumer may not supply a default for one; see docs/ir/SPEC.md, \"The encoding profile, applied\"")
+		"a producer must set all five axes on every field, and a consumer may not supply a default for one; see docs/ir/SPEC.md, \"The encoding profile, applied\"")
 }
 
 // fieldSummary is what a field's doc comment says about the item behind it.

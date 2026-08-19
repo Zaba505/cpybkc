@@ -62,11 +62,12 @@ type Reader struct {
 
 // NewReader reads the records of r under enc.
 //
-// Neither the charset, the zoned sign convention, the byte order nor the
-// floating-point format is chosen here. They are properties of the file in hand
-// rather than of this descriptor's items, so the caller states all four at once
-// — [Encoding] is what this descriptor resolved, and a file of these records
-// converted to another character set is read by passing a different one.
+// Neither the charset, the zoned sign convention, the byte order, the
+// floating-point format nor the binary width staircase is chosen here. They are
+// properties of the file in hand rather than of this descriptor's items, so the
+// caller states all five at once — [Encoding] is what this descriptor resolved,
+// and a file of these records converted to another character set is read by
+// passing a different one.
 func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 	if r == nil {
 		return nil, codec.ErrNilReader
@@ -226,7 +227,7 @@ type Writer struct {
 
 // NewWriter writes records into w under enc.
 //
-// The four axes are the caller's for the reason they are on [NewReader]: they are
+// The five axes are the caller's for the reason they are on [NewReader]: they are
 // properties of the file being written rather than of this descriptor's items.
 func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	if w == nil {

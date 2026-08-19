@@ -10,13 +10,21 @@ import (
 )
 
 // Encoding is the byte-level interpretation of the files these records live in:
-// the four axes as the layout declared them and resolve resolved them.
+// the five axes as they were resolved — four the layout declared, and the binary
+// width staircase the copybook's items were laid out under.
 //
-// None of the four has a default and every one of them fails silently when
+// None of the five has a default and every one of them fails silently when
 // wrong, so codec has no usable zero-value Reader and this function is how a
-// caller states all four at once:
+// caller states all five at once:
 //
 //	r, err := codec.NewReader(f, Encoding())
+//
+// Binary is the odd one. The other four say how a byte becomes a value; this one
+// says how many bytes a COMP item is, which is a property of the compiler that
+// wrote the file rather than of the copybook — PIC S9(2) COMP is two bytes under
+// IBM Enterprise COBOL and one under GnuCOBOL's default. It is the staircase the
+// offsets in these records were computed under, so changing it here does not
+// reinterpret the file, it describes a different one.
 //
 // It is a value a caller passes rather than one anything applies on its own. A
 // file this descriptor describes that was converted to another character set is
@@ -27,6 +35,7 @@ func Encoding() codec.Encoding {
 		Sign:      codec.SignEBCDIC,
 		ByteOrder: binary.BigEndian,
 		Float:     codec.FloatHFP,
+		Binary:    codec.BinarySize248,
 	}
 }
 
@@ -110,7 +119,7 @@ func fresh[T any](p *T) *T {
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
@@ -288,7 +297,7 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 func (x *TrailerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
@@ -356,7 +365,7 @@ func (x *TrailerRecord) MarshalCOBOL(w *codec.Writer) error {
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 func (x *SyncRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
@@ -435,7 +444,7 @@ func (x *SyncRecord) MarshalCOBOL(w *codec.Writer) error {
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
@@ -582,7 +591,7 @@ func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
@@ -713,7 +722,7 @@ func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 func (x *ShapeRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error

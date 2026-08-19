@@ -104,7 +104,7 @@ func TestTheFourAxesAreTheDescriptorsAndNotADefault(t *testing.T) {
 	}{
 		"the mainframe's": {
 			encoding: resolvedEncoding(),
-			want:     []string{"codec.CP037()", "codec.SignEBCDIC", "binary.BigEndian", "codec.FloatHFP"},
+			want:     []string{"codec.CP037()", "codec.SignEBCDIC", "binary.BigEndian", "codec.FloatHFP", "codec.BinarySize248"},
 		},
 		"a file converted to ASCII": {
 			encoding: &irpb.Encoding{
@@ -112,8 +112,9 @@ func TestTheFourAxesAreTheDescriptorsAndNotADefault(t *testing.T) {
 				SignConvention: irpb.SignConvention_SIGN_CONVENTION_TRANSLATED_EBCDIC,
 				ByteOrder:      irpb.ByteOrder_BYTE_ORDER_LITTLE_ENDIAN,
 				FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IEEE754,
+				BinarySize:     irpb.BinarySize_BINARY_SIZE_1248,
 			},
-			want: []string{"codec.ASCII()", "codec.SignTranslatedEBCDIC", "binary.LittleEndian", "codec.FloatIEEE"},
+			want: []string{"codec.ASCII()", "codec.SignTranslatedEBCDIC", "binary.LittleEndian", "codec.FloatIEEE", "codec.BinarySize1248"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -203,12 +204,21 @@ func TestItemsThatDisagreeAboutTheFileTheyAreInAreRefused(t *testing.T) {
 			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 			ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
 			FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+			BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
 		},
 		"the byte order": {
 			Charset:        irpb.Charset_CHARSET_CP037,
 			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 			ByteOrder:      irpb.ByteOrder_BYTE_ORDER_LITTLE_ENDIAN,
 			FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+			BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
+		},
+		"the binary width staircase": {
+			Charset:        irpb.Charset_CHARSET_CP037,
+			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
+			ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
+			FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+			BinarySize:     irpb.BinarySize_BINARY_SIZE_1248,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

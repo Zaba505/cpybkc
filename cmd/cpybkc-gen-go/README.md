@@ -567,26 +567,41 @@ widths, the digit counts, the sign position and the signedness come out of the
 resolved IR and every byte is `codec`'s, which is the same arrangement
 `avroc-gen-go` has with `avro-go`. There is no reflection.
 
-### The four axes
+### The five axes
 
 Neither method chooses an `Encoding`. The character set, the zoned sign
-convention, the byte order and the floating-point format are properties of the
-*file in hand* rather than of an item, so `codec` carries them on the `Reader`
-and the `Writer` and the caller states them once:
+convention, the byte order, the floating-point format and the binary width
+staircase are properties of the *file in hand* rather than of an item, so
+`codec` carries them on the `Reader` and the `Writer` and the caller states them
+once:
 
 ```go
 r, err := codec.NewReader(f, orders.Encoding())
 ```
 
 `Encoding()` is generated from the descriptor, so what it returns is what your
-layout declared. It is a value you pass rather than one anything applies on its
-own — the same records converted to another character set are read by passing a
-different `Encoding`, not by regenerating. A charset `codec` ships no table for
-is an **error** rather than a substitution: generating `cp037` for a descriptor
-naming `cp500` would read most of a file correctly and the bracket, currency and
-accent characters wrongly.
+layout declared and what `resolve` resolved. It is a value you pass rather than
+one anything applies on its own — the same records converted to another
+character set are read by passing a different `Encoding`, not by regenerating. A
+charset `codec` ships no table for is an **error** rather than a substitution:
+generating `cp037` for a descriptor naming `cp500` would read most of a file
+correctly and the bracket, currency and accent characters wrongly.
 
-Items whose descriptor gives them **all four** axes are what `Encoding()` is
+`Binary` is the axis your layout does *not* declare, and it is the one worth
+knowing about. It is the width staircase your `COMP` items were compiled under —
+`PIC S9(2) COMP` is two bytes under IBM Enterprise COBOL and one under
+GnuCOBOL's default — so it is a property of the compiler that wrote the file
+rather than of the bytes, and `resolve` puts the staircase it laid your record
+out under into the descriptor for this function to read back
+([`ir/SPEC.md`](../../docs/ir/SPEC.md#a-binary-items-width-is-the-staircase-not-the-digits)).
+Passing a different one does not reinterpret the file: it describes a different
+one, because every offset behind the first `COMP` item moves with it. A
+staircase `codec` has no member for is an error rather than a substitution, for
+the same reason a charset is and with a worse failure — a wrong staircase leaves
+every field behind that item at the wrong offset, and nothing in the record
+disagrees.
+
+Items whose descriptor gives them **all five** axes are what `Encoding()` is
 read off, and they have to agree: `codec` carries one `Encoding` per `Reader`,
 so a descriptor whose items disagree on any axis describes a file there is no
 single `Encoding` for, and that is reported.
@@ -596,10 +611,10 @@ The agreement is per **axis**, not per item. An item whose charset is
 the **charset** half of it — it states that its bytes become characters under no
 code page, so it makes no claim there to disagree with, and a byte item sitting
 beside a `cp037` text item leaves `Encoding()` naming `cp037`. Its sign
-convention, byte order and float format are claims like any other item's and are
-held to the agreement, because an `encoding-override` may name a **group**, and
-a group holds packed and binary items whose sign and byte order are read
-whatever the charset says. A descriptor **no** item of which states a charset
+convention, byte order, float format and binary width staircase are claims like
+any other item's and are held to the agreement, because an `encoding-override`
+may name a **group**, and a group holds packed and binary items whose sign and
+byte order are read whatever the charset says. A descriptor **no** item of which states a charset
 states nothing about the file at all, and no `Encoding()` is generated for it;
 you pass your own, exactly as you would for a descriptor holding no item.
 

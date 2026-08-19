@@ -12,7 +12,7 @@ import (
 	"github.com/Zaba505/cpybkc/irpb"
 )
 
-// encodingFunc is the function the generated package declares for the four
+// encodingFunc is the function the generated package declares for the five
 // axes this descriptor resolved.
 const encodingFunc = "Encoding"
 
@@ -325,7 +325,7 @@ func signedness(f *irpb.Field) string {
 // profile is the [encodingFunc] declaration for this descriptor, or the empty
 // string where it carries no field for one to be read off.
 //
-// The four axes come from the IR and are refused where two items disagree.
+// The five axes come from the IR and are refused where two items disagree.
 // codec carries an Encoding per Reader and per Writer rather than per field,
 // because the axes are properties of the file rather than of an item, so a
 // descriptor whose items disagree describes a file there is no single Encoding
@@ -347,14 +347,27 @@ func (c *coder) profile(d *irpb.Descriptor) (string, error) {
 
 	c.imports["encoding/binary"] = struct{}{}
 
-	doc := commentLines(fmt.Sprintf(`%s is the byte-level interpretation of the files these records live in:
-the four axes as the layout declared them and resolve resolved them.
+	binary, err := binarySize(enc.GetBinarySize())
+	if err != nil {
+		return "", err
+	}
 
-None of the four has a default and every one of them fails silently when
+	doc := commentLines(fmt.Sprintf(`%s is the byte-level interpretation of the files these records live in:
+the five axes as they were resolved — four the layout declared, and the binary
+width staircase the copybook's items were laid out under.
+
+None of the five has a default and every one of them fails silently when
 wrong, so codec has no usable zero-value Reader and this function is how a
-caller states all four at once:
+caller states all five at once:
 
 	r, err := codec.NewReader(f, %s())
+
+Binary is the odd one. The other four say how a byte becomes a value; this one
+says how many bytes a COMP item is, which is a property of the compiler that
+wrote the file rather than of the copybook — PIC S9(2) COMP is two bytes under
+IBM Enterprise COBOL and one under GnuCOBOL's default. It is the staircase the
+offsets in these records were computed under, so changing it here does not
+reinterpret the file, it describes a different one.
 
 It is a value a caller passes rather than one anything applies on its own. A
 file this descriptor describes that was converted to another character set is
@@ -366,8 +379,9 @@ Charset: %s,
 Sign: %s,
 ByteOrder: %s,
 Float: %s,
+Binary: %s,
 }
-}`, encodingFunc, charset, signConvention(enc.GetSignConvention()), byteOrder(enc.GetByteOrder()), floatFormat(enc.GetFloatFormat())), nil
+}`, encodingFunc, charset, signConvention(enc.GetSignConvention()), byteOrder(enc.GetByteOrder()), floatFormat(enc.GetFloatFormat()), binary), nil
 }
 
 // descriptorEncoding is the one encoding every field of the descriptor carries,
@@ -462,15 +476,22 @@ func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
 	return stated, nil
 }
 
-// disagreement is the first of the three axes every field is held to that two
+// disagreement is the first of the four axes every field is held to that two
 // encodings differ on, or the empty string where they agree.
 //
 // The charset is not among them, and [descriptorEncoding] compares it itself.
-// It is the one axis a field may decline to state: CHARSET_NONE is not a fifth
+// It is the one axis a field may decline to state: CHARSET_NONE is not another
 // code page to disagree with cp037 about, it is the absence of a claim. The
-// other three have no such value — every field states a sign convention, a byte
-// order and a float format, and the file has one of each for them to be wrong
-// about.
+// other four have no such value — every field states a sign convention, a byte
+// order, a float format and a binary width staircase, and the file has one of
+// each for them to be wrong about.
+//
+// The staircase is compared like the rest even though a producer resolves one
+// per descriptor rather than per field. That it cannot differ today is a
+// property of the producer and not of the schema, and this walk is the last
+// place a descriptor from some other producer is read before its bytes are
+// laid out: two staircases in one descriptor describe a file there is no single
+// codec.Encoding to read, exactly as two byte orders do.
 func disagreement(a, b *irpb.Encoding) string {
 	switch {
 	case a.GetSignConvention() != b.GetSignConvention():
@@ -479,6 +500,8 @@ func disagreement(a, b *irpb.Encoding) string {
 		return "byte order"
 	case a.GetFloatFormat() != b.GetFloatFormat():
 		return "floating-point format"
+	case a.GetBinarySize() != b.GetBinarySize():
+		return "binary width staircase"
 	default:
 		return ""
 	}
@@ -556,6 +579,56 @@ func floatFormat(format irpb.FloatFormat) string {
 	}
 
 	return "codec.FloatHFP"
+}
+
+// binarySize is codec's name for a binary width staircase, and a refusal for a
+// member codec has none for.
+//
+// It is spelled as a total switch with an error arm rather than as the two
+// one-liners above, and the difference is deliberate. [byteOrder] and
+// [floatFormat] each choose between two members and answer the second for
+// anything else, which is safe because a descriptor carrying an unspecified
+// axis never reaches them — [resolved] refused it — and because there is no
+// third member for either to fall onto. This axis has four members and the
+// wrong one is invisible: it produces a record of a plausible length whose
+// every field behind the first COMP item is at the wrong offset, and no
+// accessor, length check or round trip in the generated package can tell. So a
+// value this generator does not know is refused rather than mapped onto the
+// nearest one, which is also what makes adding a fifth staircase upstream a
+// build-time question here rather than a silently wrong file.
+func binarySize(size irpb.BinarySize) (string, error) {
+	switch size {
+	case irpb.BinarySize_BINARY_SIZE_248:
+		return "codec.BinarySize248", nil
+	case irpb.BinarySize_BINARY_SIZE_1248:
+		return "codec.BinarySize1248", nil
+	case irpb.BinarySize_BINARY_SIZE_SMALLEST:
+		return "codec.BinarySizeSmallest", nil
+	case irpb.BinarySize_BINARY_SIZE_FULL:
+		return "codec.BinarySizeFull", nil
+	default:
+		return "", &unsupportedBinarySizeError{Size: size}
+	}
+}
+
+// binarySizeName is a width staircase as a diagnostic names it.
+//
+// The spellings are GnuCOBOL's `binary-size` runtime option's, which is what
+// the IR's own enum documents them as and the only naming for all four that an
+// adopter can look up.
+func binarySizeName(size irpb.BinarySize) string {
+	switch size {
+	case irpb.BinarySize_BINARY_SIZE_248:
+		return "2-4-8"
+	case irpb.BinarySize_BINARY_SIZE_1248:
+		return "1-2-4-8"
+	case irpb.BinarySize_BINARY_SIZE_SMALLEST:
+		return "1--8"
+	case irpb.BinarySize_BINARY_SIZE_FULL:
+		return "full"
+	default:
+		return "a binary width staircase the descriptor does not name"
+	}
 }
 
 // assertions is the compile-time statement that every record satisfies both of

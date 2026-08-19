@@ -43,11 +43,11 @@ import (
 //     the message — a COMP-6 field has no sign nibble to hold one — and it is a
 //     contradiction a consumer cannot resolve, since reading it as unsigned is
 //     silently right about every value but the negative ones.
-//   - Every field states all four encoding axes. docs/ir/SPEC.md makes this a
+//   - Every field states all five encoding axes. docs/ir/SPEC.md makes this a
 //     requirement on the producer and a refusal on the consumer, because each
-//     of the four fails silently when wrong: a charset yields a plausible
-//     string and a byte order a plausible number, with nothing in the file to
-//     disagree.
+//     of the five fails silently when wrong: a charset yields a plausible
+//     string, a byte order a plausible number and a binary width staircase a
+//     record of the right length, with nothing in the file to disagree.
 //
 // # What it does not check
 //
@@ -330,7 +330,7 @@ func (v *validator) field(id uint64, field *irpb.Field) {
 	}
 
 	if missing := unresolved(field.GetEncoding()); len(missing) > 0 {
-		v.fault(id, "states no %s, and all four encoding axes are stated on every field", list(missing))
+		v.fault(id, "states no %s, and all five encoding axes are stated on every field", list(missing))
 	}
 
 	if field.GetUsage() == irpb.Usage_USAGE_UNSPECIFIED {
@@ -656,8 +656,9 @@ func (v *validator) reachability() {
 	}
 }
 
-// unresolved is the encoding axes a field left unstated, in the order
-// docs/layout/SPEC.md names them.
+// unresolved is the encoding axes a field left unstated: the four
+// docs/layout/SPEC.md names, in the order it names them, and then the binary
+// width staircase, which it does not name at all.
 func unresolved(encoding *irpb.Encoding) []string {
 	var missing []string
 
@@ -675,6 +676,16 @@ func unresolved(encoding *irpb.Encoding) []string {
 
 	if encoding.GetFloatFormat() == irpb.FloatFormat_FLOAT_FORMAT_UNSPECIFIED {
 		missing = append(missing, "float format")
+	}
+
+	// The fifth is not one docs/layout/SPEC.md names, because a layout author
+	// does not write it: it is the dialect's staircase, resolved. It is
+	// checked here all the same and for the same reason as the other four —
+	// docs/ir/SPEC.md requires it of a producer, and a binary item read under
+	// the wrong staircase shifts every field behind it without anything in the
+	// record disagreeing.
+	if encoding.GetBinarySize() == irpb.BinarySize_BINARY_SIZE_UNSPECIFIED {
+		missing = append(missing, "binary size")
 	}
 
 	return missing

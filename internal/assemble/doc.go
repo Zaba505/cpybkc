@@ -76,9 +76,9 @@
 // What it checks is the shape of the message rather than the COBOL behind it —
 // every reference resolves to a node of a kind its position admits, every node
 // is reachable from the file node, every closed set carries a member rather
-// than its unspecified zero, and every field states all four encoding axes.
+// than its unspecified zero, and every field states all five encoding axes.
 // The last is the one docs/ir/SPEC.md phrases as a requirement on the producer
-// twice over, because each of the four fails silently when it is wrong: a
+// twice over, because each of the five fails silently when it is wrong: a
 // charset yields a plausible string and a byte order a plausible number, with
 // nothing in the file to disagree.
 //

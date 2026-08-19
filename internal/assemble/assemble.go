@@ -247,6 +247,12 @@ type scope struct {
 	// transition admitting this record type points at.
 	record uint64
 
+	// binary is the width staircase this record's items were laid out under:
+	// [github.com/Zaba505/cpybkc/internal/resolve.Record.Binary], carried here
+	// because every field node of the record states it on its encoding and the
+	// walk that fills them has the scope and not the resolved record.
+	binary copybook.BinarySize
+
 	// nodes maps each resolved node to the identifier it was given, and
 	// fields maps the copybook item behind each *field* node to the same.
 	// Only field nodes are in fields: every reference that names an item
@@ -346,6 +352,7 @@ func (a *assembler) record(record Record) {
 		name:     record.Name,
 		copybook: record.Copybook,
 		record:   node.Id,
+		binary:   record.Resolved.Binary,
 		nodes:    make(map[*resolve.Node]uint64),
 		fields:   make(map[*copybook.Field]uint64),
 	}
@@ -426,7 +433,7 @@ func (a *assembler) fill(s *scope, node *resolve.Node) {
 	case resolve.KindField:
 		at.Kind = &irpb.Node_Field{Field: &irpb.Field{
 			Width:      width(node.Width()),
-			Encoding:   encodingOf(node.Encoding),
+			Encoding:   encodingOf(node.Encoding, s.binary),
 			Usage:      usageOf(node.Field),
 			Picture:    pictureOf(node.Field),
 			Names:      a.names(s, node.Field),

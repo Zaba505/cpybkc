@@ -33,6 +33,18 @@ type Options struct {
 	// REDEFINES is, and the widths of INDEX and POINTER. It has no default
 	// here for the reason `cobol-go` gives it none: a wrong layout setting is
 	// not visible in the result.
+	//
+	// One member of it survives this package: the binary width staircase is
+	// copied onto every [Record] and travels into the IR from there
+	// (docs/ir/SPEC.md, "A binary item's width is the staircase, not the
+	// digits"). The rest do not, and the difference is not an oversight.
+	// SYNCHRONIZED, the REDEFINES rule and the two item widths are settled
+	// *here* — they decide where slack goes, which alternatives become records
+	// and how many bytes an INDEX item takes, and every one of those decisions
+	// leaves the resolved tree fully describing itself. The staircase is
+	// settled here too, but a consumer has to apply it again to read the bytes,
+	// and a consumer that had to be told it a second way is one that could be
+	// told it differently.
 	Dialect copybook.Dialect
 
 	// Framing is the layout's physical framing, or nil where the caller has
@@ -261,6 +273,7 @@ func Resolve(record *copybook.Field, opts Options) ([]*Record, error) {
 			Root:         root,
 			Item:         record,
 			Alternatives: option.alternatives,
+			Binary:       opts.Dialect.Binary,
 		})
 	}
 

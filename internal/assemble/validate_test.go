@@ -49,6 +49,7 @@ func valid() *irpb.Descriptor {
 					SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 					ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
 					FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+					BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
 				},
 				Usage: irpb.Usage_USAGE_DISPLAY,
 				Names: &irpb.Names{Original: "REC-TYPE"},
@@ -207,10 +208,15 @@ func TestEveryReferenceResolvesToAKindItsPositionAdmits(t *testing.T) {
 	})
 }
 
-// TestEveryFieldStatesAllFourAxes is the requirement docs/ir/SPEC.md makes of a
-// producer and a consumer both, because every one of the four fails silently
+// TestEveryFieldStatesAllFiveAxes is the requirement docs/ir/SPEC.md makes of a
+// producer and a consumer both, because every one of the five fails silently
 // when it is wrong.
-func TestEveryFieldStatesAllFourAxes(t *testing.T) {
+//
+// The binary width staircase is the fifth and is not one a layout author
+// writes: it is the dialect's, resolved. It is held to here like the four that
+// are, because what makes an axis belong on this list is that a descriptor
+// missing it cannot be read, not who wrote it.
+func TestEveryFieldStatesAllFiveAxes(t *testing.T) {
 	tests := []struct {
 		name  string
 		spoil func(*irpb.Encoding)
@@ -236,6 +242,11 @@ func TestEveryFieldStatesAllFourAxes(t *testing.T) {
 			spoil: func(e *irpb.Encoding) { e.FloatFormat = irpb.FloatFormat_FLOAT_FORMAT_UNSPECIFIED },
 			says:  "states no float format",
 		},
+		{
+			name:  "binary size",
+			spoil: func(e *irpb.Encoding) { e.BinarySize = irpb.BinarySize_BINARY_SIZE_UNSPECIFIED },
+			says:  "states no binary size",
+		},
 	}
 
 	for _, test := range tests {
@@ -247,11 +258,11 @@ func TestEveryFieldStatesAllFourAxes(t *testing.T) {
 		})
 	}
 
-	t.Run("all four", func(t *testing.T) {
+	t.Run("all five", func(t *testing.T) {
 		d := valid()
 		node(t, d, 3).GetField().Encoding = nil
 
-		refused(t, d, "states no charset, sign convention, byte order and float format")
+		refused(t, d, "states no charset, sign convention, byte order, float format and binary size")
 	})
 }
 

@@ -304,7 +304,7 @@ func (c *coder) unmarshal(name string, record *irpb.Record) (string, error) {
 resolved its items, and retains the bytes of every slack node it carries and
 of every item the copybook gives no data-name.
 
-It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 of the file in hand, and %s is what this descriptor resolved.`,
 		record.GetNames().GetOriginal(), encodingFunc))
 

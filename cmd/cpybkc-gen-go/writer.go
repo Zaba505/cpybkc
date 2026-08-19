@@ -119,7 +119,7 @@ func (f *filer) emitNewWriter(b *strings.Builder) {
 	line(b, "")
 	line(b, "// %s writes records into w under enc.", newWriterFunc)
 	line(b, "//")
-	line(b, "// The four axes are the caller's for the reason they are on [%s]: they are", newReaderFunc)
+	line(b, "// The five axes are the caller's for the reason they are on [%s]: they are", newReaderFunc)
 	line(b, "// properties of the file being written rather than of this descriptor's items.")
 	line(b, "func %s(w io.Writer, enc codec.Encoding) (*%s, error) {", newWriterFunc, writerType)
 	line(b, "if w == nil {")

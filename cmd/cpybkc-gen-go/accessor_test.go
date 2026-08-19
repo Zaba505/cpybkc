@@ -17,17 +17,20 @@ import (
 	"github.com/Zaba505/cobol-go/codec"
 )
 
-// unsignedEncoding is the four axes the vectors below are read under.
+// unsignedEncoding is the five axes the vectors below are read under.
 //
-// Byte order is the only one of the four a binary item is sensitive to, and it
-// is big-endian here because that is the column Appendix A's FF FF row is in.
-// The other three are stated because none of them has a default.
+// Byte order and the binary width staircase are the two a binary item is
+// sensitive to. The order is big-endian because that is the column Appendix A's
+// FF FF row is in, and the staircase is 2-4-8 because the vectors are two-byte
+// items at four digits, which is what that staircase gives them. The other
+// three are stated because none of them has a default.
 func unsignedEncoding() codec.Encoding {
 	return codec.Encoding{
 		Charset:   codec.ASCII(),
 		Sign:      codec.SignASCIIZone37,
 		ByteOrder: order.BigEndian,
 		Float:     codec.FloatIEEE,
+		Binary:    codec.BinarySize248,
 	}
 }
 
