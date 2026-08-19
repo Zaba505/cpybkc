@@ -170,6 +170,13 @@ func converted(t *testing.T, n int32, trlCount int32) (extract, posting []byte, 
 }
 
 // rowsOf reads a whole Parquet file back as T.
+//
+// What comes back is the rows actually decoded, not the row count the footer
+// claims. The two are the same on a well-formed file and they are exactly what
+// the caller is holding against each other on a broken one — a slice sized from
+// the footer and returned at that length hands back zero values for rows nobody
+// read, so an assertion about how many rows came back would be an assertion
+// about the footer.
 func rowsOf[T any](t *testing.T, b []byte) []T {
 	t.Helper()
 
@@ -177,8 +184,9 @@ func rowsOf[T any](t *testing.T, b []byte) []T {
 	defer func() { _ = r.Close() }()
 
 	rows := make([]T, r.NumRows())
+	read := 0
 
-	for read := 0; read < len(rows); {
+	for read < len(rows) {
 		n, err := r.Read(rows[read:])
 		read += n
 
@@ -195,7 +203,7 @@ func rowsOf[T any](t *testing.T, b []byte) []T {
 		}
 	}
 
-	return rows
+	return rows[:read]
 }
 
 // TestTheTwoGrainsBecomeTwoFiles is the first thing an adopter meets: a Parquet
@@ -393,14 +401,31 @@ func TestTheThreeAmountsRoundTripThroughDecimal(t *testing.T) {
 		t.Errorf("TRL-NET came back as %d, want %d", got, trailerNet)
 	}
 
+	debits, credits := 0, 0
+
 	for _, row := range rowsOf[postingRow](t, posting) {
-		if row.PstDebit != nil && row.PstDebit.PdbAmount != debitAmount {
-			t.Errorf("PDB-AMOUNT came back as %d, want %d", row.PstDebit.PdbAmount, debitAmount)
+		if row.PstDebit != nil {
+			debits++
+
+			if row.PstDebit.PdbAmount != debitAmount {
+				t.Errorf("PDB-AMOUNT came back as %d, want %d", row.PstDebit.PdbAmount, debitAmount)
+			}
 		}
 
-		if row.PstCredit != nil && row.PstCredit.PcrAmount != creditAmount {
-			t.Errorf("PCR-AMOUNT came back as %d, want %d", row.PstCredit.PcrAmount, creditAmount)
+		if row.PstCredit != nil {
+			credits++
+
+			if row.PstCredit.PcrAmount != creditAmount {
+				t.Errorf("PCR-AMOUNT came back as %d, want %d", row.PstCredit.PcrAmount, creditAmount)
+			}
 		}
+	}
+
+	// Without this the two comparisons above are guarded by the very thing that
+	// would be broken — optional groups coming back nil — and the test named for
+	// the round trip would pass having compared nothing.
+	if debits == 0 || credits == 0 {
+		t.Fatalf("%d debit and %d credit rows carried an amount to compare, want some of each", debits, credits)
 	}
 
 	assertDecimal(t, extract, "trl_net", 15, 2)

@@ -587,6 +587,24 @@ const exampleParquetModuleDir = "example/parquet"
 // never a second set of packages to check.
 const exampleParquetNestDir = "_cpybkc"
 
+// exampleParquetReplacements are the replace directives example/parquet's
+// committed go.mod has to carry, as `<module> => <dir>` — the form a go.mod
+// writes them in, whether they stand on their own lines or inside a
+// parenthesised block.
+//
+// They are checked before they are re-pointed, which is the whole reason they
+// are written down here. `go mod edit -replace` *adds* a directive that is
+// absent, so a stage that only re-pointed would go green over a committed
+// go.mod that had lost one — while `cd example/parquet && go test ./...`, the
+// invocation CONTRIBUTING.md documents, failed to resolve the CLI module. It
+// would also disarm example/parquet/module_test.go's own check that the replace
+// exists, because in the container the replace would be one this stage had just
+// inserted.
+var exampleParquetReplacements = []string{
+	"github.com/Zaba505/cpybkc => ../..",
+	"github.com/Zaba505/cpybkc/irpb => ../../irpb",
+}
+
 // ExampleParquetCi runs the standard Go pipeline over example/parquet.
 //
 // It is a fifth call for the reason IrCi is a second, CompanionCi a third and
@@ -601,7 +619,12 @@ const exampleParquetNestDir = "_cpybkc"
 // +check
 // +cache="session"
 func (m *Cpybkc) ExampleParquetCi(ctx context.Context) error {
-	return m.goChain(m.exampleParquetSource()).Ci(ctx)
+	source, err := m.exampleParquetSource(ctx)
+	if err != nil {
+		return err
+	}
+
+	return m.goChain(source).Ci(ctx)
 }
 
 // exampleParquetSource is the tree ExampleParquetCi hands the shared chain.
@@ -622,10 +645,25 @@ func (m *Cpybkc) ExampleParquetCi(ctx context.Context) error {
 //
 // Re-pointing is `go mod edit` rather than a second committed go.mod, because two
 // go.mod files for one module are two dependency lists to keep in step and only
-// one of them would ever be the one a contributor reads. The edit is mechanical
-// and names both directives, so a replace added or removed in the committed file
-// without a change here fails loudly rather than being silently ignored.
-func (m *Cpybkc) exampleParquetSource() *dagger.Directory {
+// one of them would ever be the one a contributor reads. The committed
+// directives are read and required *first*, for the reason
+// exampleParquetReplacements gives: an edit that only rewrites is an edit that
+// hides a committed go.mod nobody can build.
+func (m *Cpybkc) exampleParquetSource(ctx context.Context) (*dagger.Directory, error) {
+	path := exampleParquetModuleDir + "/go.mod"
+
+	mod, err := m.Source.File(path).Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	for _, want := range exampleParquetReplacements {
+		if !strings.Contains(mod, want) {
+			return nil, fmt.Errorf("%s does not replace %q: that directive is what `cd %s && go test ./...` resolves the CLI module through, and this stage re-points it at a nested copy — so a stage that did not check would pass over a go.mod no contributor can build",
+				path, want, exampleParquetModuleDir)
+		}
+	}
+
 	nested := m.Source.Directory(exampleParquetModuleDir).
 		WithDirectory(exampleParquetNestDir, m.Source)
 
@@ -636,7 +674,7 @@ func (m *Cpybkc) exampleParquetSource() *dagger.Directory {
 			"-replace", "github.com/Zaba505/cpybkc=./" + exampleParquetNestDir,
 			"-replace", "github.com/Zaba505/cpybkc/irpb=./" + exampleParquetNestDir + "/irpb",
 		}).
-		Directory(".")
+		Directory("."), nil
 }
 
 // Fmt reports any file that gofmt would rewrite, as a diff.

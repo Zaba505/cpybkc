@@ -28,6 +28,13 @@ because there is nothing here that would be right to reuse.
 $ go run . -in ledger.dat -out /tmp/ledger
 ```
 
+`-out` is created if it is not there. `ledger.dat` is *a dataset of these
+records*, and this repository does not commit one — a ledger extract is bytes in
+cp037 behind DFSMS record descriptor words, which is not a thing to read in a
+diff. `convert_test.go`'s `ledgerBytes` makes its fixtures through
+`ledger.Writer`, and that is also the shortest way to make yourself one to run
+this against.
+
 ## Its own Go module, and that is the load-bearing decision
 
 `parquet-go` **must not** reach the root `go.mod`. That module is what
@@ -252,8 +259,9 @@ bounded by the first, and `TestEveryPostingReadIsAPostingWritten` asserts it by
 opening the written file and requiring one row group per batch, none larger than
 the batch.
 
-`batchSize` is 64 here, chosen so that 999 postings cross the boundary sixteen
-times and a missing flush is visible in a test. **That is not a production
+`batchSize` is 64 here, chosen so that 999 postings fill fifteen batches and
+leave a sixteenth partial one — so a missing flush of either kind is visible in a
+test. **That is not a production
 number.** A real converter sizes a row group in the tens or hundreds of thousands
 of rows, because the row group is the unit a query engine skips and a file of
 tiny ones pays footer metadata and a dictionary reset on every one. Raising it

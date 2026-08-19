@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -39,8 +40,9 @@ import (
 // of thousands of rows, because a row group is the unit a query engine skips and
 // a file of tiny ones costs footer metadata and dictionary resets on every one.
 // Sixty-four is chosen so that the ledger this example carries — which
-// HDR-COUNT's PIC 9(3) bounds at 999 postings — crosses the boundary sixteen
-// times, so that a missing flush is visible in a test rather than theoretical.
+// HDR-COUNT's PIC 9(3) bounds at 999 postings — fills fifteen batches and leaves
+// a sixteenth partial one, so that a missing flush of either kind is visible in
+// a test rather than theoretical.
 const batchSize = 64
 
 // extractRow is the `extract` table: one row per file.
@@ -125,32 +127,49 @@ type tailRef struct {
 // can hand this conversion a record the automaton would never admit — which is
 // how "a mapping error fails the conversion" is asserted rather than asserted
 // about a function nothing calls.
+//
+// io.EOF means the end of the file and carries **no** record, which is
+// [ledger.Reader.Next]'s own contract. A source that returned its last record
+// alongside io.EOF would have that row dropped here, so an implementation of
+// this interface owes the same promise.
 type recordSource interface {
 	Next() (ledger.Record, error)
 }
 
 func main() {
-	if err := run(os.Args[1:], os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	err := run(os.Args[1:], os.Stderr)
+	if err == nil {
+		return
 	}
+
+	if msg := err.Error(); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+
+	os.Exit(1)
 }
 
 // run converts the dataset named by -in into extract.parquet and
-// posting.parquet under -out.
+// posting.parquet under -out, creating that directory if it is not there.
 //
-// Both outputs are removed if the conversion fails. A half-written Parquet file
-// has no footer and no reader will open it, so leaving one behind would be
-// leaving something that reads as corruption rather than as a failed run.
+// What a failed run leaves behind is write's business; see there.
 func run(args []string, stderr io.Writer) error {
-	fs := flag.NewFlagSet("parquet", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	flags := flag.NewFlagSet("parquet", flag.ContinueOnError)
+	flags.SetOutput(stderr)
 
-	in := fs.String("in", "", "the ledger extract to convert")
-	out := fs.String("out", ".", "the directory the two Parquet files are written to")
+	in := flags.String("in", "", "the ledger extract to convert")
+	out := flags.String("out", ".", "the directory the two Parquet files are written to")
 
-	if err := fs.Parse(args); err != nil {
-		return err
+	if err := flags.Parse(args); err != nil {
+		// The flag set has already written its message and the usage to stderr,
+		// and -h is a request that succeeded rather than a failure. Returning
+		// either would have main print it a second time and exit non-zero for
+		// having answered the question it was asked.
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+
+		return errAlreadyReported
 	}
 
 	if *in == "" {
@@ -171,40 +190,67 @@ func run(args []string, stderr io.Writer) error {
 		return err
 	}
 
-	extractPath := filepath.Join(*out, "extract.parquet")
-	postingPath := filepath.Join(*out, "posting.parquet")
+	// -out is created rather than assumed, so that the invocation README.md
+	// documents runs as it is written on a machine that has never run it.
+	if err := os.MkdirAll(*out, 0o750); err != nil {
+		return err
+	}
 
-	if err := write(r, extractPath, postingPath); err != nil {
-		// Both outputs go. A conversion that fails returns before either footer
-		// is written, and a Parquet file with no footer is bytes that read as
-		// corruption rather than as a run somebody has to repeat.
-		return errors.Join(fmt.Errorf("converting %s: %w", *in, err), os.Remove(extractPath), os.Remove(postingPath))
+	if err := write(r, filepath.Join(*out, "extract.parquet"), filepath.Join(*out, "posting.parquet")); err != nil {
+		return fmt.Errorf("converting %s: %w", *in, err)
 	}
 
 	return nil
 }
 
+// errAlreadyReported stands for a flag error the flag set has already printed.
+// main exits non-zero on it and says nothing further.
+var errAlreadyReported = errors.New("")
+
 // write creates the two tables and converts into them.
+//
+// Nothing it created survives a failure. A conversion that fails returns before
+// either footer is written, and a Parquet file with no footer is bytes that read
+// as corruption rather than as a run somebody has to repeat — so the two paths
+// are removed, and only the ones this call actually opened.
 //
 // Both files are closed whatever happens, and a failure to close is joined to
 // whatever the conversion reported rather than replacing it: a full disk shows
 // up here and nowhere else.
-func write(src recordSource, extractPath, postingPath string) (err error) {
+func write(src recordSource, extractPath, postingPath string) error {
 	extract, err := os.Create(extractPath)
 	if err != nil {
 		return err
 	}
 
-	defer func() { err = errors.Join(err, extract.Close()) }()
-
 	posting, err := os.Create(postingPath)
 	if err != nil {
+		// posting was never opened by this call, so it is not this call's to
+		// remove: a file of that name is one an earlier successful conversion
+		// into the same directory left behind.
+		return errors.Join(err, extract.Close(), remove(extractPath))
+	}
+
+	err = errors.Join(convert(src, extract, posting), extract.Close(), posting.Close())
+	if err == nil {
+		return nil
+	}
+
+	return errors.Join(err, remove(extractPath), remove(postingPath))
+}
+
+// remove deletes a path this run created, treating an absent one as done rather
+// than as a failure.
+//
+// The caller is undoing its own writes, so a file that is not there is the state
+// it wanted — and an ENOENT joined onto the real diagnostic would bury it under
+// a line about a file nobody was looking for.
+func remove(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
-	defer func() { err = errors.Join(err, posting.Close()) }()
-
-	return convert(src, extract, posting)
+	return nil
 }
 
 // convert reads every record of src once and writes the two tables.
@@ -235,8 +281,17 @@ func convert(src recordSource, extract, posting io.Writer) error {
 			return nil
 		}
 
-		if _, err := postings.Write(batch); err != nil {
+		n, err := postings.Write(batch)
+		if err != nil {
 			return fmt.Errorf("writing %d posting rows: %w", len(batch), err)
+		}
+
+		// written means "rows the writer took", not "rows handed over". A short
+		// write reported without an error would otherwise leave the count below
+		// agreeing with TRL-COUNT over a file missing exactly the rows nobody
+		// noticed, which is the failure this whole function is written against.
+		if n != len(batch) {
+			return fmt.Errorf("the writer took %d of %d posting rows and reported no error", n, len(batch))
 		}
 
 		// Explicit, because Write only buffers. Without this the row group
@@ -246,7 +301,7 @@ func convert(src recordSource, extract, posting io.Writer) error {
 			return fmt.Errorf("flushing %d posting rows: %w", len(batch), err)
 		}
 
-		written += int64(len(batch))
+		written += int64(n)
 		batch = batch[:0]
 
 		return nil

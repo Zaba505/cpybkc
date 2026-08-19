@@ -1375,9 +1375,14 @@ there, so handing it `example/parquet` alone would put `../..` outside the mount
 [`exampleParquetSource`](.dagger/main.go) hands over that directory with the
 repository nested inside it under a `_`-prefixed name — which is what keeps the
 go tool and golangci-lint from expanding `./...` into it — and re-points both
-replace directives at the nest with `go mod edit`. If you add or remove a
-`replace` in `example/parquet/go.mod`, that function is the other half of the
-change.
+replace directives at the nest with `go mod edit`.
+
+It **requires the committed directives before it rewrites them**, and that is not
+belt and braces: `go mod edit -replace` *adds* a directive that is absent, so a
+stage that only rewrote would go green over an `example/parquet/go.mod` that had
+lost one, while the `go test ./...` above failed for everybody. If you add,
+remove or re-point a `replace` there, `exampleParquetReplacements` is the other
+half of the change, and the stage says so by name when the two disagree.
 
 ### The default image tag is the moving major tag
 
