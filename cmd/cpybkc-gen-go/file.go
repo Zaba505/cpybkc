@@ -93,17 +93,33 @@ type filer struct {
 	// one thing that obliges the reader to hold the record's own bytes as well
 	// as its values.
 	keepsBytes bool
+
+	// comparesBytes is whether anything in the generated file compares byte
+	// strings, which is the whole of what it imports "bytes" for. See
+	// [filer.survey], which settles it.
+	comparesBytes bool
 }
 
 // fileImports is what every generated file of this kind imports.
 //
 // Each is used by something the file always declares: bufio and io by the
-// reader, bytes by the writer's own buffer, errors by the end-of-input test,
-// and codec by both directions. Only strings is conditional, because only the
-// diagnostic naming the record types a state expected uses it, and a file whose
-// every state offers one unconditional transition has no such diagnostic to
-// make.
-var fileImports = []string{"bufio", "bytes", "errors", "fmt", "io", codecImport}
+// reader, errors by the end-of-input test, and codec by both directions. Two
+// are conditional. Only the diagnostic naming the record types a state expected
+// uses strings, and a file whose every state offers one unconditional
+// transition has no such diagnostic to make; only a comparison of byte strings
+// uses bytes, and a file whose framing needs no delimiter and whose automaton
+// carries neither a predicate nor a guard over a bytes register makes none. See
+// [filer.survey] for the second.
+//
+// Comparisons are the whole of what reaches for bytes, which is why nothing
+// else is asked about. In particular a binding *writing* a bytes register does
+// not: it is emitted as append(w.registerN[:0], raw[a:b]...) by
+// [filer.emitFieldBinding], reusing the register's own array rather than
+// calling bytes.Clone, and that is the reason it can be. Anything emitted here
+// that reaches for bytes some other way has to be added to [filer.survey] in
+// the same commit — [TestAFileMachineImportsBytesOnlyWhereItComparesThem] is
+// what holds the four ways it is reached today.
+var fileImports = []string{"bufio", "errors", "fmt", "io", codecImport}
 
 // fileMachine is the source of [fileMachineFile] for this descriptor, or the
 // empty string where this descriptor's automaton admits no record — because it

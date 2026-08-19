@@ -658,7 +658,18 @@ func matches4At1(b []byte) bool {
 // own.
 type Writer struct {
 	dst io.Writer
-	enc codec.Encoding
+
+	// cw lays out the record in hand, and is the only encoder this writer
+	// builds: a predicate is evaluated against the bytes that are about to go
+	// out, so a record exists as bytes before the transition carrying it is
+	// chosen, and the method emitting a record rewinds this onto it rather
+	// than constructing one over it. The buffer those bytes accumulate in is
+	// this encoder's own — [codec.Writer.Bytes] is where they are read back —
+	// and it is kept at its capacity across every rewind, along with everything
+	// the encoding derives. That is why the encoding is not kept beside it:
+	// codec.Writer carries it, and one that could be swapped under a half-laid
+	// record is what codec refuses to allow.
+	cw *codec.Writer
 
 	// state is where in the automaton the write is, numbered as [Reader.state] is.
 	state int
@@ -666,11 +677,6 @@ type Writer struct {
 	// ordinal is how many records have been written, so that a diagnostic can
 	// say where.
 	ordinal int
-
-	// raw is the record in hand, laid out before it is emitted: a predicate is
-	// evaluated against the bytes that are about to go out, so they exist
-	// before the transition is chosen. It is reused between records.
-	raw bytes.Buffer
 
 	// The register file. There is one for the whole write, a register holds what the
 	// most recent binding put in it, and nothing saves or restores one — so the
@@ -698,13 +704,18 @@ func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 		return nil, codec.ErrNilWriter
 	}
 
-	if err := enc.Validate(); err != nil {
+	// The one encoder this writer builds, over a buffer of no bytes until the
+	// first record is laid into it. Construction is what validates the
+	// encoding, and it reports the same error for the same axis that
+	// enc.Validate does, so nothing is checked twice here.
+	cw, err := codec.NewBytesWriter(nil, enc)
+	if err != nil {
 		return nil, err
 	}
 
 	return &Writer{
 		dst:   w,
-		enc:   enc,
+		cw:    cw,
 		state: 0,
 	}, nil
 }
@@ -767,18 +778,22 @@ func (w *Writer) Close() error {
 // The record is laid out first and the transition is chosen against those
 // bytes, because what a predicate tests is what is about to be emitted.
 func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
-	w.raw.Reset()
+	// The encoder is rewound onto the buffer it filled for the record before
+	// this one rather than built over a fresh one. A rewind keeps everything
+	// the encoding derives and the capacity that buffer reached, and it puts
+	// the offset back to zero, so every offset codec reports is counted from
+	// the start of this record rather than from the start of the file.
+	w.cw.Reset(w.cw.Bytes())
 
-	cw, err := codec.NewWriter(&w.raw, w.enc)
-	if err != nil {
+	if err := rec.MarshalCOBOL(w.cw); err != nil {
 		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
 	}
 
-	if err := rec.MarshalCOBOL(cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	raw := w.raw.Bytes()
+	// The record's bytes, which are the encoder's own buffer and are valid
+	// until the rewind above happens again. Nothing below holds them past
+	// that: a predicate reads them, the framing writes them out, and a
+	// binding taking a register's bytes out of them copies.
+	raw := w.cw.Bytes()
 
 	var excluded string
 
@@ -841,18 +856,22 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 // The record is laid out first and the transition is chosen against those
 // bytes, because what a predicate tests is what is about to be emitted.
 func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
-	w.raw.Reset()
+	// The encoder is rewound onto the buffer it filled for the record before
+	// this one rather than built over a fresh one. A rewind keeps everything
+	// the encoding derives and the capacity that buffer reached, and it puts
+	// the offset back to zero, so every offset codec reports is counted from
+	// the start of this record rather than from the start of the file.
+	w.cw.Reset(w.cw.Bytes())
 
-	cw, err := codec.NewWriter(&w.raw, w.enc)
-	if err != nil {
+	if err := rec.MarshalCOBOL(w.cw); err != nil {
 		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
 	}
 
-	if err := rec.MarshalCOBOL(cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	raw := w.raw.Bytes()
+	// The record's bytes, which are the encoder's own buffer and are valid
+	// until the rewind above happens again. Nothing below holds them past
+	// that: a predicate reads them, the framing writes them out, and a
+	// binding taking a register's bytes out of them copies.
+	raw := w.cw.Bytes()
 
 	var excluded string
 
@@ -966,18 +985,22 @@ func (w *Writer) writeSummaryRecord(rec *SummaryRecord) error {
 		return fmt.Errorf("record %d: NOTE occurs 0 to 4 times and the record holds %d occurrences of it", w.ordinal+1, len(rec.Note))
 	}
 
-	w.raw.Reset()
+	// The encoder is rewound onto the buffer it filled for the record before
+	// this one rather than built over a fresh one. A rewind keeps everything
+	// the encoding derives and the capacity that buffer reached, and it puts
+	// the offset back to zero, so every offset codec reports is counted from
+	// the start of this record rather than from the start of the file.
+	w.cw.Reset(w.cw.Bytes())
 
-	cw, err := codec.NewWriter(&w.raw, w.enc)
-	if err != nil {
+	if err := rec.MarshalCOBOL(w.cw); err != nil {
 		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
 	}
 
-	if err := rec.MarshalCOBOL(cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	raw := w.raw.Bytes()
+	// The record's bytes, which are the encoder's own buffer and are valid
+	// until the rewind above happens again. Nothing below holds them past
+	// that: a predicate reads them, the framing writes them out, and a
+	// binding taking a register's bytes out of them copies.
+	raw := w.cw.Bytes()
 
 	var excluded string
 

@@ -63,6 +63,10 @@ func (f *filer) emit() (string, []string, error) {
 	}
 
 	imports := append([]string{}, fileImports...)
+	if f.comparesBytes {
+		imports = append(imports, "bytes")
+	}
+
 	if f.reports(walks) {
 		imports = append(imports, "strings")
 	}
@@ -72,12 +76,36 @@ func (f *filer) emit() (string, []string, error) {
 	return b.String(), imports, nil
 }
 
-// survey settles the two facts the shape of the generated file turns on: what
-// the reader has to hold, and whether any record type collides with the names
-// this file occupies at package scope.
+// survey settles the three facts the shape of the generated file turns on: what
+// the reader has to hold, whether the file compares byte strings anywhere, and
+// whether any record type collides with the names this file occupies at package
+// scope.
 func (f *filer) survey(walks [][]transition) error {
+	// A delimiter is compared against the bytes standing where the framing says
+	// one stands, which is the only comparison a framing itself makes.
+	if f.how == delimited {
+		f.comparesBytes = true
+	}
+
+	// Only the accepting states, because only their acceptance guards are
+	// emitted: [filer.acceptance] skips a state that does not accept, so a
+	// guard on one is not a comparison this file makes.
+	for _, node := range f.states {
+		if state := node.GetState(); state.GetAccepts() {
+			f.surveyGuards(state.GetAcceptanceGuardIds())
+		}
+	}
+
 	for _, walk := range walks {
 		for _, t := range walk {
+			// A transition's predicate is an equality over a window of the
+			// bytes in front of the walk, and both directions evaluate it.
+			if t.match != "" {
+				f.comparesBytes = true
+			}
+
+			f.surveyGuards(t.node.GetGuardIds())
+
 			switch t.typ {
 			case recordInterface, readerType, writerType, newReaderFunc, newWriterFunc:
 				return &collisionError{
@@ -119,6 +147,43 @@ func (f *filer) survey(walks [][]transition) error {
 	}
 
 	return nil
+}
+
+// surveyGuards records whether any of these guards reads a bytes register,
+// which is a guard [compare] writes as an equality over byte strings.
+//
+// The kind is the whole of the question: the greater-than-zero test is refused
+// over a bytes register and an equality over one is a comparison of bytes
+// whatever it is compared against, so no guard reading such a register is
+// written any other way.
+//
+// # It refuses nothing, deliberately
+//
+// A guard whose node is missing, is not a guard node, or names a register this
+// descriptor does not carry is a malformed descriptor, and the refusal is
+// [filer.guardTests]'s and [filer.acceptance]'s to make — later, over the same
+// nodes, and with the phrasing that belongs to them. Refusing here would take
+// those messages out of reach by arriving first, and it would answer for guards
+// nothing emits, so what cannot be resolved is passed over as "not a bytes
+// register". Nothing is lost by that: a descriptor whose guard does not resolve
+// produces no file at all, so an import decision made about it never reaches
+// anybody.
+func (f *filer) surveyGuards(ids []uint64) {
+	for _, id := range ids {
+		node, ok := f.nodes[id]
+		if !ok {
+			continue
+		}
+
+		guard := node.GetGuard()
+		if guard == nil {
+			continue
+		}
+
+		if kind, err := f.registerKind(guard.GetRegisterId()); err == nil && kind == "[]byte" {
+			f.comparesBytes = true
+		}
+	}
 }
 
 // emitRecord declares what the reader produces and the writer takes.

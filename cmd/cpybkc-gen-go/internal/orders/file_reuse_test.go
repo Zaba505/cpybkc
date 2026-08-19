@@ -3,10 +3,10 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// The assertions over decoders that are rewound rather than rebuilt: what the
+// The assertions over codecs that are rewound rather than rebuilt: what the
 // framing check counts in once the reader holds one decoder for the whole file,
-// and what a table of variants costs once one sub-decoder serves every
-// occurrence of it.
+// what a table of variants costs to decode once one sub-decoder serves every
+// occurrence of it, and what it costs to encode once one sub-encoder does.
 //
 // They live inside the golden package for the reason the round-trip assertions
 // beside them do, and they are here rather than in `chunks` because this
@@ -268,6 +268,109 @@ func BenchmarkDecodingATableOfVariants(b *testing.B) {
 
 		if err := x.UnmarshalCOBOL(cr); err != nil {
 			b.Fatalf("UnmarshalCOBOL: %v", err)
+		}
+	}
+}
+
+// recordWriteAllocations is what encoding one ENTRY-RECORD may cost.
+//
+// Ten, of which exactly **one** is an encoder: the sub-encoder this record's
+// method builds and rewinds onto its own buffer for each of its three
+// occurrences. One more is that buffer, which the first occurrence grows and
+// every occurrence after it writes into at the capacity it reached.
+//
+// Before one sub-encoder served every occurrence it was seventeen: three
+// encoders, three bytes.Buffers escaping to the heap because an encoder was
+// built over each, and the first backing array each of those buffers had to
+// allocate — three allocations per occurrence rather than two for the record.
+// Nine of the seventeen were the multiplier, and it is the multiplier this
+// story removed: on a real copybook's OCCURS 100 holding a REDEFINES those
+// nine are three hundred, and they become the two allocations this record now
+// makes whatever the count is.
+//
+// It is a cost and not a correctness criterion. That the bytes written are the
+// bytes the record was read from, occurrence by occurrence and slack run by
+// slack run, is [TestATableOfVariantsWritesBackTheBytesItWasReadFrom] in
+// record_roundtrip_test.go — which matters more here than it did on the
+// reading side, because one buffer now serves every occurrence and a rewind
+// that failed to truncate would leave the occurrence before it in front of the
+// one being written.
+//
+// An upper bound rather than an equality, so that codec allocating less for a
+// field than it does today passes rather than failing on an improvement. What
+// it catches is the regression: an encoder back inside the loop over
+// occurrences costs three an occurrence whatever else changes.
+const recordWriteAllocations = 10
+
+// TestATableOfVariantsBuildsOneEncoderForTheRecord is
+// [TestATableOfVariantsBuildsOneDecoderForTheRecord] in the other direction,
+// over the same call site: a group that repeats and holds a variant is laid out
+// one occurrence at a time, and the encoder over an occurrence's bytes was
+// built once per occurrence rather than once per record.
+//
+// Not parallel, and deliberately: [testing.AllocsPerRun] counts the whole
+// process's allocations, so a test measuring them cannot run beside one making
+// them.
+func TestATableOfVariantsBuildsOneEncoderForTheRecord(t *testing.T) {
+	x := entryRecord(t, "DSD")
+
+	cw, err := codec.NewBytesWriter(nil, Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewBytesWriter: %v", err)
+	}
+
+	allocs := testing.AllocsPerRun(20, func() {
+		cw.Reset(cw.Bytes())
+
+		if err := x.MarshalCOBOL(cw); err != nil {
+			t.Fatalf("MarshalCOBOL: %v", err)
+		}
+	})
+
+	if allocs > recordWriteAllocations+tolerance {
+		t.Errorf("encoding an ENTRY-RECORD allocates %.2f times, and its three occurrences and the one encoder over them account for %d",
+			allocs, recordWriteAllocations)
+	}
+}
+
+// entryRecord is the ENTRY-RECORD [entryBytes] describes, decoded out of those
+// bytes rather than built by hand: the arms it holds and the runs retained for
+// its slack are what the copybook says they are only if a decode put them
+// there.
+func entryRecord(tb testing.TB, arms string) *EntryRecord {
+	tb.Helper()
+
+	cr, err := codec.NewBytesReader(entryBytes(tb, arms), Encoding())
+	if err != nil {
+		tb.Fatalf("codec.NewBytesReader: %v", err)
+	}
+
+	var x EntryRecord
+
+	if err := x.UnmarshalCOBOL(cr); err != nil {
+		tb.Fatalf("UnmarshalCOBOL: %v", err)
+	}
+
+	return &x
+}
+
+// BenchmarkEncodingATableOfVariants is the orientation the assertion above
+// deliberately is not.
+func BenchmarkEncodingATableOfVariants(b *testing.B) {
+	x := entryRecord(b, "DSD")
+
+	cw, err := codec.NewBytesWriter(nil, Encoding())
+	if err != nil {
+		b.Fatalf("codec.NewBytesWriter: %v", err)
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		cw.Reset(cw.Bytes())
+
+		if err := x.MarshalCOBOL(cw); err != nil {
+			b.Fatalf("MarshalCOBOL: %v", err)
 		}
 	}
 }

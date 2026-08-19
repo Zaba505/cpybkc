@@ -166,16 +166,21 @@ func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 func (x *LedgerRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
+	// entry1 lays out one occurrence of ENTRY, which carries a variant and so is
+	// laid out whole before the arm chosen for it is checked against its bytes.
+	// It is built here rather than inside the loop over those occurrences, and
+	// rewound onto its own buffer there.
+	var entry1 *codec.Writer
+	if entry1, err = codec.NewBytesWriter(nil, w.Encoding()); err != nil {
+		return fmt.Errorf("LEDGER-RECORD: building the encoder the occurrences of ENTRY are written through: %w", err)
+	}
+
 	if err = w.WriteAlphanumeric(x.LedgerId, 4); err != nil {
 		return fmt.Errorf("LEDGER-RECORD: writing LEDGER-ID: %w", err)
 	}
 
 	for i0 := range x.Entry {
-		var occurrence1 bytes.Buffer
-		var entry1 *codec.Writer
-		if entry1, err = codec.NewWriter(&occurrence1, w.Encoding()); err != nil {
-			return fmt.Errorf("LEDGER-RECORD: writing over its bytes in occurrence %d of ENTRY: %w", i0, err)
-		}
+		entry1.Reset(entry1.Bytes())
 		if err = entry1.WriteAlphanumeric(x.Entry[i0].EntryType, 1); err != nil {
 			return fmt.Errorf("LEDGER-RECORD: writing ENTRY-TYPE in occurrence %d of ENTRY: %w", i0, err)
 		}
@@ -209,26 +214,26 @@ func (x *LedgerRecord) MarshalCOBOL(w *codec.Writer) error {
 		default:
 			return fmt.Errorf("LEDGER-RECORD: an occurrence holds exactly one arm of the alternation over ENTRY-DETAIL and this one holds none in occurrence %d of ENTRY", i0)
 		}
-		matched1, holds1 := -1, -1
+		matched2, holds2 := -1, -1
 		switch {
-		case bytes.Equal(occurrence1.Bytes()[0:1], []byte("\xc4")):
-			matched1 = 0
-		case bytes.Equal(occurrence1.Bytes()[0:1], []byte("\xe2")):
-			matched1 = 1
+		case bytes.Equal(entry1.Bytes()[0:1], []byte("\xc4")):
+			matched2 = 0
+		case bytes.Equal(entry1.Bytes()[0:1], []byte("\xe2")):
+			matched2 = 1
 		}
 		switch {
 		case x.Entry[i0].EntryDetail != nil:
-			holds1 = 0
+			holds2 = 0
 		case x.Entry[i0].EntrySummary != nil:
-			holds1 = 1
+			holds2 = 1
 		}
-		if matched1 < 0 {
+		if matched2 < 0 {
 			return fmt.Errorf("LEDGER-RECORD: a writer reports an occurrence satisfying no arm's predicate rather than emitting it, and none of the alternation over ENTRY-DETAIL is satisfied in occurrence %d of ENTRY", i0)
 		}
-		if matched1 != holds1 {
-			return fmt.Errorf("LEDGER-RECORD: a writer evaluates the predicate of the arm its caller supplied and never derives a value satisfying one, and this occurrence holds arm %d of the alternation over ENTRY-DETAIL while its values satisfy the predicate of arm %d in occurrence %d of ENTRY", holds1, matched1, i0)
+		if matched2 != holds2 {
+			return fmt.Errorf("LEDGER-RECORD: a writer evaluates the predicate of the arm its caller supplied and never derives a value satisfying one, and this occurrence holds arm %d of the alternation over ENTRY-DETAIL while its values satisfy the predicate of arm %d in occurrence %d of ENTRY", holds2, matched2, i0)
 		}
-		if err = w.WriteBytes(occurrence1.Bytes()); err != nil {
+		if err = w.WriteBytes(entry1.Bytes()); err != nil {
 			return fmt.Errorf("LEDGER-RECORD: writing its bytes in occurrence %d of ENTRY: %w", i0, err)
 		}
 	}

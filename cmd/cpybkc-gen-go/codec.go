@@ -77,26 +77,31 @@ type coder struct {
 	// counter is what makes a generated temporary unique inside one method.
 	counter int
 
-	// subs is, for the record being decoded, every sub-reader the walk rewinds
+	// subs is, for the record being walked, every sub-codec the walk rewinds
 	// onto an occurrence, in the order the walk reaches them. Each is declared
 	// and built once at the top of the method rather than once per occurrence;
-	// see [coder.subReaders].
-	subs []subReader
+	// see [coder.subReaders] and [coder.subWriters].
+	//
+	// One field for both directions because a record is walked in one of them
+	// at a time: [coder.unmarshal] and [coder.marshal] each clear it at the
+	// top, and neither is reentrant.
+	subs []subCodec
 
 	// record is the COBOL name of the record being walked, for a diagnostic
 	// composed away from the walk.
 	record string
 }
 
-// subReader is one decoder a record's decode method builds over the bytes of
-// one occurrence: the identifier it is declared under, and the table whose
-// occurrences it reads.
-type subReader struct {
+// subCodec is one decoder a record's decode method builds over the bytes of
+// one occurrence, or one encoder its encode method lays one occurrence into:
+// the identifier it is declared under, and the table whose occurrences it
+// reads or writes.
+type subCodec struct {
 	// name is the Go identifier, unique inside the method that declares it.
 	name string
 
-	// item is the repeating group one occurrence of which it reads, as the
-	// copybook names it, for the diagnostic its construction makes.
+	// item is the repeating group one occurrence of which it reads or writes,
+	// as the copybook names it, for the diagnostic its construction makes.
 	item string
 }
 
@@ -149,9 +154,17 @@ type scope struct {
 	// over that occurrence's bytes inside one.
 	rw string
 
-	// buf is the occurrence's bytes, where the walk is inside one: the slice a
-	// decoder evaluates an arm's predicate against, or the bytes.Buffer an
-	// encoder is filling. It is empty outside one.
+	// buf is where the occurrence's bytes are, where the walk is inside one:
+	// the slice a decoder evaluates an arm's predicate against, or the
+	// sub-writer an encoder is laying the occurrence into, whose Bytes are
+	// those bytes. It is empty outside one.
+	//
+	// The two directions differ because the bytes exist at different moments:
+	// a decoder reads the whole occurrence before it walks it, and an encoder
+	// has them only once the walk has written them, so on that side what is
+	// carried is the writer holding them rather than a slice. See
+	// [coder.checkArms], which is the one place the encode direction reads it
+	// and adds the call.
 	buf string
 
 	// occurrence is the group one occurrence of which buf holds, and occExpr is
@@ -341,9 +354,10 @@ of the file in hand, and %s is what this descriptor resolved.`,
 // occurrences carrying a variant costs one construction rather than a hundred,
 // and none of the allocations that stood beside them.
 //
-// It is the decode direction only. An encoder's sub-writer fills a buffer of
-// its own per occurrence and hands those bytes back to the writer above it, so
-// there is nothing there for one built once to be rewound onto.
+// [coder.subWriters] is the same thing in the other direction, and the two are
+// separate methods rather than one because what they declare differs in every
+// line: the constructor, the type, what a rewind is aimed at and what a failure
+// to build one is called.
 //
 // # Built for the record rather than at the first occurrence that needs one
 //
@@ -375,10 +389,55 @@ func (c *coder) subReaders() string {
 	return b.String()
 }
 
+// subWriters declares and builds every sub-writer the record being encoded
+// rewinds onto an occurrence, ahead of the walk that rewinds them.
+//
+// It is [coder.subReaders] in the other direction and saves the same thing for
+// the same reason: codec.Writer.Reset keeps everything the Encoding derives and
+// swaps only the buffer, so a table of a hundred occurrences carrying a variant
+// costs one construction rather than a hundred — and the bytes.Buffer that used
+// to stand beside each of those constructions is gone with them, because a
+// byte-backed codec.Writer accumulates into a buffer of its own and hands it
+// back through codec.Writer.Bytes.
+//
+// The rewind at each occurrence is onto that same buffer, which is what keeps
+// the capacity the last occurrence grew it to; see [coder.encodeMembers]. The
+// paragraph on [coder.subReaders] about building these for the record rather
+// than at the first occurrence that needs one holds here unchanged.
+//
+// # The error branch it emits cannot be taken today
+//
+// codec.NewBytesWriter fails only on an Encoding that does not validate, and
+// the Encoding here is the one the caller's own codec.Writer was built with, so
+// it has validated already. The check is emitted regardless, exactly as
+// [coder.subReaders] emits it: discarding the error would be a `_` on a call
+// this package does not own, and a generated file whose reader has to be told
+// which of two error returns is real is a worse thing to read than a branch
+// that does not fire. If codec ever grows a second reason for that constructor
+// to fail, this is already the code that reports it.
+func (c *coder) subWriters() string {
+	var b strings.Builder
+
+	for _, sub := range c.subs {
+		line(&b, "// %s lays out one occurrence of %s, which carries a variant and so is", sub.name, sub.item)
+		line(&b, "// laid out whole before the arm chosen for it is checked against its bytes.")
+		line(&b, "// It is built here rather than inside the loop over those occurrences, and")
+		line(&b, "// rewound onto its own buffer there.")
+		line(&b, "var %s *codec.Writer", sub.name)
+		line(&b, "if %s, err = codec.NewBytesWriter(nil, w.Encoding()); err != nil {", sub.name)
+		line(&b, "return fmt.Errorf(%s, err)", strconv.Quote(c.record+": building the encoder the occurrences of "+sub.item+" are written through: %w"))
+		line(&b, "}")
+		line(&b, "")
+	}
+
+	return b.String()
+}
+
 // marshal is one record's encode method.
 func (c *coder) marshal(name string, record *irpb.Record) (string, error) {
 	c.countOf = make(map[uint64][]countUse)
 	c.counter = 0
+	c.subs = nil
 	c.record = record.GetNames().GetOriginal()
 
 	if err := c.collectCounts(record.GetRootId(), c.receiver, nil); err != nil {
@@ -406,7 +465,7 @@ including the value a discriminator tests — a writer evaluates a predicate
 and never inverts one.`, record.GetNames().GetOriginal()))
 
 	return doc + fmt.Sprintf("func (%s *%s) MarshalCOBOL(w *codec.Writer) error {\n%s\nreturn nil\n}",
-		c.receiver, name, c.prologue(body.String())), nil
+		c.receiver, name, c.prologue(c.subWriters()+body.String())), nil
 }
 
 // prologue is a method body with the one declaration it needs, where it needs
@@ -560,7 +619,7 @@ func (c *coder) decodeMembers(b *strings.Builder, id uint64, expr string, s scop
 
 	sub := fmt.Sprintf("entry%d", c.counter)
 
-	c.subs = append(c.subs, subReader{name: sub, item: group.GetNames().GetOriginal()})
+	c.subs = append(c.subs, subCodec{name: sub, item: group.GetNames().GetOriginal()})
 
 	// Assigned rather than declared, so that the one `err` the method declares
 	// is the one every statement of it uses: a `:=` here would shadow it, and a
@@ -839,22 +898,33 @@ func (c *coder) encodeMembers(b *strings.Builder, id uint64, expr string, s scop
 		return c.encodeGroup(b, id, expr, s)
 	}
 
-	c.imports["bytes"] = struct{}{}
+	group, err := c.group(id)
+	if err != nil {
+		return err
+	}
 
-	var (
-		buf = fmt.Sprintf("occurrence%d", s.depth)
-		sub = fmt.Sprintf("entry%d", s.depth)
-	)
+	// The sub-writer is declared and built once for the record by
+	// [coder.subWriters], and rewound onto its own buffer here. That
+	// declaration stands at the top of the method rather than inside this
+	// loop's block, which is what its name now has to be unique against, for
+	// the reason [coder.decodeMembers] records: two tables standing side by
+	// side are at one depth and would otherwise be one identifier declared
+	// twice.
+	c.counter++
 
-	line(b, "var %s bytes.Buffer", buf)
-	line(b, "var %s *codec.Writer", sub)
-	line(b, "if %s, err = codec.NewWriter(&%s, %s.Encoding()); err != nil {", sub, buf, s.rw)
-	line(b, "%s", wrapf(s, "writing over its bytes"))
-	line(b, "}")
+	sub := fmt.Sprintf("entry%d", c.counter)
+
+	c.subs = append(c.subs, subCodec{name: sub, item: group.GetNames().GetOriginal()})
+
+	// Rewound onto the bytes it laid the occurrence before this one into, which
+	// truncates them and keeps the capacity they reached. Those bytes have
+	// already been written on to the writer above, which copied them, so there
+	// is nothing here for a rewind to lose.
+	line(b, "%s.Reset(%s.Bytes())", sub, sub)
 
 	inner := s
 	inner.rw = sub
-	inner.buf = buf
+	inner.buf = sub
 	inner.occurrence = id
 	inner.occExpr = expr
 
@@ -866,7 +936,7 @@ func (c *coder) encodeMembers(b *strings.Builder, id uint64, expr string, s scop
 		return err
 	}
 
-	line(b, "if err = %s.WriteBytes(%s.Bytes()); err != nil {", s.rw, buf)
+	line(b, "if err = %s.WriteBytes(%s.Bytes()); err != nil {", s.rw, sub)
 	line(b, "%s", wrapf(s, "writing its bytes"))
 	line(b, "}")
 
