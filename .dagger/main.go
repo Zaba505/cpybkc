@@ -209,6 +209,7 @@ import (
 	"sync"
 
 	"dagger/cpybkc/internal/dagger"
+	"dagger/cpybkc/internal/gomod"
 )
 
 // The buf release ProtoLint runs, pinned by tag and by digest. The tag says
@@ -600,6 +601,11 @@ const exampleParquetNestDir = "_cpybkc"
 // would also disarm example/parquet/module_test.go's own check that the replace
 // exists, because in the container the replace would be one this stage had just
 // inserted.
+//
+// The check is gomod.HasReplacement and not strings.Contains, which is what it
+// was first and is the hole that package's tests exist for: `../..` is a prefix
+// of `../../wrong`, so a directive quietly re-pointed at the wrong directory
+// read as present.
 var exampleParquetReplacements = []string{
 	"github.com/Zaba505/cpybkc => ../..",
 	"github.com/Zaba505/cpybkc/irpb => ../../irpb",
@@ -658,8 +664,8 @@ func (m *Cpybkc) exampleParquetSource(ctx context.Context) (*dagger.Directory, e
 	}
 
 	for _, want := range exampleParquetReplacements {
-		if !strings.Contains(mod, want) {
-			return nil, fmt.Errorf("%s does not replace %q: that directive is what `cd %s && go test ./...` resolves the CLI module through, and this stage re-points it at a nested copy — so a stage that did not check would pass over a go.mod no contributor can build",
+		if !gomod.HasReplacement(mod, want) {
+			return nil, fmt.Errorf("%s does not carry `replace %s`: that directive is what `cd %s && go test ./...` resolves the CLI module through, and this stage re-points it at a nested copy — so a stage that did not check would pass over a go.mod no contributor can build",
 				path, want, exampleParquetModuleDir)
 		}
 	}
