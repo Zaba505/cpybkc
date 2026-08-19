@@ -30,7 +30,7 @@ require google.golang.org/protobuf v1.36.12
 // library that carried one failed to read at all, and `cpybkc init` reported it
 // as "this is not a copybook this build can read". That is the whole of what
 // this repository gets from the move — no code here changed for it.
-require github.com/Zaba505/cobol-go v0.0.0-20260819101208-6f2fa8bae431
+require github.com/Zaba505/cobol-go v0.0.0-20260819200647-d75f1875ab37
 
 // The grammar underneath the layout format. docs/layout/SPEC.md delegates the
 // lexis and the parse of a layout file to it — what a symbol is, where a number
