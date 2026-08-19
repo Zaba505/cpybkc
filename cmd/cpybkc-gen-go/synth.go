@@ -38,7 +38,7 @@ import (
 type synth struct {
 	*coder
 
-	// enc is the four axes as codec takes them, and charset is the one of them
+	// enc is the five axes as codec takes them, and charset is the one of them
 	// the spelling of the literal turns on.
 	enc     codec.Encoding
 	charset irpb.Charset
@@ -121,14 +121,21 @@ func newSynth(c *coder, d *irpb.Descriptor, enc *irpb.Encoding) (*synth, error) 
 	}, nil
 }
 
-// encodingValue is the descriptor's four axes as codec's own value.
+// encodingValue is the descriptor's five axes as codec's own value.
 //
-// The same four resolutions [coder.profile] writes into the generated package,
+// The same five resolutions [coder.profile] writes into the generated package,
 // made here as values rather than as source. They are read off one descriptor
 // and cannot part company for that reason: a charset spelled one way in the
 // generated Encoding and another way in the bytes the generated tests read
 // would make every case fail for a reason that has nothing to do with the
 // walk.
+//
+// The binary width staircase is the axis that makes this identity load-bearing
+// rather than tidy. The generated tests lay a record's bytes out with a
+// codec.Writer and the generated package reads them back with a codec.Reader;
+// if this value's Binary and the emitted Encoding's disagreed, every COMP item
+// in the fixture would be written at one width and read at another, and the
+// cases would fail somewhere behind the first binary item rather than at it.
 //
 // A charset of none falls into the refusal below and never reaches it, on the
 // same terms it never reaches [charsetCall]: the encoding here is the one
@@ -172,7 +179,43 @@ func encodingValue(enc *irpb.Encoding) (codec.Encoding, error) {
 		float = codec.FloatIEEE
 	}
 
-	return codec.Encoding{Charset: charset, Sign: sign, ByteOrder: order, Float: float}, nil
+	// Refused rather than defaulted, on the terms [binarySize] gives: an
+	// unspecified staircase never reaches here, because [resolved] above
+	// refused it, and a member this build does not know is a descriptor from a
+	// newer IR rather than one to guess at.
+	binary, err := binaryValue(enc.GetBinarySize())
+	if err != nil {
+		return codec.Encoding{}, err
+	}
+
+	return codec.Encoding{Charset: charset, Sign: sign, ByteOrder: order, Float: float, Binary: binary}, nil
+}
+
+// binaryValue is [binarySize]'s answer as a value rather than as source.
+//
+// Two functions over one mapping, for the reason [encodingValue] is a second
+// spelling of [coder.profile] at all: one of them has to produce Go text and
+// the other a codec.BinarySize, and neither can be derived from the other
+// without parsing what the first wrote. What holds them together is that the
+// generated tests write bytes with this and the generated package reads them
+// with what the other emitted, so a disagreement between the two is a failing
+// golden rather than a wrong file at an adopter — see
+// [TestEveryStaircaseThisRepositoryResolvesUnderIsOneTheGeneratedCodeCanRead],
+// which pins what [binarySize] writes, and
+// [TestTheResolvedBinaryWidthIsTheOneCodecReads], which pins what this reads.
+func binaryValue(size irpb.BinarySize) (codec.BinarySize, error) {
+	switch size {
+	case irpb.BinarySize_BINARY_SIZE_248:
+		return codec.BinarySize248, nil
+	case irpb.BinarySize_BINARY_SIZE_1248:
+		return codec.BinarySize1248, nil
+	case irpb.BinarySize_BINARY_SIZE_SMALLEST:
+		return codec.BinarySizeSmallest, nil
+	case irpb.BinarySize_BINARY_SIZE_FULL:
+		return codec.BinarySizeFull, nil
+	default:
+		return codec.BinarySizeUnset, &unsupportedBinarySizeError{Size: size}
+	}
 }
 
 // layOut is one case: the record's bytes, the assertions over the record they

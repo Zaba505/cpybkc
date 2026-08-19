@@ -375,6 +375,7 @@ func (r *Record) At(counts Counts) (*Record, error) {
 		Root:         r.Root.at(counts),
 		Item:         r.Item,
 		Alternatives: r.Alternatives,
+		Binary:       r.Binary,
 	}, nil
 }
 

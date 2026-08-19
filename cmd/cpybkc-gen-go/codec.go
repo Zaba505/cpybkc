@@ -176,7 +176,7 @@ func (s scope) in(item, variable string) scope {
 // codec.Marshal take one, and #52's file-level reader and writer have a shape
 // to call rather than one to invent.
 //
-// Neither method chooses an Encoding. The four axes are properties of the file
+// Neither method chooses an Encoding. The five axes are properties of the file
 // in hand and codec carries them on the Reader and the Writer, so the caller
 // states them once and every record read through that Reader is read under
 // them. What this descriptor resolved is [Encoding], emitted beside the methods
@@ -304,7 +304,7 @@ func (c *coder) unmarshal(name string, record *irpb.Record) (string, error) {
 resolved its items, and retains the bytes of every slack node it carries and
 of every item the copybook gives no data-name.
 
-It is codec's Unmarshaler. The Encoding is r's: the four axes are properties
+It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 of the file in hand, and %s is what this descriptor resolved.`,
 		record.GetNames().GetOriginal(), encodingFunc))
 

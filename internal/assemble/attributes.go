@@ -84,19 +84,65 @@ func placementOf(placement layoutmodel.Placement) irpb.DelimiterPlacement {
 	return irpb.DelimiterPlacement_DELIMITER_PLACEMENT_UNSPECIFIED
 }
 
-// encodingOf is the four resolved axes, on the field they govern.
+// encodingOf is the five resolved axes, on the field they govern.
 //
-// All four, on every field, with no profile node for one to inherit from: the
+// All five, on every field, with no profile node for one to inherit from: the
 // pair a layout writes — one profile and per-item overrides over it — was
 // applied by `resolve`, and what a field carries is the result
 // (docs/ir/SPEC.md, "The encoding profile, applied").
-func encodingOf(axes layoutmodel.Axes) *irpb.Encoding {
+//
+// Four of them arrive as [layoutmodel.Axes], which is what a layout author
+// wrote, and the fifth arrives on its own because nobody wrote it: the binary
+// width staircase is the dialect's, and it reaches here as the staircase
+// `resolve` actually laid the record out under rather than as a setting read a
+// second time. Taking it as a parameter beside the axes is what keeps that
+// true — an `encodingOf` that reached for a dialect itself would be a second
+// reading of the same decision, and the failure this whole story is about is
+// two readings of it disagreeing.
+func (a *assembler) encodingOf(axes layoutmodel.Axes, binary copybook.BinarySize) *irpb.Encoding {
 	return &irpb.Encoding{
 		Charset:        charsetOf(axes.Charset),
 		SignConvention: signConventionOf(axes.SignConvention),
 		ByteOrder:      byteOrderOf(axes.ByteOrder),
 		FloatFormat:    floatFormatOf(axes.FloatFormat),
+		BinarySize:     a.binarySizeOf(binary),
 	}
+}
+
+// binarySizeOf is the width staircase a compiler applies to USAGE BINARY items,
+// as the IR spells it.
+//
+// The mapping is total over `copybook`'s declared members, and anything else
+// is a **fault** rather than a value. There is no arm answering a staircase for
+// a member this build does not know: a plausible default is exactly what makes
+// a wrong staircase invisible, and the widths in hand were already laid out
+// under whatever it was.
+//
+// Two different things reach the fault and both are reported the same way. One
+// is a caller that assembled a record `resolve` never produced —
+// `copybook.NewLayout` refuses an undeclared staircase before a width is
+// computed, so no resolved record carries one. The other, and the one worth
+// the fault, is `copybook` gaining a staircase this switch has not been taught:
+// the record resolves perfectly, its widths are real, and the descriptor would
+// otherwise go out carrying an unset axis — reported by [unresolved] against
+// the *field*, which sends a reader to look at an item that is not what is
+// wrong. Naming the dialect member here is what keeps that diagnosis pointing
+// at the mapping.
+func (a *assembler) binarySizeOf(binary copybook.BinarySize) irpb.BinarySize {
+	switch binary {
+	case copybook.BinarySize248:
+		return irpb.BinarySize_BINARY_SIZE_248
+	case copybook.BinarySize1248:
+		return irpb.BinarySize_BINARY_SIZE_1248
+	case copybook.BinarySizeSmallest:
+		return irpb.BinarySize_BINARY_SIZE_SMALLEST
+	case copybook.BinarySizeFull:
+		return irpb.BinarySize_BINARY_SIZE_FULL
+	}
+
+	a.faults.Fail(&UnknownBinarySizeError{Binary: binary})
+
+	return irpb.BinarySize_BINARY_SIZE_UNSPECIFIED
 }
 
 // charsetOf is the code page governing alphanumeric data, the digit zone of

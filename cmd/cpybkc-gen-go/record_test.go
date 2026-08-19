@@ -926,21 +926,31 @@ func TestAFieldMissingAnEncodingAxisIsRefused(t *testing.T) {
 			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 			ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
 			FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+			BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
 		},
 		"no sign convention": {
 			Charset:     irpb.Charset_CHARSET_CP037,
 			ByteOrder:   irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
 			FloatFormat: irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+			BinarySize:  irpb.BinarySize_BINARY_SIZE_248,
 		},
 		"no byte order": {
 			Charset:        irpb.Charset_CHARSET_CP037,
 			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 			FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+			BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
 		},
 		"no float format": {
 			Charset:        irpb.Charset_CHARSET_CP037,
 			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 			ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
+			BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
+		},
+		"no binary size": {
+			Charset:        irpb.Charset_CHARSET_CP037,
+			SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
+			ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
+			FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1620,7 +1630,7 @@ func depending(count uint64, minimum, maximum uint32) *irpb.Repetition {
 	}}}
 }
 
-// resolvedEncoding is the four axes, all four set, as a producer must leave
+// resolvedEncoding is the five axes, all five set, as a producer must leave
 // them on every field.
 func resolvedEncoding() *irpb.Encoding {
 	return &irpb.Encoding{
@@ -1628,6 +1638,7 @@ func resolvedEncoding() *irpb.Encoding {
 		SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
 		ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
 		FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+		BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
 	}
 }
 

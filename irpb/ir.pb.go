@@ -234,6 +234,90 @@ func (DelimiterPlacement) EnumDescriptor() ([]byte, []int) {
 	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{1}
 }
 
+// BinarySize is the width staircase a compiler applies to USAGE BINARY items —
+// BINARY, COMP, COMPUTATIONAL, COMP-4 and COMP-5.
+//
+// A binary item's width is a staircase in its digit count and never the digit
+// count itself, and which staircase is a property of the compiler that produced
+// the file rather than of the copybook: PIC S9(2) COMP is two bytes under IBM
+// Enterprise COBOL and one under GnuCOBOL's default. Nothing in the file
+// disagrees with the wrong answer — a wrong staircase shifts every field after
+// the first binary item it touches — so a producer states it and a consumer
+// MUST NOT infer it. Widths per member are cobol-go's codec/SPEC.md, "Binary
+// widths by digit count", and are not restated here.
+//
+// The members and their spellings are GnuCOBOL's `binary-size` runtime option,
+// which is the only place all four have names anybody has written down.
+//
+// A producer MUST NOT emit BINARY_SIZE_UNSPECIFIED. It is not "the usual one":
+// the 1--2 digit row is a real fork between compilers, so there is no staircase
+// a consumer could fall back to that is right more often than it is silently
+// wrong.
+type BinarySize int32
+
+const (
+	BinarySize_BINARY_SIZE_UNSPECIFIED BinarySize = 0
+	// 2/4/8/16 bytes by digit count: IBM Enterprise COBOL, Micro Focus under its
+	// IBM-compatible directives, and GnuCOBOL's `binary-size: 2-4-8`.
+	BinarySize_BINARY_SIZE_248 BinarySize = 1
+	// 1/2/4/8/16 bytes by digit count: GnuCOBOL's default `binary-size:
+	// 1-2-4-8`, which gives a 1--2 digit item one byte where BINARY_SIZE_248
+	// gives it two.
+	BinarySize_BINARY_SIZE_1248 BinarySize = 2
+	// GnuCOBOL's `binary-size: 1--8`: the smallest byte count from 1 to 8 whose
+	// signed range holds the digits, and sixteen beyond eighteen digits. It is
+	// the only staircase with 3, 5, 6 and 7-byte steps.
+	BinarySize_BINARY_SIZE_SMALLEST BinarySize = 3
+	// GnuCOBOL's `binary-size: full`: always eight bytes, and sixteen beyond
+	// eighteen digits.
+	BinarySize_BINARY_SIZE_FULL BinarySize = 4
+)
+
+// Enum value maps for BinarySize.
+var (
+	BinarySize_name = map[int32]string{
+		0: "BINARY_SIZE_UNSPECIFIED",
+		1: "BINARY_SIZE_248",
+		2: "BINARY_SIZE_1248",
+		3: "BINARY_SIZE_SMALLEST",
+		4: "BINARY_SIZE_FULL",
+	}
+	BinarySize_value = map[string]int32{
+		"BINARY_SIZE_UNSPECIFIED": 0,
+		"BINARY_SIZE_248":         1,
+		"BINARY_SIZE_1248":        2,
+		"BINARY_SIZE_SMALLEST":    3,
+		"BINARY_SIZE_FULL":        4,
+	}
+)
+
+func (x BinarySize) Enum() *BinarySize {
+	p := new(BinarySize)
+	*p = x
+	return p
+}
+
+func (x BinarySize) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BinarySize) Descriptor() protoreflect.EnumDescriptor {
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[2].Descriptor()
+}
+
+func (BinarySize) Type() protoreflect.EnumType {
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[2]
+}
+
+func (x BinarySize) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BinarySize.Descriptor instead.
+func (BinarySize) EnumDescriptor() ([]byte, []int) {
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{2}
+}
+
 // Charset governs alphanumeric character data, the digit zone of zoned decimal,
 // and the byte values of a separate sign. It governs nothing in packed, binary
 // or floating-point items; which axis touches which encoding is cobol-go's
@@ -316,11 +400,11 @@ func (x Charset) String() string {
 }
 
 func (Charset) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[2].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[3].Descriptor()
 }
 
 func (Charset) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[2]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[3]
 }
 
 func (x Charset) Number() protoreflect.EnumNumber {
@@ -329,7 +413,7 @@ func (x Charset) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Charset.Descriptor instead.
 func (Charset) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{2}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{3}
 }
 
 // SignConvention is how an overpunched sign is spelled in a zoned decimal byte.
@@ -383,11 +467,11 @@ func (x SignConvention) String() string {
 }
 
 func (SignConvention) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[3].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[4].Descriptor()
 }
 
 func (SignConvention) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[3]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[4]
 }
 
 func (x SignConvention) Number() protoreflect.EnumNumber {
@@ -396,7 +480,7 @@ func (x SignConvention) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SignConvention.Descriptor instead.
 func (SignConvention) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{3}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{4}
 }
 
 // ByteOrder governs COMP, COMP-4 and COMP-5 binary integers. Weakly detectable
@@ -435,11 +519,11 @@ func (x ByteOrder) String() string {
 }
 
 func (ByteOrder) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[4].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[5].Descriptor()
 }
 
 func (ByteOrder) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[4]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[5]
 }
 
 func (x ByteOrder) Number() protoreflect.EnumNumber {
@@ -448,7 +532,7 @@ func (x ByteOrder) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ByteOrder.Descriptor instead.
 func (ByteOrder) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{4}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{5}
 }
 
 // FloatFormat governs COMP-1 and COMP-2. Neither format can detect the other,
@@ -488,11 +572,11 @@ func (x FloatFormat) String() string {
 }
 
 func (FloatFormat) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[5].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[6].Descriptor()
 }
 
 func (FloatFormat) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[5]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[6]
 }
 
 func (x FloatFormat) Number() protoreflect.EnumNumber {
@@ -501,7 +585,7 @@ func (x FloatFormat) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FloatFormat.Descriptor instead.
 func (FloatFormat) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{5}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{6}
 }
 
 // Usage is the item's USAGE, resolved to the one the bytes are in rather than
@@ -578,11 +662,11 @@ func (x Usage) String() string {
 }
 
 func (Usage) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[6].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[7].Descriptor()
 }
 
 func (Usage) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[6]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[7]
 }
 
 func (x Usage) Number() protoreflect.EnumNumber {
@@ -591,7 +675,7 @@ func (x Usage) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Usage.Descriptor instead.
 func (Usage) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{6}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{7}
 }
 
 // Category is the category the set of symbols in the picture fixes. Only
@@ -638,11 +722,11 @@ func (x Category) String() string {
 }
 
 func (Category) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[7].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[8].Descriptor()
 }
 
 func (Category) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[7]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[8]
 }
 
 func (x Category) Number() protoreflect.EnumNumber {
@@ -651,7 +735,7 @@ func (x Category) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Category.Descriptor instead.
 func (Category) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{7}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{8}
 }
 
 // SignPosition is the copybook's side of the sign: where an operational sign
@@ -700,11 +784,11 @@ func (x SignPosition) String() string {
 }
 
 func (SignPosition) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[8].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[9].Descriptor()
 }
 
 func (SignPosition) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[8]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[9]
 }
 
 func (x SignPosition) Number() protoreflect.EnumNumber {
@@ -713,7 +797,7 @@ func (x SignPosition) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SignPosition.Descriptor instead.
 func (SignPosition) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{8}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{9}
 }
 
 // RegisterKind is what a register holds.
@@ -724,9 +808,11 @@ const (
 	// The source field's bytes as they appear in the record, so that a guard over
 	// one is a byte comparison needing no charset knowledge.
 	RegisterKind_REGISTER_KIND_BYTES RegisterKind = 1
-	// A number, decoded from the source field by that field's own four encoding
+	// A number, decoded from the source field by that field's own five encoding
 	// axes, because a count is arithmetic and the field holding one may be zoned,
-	// packed or binary.
+	// packed or binary — and a binary count is the case the fifth of them
+	// decides, since how many bytes the register reads is the staircase's
+	// answer.
 	RegisterKind_REGISTER_KIND_INTEGER RegisterKind = 2
 )
 
@@ -755,11 +841,11 @@ func (x RegisterKind) String() string {
 }
 
 func (RegisterKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_cpybkc_ir_v1_ir_proto_enumTypes[9].Descriptor()
+	return file_cpybkc_ir_v1_ir_proto_enumTypes[10].Descriptor()
 }
 
 func (RegisterKind) Type() protoreflect.EnumType {
-	return &file_cpybkc_ir_v1_ir_proto_enumTypes[9]
+	return &file_cpybkc_ir_v1_ir_proto_enumTypes[10]
 }
 
 func (x RegisterKind) Number() protoreflect.EnumNumber {
@@ -768,7 +854,7 @@ func (x RegisterKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RegisterKind.Descriptor instead.
 func (RegisterKind) EnumDescriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{9}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{10}
 }
 
 // Descriptor is a resolved layout: everything a generator plugin consumes, and
@@ -1869,12 +1955,12 @@ func (x *Field) GetRepetition() *Repetition {
 	return nil
 }
 
-// Encoding is the four axes of an encoding, resolved.
+// Encoding is the five axes of an encoding, resolved.
 //
-// A producer MUST set all four on every field and MUST NOT leave one unset. A
+// A producer MUST set all five on every field and MUST NOT leave one unset. A
 // consumer MUST NOT supply a default for a missing axis and MUST treat a field
 // missing one as a malformed descriptor: an IR that reached a generator with an
-// axis unresolved is a bug in resolve, and every one of the four fails silently
+// axis unresolved is a bug in resolve, and every one of the five fails silently
 // when wrong.
 //
 // Carried per field and not as a node, so nothing can point at it and nothing
@@ -1885,12 +1971,29 @@ func (x *Field) GetRepetition() *Repetition {
 // that no default survives into it. A record whose fields disagree about
 // charset is therefore the ordinary case here rather than an exception. See
 // docs/ir/SPEC.md, "The encoding profile, applied".
+//
+// # Four of them are the layout's and the fifth is the dialect's
+//
+// The first four are properties of the *bytes*, and a layout author writes them
+// on the `encoding` profile and its overrides. binary_size is a property of the
+// *compiler* the file was produced by, which is docs/layout/SPEC.md's dialect,
+// and a layout author does not write it at all: a producer resolves it from the
+// dialect it computed the record's widths under and puts it here so that the
+// widths a consumer reads are the widths the producer laid out. See
+// docs/ir/SPEC.md, "A binary item's width is the staircase, not the digits".
+//
+// It sits on Encoding rather than on the file node because it is consumed
+// exactly where the other four are — an encoding is what a consumer hands its
+// byte reader — and a fifth thing to gather from a second place is a fifth
+// thing to forget. That it does not vary between the fields of one descriptor
+// is a property of how a producer resolves it, not a licence to carry it once.
 type Encoding struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Charset        Charset                `protobuf:"varint,1,opt,name=charset,proto3,enum=cpybkc.ir.v1.Charset" json:"charset,omitempty"`
 	SignConvention SignConvention         `protobuf:"varint,2,opt,name=sign_convention,json=signConvention,proto3,enum=cpybkc.ir.v1.SignConvention" json:"sign_convention,omitempty"`
 	ByteOrder      ByteOrder              `protobuf:"varint,3,opt,name=byte_order,json=byteOrder,proto3,enum=cpybkc.ir.v1.ByteOrder" json:"byte_order,omitempty"`
 	FloatFormat    FloatFormat            `protobuf:"varint,4,opt,name=float_format,json=floatFormat,proto3,enum=cpybkc.ir.v1.FloatFormat" json:"float_format,omitempty"`
+	BinarySize     BinarySize             `protobuf:"varint,5,opt,name=binary_size,json=binarySize,proto3,enum=cpybkc.ir.v1.BinarySize" json:"binary_size,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1951,6 +2054,13 @@ func (x *Encoding) GetFloatFormat() FloatFormat {
 		return x.FloatFormat
 	}
 	return FloatFormat_FLOAT_FORMAT_UNSPECIFIED
+}
+
+func (x *Encoding) GetBinarySize() BinarySize {
+	if x != nil {
+		return x.BinarySize
+	}
+	return BinarySize_BINARY_SIZE_UNSPECIFIED
 }
 
 // Picture is what the PICTURE character-string and the SIGN clause resolved to.
@@ -3380,13 +3490,15 @@ const file_cpybkc_ir_v1_ir_proto_rawDesc = "" +
 	"\x05names\x18\x05 \x01(\v2\x13.cpybkc.ir.v1.NamesR\x05names\x128\n" +
 	"\n" +
 	"repetition\x18\x06 \x01(\v2\x18.cpybkc.ir.v1.RepetitionR\n" +
-	"repetition\"\xf8\x01\n" +
+	"repetition\"\xb3\x02\n" +
 	"\bEncoding\x12/\n" +
 	"\acharset\x18\x01 \x01(\x0e2\x15.cpybkc.ir.v1.CharsetR\acharset\x12E\n" +
 	"\x0fsign_convention\x18\x02 \x01(\x0e2\x1c.cpybkc.ir.v1.SignConventionR\x0esignConvention\x126\n" +
 	"\n" +
 	"byte_order\x18\x03 \x01(\x0e2\x17.cpybkc.ir.v1.ByteOrderR\tbyteOrder\x12<\n" +
-	"\ffloat_format\x18\x04 \x01(\x0e2\x19.cpybkc.ir.v1.FloatFormatR\vfloatFormat\"\xc4\x01\n" +
+	"\ffloat_format\x18\x04 \x01(\x0e2\x19.cpybkc.ir.v1.FloatFormatR\vfloatFormat\x129\n" +
+	"\vbinary_size\x18\x05 \x01(\x0e2\x18.cpybkc.ir.v1.BinarySizeR\n" +
+	"binarySize\"\xc4\x01\n" +
 	"\aPicture\x122\n" +
 	"\bcategory\x18\x01 \x01(\x0e2\x16.cpybkc.ir.v1.CategoryR\bcategory\x12\x16\n" +
 	"\x06digits\x18\x02 \x01(\rR\x06digits\x12\x14\n" +
@@ -3469,7 +3581,14 @@ const file_cpybkc_ir_v1_ir_proto_rawDesc = "" +
 	"\x1fDELIMITER_PLACEMENT_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDELIMITER_PLACEMENT_TERMINATOR\x10\x01\x12!\n" +
 	"\x1dDELIMITER_PLACEMENT_SEPARATOR\x10\x02\x12+\n" +
-	"'DELIMITER_PLACEMENT_OPTIONAL_TERMINATOR\x10\x03*\x95\x01\n" +
+	"'DELIMITER_PLACEMENT_OPTIONAL_TERMINATOR\x10\x03*\x84\x01\n" +
+	"\n" +
+	"BinarySize\x12\x1b\n" +
+	"\x17BINARY_SIZE_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fBINARY_SIZE_248\x10\x01\x12\x14\n" +
+	"\x10BINARY_SIZE_1248\x10\x02\x12\x18\n" +
+	"\x14BINARY_SIZE_SMALLEST\x10\x03\x12\x14\n" +
+	"\x10BINARY_SIZE_FULL\x10\x04*\x95\x01\n" +
 	"\aCharset\x12\x17\n" +
 	"\x13CHARSET_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rCHARSET_CP037\x10\x01\x12\x11\n" +
@@ -3535,99 +3654,101 @@ func file_cpybkc_ir_v1_ir_proto_rawDescGZIP() []byte {
 	return file_cpybkc_ir_v1_ir_proto_rawDescData
 }
 
-var file_cpybkc_ir_v1_ir_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
+var file_cpybkc_ir_v1_ir_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
 var file_cpybkc_ir_v1_ir_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_cpybkc_ir_v1_ir_proto_goTypes = []any{
 	(IrVersion)(0),          // 0: cpybkc.ir.v1.IrVersion
 	(DelimiterPlacement)(0), // 1: cpybkc.ir.v1.DelimiterPlacement
-	(Charset)(0),            // 2: cpybkc.ir.v1.Charset
-	(SignConvention)(0),     // 3: cpybkc.ir.v1.SignConvention
-	(ByteOrder)(0),          // 4: cpybkc.ir.v1.ByteOrder
-	(FloatFormat)(0),        // 5: cpybkc.ir.v1.FloatFormat
-	(Usage)(0),              // 6: cpybkc.ir.v1.Usage
-	(Category)(0),           // 7: cpybkc.ir.v1.Category
-	(SignPosition)(0),       // 8: cpybkc.ir.v1.SignPosition
-	(RegisterKind)(0),       // 9: cpybkc.ir.v1.RegisterKind
-	(*Descriptor)(nil),      // 10: cpybkc.ir.v1.Descriptor
-	(*Node)(nil),            // 11: cpybkc.ir.v1.Node
-	(*File)(nil),            // 12: cpybkc.ir.v1.File
-	(*Unframed)(nil),        // 13: cpybkc.ir.v1.Unframed
-	(*DescriptorWord)(nil),  // 14: cpybkc.ir.v1.DescriptorWord
-	(*Segmented)(nil),       // 15: cpybkc.ir.v1.Segmented
-	(*Delimited)(nil),       // 16: cpybkc.ir.v1.Delimited
-	(*Record)(nil),          // 17: cpybkc.ir.v1.Record
-	(*Group)(nil),           // 18: cpybkc.ir.v1.Group
-	(*Variant)(nil),         // 19: cpybkc.ir.v1.Variant
-	(*Arm)(nil),             // 20: cpybkc.ir.v1.Arm
-	(*Field)(nil),           // 21: cpybkc.ir.v1.Field
-	(*Encoding)(nil),        // 22: cpybkc.ir.v1.Encoding
-	(*Picture)(nil),         // 23: cpybkc.ir.v1.Picture
-	(*Slack)(nil),           // 24: cpybkc.ir.v1.Slack
-	(*Repetition)(nil),      // 25: cpybkc.ir.v1.Repetition
-	(*VariableCount)(nil),   // 26: cpybkc.ir.v1.VariableCount
-	(*Names)(nil),           // 27: cpybkc.ir.v1.Names
-	(*Predicate)(nil),       // 28: cpybkc.ir.v1.Predicate
-	(*BytesEqual)(nil),      // 29: cpybkc.ir.v1.BytesEqual
-	(*BytesOneOf)(nil),      // 30: cpybkc.ir.v1.BytesOneOf
-	(*State)(nil),           // 31: cpybkc.ir.v1.State
-	(*Transition)(nil),      // 32: cpybkc.ir.v1.Transition
-	(*Register)(nil),        // 33: cpybkc.ir.v1.Register
-	(*Binding)(nil),         // 34: cpybkc.ir.v1.Binding
-	(*Decrement)(nil),       // 35: cpybkc.ir.v1.Decrement
-	(*Guard)(nil),           // 36: cpybkc.ir.v1.Guard
-	(*Literal)(nil),         // 37: cpybkc.ir.v1.Literal
-	(*LiteralSet)(nil),      // 38: cpybkc.ir.v1.LiteralSet
-	(*GreaterThanZero)(nil), // 39: cpybkc.ir.v1.GreaterThanZero
+	(BinarySize)(0),         // 2: cpybkc.ir.v1.BinarySize
+	(Charset)(0),            // 3: cpybkc.ir.v1.Charset
+	(SignConvention)(0),     // 4: cpybkc.ir.v1.SignConvention
+	(ByteOrder)(0),          // 5: cpybkc.ir.v1.ByteOrder
+	(FloatFormat)(0),        // 6: cpybkc.ir.v1.FloatFormat
+	(Usage)(0),              // 7: cpybkc.ir.v1.Usage
+	(Category)(0),           // 8: cpybkc.ir.v1.Category
+	(SignPosition)(0),       // 9: cpybkc.ir.v1.SignPosition
+	(RegisterKind)(0),       // 10: cpybkc.ir.v1.RegisterKind
+	(*Descriptor)(nil),      // 11: cpybkc.ir.v1.Descriptor
+	(*Node)(nil),            // 12: cpybkc.ir.v1.Node
+	(*File)(nil),            // 13: cpybkc.ir.v1.File
+	(*Unframed)(nil),        // 14: cpybkc.ir.v1.Unframed
+	(*DescriptorWord)(nil),  // 15: cpybkc.ir.v1.DescriptorWord
+	(*Segmented)(nil),       // 16: cpybkc.ir.v1.Segmented
+	(*Delimited)(nil),       // 17: cpybkc.ir.v1.Delimited
+	(*Record)(nil),          // 18: cpybkc.ir.v1.Record
+	(*Group)(nil),           // 19: cpybkc.ir.v1.Group
+	(*Variant)(nil),         // 20: cpybkc.ir.v1.Variant
+	(*Arm)(nil),             // 21: cpybkc.ir.v1.Arm
+	(*Field)(nil),           // 22: cpybkc.ir.v1.Field
+	(*Encoding)(nil),        // 23: cpybkc.ir.v1.Encoding
+	(*Picture)(nil),         // 24: cpybkc.ir.v1.Picture
+	(*Slack)(nil),           // 25: cpybkc.ir.v1.Slack
+	(*Repetition)(nil),      // 26: cpybkc.ir.v1.Repetition
+	(*VariableCount)(nil),   // 27: cpybkc.ir.v1.VariableCount
+	(*Names)(nil),           // 28: cpybkc.ir.v1.Names
+	(*Predicate)(nil),       // 29: cpybkc.ir.v1.Predicate
+	(*BytesEqual)(nil),      // 30: cpybkc.ir.v1.BytesEqual
+	(*BytesOneOf)(nil),      // 31: cpybkc.ir.v1.BytesOneOf
+	(*State)(nil),           // 32: cpybkc.ir.v1.State
+	(*Transition)(nil),      // 33: cpybkc.ir.v1.Transition
+	(*Register)(nil),        // 34: cpybkc.ir.v1.Register
+	(*Binding)(nil),         // 35: cpybkc.ir.v1.Binding
+	(*Decrement)(nil),       // 36: cpybkc.ir.v1.Decrement
+	(*Guard)(nil),           // 37: cpybkc.ir.v1.Guard
+	(*Literal)(nil),         // 38: cpybkc.ir.v1.Literal
+	(*LiteralSet)(nil),      // 39: cpybkc.ir.v1.LiteralSet
+	(*GreaterThanZero)(nil), // 40: cpybkc.ir.v1.GreaterThanZero
 }
 var file_cpybkc_ir_v1_ir_proto_depIdxs = []int32{
 	0,  // 0: cpybkc.ir.v1.Descriptor.version:type_name -> cpybkc.ir.v1.IrVersion
-	11, // 1: cpybkc.ir.v1.Descriptor.nodes:type_name -> cpybkc.ir.v1.Node
-	12, // 2: cpybkc.ir.v1.Node.file:type_name -> cpybkc.ir.v1.File
-	17, // 3: cpybkc.ir.v1.Node.record:type_name -> cpybkc.ir.v1.Record
-	18, // 4: cpybkc.ir.v1.Node.group:type_name -> cpybkc.ir.v1.Group
-	19, // 5: cpybkc.ir.v1.Node.variant:type_name -> cpybkc.ir.v1.Variant
-	21, // 6: cpybkc.ir.v1.Node.field:type_name -> cpybkc.ir.v1.Field
-	24, // 7: cpybkc.ir.v1.Node.slack:type_name -> cpybkc.ir.v1.Slack
-	28, // 8: cpybkc.ir.v1.Node.predicate:type_name -> cpybkc.ir.v1.Predicate
-	31, // 9: cpybkc.ir.v1.Node.state:type_name -> cpybkc.ir.v1.State
-	32, // 10: cpybkc.ir.v1.Node.transition:type_name -> cpybkc.ir.v1.Transition
-	33, // 11: cpybkc.ir.v1.Node.register:type_name -> cpybkc.ir.v1.Register
-	34, // 12: cpybkc.ir.v1.Node.binding:type_name -> cpybkc.ir.v1.Binding
-	36, // 13: cpybkc.ir.v1.Node.guard:type_name -> cpybkc.ir.v1.Guard
-	13, // 14: cpybkc.ir.v1.File.unframed:type_name -> cpybkc.ir.v1.Unframed
-	14, // 15: cpybkc.ir.v1.File.descriptor_word:type_name -> cpybkc.ir.v1.DescriptorWord
-	15, // 16: cpybkc.ir.v1.File.segmented:type_name -> cpybkc.ir.v1.Segmented
-	16, // 17: cpybkc.ir.v1.File.delimited:type_name -> cpybkc.ir.v1.Delimited
+	12, // 1: cpybkc.ir.v1.Descriptor.nodes:type_name -> cpybkc.ir.v1.Node
+	13, // 2: cpybkc.ir.v1.Node.file:type_name -> cpybkc.ir.v1.File
+	18, // 3: cpybkc.ir.v1.Node.record:type_name -> cpybkc.ir.v1.Record
+	19, // 4: cpybkc.ir.v1.Node.group:type_name -> cpybkc.ir.v1.Group
+	20, // 5: cpybkc.ir.v1.Node.variant:type_name -> cpybkc.ir.v1.Variant
+	22, // 6: cpybkc.ir.v1.Node.field:type_name -> cpybkc.ir.v1.Field
+	25, // 7: cpybkc.ir.v1.Node.slack:type_name -> cpybkc.ir.v1.Slack
+	29, // 8: cpybkc.ir.v1.Node.predicate:type_name -> cpybkc.ir.v1.Predicate
+	32, // 9: cpybkc.ir.v1.Node.state:type_name -> cpybkc.ir.v1.State
+	33, // 10: cpybkc.ir.v1.Node.transition:type_name -> cpybkc.ir.v1.Transition
+	34, // 11: cpybkc.ir.v1.Node.register:type_name -> cpybkc.ir.v1.Register
+	35, // 12: cpybkc.ir.v1.Node.binding:type_name -> cpybkc.ir.v1.Binding
+	37, // 13: cpybkc.ir.v1.Node.guard:type_name -> cpybkc.ir.v1.Guard
+	14, // 14: cpybkc.ir.v1.File.unframed:type_name -> cpybkc.ir.v1.Unframed
+	15, // 15: cpybkc.ir.v1.File.descriptor_word:type_name -> cpybkc.ir.v1.DescriptorWord
+	16, // 16: cpybkc.ir.v1.File.segmented:type_name -> cpybkc.ir.v1.Segmented
+	17, // 17: cpybkc.ir.v1.File.delimited:type_name -> cpybkc.ir.v1.Delimited
 	1,  // 18: cpybkc.ir.v1.Delimited.placement:type_name -> cpybkc.ir.v1.DelimiterPlacement
-	27, // 19: cpybkc.ir.v1.Record.names:type_name -> cpybkc.ir.v1.Names
-	27, // 20: cpybkc.ir.v1.Group.names:type_name -> cpybkc.ir.v1.Names
-	25, // 21: cpybkc.ir.v1.Group.repetition:type_name -> cpybkc.ir.v1.Repetition
-	20, // 22: cpybkc.ir.v1.Variant.arms:type_name -> cpybkc.ir.v1.Arm
-	22, // 23: cpybkc.ir.v1.Field.encoding:type_name -> cpybkc.ir.v1.Encoding
-	6,  // 24: cpybkc.ir.v1.Field.usage:type_name -> cpybkc.ir.v1.Usage
-	23, // 25: cpybkc.ir.v1.Field.picture:type_name -> cpybkc.ir.v1.Picture
-	27, // 26: cpybkc.ir.v1.Field.names:type_name -> cpybkc.ir.v1.Names
-	25, // 27: cpybkc.ir.v1.Field.repetition:type_name -> cpybkc.ir.v1.Repetition
-	2,  // 28: cpybkc.ir.v1.Encoding.charset:type_name -> cpybkc.ir.v1.Charset
-	3,  // 29: cpybkc.ir.v1.Encoding.sign_convention:type_name -> cpybkc.ir.v1.SignConvention
-	4,  // 30: cpybkc.ir.v1.Encoding.byte_order:type_name -> cpybkc.ir.v1.ByteOrder
-	5,  // 31: cpybkc.ir.v1.Encoding.float_format:type_name -> cpybkc.ir.v1.FloatFormat
-	7,  // 32: cpybkc.ir.v1.Picture.category:type_name -> cpybkc.ir.v1.Category
-	8,  // 33: cpybkc.ir.v1.Picture.sign_position:type_name -> cpybkc.ir.v1.SignPosition
-	26, // 34: cpybkc.ir.v1.Repetition.variable:type_name -> cpybkc.ir.v1.VariableCount
-	29, // 35: cpybkc.ir.v1.Predicate.bytes_equal:type_name -> cpybkc.ir.v1.BytesEqual
-	30, // 36: cpybkc.ir.v1.Predicate.bytes_one_of:type_name -> cpybkc.ir.v1.BytesOneOf
-	9,  // 37: cpybkc.ir.v1.Register.kind:type_name -> cpybkc.ir.v1.RegisterKind
-	35, // 38: cpybkc.ir.v1.Binding.decrement:type_name -> cpybkc.ir.v1.Decrement
-	37, // 39: cpybkc.ir.v1.Guard.equals:type_name -> cpybkc.ir.v1.Literal
-	38, // 40: cpybkc.ir.v1.Guard.one_of:type_name -> cpybkc.ir.v1.LiteralSet
-	39, // 41: cpybkc.ir.v1.Guard.greater_than_zero:type_name -> cpybkc.ir.v1.GreaterThanZero
-	37, // 42: cpybkc.ir.v1.LiteralSet.values:type_name -> cpybkc.ir.v1.Literal
-	43, // [43:43] is the sub-list for method output_type
-	43, // [43:43] is the sub-list for method input_type
-	43, // [43:43] is the sub-list for extension type_name
-	43, // [43:43] is the sub-list for extension extendee
-	0,  // [0:43] is the sub-list for field type_name
+	28, // 19: cpybkc.ir.v1.Record.names:type_name -> cpybkc.ir.v1.Names
+	28, // 20: cpybkc.ir.v1.Group.names:type_name -> cpybkc.ir.v1.Names
+	26, // 21: cpybkc.ir.v1.Group.repetition:type_name -> cpybkc.ir.v1.Repetition
+	21, // 22: cpybkc.ir.v1.Variant.arms:type_name -> cpybkc.ir.v1.Arm
+	23, // 23: cpybkc.ir.v1.Field.encoding:type_name -> cpybkc.ir.v1.Encoding
+	7,  // 24: cpybkc.ir.v1.Field.usage:type_name -> cpybkc.ir.v1.Usage
+	24, // 25: cpybkc.ir.v1.Field.picture:type_name -> cpybkc.ir.v1.Picture
+	28, // 26: cpybkc.ir.v1.Field.names:type_name -> cpybkc.ir.v1.Names
+	26, // 27: cpybkc.ir.v1.Field.repetition:type_name -> cpybkc.ir.v1.Repetition
+	3,  // 28: cpybkc.ir.v1.Encoding.charset:type_name -> cpybkc.ir.v1.Charset
+	4,  // 29: cpybkc.ir.v1.Encoding.sign_convention:type_name -> cpybkc.ir.v1.SignConvention
+	5,  // 30: cpybkc.ir.v1.Encoding.byte_order:type_name -> cpybkc.ir.v1.ByteOrder
+	6,  // 31: cpybkc.ir.v1.Encoding.float_format:type_name -> cpybkc.ir.v1.FloatFormat
+	2,  // 32: cpybkc.ir.v1.Encoding.binary_size:type_name -> cpybkc.ir.v1.BinarySize
+	8,  // 33: cpybkc.ir.v1.Picture.category:type_name -> cpybkc.ir.v1.Category
+	9,  // 34: cpybkc.ir.v1.Picture.sign_position:type_name -> cpybkc.ir.v1.SignPosition
+	27, // 35: cpybkc.ir.v1.Repetition.variable:type_name -> cpybkc.ir.v1.VariableCount
+	30, // 36: cpybkc.ir.v1.Predicate.bytes_equal:type_name -> cpybkc.ir.v1.BytesEqual
+	31, // 37: cpybkc.ir.v1.Predicate.bytes_one_of:type_name -> cpybkc.ir.v1.BytesOneOf
+	10, // 38: cpybkc.ir.v1.Register.kind:type_name -> cpybkc.ir.v1.RegisterKind
+	36, // 39: cpybkc.ir.v1.Binding.decrement:type_name -> cpybkc.ir.v1.Decrement
+	38, // 40: cpybkc.ir.v1.Guard.equals:type_name -> cpybkc.ir.v1.Literal
+	39, // 41: cpybkc.ir.v1.Guard.one_of:type_name -> cpybkc.ir.v1.LiteralSet
+	40, // 42: cpybkc.ir.v1.Guard.greater_than_zero:type_name -> cpybkc.ir.v1.GreaterThanZero
+	38, // 43: cpybkc.ir.v1.LiteralSet.values:type_name -> cpybkc.ir.v1.Literal
+	44, // [44:44] is the sub-list for method output_type
+	44, // [44:44] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_cpybkc_ir_v1_ir_proto_init() }
@@ -3691,7 +3812,7 @@ func file_cpybkc_ir_v1_ir_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cpybkc_ir_v1_ir_proto_rawDesc), len(file_cpybkc_ir_v1_ir_proto_rawDesc)),
-			NumEnums:      10,
+			NumEnums:      11,
 			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   0,

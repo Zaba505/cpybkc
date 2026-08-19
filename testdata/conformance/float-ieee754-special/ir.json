@@ -38,7 +38,8 @@
           "charset": "CHARSET_ASCII",
           "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_COMP_1",
         "names": {
@@ -54,7 +55,8 @@
           "charset": "CHARSET_ASCII",
           "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_COMP_1",
         "names": {
@@ -70,7 +72,8 @@
           "charset": "CHARSET_ASCII",
           "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_COMP_1",
         "names": {
@@ -86,7 +89,8 @@
           "charset": "CHARSET_ASCII",
           "sign_convention": "SIGN_CONVENTION_ASCII_ZONE37",
           "byte_order": "BYTE_ORDER_BIG_ENDIAN",
-          "float_format": "FLOAT_FORMAT_IEEE754"
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
         },
         "usage": "USAGE_COMP_1",
         "names": {

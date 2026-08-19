@@ -233,7 +233,43 @@ func (e *unsupportedCharsetError) Notes() []string {
 	}
 }
 
-// mixedEncodingError is a descriptor whose items do not agree on the four
+// unsupportedBinarySizeError is a binary width staircase the descriptor names
+// and this generator has no codec member for.
+//
+// Refused on sight rather than substituted, for [unsupportedCharsetError]'s
+// reason carried one step further. A wrong charset spoils the field it governs
+// and leaves every other field where it was; a wrong staircase leaves the COMP
+// item's own bytes readable and moves everything behind it, so the package it
+// would generate reads a file that is the right length and wrong from the first
+// binary item onwards. There is no member near enough to another to be a
+// sensible fallback: 2-4-8 and 1-2-4-8 differ by one byte on a two-digit item,
+// which is precisely the difference nothing downstream can detect.
+type unsupportedBinarySizeError struct {
+	// Size is the staircase the descriptor names.
+	Size irpb.BinarySize
+}
+
+// Error implements the error interface.
+//
+// The staircase is named by the number the descriptor carried rather than by a
+// spelling, because there is no spelling: every member this build knows is one
+// it supports, so the only value that reaches here is one it has never heard
+// of. Dropping the number would leave an adopter with a message that says a
+// staircase was refused and not which, and matching it against the upstream
+// enum is the one thing they can do with it.
+func (e *unsupportedBinarySizeError) Error() string {
+	return fmt.Sprintf("the descriptor's binary items were compiled under binary_size %d, and this generator has no codec staircase for it", int32(e.Size))
+}
+
+// Notes is what follows it as a `note:` diagnostic.
+func (e *unsupportedBinarySizeError) Notes() []string {
+	return []string{
+		"codec names 2-4-8, 1-2-4-8, 1--8 and full; a descriptor naming anything else was written against a newer IR than this generator reads",
+		"generating one staircase for another would put every item behind the first COMP item at the wrong offset, which nothing in the file disagrees with",
+	}
+}
+
+// mixedEncodingError is a descriptor whose items do not agree on the five
 // encoding axes.
 //
 // codec carries an Encoding per Reader and per Writer rather than per field —
@@ -258,6 +294,6 @@ func (e *mixedEncodingError) Error() string {
 // Notes is what follows it as a `note:` diagnostic.
 func (e *mixedEncodingError) Notes() []string {
 	return []string{
-		"the four axes are properties of the file rather than of an item, and codec carries them on the Reader and the Writer; see docs/ir/SPEC.md, \"The encoding profile, applied\"",
+		"the five axes are properties of the file rather than of an item, and codec carries them on the Reader and the Writer; see docs/ir/SPEC.md, \"The encoding profile, applied\"",
 	}
 }

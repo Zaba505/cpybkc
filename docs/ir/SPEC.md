@@ -46,9 +46,17 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   plugin authors working in a language with no protobuf codegen read the IR
   through (#19).
   <https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/descriptor.proto>
-- **`cobol-go`'s `codec/SPEC.md`** — normative for the four encoding axes a
-  resolved field descriptor carries, and for the byte-level meaning of every
-  `USAGE` the IR can name. This document references it and restates none of it.
+- **`cobol-go`'s `codec/SPEC.md`** — normative for the five encoding axes a
+  resolved field descriptor carries, for the width staircases the fifth of them
+  names, and for the byte-level meaning of every `USAGE` the IR can name. This
+  document references it and restates none of it.
+
+  Four of the five are what [`layout/SPEC.md`](../layout/SPEC.md#the-encoding-profile)
+  calls the encoding profile and an adopter writes. The fifth is the binary
+  width staircase, which an adopter does not write anywhere: it is the
+  compiler's, and a producer resolves it from the dialect it laid the record
+  out under ([A binary item's width is the staircase, not the
+  digits](#a-binary-items-width-is-the-staircase-not-the-digits)).
   <https://github.com/Zaba505/cobol-go/blob/main/codec/SPEC.md>
 - **`cobol-go`'s root `SPEC.md`** — normative for COBOL source syntax, and so
   for the form of the original names the IR carries alongside any override.
@@ -190,7 +198,7 @@ names, field names, field numbers — is #17's.
 | **record** | The identifier of the item that is the record's top level, and the record's names. |
 | **group** | An ordered list of the identifiers of its members, its names, and its repetition. |
 | **variant** | An ordered list of its **arms**, each naming the predicate that selects it and the group or field that is its body. Every arm covers the same bytes, so the list is an order of evaluation rather than of position. |
-| **field** | An elementary item: its width, its four resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
+| **field** | An elementary item: its width, its five resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
 | **slack** | A width, and nothing else: bytes that are part of the record and belong to no item. |
 | **predicate** | The identifier of the field it tests, and the test itself, as one member of a closed set. |
 | **state** | Whether the state accepts, the identifiers of the guards qualifying that where it is conditional, and an ordered list of the identifiers of the transitions leaving it. |
@@ -300,6 +308,79 @@ them (#32).
 
 A record carries no length either, for the same reason: it is the sum of what is
 in it.
+
+### A binary item's width is the staircase, not the digits
+
+A field node carries a width in bytes and every consumer reads it, so a width in
+the IR is never in doubt. What *decides* that width for a `BINARY`, `COMP`,
+`COMP-4` or `COMP-5` item is worth stating, because it is the one width in a
+record that is not a function of the copybook alone.
+
+A binary item's width is a **staircase in its digit count** and never the digit
+count itself: `PIC 9(5) COMP` is four bytes, not five. Which staircase is a
+property of the compiler that produced the file — 2/4/8/16 under IBM Enterprise
+COBOL, 1/2/4/8/16 under GnuCOBOL's default, and two more GnuCOBOL settings
+besides — and the compilers fork on the very first row: `PIC S9(2) COMP` is two
+bytes under IBM and one under GnuCOBOL's default. The steps themselves are
+`codec/SPEC.md`'s *Binary widths by digit count*, cited and not restated.
+
+So a descriptor **MUST** carry the staircase its widths were computed under, as
+the fifth axis of every field's encoding ([The encoding profile,
+applied](#the-encoding-profile-applied)), and a producer's widths and that axis
+**MUST** be the same answer: the widths a producer wrote and the staircase a
+consumer reads them under are one decision stated twice, and a producer that
+resolved under one and declared the other has emitted a descriptor whose own
+arithmetic is wrong.
+
+A consumer **MUST NOT** infer the staircase from the widths, and **MUST NOT**
+fall back to one when the axis is unset — [The encoding profile,
+applied](#the-encoding-profile-applied) already makes an unset axis a malformed
+descriptor, and this is the axis where that rule earns its keep. Inference is
+not merely discouraged, it is impossible for the case that matters: a one-byte
+two-digit item is `1-2-4-8`'s and `1--8`'s alike, and a two-byte one is
+`2-4-8`'s — but a record whose binary items all have four digits is two bytes
+wide under three of the four staircases, and there is nothing in it to choose
+between them.
+
+The reason the axis exists rather than the widths being left to speak for
+themselves is that a wrong staircase is undetectable downstream. It does not
+corrupt the item it governs: it reads a plausible number out of the wrong number
+of bytes and leaves every field behind that item at the wrong offset. The record
+is still the length the dataset declares, its alphanumeric fields still hold
+characters, and a file written and read back by the same wrong staircase still
+round-trips. Nothing in the file disagrees, which is the same argument the other
+four axes rest on, applied to the one axis that moves other fields rather than
+its own.
+
+**Which staircase a producer resolves under is not this document's.** It is a
+dialect setting, alongside whether `SYNCHRONIZED` inserts slack and how wide a
+`USAGE INDEX` item is, and `layout/SPEC.md` deliberately gives an adopter no way
+to write it ([The binary width staircase is the compiler's, not the
+file's](../layout/SPEC.md#the-binary-width-staircase-is-the-compilers-not-the-files)).
+What this document requires is only that whatever was resolved under is *said*,
+so that a consumer never has to assume.
+
+Two cheaper arrangements were available and neither is enough (#293).
+
+A **constant at the generator**, matching the dialect the producer happens to
+hardcode, is correct exactly while both stay constant and gives no signal on the
+day either stops being one. That is the same undetectable failure moved one
+function along: the descriptor would carry widths from one staircase and the
+generated reader would apply another, and the two would be right about the same
+file only by coincidence. It also makes every generator, in every language,
+carry a copy of a decision none of them is in a position to make.
+
+**Projecting the dialect at the generator without carrying it in the IR** is the
+same thing again with more steps, because a generator does not see a dialect —
+it sees a descriptor, and a descriptor is by construction the only thing it sees
+([Overview](#overview)). Reaching for a dialect would mean reaching past the IR,
+which is the boundary this document exists to draw.
+
+So the staircase is carried, as a resolved fact about a field like the other
+four axes. It is deliberately **not** a layout axis, and that is the distinction
+worth keeping: the four an adopter writes are properties of the bytes, and a
+compiler setting on the same form would make the encoding profile two things at
+once.
 
 ### `COMP-6` is not `PACKED-DECIMAL`
 
@@ -1744,17 +1825,27 @@ document does not specify.
 
 ## The encoding profile, applied
 
-`codec/SPEC.md` requires all four axes of an encoding — charset, sign
-convention, byte order, float format — from its caller and forbids a default for
-any of them, because every one fails silently when wrong. The IR is where that
-requirement is met on the generator's behalf.
+`codec/SPEC.md` requires all five axes of an encoding — charset, sign
+convention, byte order, float format, binary width staircase — from its caller
+and forbids a default for any of them, because every one fails silently when
+wrong. The IR is where that requirement is met on the generator's behalf.
 
-Every field node **MUST** carry all four axes, resolved, and a producer
-**MUST NOT** leave one unset (#33). A consumer **MUST NOT** supply a default for
-a missing axis, and **MUST** treat a field missing one as a malformed descriptor
-rather than filling it in: an IR that reached a generator with an axis
-unresolved is a bug in `resolve`, and papering over it is exactly how a
-silently-failing setting produces a silent failure.
+Every field node **MUST** carry all five axes, resolved, and a producer
+**MUST NOT** leave one unset (#33, #293). A consumer **MUST NOT** supply a
+default for a missing axis, and **MUST** treat a field missing one as a
+malformed descriptor rather than filling it in: an IR that reached a generator
+with an axis unresolved is a bug in `resolve`, and papering over it is exactly
+how a silently-failing setting produces a silent failure.
+
+Four of the five and the fifth are answered by different facts, and the
+difference is worth stating once here because nothing downstream can see it. The
+first four are properties of the *bytes*, which is what an adopter writes on a
+layout's encoding profile. The staircase is a property of the *compiler that
+wrote the file*, which no layout states, and a producer resolves it from the
+dialect it computed the record's widths under. What makes it an axis of this
+message all the same is where it is consumed: a consumer hands `codec` one
+encoding, and a fifth setting gathered from somewhere else would be a fifth
+setting to forget.
 
 There is no profile node for a field to inherit from. The layout format has a
 profile layer and per-field overrides (#25); resolution applies the second over
@@ -1778,7 +1869,7 @@ its bytes as they stand, **MUST** apply no translation to them, and **MUST**
 strip and add no padding on either side (#275).
 
 The axis is still resolved and still carried — this is a value on it, not a hole
-in it — so the rule above that a producer sets all four and a consumer defaults
+in it — so the rule above that a producer sets all five and a consumer defaults
 none is unchanged.
 
 A field carrying it **MUST** be an item whose `USAGE` is `DISPLAY` and whose
@@ -1972,12 +2063,13 @@ binding naming the field it came from.
 bytes, or an integer. A bytes register holds its source field's bytes as they
 appear in the record, so a guard over one is a byte comparison and needs no
 charset knowledge — the same reason a predicate tests bytes. An integer register
-holds a number, decoded from the source field by that field's own four encoding
+holds a number, decoded from the source field by that field's own five encoding
 axes, because a count is arithmetic and the field holding one may be zoned,
-packed or binary. A producer **MUST NOT** bind a field whose value does not
-decode to the register's kind, and a consumer **MUST** report a source field it
-cannot decode as that kind as malformed data rather than substituting a zero or
-spaces.
+packed or binary — and a binary count is the case the fifth of them decides,
+since how many bytes the register reads is the staircase's answer. A producer
+**MUST NOT** bind a field whose value does not decode to the register's kind,
+and a consumer **MUST** report a source field it cannot decode as that kind as
+malformed data rather than substituting a zero or spaces.
 
 **What a binding writes.** A binding names the register it writes and the value
 written, one member of a closed set: the value of a field node contained in the
@@ -2846,7 +2938,7 @@ as the records the writer was given, in the order it was given them.
 
 Most of that is free, because almost nothing the IR carries has a direction.
 Ordering and width give a field's position whether it is being read out of a
-record or laid into one. The four axes govern encoding a value exactly as they
+record or laid into one. The five axes govern encoding a value exactly as they
 govern decoding one. A slack node's bytes are bytes on both sides. What does
 have a direction is the automaton and the predicates driving it, because both
 are stated as *tests*, and a test says how to recognise a record rather than how
@@ -3741,9 +3833,9 @@ records offer them.
 | Section | Implemented by |
 |---|---|
 | [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve` |
-| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir` |
+| [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir`; what a binary item's width depends on, and the requirement that a descriptor say which staircase it was resolved under, by #293 |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
-| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275 |
+| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir` |

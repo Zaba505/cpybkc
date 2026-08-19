@@ -22,7 +22,7 @@ require (
 )
 
 require (
-	github.com/Zaba505/cobol-go v0.0.0-20260819101208-6f2fa8bae431 // indirect
+	github.com/Zaba505/cobol-go v0.0.0-20260819200647-d75f1875ab37 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect

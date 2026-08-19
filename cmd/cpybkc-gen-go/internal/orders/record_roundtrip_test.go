@@ -41,16 +41,23 @@ import (
 //
 // [Encoding] is the descriptor's own and is EBCDIC throughout; this is the same
 // records read as a file somebody converted. Both are exercised because neither
-// is a property of the generated code: codec carries the four axes on the
+// is a property of the generated code: codec carries the five axes on the
 // Reader and the Writer, so what the generated walk contributes is the widths
 // and the order, and that has to hold under an encoding the descriptor did not
 // name.
+//
+// The binary width staircase is the one axis this does *not* vary from
+// [Encoding]'s. Converting a file to ASCII rewrites the characters and leaves
+// every COMP item where the compiler put it, so a staircase moved here would
+// not be the same records under another encoding — it would be a different
+// record, and the offsets these cases assert would be the wrong ones to assert.
 func ascii() codec.Encoding {
 	return codec.Encoding{
 		Charset:   codec.ASCII(),
 		Sign:      codec.SignASCIIZone37,
 		ByteOrder: binary.BigEndian,
 		Float:     codec.FloatIEEE,
+		Binary:    codec.BinarySize248,
 	}
 }
 

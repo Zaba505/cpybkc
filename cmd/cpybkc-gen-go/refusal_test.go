@@ -688,6 +688,9 @@ func TestEveryRefusalThisPackageRaisesHasADecidedClassification(t *testing.T) {
 		"unmungeableError":        {err: &unmungeableError{Kind: "record", Cobol: "123"}, want: true},
 		"fillerError":             {err: &fillerError{Kind: "a group", In: "REC", Because: "it repeats"}, want: true},
 		"unsupportedCharsetError": {err: &unsupportedCharsetError{Charset: irpb.Charset_CHARSET_CP500}, want: false},
+		"unsupportedBinarySizeError": {
+			err: &unsupportedBinarySizeError{Size: irpb.BinarySize(int32(irpb.BinarySize_BINARY_SIZE_FULL) + 1)}, want: false,
+		},
 		"mixedEncodingError":      {err: &mixedEncodingError{Axis: "charset", First: "A", Second: "B"}, want: true},
 		"unsupportedVersionError": {err: &unsupportedVersionError{Descriptor: supportedIRVersion}, want: true},
 		"uncoverableError":        {err: &uncoverableError{What: "what", Rule: "rule"}, want: true},
