@@ -487,6 +487,11 @@ func (r *Reader) leading() error {
 func (r *Reader) admit(rec Record) error {
 	r.raw = r.raw[:0]
 
+	// One decoder per record, which is what this framing costs and the two that
+	// state a record's length do not pay: the framing says nothing about where
+	// this record ends, so the record's bytes are drawn off the same input the
+	// framing came off and are never held. A decoder is rewound onto bytes, and
+	// there are none to rewind this one onto, so it is built over the stream.
 	cr, err := codec.NewReader(&recording{src: r.src, into: &r.raw}, r.enc)
 	if err != nil {
 		return fmt.Errorf("reading record %d: %w", r.ordinal, err)

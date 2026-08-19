@@ -46,7 +46,17 @@ const readAhead = 4096
 // register file the automaton remembers in, whatever the file's size.
 type Reader struct {
 	src *bufio.Reader
-	enc codec.Encoding
+
+	// cr decodes the record in hand, and is the only one this reader builds:
+	// the framing states a record's length, so the bytes are held before
+	// anything decodes them and [Reader.admit] rewinds this onto each record
+	// rather than constructing one over it. Everything the encoding derives —
+	// the zoned decimal byte tables, the alphanumeric translation table and the
+	// scratch buffers every field is read into — is built once for the file and
+	// survives every rewind, which is why the encoding is not kept beside it:
+	// codec.Reader carries it, and one that could be swapped under a half-read
+	// record is what codec refuses to allow.
+	cr *codec.Reader
 
 	// state is where in the automaton the read is, as a position in the switch
 	// [Reader.Next] walks. The descriptor's state nodes are numbered by ascending
@@ -93,13 +103,18 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 		return nil, codec.ErrNilReader
 	}
 
-	if err := enc.Validate(); err != nil {
+	// The one decoder this reader builds, over no bytes until a record is in
+	// hand. Construction is what validates the encoding, and it reports the
+	// same error for the same axis that enc.Validate does, so nothing is
+	// checked twice here.
+	cr, err := codec.NewBytesReader(nil, enc)
+	if err != nil {
 		return nil, err
 	}
 
 	return &Reader{
 		src:   bufio.NewReaderSize(r, readAhead),
-		enc:   enc,
+		cr:    cr,
 		state: 0,
 	}, nil
 }
@@ -1793,14 +1808,15 @@ func (r *Reader) leading() error {
 // are line delimiters on some mainframe code page. A reader counting the extent
 // never reads those bytes as anything but the number they are.
 func (r *Reader) admit(rec Record) error {
-	src := bytes.NewReader(r.data)
+	// The record's bytes are in hand, so the decoder is rewound onto them rather
+	// than built over them. A rewind keeps everything the encoding derives and
+	// swaps only the bytes, which is a construction and an allocation this
+	// reader does not make per record — and it puts the offset back to zero, so
+	// every offset codec reports is counted from the start of this record
+	// rather than from the start of the file.
+	r.cr.Reset(r.data)
 
-	cr, err := codec.NewReader(src, r.enc)
-	if err != nil {
-		return fmt.Errorf("reading record %d: %w", r.ordinal, err)
-	}
-
-	if err := rec.UnmarshalCOBOL(cr); err != nil {
+	if err := rec.UnmarshalCOBOL(r.cr); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return fmt.Errorf("the framing states record %d is %d bytes and the extent of the record it admits is longer than that: %v", r.ordinal, len(r.data), err)
 		}
@@ -1810,9 +1826,11 @@ func (r *Reader) admit(rec Record) error {
 
 	// The framing checked against the extent, which is what a framed file buys
 	// over an unframed one: a wrong width or a mis-selected transition is an
-	// error at the record it happened on rather than silence.
-	if src.Len() != 0 {
-		return fmt.Errorf("the framing states record %d is %d bytes and the extent of the record it admits is %d", r.ordinal, len(r.data), len(r.data)-src.Len())
+	// error at the record it happened on rather than silence. The extent is what
+	// the decoder consumed, which is its offset: the rewind above is what makes
+	// that a count of this record rather than of the file.
+	if r.cr.Offset() != int64(len(r.data)) {
+		return fmt.Errorf("the framing states record %d is %d bytes and the extent of the record it admits is %d", r.ordinal, len(r.data), r.cr.Offset())
 	}
 
 	return nil

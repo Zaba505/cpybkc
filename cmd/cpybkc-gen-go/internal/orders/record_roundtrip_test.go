@@ -62,18 +62,18 @@ func ascii() codec.Encoding {
 }
 
 // laidOut is a record's bytes, written item by item.
-func laidOut(t *testing.T, enc codec.Encoding, items func(*codec.Writer) error) []byte {
-	t.Helper()
+func laidOut(tb testing.TB, enc codec.Encoding, items func(*codec.Writer) error) []byte {
+	tb.Helper()
 
 	var b bytes.Buffer
 
 	w, err := codec.NewWriter(&b, enc)
 	if err != nil {
-		t.Fatalf("codec.NewWriter: %v", err)
+		tb.Fatalf("codec.NewWriter: %v", err)
 	}
 
 	if err := items(w); err != nil {
-		t.Fatalf("laying the record out: %v", err)
+		tb.Fatalf("laying the record out: %v", err)
 	}
 
 	return b.Bytes()
@@ -501,10 +501,10 @@ func TestACountOutsideItsDeclaredBoundsIsReported(t *testing.T) {
 // Reading these records under an ASCII encoding is reading a file that is not
 // the file the descriptor describes, which is the axis that has no default for
 // exactly this reason.
-func entryBytes(t *testing.T, arms string) []byte {
-	t.Helper()
+func entryBytes(tb testing.TB, arms string) []byte {
+	tb.Helper()
 
-	return laidOut(t, Encoding(), func(w *codec.Writer) error {
+	return laidOut(tb, Encoding(), func(w *codec.Writer) error {
 		for i, code := range arms {
 			if err := w.WriteAlphanumeric(string(code), 1); err != nil {
 				return err

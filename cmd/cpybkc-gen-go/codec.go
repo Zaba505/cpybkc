@@ -77,9 +77,27 @@ type coder struct {
 	// counter is what makes a generated temporary unique inside one method.
 	counter int
 
+	// subs is, for the record being decoded, every sub-reader the walk rewinds
+	// onto an occurrence, in the order the walk reaches them. Each is declared
+	// and built once at the top of the method rather than once per occurrence;
+	// see [coder.subReaders].
+	subs []subReader
+
 	// record is the COBOL name of the record being walked, for a diagnostic
 	// composed away from the walk.
 	record string
+}
+
+// subReader is one decoder a record's decode method builds over the bytes of
+// one occurrence: the identifier it is declared under, and the table whose
+// occurrences it reads.
+type subReader struct {
+	// name is the Go identifier, unique inside the method that declares it.
+	name string
+
+	// item is the repeating group one occurrence of which it reads, as the
+	// copybook names it, for the diagnostic its construction makes.
+	item string
 }
 
 // countUse is one repeating item naming a count field: where its occurrences
@@ -290,6 +308,7 @@ func codecMethods(d *irpb.Descriptor, opts options) (string, error) {
 func (c *coder) unmarshal(name string, record *irpb.Record) (string, error) {
 	c.valueOf = make(map[uint64]string)
 	c.counter = 0
+	c.subs = nil
 	c.record = record.GetNames().GetOriginal()
 
 	s := scope{record: c.record, rw: "r", dir: decoding}
@@ -309,7 +328,37 @@ of the file in hand, and %s is what this descriptor resolved.`,
 		record.GetNames().GetOriginal(), encodingFunc))
 
 	return doc + fmt.Sprintf("func (%s *%s) UnmarshalCOBOL(r *codec.Reader) error {\n%s\nreturn nil\n}",
-		c.receiver, name, c.prologue(body.String())), nil
+		c.receiver, name, c.prologue(c.subReaders()+body.String())), nil
+}
+
+// subReaders declares and builds every sub-reader the record being decoded
+// rewinds onto an occurrence, ahead of the walk that rewinds them.
+//
+// One per buffered table rather than one per occurrence of one, which is the
+// whole of what this saves: codec.Reader.Reset keeps everything the Encoding
+// derives — the zoned decimal byte tables, the alphanumeric translation table
+// and both scratch buffers — and swaps only the bytes, so a table of a hundred
+// occurrences carrying a variant costs one construction rather than a hundred,
+// and none of the allocations that stood beside them.
+//
+// It is the decode direction only. An encoder's sub-writer fills a buffer of
+// its own per occurrence and hands those bytes back to the writer above it, so
+// there is nothing there for one built once to be rewound onto.
+func (c *coder) subReaders() string {
+	var b strings.Builder
+
+	for _, sub := range c.subs {
+		line(&b, "// %s reads one occurrence of %s, which carries a variant and so is read", sub.name, sub.item)
+		line(&b, "// whole before it is walked. It is built here rather than inside the loop")
+		line(&b, "// over those occurrences, and rewound onto each occurrence's bytes there.")
+		line(&b, "var %s *codec.Reader", sub.name)
+		line(&b, "if %s, err = codec.NewBytesReader(nil, r.Encoding()); err != nil {", sub.name)
+		line(&b, "return fmt.Errorf(%s, err)", strconv.Quote(c.record+": reading over the bytes of "+sub.item+": %w"))
+		line(&b, "}")
+		line(&b, "")
+	}
+
+	return b.String()
 }
 
 // marshal is one record's encode method.
@@ -473,17 +522,28 @@ func (c *coder) decodeMembers(b *strings.Builder, id uint64, expr string, s scop
 		return c.decodeGroup(b, id, expr, s)
 	}
 
-	c.imports["bytes"] = struct{}{}
-
 	width, err := c.sumWidth(id, expr, s.dir)
 	if err != nil {
 		return err
 	}
 
-	var (
-		buf = fmt.Sprintf("occurrence%d", s.depth)
-		sub = fmt.Sprintf("entry%d", s.depth)
-	)
+	group, err := c.group(id)
+	if err != nil {
+		return err
+	}
+
+	buf := fmt.Sprintf("occurrence%d", s.depth)
+
+	// The sub-reader is declared and built once for the record, by
+	// [coder.prologue], and rewound onto each occurrence here. So its name is
+	// unique across the whole method rather than to this depth: two tables
+	// nested one inside the other are two names because their depths differ,
+	// and two standing side by side would otherwise be one name declared twice.
+	c.counter++
+
+	sub := fmt.Sprintf("entry%d", c.counter)
+
+	c.subs = append(c.subs, subReader{name: sub, item: group.GetNames().GetOriginal()})
 
 	// Assigned rather than declared, so that the one `err` the method declares
 	// is the one every statement of it uses: a `:=` here would shadow it, and a
@@ -493,10 +553,7 @@ func (c *coder) decodeMembers(b *strings.Builder, id uint64, expr string, s scop
 	line(b, "if %s, err = %s.ReadBytes(%s); err != nil {", buf, s.rw, width)
 	line(b, "%s", wrapf(s, "reading its bytes"))
 	line(b, "}")
-	line(b, "var %s *codec.Reader", sub)
-	line(b, "if %s, err = codec.NewReader(bytes.NewReader(%s), %s.Encoding()); err != nil {", sub, buf, s.rw)
-	line(b, "%s", wrapf(s, "reading over its bytes"))
-	line(b, "}")
+	line(b, "%s.Reset(%s)", sub, buf)
 
 	inner := s
 	inner.rw = sub

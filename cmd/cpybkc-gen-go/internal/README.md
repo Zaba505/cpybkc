@@ -21,15 +21,24 @@ DO NOT EDIT.` header is what tells them apart. `records_test.go` and
 `file_test.go` are **output**: the first is one case per record and per variant
 arm, the second one case per path through the automaton, each carrying the bytes
 it reads as a literal, and `written` pins both byte for byte like every other
-generated file. Everything else — `file_roundtrip_test.go` in all six, and
-`record_roundtrip_test.go` in `orders` — is hand-written and is skipped, because
-those assertions live *inside* each package for a reason the generated ones do
-not have: the bytes retained for a slack node are unexported, so a run of the
-wrong length is something only code in the package can hand a writer.
+generated file. Everything else — `file_roundtrip_test.go` in all six,
+`record_roundtrip_test.go` in `orders`, and the two `file_reuse_test.go` — is
+hand-written and is skipped, because those assertions live *inside* each package
+for a reason the generated ones do not have: the bytes retained for a slack node
+are unexported, so a run of the wrong length is something only code in the
+package can hand a writer.
 
 The hand-written names carry `roundtrip` because `file_test.go` is the name
 `cpybkc-gen-go` itself writes, for the file tier; see [the names, and which
 side moves](../README.md#the-names-and-which-side-moves).
+
+`file_reuse_test.go` in [`chunks`](chunks) and [`orders`](orders) is the pair
+that is not a round trip. They hold what a reader may *cost*: `chunks` that one
+more record of a file does not cost one more decoder, and `orders` that one
+sub-decoder serves every occurrence of a table holding a variant. Both assert in
+allocations rather than in nanoseconds, because an allocation count is the same
+on every machine and a duration is not, and both carry a benchmark beside the
+assertion for the nanoseconds somebody reading a regression will want.
 
 ## Why there is more than one
 

@@ -176,6 +176,11 @@ func (r *Reader) leading() error {
 // are line delimiters on some mainframe code page. A reader counting the extent
 // never reads those bytes as anything but the number they are.
 func (r *Reader) admit(rec Record) error {
+	// One decoder per record, which is what this framing costs and the two that
+	// state a record's length do not pay: the framing says nothing about where
+	// this record ends, so the record's bytes are drawn off the same input the
+	// framing came off and are never held. A decoder is rewound onto bytes, and
+	// there are none to rewind this one onto, so it is built over the stream.
 	cr, err := codec.NewReader(r.src, r.enc)
 	if err != nil {
 		return fmt.Errorf("reading record %d: %w", r.ordinal, err)

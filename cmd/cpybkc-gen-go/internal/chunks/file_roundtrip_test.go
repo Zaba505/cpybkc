@@ -23,22 +23,22 @@ import (
 )
 
 // chunkBytes is one CHUNK-RECORD, with no framing around it.
-func chunkBytes(t *testing.T, id, body string) []byte {
-	t.Helper()
+func chunkBytes(tb testing.TB, id, body string) []byte {
+	tb.Helper()
 
 	var b bytes.Buffer
 
 	w, err := codec.NewWriter(&b, Encoding())
 	if err != nil {
-		t.Fatalf("codec.NewWriter: %v", err)
+		tb.Fatalf("codec.NewWriter: %v", err)
 	}
 
 	if err := w.WriteAlphanumeric(id, 4); err != nil {
-		t.Fatalf("CHUNK-ID: %v", err)
+		tb.Fatalf("CHUNK-ID: %v", err)
 	}
 
 	if err := w.WriteAlphanumeric(body, 20); err != nil {
-		t.Fatalf("CHUNK-BODY: %v", err)
+		tb.Fatalf("CHUNK-BODY: %v", err)
 	}
 
 	return b.Bytes()
