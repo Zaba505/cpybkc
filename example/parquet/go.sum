@@ -1,7 +1,7 @@
 github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7OputlJIzU=
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
-github.com/Zaba505/cobol-go v0.0.0-20260815031026-444b99aad1b5 h1:mqFKG2ftgtw22Gi5RFV8Lji7BWVfMsYon2BxkjciH+k=
-github.com/Zaba505/cobol-go v0.0.0-20260815031026-444b99aad1b5/go.mod h1:a0ImjTdXHvjbs8CWSUQ2AWOUcUj89aZ+G8hkaIPDjdo=
+github.com/Zaba505/cobol-go v0.0.0-20260819101208-6f2fa8bae431 h1:kEfix9LX5Kts6oWMTIQ3yN8lz07/1kU7ErHJX/ZbZ4c=
+github.com/Zaba505/cobol-go v0.0.0-20260819101208-6f2fa8bae431/go.mod h1:a0ImjTdXHvjbs8CWSUQ2AWOUcUj89aZ+G8hkaIPDjdo=
 github.com/alecthomas/assert/v2 v2.10.0 h1:jjRCHsj6hBJhkmhznrCzoNpbA3zqy0fYiUcYZP/GkPY=
 github.com/alecthomas/assert/v2 v2.10.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/repr v0.4.0 h1:GhI2A8MACjfegCPVq9f1FLvIBS+DrQ2KQBFZP1iFzXc=
