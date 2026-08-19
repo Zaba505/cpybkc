@@ -33,11 +33,12 @@ The hand-written names carry `roundtrip` because `file_test.go` is the name
 side moves](../README.md#the-names-and-which-side-moves).
 
 `file_reuse_test.go` in [`chunks`](chunks) and [`orders`](orders) is the pair
-that is not a round trip. They hold what a reader may *cost*: `chunks` that one
-more record of a file does not cost one more decoder, and `orders` that one
-sub-decoder serves every occurrence of a table holding a variant. Both assert in
+that is not a round trip. They hold what a reader and a writer may *cost*, in
+both directions of each: `chunks` that one more record of a file costs neither
+one more decoder nor one more encoder, and `orders` that one sub-decoder and one
+sub-encoder serve every occurrence of a table holding a variant. Both assert in
 allocations rather than in nanoseconds, because an allocation count is the same
-on every machine and a duration is not, and both carry a benchmark beside the
+on every machine and a duration is not, and both carry a benchmark beside each
 assertion for the nanoseconds somebody reading a regression will want.
 
 ## Why there is more than one

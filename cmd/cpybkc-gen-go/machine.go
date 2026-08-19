@@ -63,6 +63,10 @@ func (f *filer) emit() (string, []string, error) {
 	}
 
 	imports := append([]string{}, fileImports...)
+	if f.comparesBytes {
+		imports = append(imports, "bytes")
+	}
+
 	if f.reports(walks) {
 		imports = append(imports, "strings")
 	}
@@ -72,12 +76,35 @@ func (f *filer) emit() (string, []string, error) {
 	return b.String(), imports, nil
 }
 
-// survey settles the two facts the shape of the generated file turns on: what
-// the reader has to hold, and whether any record type collides with the names
-// this file occupies at package scope.
+// survey settles the three facts the shape of the generated file turns on: what
+// the reader has to hold, whether the file compares byte strings anywhere, and
+// whether any record type collides with the names this file occupies at package
+// scope.
 func (f *filer) survey(walks [][]transition) error {
+	// A delimiter is compared against the bytes standing where the framing says
+	// one stands, which is the only comparison a framing itself makes.
+	if f.how == delimited {
+		f.comparesBytes = true
+	}
+
+	for _, state := range f.states {
+		if err := f.surveyGuards(state.GetState().GetAcceptanceGuardIds()); err != nil {
+			return err
+		}
+	}
+
 	for _, walk := range walks {
 		for _, t := range walk {
+			// A transition's predicate is an equality over a window of the
+			// bytes in front of the walk, and both directions evaluate it.
+			if t.match != "" {
+				f.comparesBytes = true
+			}
+
+			if err := f.surveyGuards(t.node.GetGuardIds()); err != nil {
+				return err
+			}
+
 			switch t.typ {
 			case recordInterface, readerType, writerType, newReaderFunc, newWriterFunc:
 				return &collisionError{
@@ -115,6 +142,41 @@ func (f *filer) survey(walks [][]transition) error {
 					}
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+// surveyGuards records whether any of these guards reads a bytes register,
+// which is a guard [compare] writes as an equality over byte strings.
+//
+// The kind is the whole of the question: the greater-than-zero test is refused
+// over a bytes register and an equality over one is a comparison of bytes
+// whatever it is compared against, so no guard reading such a register is
+// written any other way. Where the descriptor is malformed the refusal is
+// [filer.guardTests]'s to make, later and with the phrasing that belongs to it;
+// what is resolved here is resolved the same way and no further.
+func (f *filer) surveyGuards(ids []uint64) error {
+	for _, id := range ids {
+		node, ok := f.nodes[id]
+		if !ok {
+			return unresolved(id)
+		}
+
+		guard := node.GetGuard()
+		if guard == nil {
+			return malformed(fmt.Sprintf("node %d guards a transition or an acceptance and is not a guard node", id),
+				"a guard list names guard nodes; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
+		}
+
+		kind, err := f.registerKind(guard.GetRegisterId())
+		if err != nil {
+			return err
+		}
+
+		if kind == "[]byte" {
+			f.comparesBytes = true
 		}
 	}
 

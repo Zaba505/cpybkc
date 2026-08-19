@@ -93,17 +93,24 @@ type filer struct {
 	// one thing that obliges the reader to hold the record's own bytes as well
 	// as its values.
 	keepsBytes bool
+
+	// comparesBytes is whether anything in the generated file compares byte
+	// strings, which is the whole of what it imports "bytes" for. See
+	// [filer.survey], which settles it.
+	comparesBytes bool
 }
 
 // fileImports is what every generated file of this kind imports.
 //
 // Each is used by something the file always declares: bufio and io by the
-// reader, bytes by the writer's own buffer, errors by the end-of-input test,
-// and codec by both directions. Only strings is conditional, because only the
-// diagnostic naming the record types a state expected uses it, and a file whose
-// every state offers one unconditional transition has no such diagnostic to
-// make.
-var fileImports = []string{"bufio", "bytes", "errors", "fmt", "io", codecImport}
+// reader, errors by the end-of-input test, and codec by both directions. Two
+// are conditional. Only the diagnostic naming the record types a state expected
+// uses strings, and a file whose every state offers one unconditional
+// transition has no such diagnostic to make; only a comparison of byte strings
+// uses bytes, and a file whose framing needs no delimiter and whose automaton
+// carries neither a predicate nor a guard over a bytes register makes none. See
+// [filer.survey] for the second.
+var fileImports = []string{"bufio", "errors", "fmt", "io", codecImport}
 
 // fileMachine is the source of [fileMachineFile] for this descriptor, or the
 // empty string where this descriptor's automaton admits no record — because it
