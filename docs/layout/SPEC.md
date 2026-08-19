@@ -1969,16 +1969,17 @@ Nothing in it states a size that anything else states. `lrecl` and `blksize`
 come from the dataset; every offset, extent and width is the copybook's and is
 computed once by `resolve`.
 
-The same file after an EBCDIC-to-ASCII conversion is [A converted file, end to
-end](#appendix-a-converted-file-end-to-end). The copybooks, the framing and the
-sequence are the same statements there; the four encoding lines are not, and
-neither is what a reader shows an adopter who gets them wrong.
+A second file of the same shop's, delivered through an EBCDIC-to-ASCII
+conversion rather than as the dataset it was written to, is [A converted file,
+end to end](#appendix-a-converted-file-end-to-end). It is a different file with
+its own copybooks and its own records — what carries across is the vocabulary,
+and the four encoding lines are where the two disagree.
 
 ## Appendix: A converted file, end to end
 
-A settlement file the same shop's mainframe wrote, delivered as a converted
-extract rather than as the dataset it was written to: a header, a counted run of
-details, and a trailer.
+A settlement file — a different file from the one above, from the same shop —
+delivered as a converted extract rather than as the dataset it was written to: a
+header, a counted run of details, and a trailer.
 
 It is here because of what an adopter holding one arrives with. A copybook says
 `PIC S9(5)`, and a reader shows them `1234E` — or `1234{` for a value ending in
@@ -2015,9 +2016,9 @@ at all because the four axes are stated separately.
   (charset cp037)
   (sign-convention ebcdic))
 
-;; The dataset the extract came off, out of the JCL that allocated it. A binary
-;; transfer keeps the record descriptor words, so this is unchanged by the
-;; conversion.
+;; The dataset the extract came off, out of the JCL that allocated it. The
+;; conversion rewrote character data inside each record and moved no record
+;; boundary, so these three numbers are the dataset's and are what they were.
 (framing
   (recfm VB)
   (lrecl 512)
@@ -2076,19 +2077,31 @@ byte for byte what the mainframe wrote.
 
 ### What differs from the native layout
 
-Against [A layout, end to end](#appendix-a-layout-end-to-end), which is the same
-shop's file as the dataset holds it, the difference is the `encoding` form and
-the overrides under it and nothing else. The framing came off the same JCL, the
-copybooks are the same copybooks, and the discriminators and the sequence are
-the same statements about the same records.
+[A layout, end to end](#appendix-a-layout-end-to-end) is a different file — an
+order file, its own copybooks, its own record names — and it is worth saying so
+rather than leaving a reader to diff the two and find it. What the two share is
+the *shape*: a header, a counted run of details, an optional trailer, told apart
+by a type item, sequenced by the same operators, and framed by the same
+`recfm`/`lrecl`/`blksize` vocabulary out of the JCL that allocated each dataset.
+Neither layout says anything about the other's records, and nothing here is a
+statement that carries between them.
 
-The two overrides are the mirror of that layout's one. There, a native EBCDIC
-file carries a single field that arrived from a partner in ASCII and was never
-converted. Here, a converted ASCII file carries the fields the conversion did
-*not* reach: one whose bytes are a payload and have no charset at all, and one
-the transfer was told to pass through, which is still EBCDIC characters with
-EBCDIC signs. In both directions the exception is per item, both are stated with
-the same form, and neither is a second profile.
+What differs is the `encoding` form and the overrides under it, and that
+difference does not follow from anything else either layout writes. Both files
+came off the same kind of dataset and both are described with the same forms;
+one arrived as the mainframe holds it and one arrived through a conversion, and
+the only place a layout can say which is those four lines. That is the claim
+[All four, always, with no default for
+any](#all-four-always-with-no-default-for-any) makes — the four axes are
+independent and are not a dialect flag — shown twice rather than argued once.
+
+The overrides are the mirror of each other. There, a native EBCDIC file carries
+a single field that arrived from a partner in ASCII and was never converted.
+Here, a converted ASCII file carries the two the conversion did *not* reach: one
+whose bytes are a payload and have no charset at all, and one the transfer was
+told to pass through, which is still EBCDIC characters with EBCDIC signs. In
+both directions the exception is per item, both are stated with the same form,
+and neither is a second profile.
 
 ## Appendix: Mapping to Stories
 

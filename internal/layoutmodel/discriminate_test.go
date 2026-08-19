@@ -692,6 +692,13 @@ func TestTheSpecsVariantExampleDiscriminates(t *testing.T) {
 // examples read Example. That a subsection may carry more than one block is
 // exactly why a worked example gets a heading to itself rather than a position
 // among a section's blocks.
+//
+// The bound moved when this converged on that package, and in the safe
+// direction. The reading it replaced ended the subsection at the next "### "
+// and at nothing else, so a "## " or "# " heading in between left the
+// subsection running on and the last block could have belonged to a later
+// section; Blocks ends it at any heading of level three or above. The two agree
+// on the document as it stands, which is what the block count below asserts.
 func specVariantExample(t *testing.T) string {
 	t.Helper()
 

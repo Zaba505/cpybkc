@@ -25,13 +25,16 @@ const (
 	// partner in ASCII and was never converted.
 	NativeExample = "## Appendix: A layout, end to end"
 
-	// ConvertedExample is the layout for the same shop's file after an
-	// EBCDIC-to-ASCII conversion: ASCII characters, translated-EBCDIC signs,
-	// big-endian binary, and the items the conversion did not reach. It is the
-	// combination "All four, always, with no default for any" calls the one
-	// real files hit most often.
+	// ConvertedExample is the layout for a file of the same shop's that an
+	// EBCDIC-to-ASCII conversion delivered: ASCII characters,
+	// translated-EBCDIC signs, big-endian binary, and the items the conversion
+	// did not reach. It is the combination "All four, always, with no default
+	// for any" calls the one real files hit most often.
 	ConvertedExample = "## Appendix: A converted file, end to end"
 )
+
+// fence opens and closes a Markdown code block in this document.
+const fence = "```"
 
 // specPath is the document, relative to the repository root.
 var specPath = filepath.Join("docs", "layout", "SPEC.md")
@@ -39,29 +42,47 @@ var specPath = filepath.Join("docs", "layout", "SPEC.md")
 // Example returns the layout under heading: the first fenced block in that
 // section.
 //
-// First rather than only, because a section is prose as well as a layout and
-// may illustrate a form beside it. What every caller here wants is the layout
-// the section is about, and it opens the section for exactly that reason.
+// A worked example's section carries exactly one fenced block and that block is
+// the layout — which is a rule about how the document is written, and is
+// asserted rather than assumed by this package's own tests. First rather than
+// only because [Blocks] serves the sections that illustrate a form and then
+// show it used, and one function that means "the layout here" is easier to read
+// at a call site than an index.
 func Example(heading string) (string, error) {
 	blocks, err := Blocks(heading)
 	if err != nil {
 		return "", err
 	}
 
+	// Blocks already refuses an empty result, and this says so at the point a
+	// reader would otherwise have to go and confirm it — a later relaxation of
+	// that guard is then an error here rather than a panic.
+	if len(blocks) == 0 {
+		return "", fmt.Errorf("layoutdoc: %q carries no fenced code block", heading)
+	}
+
 	return blocks[0], nil
 }
 
 // Blocks returns every fenced code block under heading, in the order the
-// document writes them, and fails where there are none — a section that was
-// meant to carry a layout and carries none is the staleness these readings
-// exist to catch, and an empty result handed back would be a check that passed
-// over nothing.
+// document writes them.
+//
+// A section with no block, a block that is empty and a fence that is never
+// closed are each an error rather than a result. All three are the same hazard:
+// an empty layout parses, validates and reads as nothing at all, so a check
+// resting on one passes over nothing and says so nowhere.
 func Blocks(heading string) ([]string, error) {
 	body, err := Section(heading)
 	if err != nil {
 		return nil, err
 	}
 
+	return blocksIn(body, heading)
+}
+
+// blocksIn is [Blocks] over a body already read, which is what makes its
+// failures reachable from a test.
+func blocksIn(body, where string) ([]string, error) {
 	var (
 		blocks []string
 		block  []string
@@ -69,8 +90,12 @@ func Blocks(heading string) ([]string, error) {
 	)
 
 	for line := range strings.SplitSeq(body, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+		if strings.HasPrefix(strings.TrimSpace(line), fence) {
 			if open {
+				if strings.TrimSpace(strings.Join(block, "\n")) == "" {
+					return nil, fmt.Errorf("layoutdoc: a fenced code block under %q is empty", where)
+				}
+
 				blocks = append(blocks, strings.Join(block, "\n"))
 				block = nil
 			}
@@ -86,11 +111,11 @@ func Blocks(heading string) ([]string, error) {
 	}
 
 	if open {
-		return nil, fmt.Errorf("layoutdoc: a fenced code block under %q is not closed", heading)
+		return nil, fmt.Errorf("layoutdoc: a fenced code block under %q is not closed", where)
 	}
 
 	if len(blocks) == 0 {
-		return nil, fmt.Errorf("layoutdoc: %q carries no fenced code block", heading)
+		return nil, fmt.Errorf("layoutdoc: %q carries no fenced code block", where)
 	}
 
 	return blocks, nil
@@ -103,11 +128,17 @@ func Blocks(heading string) ([]string, error) {
 // example added after another one ends the section before it, so what an
 // existing heading extracts does not move.
 func Section(heading string) (string, error) {
-	text, err := Text()
+	text, err := specText()
 	if err != nil {
 		return "", err
 	}
 
+	return sectionIn(text, heading)
+}
+
+// sectionIn is [Section] over a document already read, which is what makes its
+// failures reachable from a test.
+func sectionIn(text, heading string) (string, error) {
 	level := headingLevel(heading)
 	if level == 0 {
 		return "", fmt.Errorf("layoutdoc: %q is not a Markdown heading", heading)
@@ -116,10 +147,23 @@ func Section(heading string) (string, error) {
 	var (
 		body  []string
 		found bool
+		open  bool
 	)
 
 	for line := range strings.SplitSeq(text, "\n") {
-		if line == heading {
+		// Fenced text is not the document's structure. A section bounded
+		// without tracking this ends on the first `# ` comment in a shell or
+		// YAML snippet, which is the same silently-truncated section
+		// [headingLevel] exists to prevent, reached by another road.
+		if strings.HasPrefix(strings.TrimSpace(line), fence) {
+			open = !open
+		}
+
+		if !open && line == heading {
+			if found {
+				return "", fmt.Errorf("layoutdoc: %s carries the heading %q more than once", specPath, heading)
+			}
+
 			found = true
 
 			continue
@@ -129,8 +173,10 @@ func Section(heading string) (string, error) {
 			continue
 		}
 
-		if next := headingLevel(line); next > 0 && next <= level {
-			break
+		if !open {
+			if next := headingLevel(line); next > 0 && next <= level {
+				break
+			}
 		}
 
 		body = append(body, line)
@@ -166,8 +212,12 @@ func headingLevel(line string) int {
 	return level
 }
 
-// Text returns the whole of docs/layout/SPEC.md.
-func Text() (string, error) {
+// specText returns the whole of docs/layout/SPEC.md.
+//
+// Unexported, because a caller handed the document reads it however it likes,
+// and three packages reading it however they liked is what this package was
+// made to end.
+func specText() (string, error) {
 	root, err := repoRoot()
 	if err != nil {
 		return "", err
