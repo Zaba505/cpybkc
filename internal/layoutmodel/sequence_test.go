@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // sequenceOf is the whole pipeline a caller runs: parse the source, then read
@@ -724,7 +725,7 @@ func TestSequenceFaultsAreAssertable(t *testing.T) {
 func TestTheSpecsWorkedExampleSequences(t *testing.T) {
 	t.Parallel()
 
-	read, err := sequenceOf(t, specExample(t))
+	read, err := sequenceOf(t, specExample(t, layoutdoc.NativeExample))
 	if err != nil {
 		t.Fatalf("the reader rejects SPEC.md's own worked example: %v", err)
 	}
@@ -735,5 +736,31 @@ func TestTheSpecsWorkedExampleSequences(t *testing.T) {
 
 	if got := read.String(); got != want {
 		t.Errorf("the example sequences as\n%s\nwant\n%s", got, want)
+	}
+}
+
+// TestTheSpecsConvertedExampleSequences is the same gate over the second layout
+// the document shows an adopter.
+//
+// The converted example is about the encoding profile and its sequence is
+// ordinary, which is exactly why it is read here: a form the example writes and
+// no reader reads is the failure this gate exists to prevent, and "the
+// interesting part is elsewhere" is how a second example stops being read at
+// all. It writes one shape the native example does not — a `?` beside a
+// `times`, an optional trailer rather than a flagged one.
+func TestTheSpecsConvertedExampleSequences(t *testing.T) {
+	t.Parallel()
+
+	read, err := sequenceOf(t, specExample(t, layoutdoc.ConvertedExample))
+	if err != nil {
+		t.Fatalf("the reader rejects SPEC.md's own converted example: %v", err)
+	}
+
+	want := "(sequence (seq SETTLE-HEADER " +
+		"(times SETTLE-DETAIL (item SETTLE-HEADER SH-DETAIL-COUNT)) " +
+		"(? SETTLE-TRAILER)))"
+
+	if got := read.String(); got != want {
+		t.Errorf("the converted example sequences as\n%s\nwant\n%s", got, want)
 	}
 }

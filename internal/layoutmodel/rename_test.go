@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // renamesOf is the whole pipeline a caller runs: parse the source, then read the
@@ -569,7 +570,7 @@ func TestRenameFaultsAreAssertable(t *testing.T) {
 func TestTheSpecsWorkedExampleRenames(t *testing.T) {
 	t.Parallel()
 
-	read, err := renamesOf(t, specExample(t))
+	read, err := renamesOf(t, specExample(t, layoutdoc.NativeExample))
 	if err != nil {
 		t.Fatalf("the reader rejects SPEC.md's own worked example: %v", err)
 	}

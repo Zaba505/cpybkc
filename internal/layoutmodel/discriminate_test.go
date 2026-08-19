@@ -8,12 +8,11 @@ package layoutmodel
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // discriminationOf is the whole pipeline a caller runs: parse the source, then
@@ -627,7 +626,7 @@ func TestDiscriminationFaultsAreAssertable(t *testing.T) {
 func TestTheSpecsWorkedExampleDiscriminates(t *testing.T) {
 	t.Parallel()
 
-	read, err := discriminationOf(t, specExample(t))
+	read, err := discriminationOf(t, specExample(t, layoutdoc.NativeExample))
 	if err != nil {
 		t.Fatalf("the reader rejects SPEC.md's own worked example: %v", err)
 	}
@@ -687,31 +686,25 @@ func TestTheSpecsVariantExampleDiscriminates(t *testing.T) {
 // a redefine inside a table", which is the last one in that subsection: the
 // first is the form's skeleton, and a skeleton is placeholders rather than a
 // layout.
+//
+// The last rather than the first, so this reads
+// [github.com/Zaba505/cpybkc/internal/layoutdoc.Blocks] where the worked
+// examples read Example. That a subsection may carry more than one block is
+// exactly why a worked example gets a heading to itself rather than a position
+// among a section's blocks.
 func specVariantExample(t *testing.T) string {
 	t.Helper()
 
 	const heading = "### A discriminator for a redefine inside a table"
 
-	spec, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "layout", "SPEC.md"))
+	blocks, err := layoutdoc.Blocks(heading)
 	if err != nil {
 		t.Fatalf("read the layout SPEC: %v", err)
 	}
 
-	_, subsection, found := strings.Cut(string(spec), heading+"\n")
-	if !found {
-		t.Fatalf("the layout SPEC has no %q subsection", heading)
+	if len(blocks) < 2 {
+		t.Fatalf("the %q subsection carries %d fenced blocks, want the skeleton and a layout", heading, len(blocks))
 	}
 
-	if next := strings.Index(subsection, "\n### "); next >= 0 {
-		subsection = subsection[:next]
-	}
-
-	blocks := strings.Split(subsection, "```")
-	if len(blocks) < 5 {
-		t.Fatalf("the %q subsection carries fewer than two fenced blocks", heading)
-	}
-
-	// The fences split the text into alternating prose and blocks, so the last
-	// block is the second-to-last field.
-	return blocks[len(blocks)-2]
+	return blocks[len(blocks)-1]
 }

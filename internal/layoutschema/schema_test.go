@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // TestThePublishedSchemaLoads is the floor under everything else here: the file
@@ -223,7 +225,7 @@ func specTopLevelForms(t *testing.T) map[string]specTopLevelForm {
 
 	rows := make(map[string]specTopLevelForm)
 
-	for line := range strings.SplitSeq(section(t, "### The top-level forms"), "\n") {
+	for line := range strings.SplitSeq(specSection(t, "### The top-level forms"), "\n") {
 		cells := tableRow(line)
 		if len(cells) != 3 || !strings.HasPrefix(cells[0], "`") {
 			continue
@@ -255,53 +257,20 @@ func tableRow(line string) []string {
 	return cells
 }
 
-// section returns the text of SPEC.md under heading, up to the next heading at
-// the same level or above.
-func section(t *testing.T, heading string) string {
+// specSection returns the text of docs/layout/SPEC.md under heading.
+//
+// One reading of the document for this package, internal/layout and
+// internal/layoutmodel — see [github.com/Zaba505/cpybkc/internal/layoutdoc] for
+// why they share one and why a worked example is located by its own heading.
+func specSection(t *testing.T, heading string) string {
 	t.Helper()
 
-	level := strings.IndexFunc(heading, func(r rune) bool { return r != '#' })
-
-	var (
-		body  []string
-		found bool
-	)
-
-	for line := range strings.SplitSeq(specText(t), "\n") {
-		if line == heading {
-			found = true
-
-			continue
-		}
-
-		if !found {
-			continue
-		}
-
-		if strings.HasPrefix(line, "#") && strings.IndexFunc(line, func(r rune) bool { return r != '#' }) <= level {
-			break
-		}
-
-		body = append(body, line)
-	}
-
-	if !found {
-		t.Fatalf("SPEC.md carries no heading %q", heading)
-	}
-
-	return strings.Join(body, "\n")
-}
-
-// specText reads docs/layout/SPEC.md.
-func specText(t *testing.T) string {
-	t.Helper()
-
-	b, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "layout", "SPEC.md"))
+	body, err := layoutdoc.Section(heading)
 	if err != nil {
 		t.Fatalf("read the layout SPEC: %v", err)
 	}
 
-	return string(b)
+	return body
 }
 
 // publishedSchema loads schema/layout.sexpr — the file a release publishes and

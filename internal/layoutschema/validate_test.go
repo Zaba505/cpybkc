@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Zaba505/cpybkc/internal/layoutdoc"
 )
 
 // TestValidLayoutsValidate is half of the acceptance criterion the corpus
@@ -95,13 +97,13 @@ func TestInvalidLayoutsAreRejected(t *testing.T) {
 // itself.
 //
 // docs/layout/SPEC.md's "A layout, end to end" appendix is the layout the
-// document shows an adopter, and it is the one layout in this repository nobody
-// wrote to satisfy the schema. Reading it out of the document rather than
+// document shows an adopter, and it is one of the two layouts in this
+// repository nobody wrote to satisfy the schema. Reading it out of the document rather than
 // copying it here is the point: a change to the notation that the appendix
 // followed and the schema did not would otherwise be invisible until an adopter
 // pasted the example into a file.
 func TestTheSpecsWorkedExampleValidates(t *testing.T) {
-	example := fencedBlock(t, section(t, "## Appendix: A layout, end to end"))
+	example := specExample(t, layoutdoc.NativeExample)
 
 	diagnostics, err := publishedSchema(t).Validate("SPEC.md", strings.NewReader(example))
 	if err != nil {
@@ -110,6 +112,27 @@ func TestTheSpecsWorkedExampleValidates(t *testing.T) {
 
 	for _, diagnostic := range diagnostics {
 		t.Errorf("the schema rejects SPEC.md's own worked example: %s", diagnostic)
+	}
+}
+
+// TestTheSpecsConvertedExampleValidates is the same gate over the second layout
+// the document shows an adopter.
+//
+// A second appendix and so a second heading, for the reason
+// [github.com/Zaba505/cpybkc/internal/layoutdoc] gives. What the schema earns
+// over the native example is the forms that example has no reason to write: two
+// overrides on one layout, `none` on the charset axis of one of them, and a
+// `?` where the native example writes a `when`.
+func TestTheSpecsConvertedExampleValidates(t *testing.T) {
+	example := specExample(t, layoutdoc.ConvertedExample)
+
+	diagnostics, err := publishedSchema(t).Validate("SPEC.md", strings.NewReader(example))
+	if err != nil {
+		t.Fatalf("validate the SPEC's converted example: %v", err)
+	}
+
+	for _, diagnostic := range diagnostics {
+		t.Errorf("the schema rejects SPEC.md's own converted example: %s", diagnostic)
 	}
 }
 
@@ -225,34 +248,16 @@ func TestValidateFailsOnSourceThatIsNotSExpressions(t *testing.T) {
 	}
 }
 
-// fencedBlock returns the first fenced code block in body.
-func fencedBlock(t *testing.T, body string) string {
+// specExample returns the worked example under heading in docs/layout/SPEC.md.
+func specExample(t *testing.T, heading string) string {
 	t.Helper()
 
-	var (
-		block []string
-		open  bool
-	)
-
-	for line := range strings.SplitSeq(body, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			if open {
-				return strings.Join(block, "\n")
-			}
-
-			open = true
-
-			continue
-		}
-
-		if open {
-			block = append(block, line)
-		}
+	example, err := layoutdoc.Example(heading)
+	if err != nil {
+		t.Fatalf("read the layout SPEC's worked example: %v", err)
 	}
 
-	t.Fatal("no fenced code block found")
-
-	return ""
+	return example
 }
 
 // layouts returns the names of every layout in one of the corpus directories.

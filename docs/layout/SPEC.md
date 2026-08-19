@@ -1969,12 +1969,133 @@ Nothing in it states a size that anything else states. `lrecl` and `blksize`
 come from the dataset; every offset, extent and width is the copybook's and is
 computed once by `resolve`.
 
+The same file after an EBCDIC-to-ASCII conversion is [A converted file, end to
+end](#appendix-a-converted-file-end-to-end). The copybooks, the framing and the
+sequence are the same statements there; the four encoding lines are not, and
+neither is what a reader shows an adopter who gets them wrong.
+
+## Appendix: A converted file, end to end
+
+A settlement file the same shop's mainframe wrote, delivered as a converted
+extract rather than as the dataset it was written to: a header, a counted run of
+details, and a trailer.
+
+It is here because of what an adopter holding one arrives with. A copybook says
+`PIC S9(5)`, and a reader shows them `1234E` — or `1234{` for a value ending in
+a positive zero and `1234}` for a negative one. A field that should be a number
+reads as a letter or as punctuation. Nothing is corrupt, nothing is misaligned,
+and the character is not a delimiter: it is the sign, and the four lines at the
+top of this layout are what say so.
+
+This is also the combination [All four, always, with no default for
+any](#all-four-always-with-no-default-for-any) calls the one real files hit most
+often. No compiler produces it — ASCII characters, EBCDIC signs and mainframe
+byte order arrive together only by way of a conversion — and it is expressible
+at all because the four axes are stated separately.
+
+```
+;; The encoding profile — a property of this *file*, not of the mainframe that
+;; wrote it. The transfer rewrote the characters and left everything else as it
+;; found it, and each of the four lines below records one half of that.
+(encoding
+  (charset ascii)
+  (sign-convention translated-ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+;; The conversion was copybook-aware and skipped this item, which holds a
+;; region code — one byte of any of 256 — rather than characters.
+(encoding-override (item SETTLE-DETAIL SD-REGION)
+  (charset none))
+
+;; A block the sending system reads back as it wrote it, so the transfer was
+;; told to leave it alone. It is the only EBCDIC left in the file, characters
+;; and signs both.
+(encoding-override (item SETTLE-HEADER SH-PASSTHROUGH)
+  (charset cp037)
+  (sign-convention ebcdic))
+
+;; The dataset the extract came off, out of the JCL that allocated it. A binary
+;; transfer keeps the record descriptor words, so this is unchanged by the
+;; conversion.
+(framing
+  (recfm VB)
+  (lrecl 512)
+  (blksize 27998))
+
+;; The compiler that wrote it.
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+;; The record types.
+(record SETTLE-HEADER  (copybook "cpy/settle.cpy" SETTLE-HEADER-REC))
+(record SETTLE-DETAIL  (copybook "cpy/settle.cpy" SETTLE-DETAIL-REC))
+(record SETTLE-TRAILER (copybook "cpy/settle.cpy" SETTLE-TRAILER-REC))
+
+(rename (item SETTLE-DETAIL SD-AMT) "SettlementAmount")
+
+;; How to tell them apart. The type byte is a character, so it is ASCII here
+;; and would have been EBCDIC in the dataset — the literal is written as the
+;; file spells it and the charset axis is what resolves it.
+(discriminate SETTLE-HEADER  (equals (item SETTLE-HEADER SH-REC-TYPE) "H"))
+(discriminate SETTLE-DETAIL  (equals (item SETTLE-DETAIL SD-REC-TYPE) "D"))
+(discriminate SETTLE-TRAILER (equals (item SETTLE-TRAILER ST-REC-TYPE) "T"))
+
+;; The order they may appear in.
+(sequence
+  (seq SETTLE-HEADER
+       (times SETTLE-DETAIL (item SETTLE-HEADER SH-DETAIL-COUNT))
+       (? SETTLE-TRAILER)))
+```
+
+### Why the field reads as punctuation
+
+An EBCDIC signed zoned decimal carries its sign in the zone nibble of its last
+byte: `0xC5` is a positive 5 and `0xD5` a negative one, and `0xC0` and `0xD0`
+are a positive and a negative zero. A text conversion rewrites those bytes along
+with every other byte of character data, and cp037 and cp1047 both send `0xC5`
+to `E`, `0xD5` to `N`, `0xC0` to `{` and `0xD0` to `}`. The digits come through
+unharmed, because `0xF0`–`0xF9` are `0`–`9` on the other side; the sign does
+not, because there was no ASCII character for it to become.
+
+`translated-ebcdic` is that outcome named, and it is why the sign convention is
+an axis of its own rather than something the charset implies. `ascii` on its own
+would say the digits are ASCII and leave the sign byte to be read as the letter
+it now looks like; `ebcdic` on its own would say the file was never converted.
+The file in hand is neither, and only two axes stated separately can say so.
+
+A `"` where a number was expected is a different finding and a worse one. `0x7F`
+is an ordinary byte in a `COMP` item holding 127 and in a `COMP-3` item ending
+in an unsigned 7, and it is `"` in both cp037 and cp1047 — so punctuation
+appearing inside a *binary* or *packed* field is the fingerprint of a conversion
+that rewrote bytes which were never characters. No setting of these four axes
+describes that file, and [Undoing a character-set
+conversion](#undoing-a-character-set-conversion) is why. The extract above came
+off a copybook-aware conversion, which is what makes its packed and binary items
+byte for byte what the mainframe wrote.
+
+### What differs from the native layout
+
+Against [A layout, end to end](#appendix-a-layout-end-to-end), which is the same
+shop's file as the dataset holds it, the difference is the `encoding` form and
+the overrides under it and nothing else. The framing came off the same JCL, the
+copybooks are the same copybooks, and the discriminators and the sequence are
+the same statements about the same records.
+
+The two overrides are the mirror of that layout's one. There, a native EBCDIC
+file carries a single field that arrived from a partner in ASCII and was never
+converted. Here, a converted ASCII file carries the fields the conversion did
+*not* reach: one whose bytes are a payload and have no charset at all, and one
+the transfer was told to pass through, which is still EBCDIC characters with
+EBCDIC signs. In both directions the exception is per item, both are stated with
+the same form, and neither is a second profile.
+
 ## Appendix: Mapping to Stories
 
 | Section | Implemented by |
 |---|---|
 | [The surface syntax](#the-surface-syntax) | #22 `layout` |
-| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275 |
+| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
 | [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |
