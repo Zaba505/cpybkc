@@ -129,6 +129,12 @@ func newSynth(c *coder, d *irpb.Descriptor, enc *irpb.Encoding) (*synth, error) 
 // generated Encoding and another way in the bytes the generated tests read
 // would make every case fail for a reason that has nothing to do with the
 // walk.
+//
+// A charset of none falls into the refusal below and never reaches it, on the
+// same terms it never reaches [charsetCall]: the encoding here is the one
+// [descriptorEncoding] read off the descriptor's fields, and that walk skips
+// every item stating no charset. What the individual opaque items get is
+// [synth.write]'s WriteBytes, which consults no charset at all.
 func encodingValue(enc *irpb.Encoding) (codec.Encoding, error) {
 	if err := resolved(enc); err != nil {
 		return codec.Encoding{}, err

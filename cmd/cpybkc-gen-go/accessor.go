@@ -183,14 +183,20 @@ func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 	}
 }
 
-// rawWidth reports whether the item's field holds the bytes themselves, which
-// is the one Go type a writer has to check the length of: every other one is as
-// wide as the item by construction, and a []byte is whatever the caller put in
-// it.
+// rawWidth reports whether the item's field holds the bytes themselves and
+// takes codec's WriteBytes with nothing wrapped around it but a length check:
+// every other Go type here is as wide as the item by construction, and a []byte
+// is whatever the caller put in it.
 // It is read off the USAGE rather than off the Go type [emitter.fieldType]
 // gives, because asking for that type is what tells the struct emitter a file
 // imports math/big — and this file imports it only where it writes a count too
 // wide for an int64.
+//
+// An item no charset governs is a []byte too and is not one of these. Its
+// length is checked on three terms rather than one — see [coder.encodeOpaque] —
+// because a nil there is a record a caller built rather than read, which is an
+// ordinary thing to hand a writer and which an INDEX or POINTER field, holding
+// bytes nobody names, has no reason to be.
 func (c *coder) rawWidth(f *irpb.Field) (bool, error) {
 	switch f.GetUsage() {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
