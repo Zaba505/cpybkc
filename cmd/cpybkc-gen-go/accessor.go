@@ -390,17 +390,18 @@ Binary: %s,
 // A function rather than a step of [coder.profile] because two files need the
 // answer and neither may reach it a second way: the profile the generated
 // package declares and the profile the generated tests lay their bytes out
-// under are the same four axes, and a descriptor whose items disagree has to be
+// under are the same five axes, and a descriptor whose items disagree has to be
 // refused with the same diagnostic whichever one asked.
 //
 // # The agreement is per axis, not per field
 //
 // A field carrying CHARSET_NONE states that its bytes become characters under
 // no code page, so it makes no claim about the file's charset to be in conflict
-// with and it takes no part in *that* comparison. Its other three axes are
+// with and it takes no part in *that* comparison. Its other four axes are
 // claims like anybody else's and it is held to them: a packed item's sign
-// convention and a binary item's byte order are read whatever the charset says,
-// and an override may set those axes too.
+// convention, a binary item's byte order and the staircase that binary item's
+// width came off are read whatever the charset says, and an override may set
+// the sign, order and float axes too.
 //
 // Per axis rather than per field because CHARSET_NONE arrives from an
 // `encoding-override` that **MAY** name a group, and a group holds items of
@@ -410,13 +411,13 @@ Binary: %s,
 // added for: a status flag holding a hex value sitting in a cp037 record.
 //
 // The charset is skipped after [resolved] has been run on the field, not
-// instead. All four axes are still set on such a field and CHARSET_NONE is one
+// instead. All five axes are still set on such a field and CHARSET_NONE is one
 // of the set values, so a producer that left an axis unresolved is caught on an
 // opaque item exactly as it is on a text one — and [opaqueDisplay]'s refusal of
 // a DISPLAY item whose category admits no payload is raised here as well.
 //
 // What comes back is the encoding of the first field that stated a charset, so
-// the value carries all four axes as one field wrote them rather than as this
+// the value carries all five axes as one field wrote them rather than as this
 // walk assembled them out of several. Where *no* field states one this returns
 // nil, which is the answer a descriptor carrying no field at all already gives:
 // no [encodingFunc] is declared and the caller passes their own Encoding to
@@ -424,7 +425,7 @@ Binary: %s,
 // descriptor stated, so there is none for it to hand anybody.
 func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
 	// stated is the first field that stated a charset and held is the first
-	// field of any kind. The charset comes off the one and the other three axes
+	// field of any kind. The charset comes off the one and the other four axes
 	// off the other, because a field stating no charset is still held to those.
 	var (
 		stated, held     *irpb.Encoding
@@ -608,26 +609,6 @@ func binarySize(size irpb.BinarySize) (string, error) {
 		return "codec.BinarySizeFull", nil
 	default:
 		return "", &unsupportedBinarySizeError{Size: size}
-	}
-}
-
-// binarySizeName is a width staircase as a diagnostic names it.
-//
-// The spellings are GnuCOBOL's `binary-size` runtime option's, which is what
-// the IR's own enum documents them as and the only naming for all four that an
-// adopter can look up.
-func binarySizeName(size irpb.BinarySize) string {
-	switch size {
-	case irpb.BinarySize_BINARY_SIZE_248:
-		return "2-4-8"
-	case irpb.BinarySize_BINARY_SIZE_1248:
-		return "1-2-4-8"
-	case irpb.BinarySize_BINARY_SIZE_SMALLEST:
-		return "1--8"
-	case irpb.BinarySize_BINARY_SIZE_FULL:
-		return "full"
-	default:
-		return "a binary width staircase the descriptor does not name"
 	}
 }
 

@@ -433,7 +433,7 @@ func (a *assembler) fill(s *scope, node *resolve.Node) {
 	case resolve.KindField:
 		at.Kind = &irpb.Node_Field{Field: &irpb.Field{
 			Width:      width(node.Width()),
-			Encoding:   encodingOf(node.Encoding, s.binary),
+			Encoding:   a.encodingOf(node.Encoding, s.binary),
 			Usage:      usageOf(node.Field),
 			Picture:    pictureOf(node.Field),
 			Names:      a.names(s, node.Field),

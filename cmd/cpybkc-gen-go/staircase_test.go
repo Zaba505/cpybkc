@@ -52,14 +52,31 @@ import (
 // the bytes back. Nothing short of comparing against the producer's own widths
 // can see it, which is what this file does.
 
-// staircaseCopybook is one signed COMP item at the digit count under test,
-// which is the smallest record that has a binary width at all.
+// staircaseCase is which of the two forms of a COMP item a case is about, and
+// it is a parameter rather than a constant because "the width does not depend
+// on the S" is a claim rather than an axiom.
 //
-// `PIC S9(n) COMP` rather than an unsigned one because the signed form is what
-// the staircases are documented in and what the 1--2 digit fork is stated
-// about; the width does not depend on the S either way.
-func staircaseCopybook(digits int) string {
-	return fmt.Sprintf("01 BIN-REC.\n   05 B-VALUE PIC S9(%d) COMP.\n", digits)
+// It is not obviously true of `1--8`, which `codec/SPEC.md` defines as the
+// smallest byte count whose **signed** range holds the digits: a side that
+// sized an unsigned item from its unsigned range instead would give a 7-digit
+// item three bytes where the other gives it four, and every case here would
+// still pass if only signed items were compared. So both are run, and the
+// claim is a result rather than a premise.
+type staircaseCase struct {
+	picture string
+	sign    codec.Signedness
+}
+
+// staircaseCases is both forms, named as a PICTURE distinguishes them.
+var staircaseCases = map[string]staircaseCase{
+	"signed":   {picture: "S9", sign: codec.Signed},
+	"unsigned": {picture: "9", sign: codec.Unsigned},
+}
+
+// staircaseCopybook is one COMP item at the digit count under test, which is
+// the smallest record that has a binary width at all.
+func staircaseCopybook(of staircaseCase, digits int) string {
+	return fmt.Sprintf("01 BIN-REC.\n   05 B-VALUE PIC %s(%d) COMP.\n", of.picture, digits)
 }
 
 // staircaseLayout is that record on its own, under a descriptor-word framing.
@@ -95,7 +112,7 @@ func staircaseDialect(binary copybook.BinarySize) copybook.Dialect {
 // It drives the real readers and the real resolver, exactly as
 // internal/assemble's own tests do, so that what comes back is a descriptor the
 // shipped pipeline would emit rather than one assembled to suit the assertion.
-func resolvedUnder(t *testing.T, binary copybook.BinarySize, digits int) *irpb.Descriptor {
+func resolvedUnder(t *testing.T, binary copybook.BinarySize, of staircaseCase, digits int) *irpb.Descriptor {
 	t.Helper()
 
 	file, err := layout.Parse("layout.sexpr", strings.NewReader(staircaseLayout))
@@ -123,7 +140,7 @@ func resolvedUnder(t *testing.T, binary copybook.BinarySize, digits int) *irpb.D
 		t.Fatalf("reading the discrimination layer: %v", err)
 	}
 
-	parsed, err := cobol.Parse(strings.NewReader(staircaseCopybook(digits)), cobol.WithFragment())
+	parsed, err := cobol.Parse(strings.NewReader(staircaseCopybook(of, digits)), cobol.WithFragment())
 	if err != nil {
 		t.Fatalf("parsing the copybook: %v", err)
 	}
@@ -197,7 +214,7 @@ func binaryFieldOf(t *testing.T, d *irpb.Descriptor) *irpb.Field {
 // table that could agree while the byte paths do not. [encodingValue] is the
 // same function the generated tests are laid out with, so this is the width the
 // generated package reads at and not a second reading of the axis.
-func codecWidthOf(t *testing.T, enc *irpb.Encoding, digits int) int {
+func codecWidthOf(t *testing.T, enc *irpb.Encoding, of staircaseCase, digits int) int {
 	t.Helper()
 
 	value, err := encodingValue(enc)
@@ -210,7 +227,7 @@ func codecWidthOf(t *testing.T, enc *irpb.Encoding, digits int) int {
 		t.Fatalf("codec.NewBytesWriter: %v", err)
 	}
 
-	if err := w.WriteBinaryBig(big.NewInt(0), digits, codec.Signed); err != nil {
+	if err := w.WriteBinaryBig(big.NewInt(0), digits, of.sign); err != nil {
 		t.Fatalf("writing a %d-digit binary item: %v", digits, err)
 	}
 
@@ -246,25 +263,44 @@ func TestTheResolvedBinaryWidthIsTheOneCodecReads(t *testing.T) {
 	t.Parallel()
 
 	for _, binary := range staircases {
-		t.Run(binary.String(), func(t *testing.T) {
-			t.Parallel()
+		for name, of := range staircaseCases {
+			t.Run(binary.String()+"/"+name, func(t *testing.T) {
+				t.Parallel()
 
-			// Every digit count a PICTURE may declare, not a sample of them:
-			// the staircases differ at their boundaries, and a sample is how a
-			// boundary moves without anything noticing.
-			for digits := 1; digits <= 18; digits++ {
-				d := resolvedUnder(t, binary, digits)
-				field := binaryFieldOf(t, d)
+				// Every digit count a PICTURE may declare, not a sample of
+				// them: the staircases differ at their boundaries, and a
+				// sample is how a boundary moves without anything noticing.
+				//
+				// Thirty-one rather than eighteen, and the extra thirteen are
+				// not padding. Every staircase has a step past eighteen digits
+				// — sixteen bytes, which IBM reaches only under ARITH(EXTEND)
+				// — and it is the last boundary each of them has. A loop
+				// stopping at eighteen would be the one that never compares
+				// the widest step, where a disagreement is eight bytes rather
+				// than one.
+				for digits := 1; digits <= maxBinaryDigits; digits++ {
+					d := resolvedUnder(t, binary, of, digits)
+					field := binaryFieldOf(t, d)
 
-				resolvedWidth := int(field.GetWidth())
-				if got := codecWidthOf(t, field.GetEncoding(), digits); got != resolvedWidth {
-					t.Errorf("a %d-digit COMP item resolves to %d bytes under %s and codec reads it as %d",
-						digits, resolvedWidth, binary, got)
+					resolvedWidth := int(field.GetWidth())
+					if got := codecWidthOf(t, field.GetEncoding(), of, digits); got != resolvedWidth {
+						t.Errorf("a %d-digit %s COMP item resolves to %d bytes under %s and codec reads it as %d",
+							digits, name, resolvedWidth, binary, got)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
+
+// maxBinaryDigits is the most digits a PICTURE this repository reads may
+// declare, which is COBOL's thirty-one.
+//
+// It is the loop bound above rather than eighteen because eighteen is where the
+// staircases stop *differing from each other* and not where they stop: all four
+// give nineteen digits and beyond sixteen bytes, and that step is a boundary
+// like any other.
+const maxBinaryDigits = 31
 
 // TestASignedTwoDigitCompItemIsTheRowTheStaircasesForkOn is the case the loop
 // above would cover and nobody would notice it had stopped covering.
@@ -292,13 +328,14 @@ func TestASignedTwoDigitCompItemIsTheRowTheStaircasesForkOn(t *testing.T) {
 		t.Run(binary.String(), func(t *testing.T) {
 			t.Parallel()
 
-			field := binaryFieldOf(t, resolvedUnder(t, binary, 2))
+			signed := staircaseCases["signed"]
+			field := binaryFieldOf(t, resolvedUnder(t, binary, signed, 2))
 
 			if got := int(field.GetWidth()); got != want {
 				t.Errorf("PIC S9(2) COMP resolves to %d bytes under %s, want %d", got, binary, want)
 			}
 
-			if got := codecWidthOf(t, field.GetEncoding(), 2); got != want {
+			if got := codecWidthOf(t, field.GetEncoding(), signed, 2); got != want {
 				t.Errorf("codec reads PIC S9(2) COMP as %d bytes under %s, want %d", got, binary, want)
 			}
 		})
@@ -328,7 +365,7 @@ func TestEveryStaircaseThisRepositoryResolvesUnderIsOneTheGeneratedCodeCanRead(t
 		t.Run(binary.String(), func(t *testing.T) {
 			t.Parallel()
 
-			d := resolvedUnder(t, binary, 4)
+			d := resolvedUnder(t, binary, staircaseCases["signed"], 4)
 
 			out := t.TempDir()
 			if err := generate(io.Discard, d, out, options{packageName: "bin", importPath: goldenModule + "internal/bin"}); err != nil {
@@ -360,7 +397,7 @@ func TestAStaircaseNobodyDeclaredIsRefusedBeforeAnythingIsLaidOut(t *testing.T) 
 	dialect := copybook.IBMEnterprise()
 	dialect.Binary = copybook.BinarySizeUnset
 
-	parsed, err := cobol.Parse(strings.NewReader(staircaseCopybook(4)), cobol.WithFragment())
+	parsed, err := cobol.Parse(strings.NewReader(staircaseCopybook(staircaseCases["signed"], 4)), cobol.WithFragment())
 	if err != nil {
 		t.Fatalf("parsing the copybook: %v", err)
 	}

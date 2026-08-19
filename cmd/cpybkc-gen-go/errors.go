@@ -250,8 +250,15 @@ type unsupportedBinarySizeError struct {
 }
 
 // Error implements the error interface.
+//
+// The staircase is named by the number the descriptor carried rather than by a
+// spelling, because there is no spelling: every member this build knows is one
+// it supports, so the only value that reaches here is one it has never heard
+// of. Dropping the number would leave an adopter with a message that says a
+// staircase was refused and not which, and matching it against the upstream
+// enum is the one thing they can do with it.
 func (e *unsupportedBinarySizeError) Error() string {
-	return fmt.Sprintf("the descriptor's binary items were compiled under %s, and this generator has no codec staircase for it", binarySizeName(e.Size))
+	return fmt.Sprintf("the descriptor's binary items were compiled under binary_size %d, and this generator has no codec staircase for it", int32(e.Size))
 }
 
 // Notes is what follows it as a `note:` diagnostic.

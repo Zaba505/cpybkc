@@ -87,15 +87,15 @@ func TestEveryArgumentOfAnAccessorComesFromTheIR(t *testing.T) {
 	}
 }
 
-// TestTheFourAxesAreTheDescriptorsAndNotADefault generates the same records
+// TestTheFiveAxesAreTheDescriptorsAndNotADefault generates the same records
 // under the other charset and checks that what changed is the Encoding and
 // nothing else.
 //
-// None of the four has a default and every one of them fails silently when
+// None of the five has a default and every one of them fails silently when
 // wrong, which is why codec has no usable zero-value Reader and why this
-// function exists at all: a caller states all four in one call, out of the
+// function exists at all: a caller states all five in one call, out of the
 // descriptor, rather than retyping them.
-func TestTheFourAxesAreTheDescriptorsAndNotADefault(t *testing.T) {
+func TestTheFiveAxesAreTheDescriptorsAndNotADefault(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {

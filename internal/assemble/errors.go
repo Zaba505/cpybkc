@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Zaba505/cobol-go/copybook"
+
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
 
@@ -76,6 +78,46 @@ func (e *DuplicateRecordError) Diagnostic() diag.Diagnostic {
 		Message: fmt.Sprintf(
 			"two record types are named %s, so no transition can say which of them it admits", e.Record),
 		Spans: []diag.Span{{File: e.Copybook}},
+	}
+}
+
+// UnknownBinarySizeError is a resolved record laid out under a binary width
+// staircase this build has no IR member for.
+//
+// It is not a caller's mistake and it is not a layout's. `copybook.NewLayout`
+// refuses a dialect naming no staircase before it computes a single width, so
+// every resolved record reaching here was laid out under a member `copybook`
+// declares — and the way this fires is `copybook` declaring one more of them
+// than the mapping in this package has been taught. The record's widths are
+// then perfectly real and the IR has no way to say what they were computed
+// under.
+//
+// Reported rather than defaulted, for the reason the axis exists at all: a
+// staircase substituted for another leaves every item behind the first COMP
+// item at the wrong offset, and no length, round trip or reader disagrees. It
+// is reported *here* rather than left to the completeness pass because that
+// pass sees only an unset axis on a field and would name the field, sending a
+// reader to look at an item that is not what is wrong.
+type UnknownBinarySizeError struct {
+	// Binary is the dialect member the record was laid out under.
+	Binary copybook.BinarySize
+}
+
+// Error implements the error interface.
+func (e *UnknownBinarySizeError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+//
+// It carries no span. The fault is in the mapping between two enumerations and
+// not at any point in the adopter's copybook or layout, and a span would send
+// them to a file where there is nothing to change. What the message carries
+// instead is the dialect member, which is the one thing a reader can match
+// against `cobol-go` to see what this build is behind on.
+func (e *UnknownBinarySizeError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"the records were laid out under the %s binary width staircase, which this build of cpybkc has no IR member for, so the descriptor cannot say what its binary widths were computed under",
+			e.Binary),
 	}
 }
 

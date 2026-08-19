@@ -808,9 +808,11 @@ const (
 	// The source field's bytes as they appear in the record, so that a guard over
 	// one is a byte comparison needing no charset knowledge.
 	RegisterKind_REGISTER_KIND_BYTES RegisterKind = 1
-	// A number, decoded from the source field by that field's own four encoding
+	// A number, decoded from the source field by that field's own five encoding
 	// axes, because a count is arithmetic and the field holding one may be zoned,
-	// packed or binary.
+	// packed or binary — and a binary count is the case the fifth of them
+	// decides, since how many bytes the register reads is the staircase's
+	// answer.
 	RegisterKind_REGISTER_KIND_INTEGER RegisterKind = 2
 )
 

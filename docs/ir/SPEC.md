@@ -198,7 +198,7 @@ names, field names, field numbers — is #17's.
 | **record** | The identifier of the item that is the record's top level, and the record's names. |
 | **group** | An ordered list of the identifiers of its members, its names, and its repetition. |
 | **variant** | An ordered list of its **arms**, each naming the predicate that selects it and the group or field that is its body. Every arm covers the same bytes, so the list is an order of evaluation rather than of position. |
-| **field** | An elementary item: its width, its four resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
+| **field** | An elementary item: its width, its five resolved encoding axes, its `USAGE`, the attributes that follow from its PICTURE — category, digits, scale, and whether and where a sign is held — its names, and its repetition. |
 | **slack** | A width, and nothing else: bytes that are part of the record and belong to no item. |
 | **predicate** | The identifier of the field it tests, and the test itself, as one member of a closed set. |
 | **state** | Whether the state accepts, the identifiers of the guards qualifying that where it is conditional, and an ordered list of the identifiers of the transitions leaving it. |
@@ -2066,10 +2066,10 @@ charset knowledge — the same reason a predicate tests bytes. An integer regist
 holds a number, decoded from the source field by that field's own five encoding
 axes, because a count is arithmetic and the field holding one may be zoned,
 packed or binary — and a binary count is the case the fifth of them decides,
-since how many bytes the register reads is the staircase's answer. A producer **MUST NOT** bind a field whose value does not
-decode to the register's kind, and a consumer **MUST** report a source field it
-cannot decode as that kind as malformed data rather than substituting a zero or
-spaces.
+since how many bytes the register reads is the staircase's answer. A producer
+**MUST NOT** bind a field whose value does not decode to the register's kind,
+and a consumer **MUST** report a source field it cannot decode as that kind as
+malformed data rather than substituting a zero or spaces.
 
 **What a binding writes.** A binding names the register it writes and the value
 written, one member of a closed set: the value of a field node contained in the

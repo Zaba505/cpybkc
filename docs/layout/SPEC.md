@@ -544,16 +544,18 @@ property of the program that *wrote* the file, fixed when that program was
 compiled, and an adopter reads it off the compiler and its options rather than
 off the extract in front of them. Putting a compiler setting on a form that
 describes bytes would make the profile two things at once, which is the
-distinction [the axes are independent and are not a dialect
-flag](#all-four-always-with-no-default-for-any) exists to keep.
+distinction [All four, always, with no default for
+any](#all-four-always-with-no-default-for-any) draws when it says the axes are
+independent and are not a dialect flag.
 
 Where it comes from instead is the **dialect** — the same setting that decides
 whether `SYNCHRONIZED` inserts slack and how wide a `USAGE INDEX` item is — and
 resolution carries it into the IR as a resolved fact about every field, which is
 `ir/SPEC.md`'s [A binary item's width is the staircase, not the
-digits](../ir/SPEC.md). A layout that could state a staircase and a dialect that
-states a different one would be two answers to one question with nothing to
-choose between them, so this format states none.
+digits](../ir/SPEC.md#a-binary-items-width-is-the-staircase-not-the-digits).
+A layout that could state a staircase and a dialect that states a different one
+would be two answers to one question with nothing to choose between them, so
+this format states none.
 
 **How a layout says which dialect its copybooks were compiled under is not yet
 part of this format.** Until it is, an implementation resolves under one it

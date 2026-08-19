@@ -947,9 +947,11 @@ enum RegisterKind {
   // one is a byte comparison needing no charset knowledge.
   REGISTER_KIND_BYTES = 1;
 
-  // A number, decoded from the source field by that field's own four encoding
+  // A number, decoded from the source field by that field's own five encoding
   // axes, because a count is arithmetic and the field holding one may be zoned,
-  // packed or binary.
+  // packed or binary — and a binary count is the case the fifth of them
+  // decides, since how many bytes the register reads is the staircase's
+  // answer.
   REGISTER_KIND_INTEGER = 2;
 }
 
