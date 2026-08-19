@@ -17,7 +17,7 @@ module github.com/Zaba505/cpybkc/example/parquet
 go 1.26.2
 
 require (
-	github.com/Zaba505/cpybkc v0.0.0
+	github.com/Zaba505/cpybkc v0.0.3
 	github.com/parquet-go/parquet-go v0.30.1
 )
 
