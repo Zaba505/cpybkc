@@ -28,7 +28,7 @@ require (
 	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/parquet-go/bitpack v1.0.1 // indirect
 	github.com/parquet-go/jsonlite v1.5.5 // indirect
-	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
