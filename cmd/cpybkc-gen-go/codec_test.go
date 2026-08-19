@@ -8,6 +8,7 @@ package main
 import (
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1097,5 +1098,113 @@ func TestAnUnsignedBinaryRegisterSourceIsRangeCheckedRatherThanWidenedSilently(t
 				t.Errorf("%s contains %q = %v, want %v\n%s", fileMachineFile, check, got, tc.guarded, source)
 			}
 		})
+	}
+}
+
+// TestEveryBufferedTableOfARecordGetsASubCodecOfItsOwn is what makes hoisting
+// the sub-codecs out of their loops safe.
+//
+// A sub-reader and a sub-writer used to be declared inside the block of the
+// loop over the occurrences they served, where the name could not collide with
+// anything. They now stand at the top of the method, so a record with more than
+// one buffered table declares more than one of them in one scope, and a name
+// that is a function of the nesting *depth* would be one identifier declared
+// twice. The counter is what fixes that, and this descriptor is the shape that
+// would show it broken: two tables side by side at one depth, and a third
+// nested inside one of them.
+//
+// No golden package carries that shape — `orders` and `fixed` each declare a
+// single, top-level ENTRY — so this is where it is held. It also pins the other
+// half of the hoist: every sub-codec declared is rewound, so a table whose
+// declaration is emitted and whose Reset is not fails here rather than
+// generating a record that decodes every occurrence over the last one's bytes.
+func TestEveryBufferedTableOfARecordGetsASubCodecOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, nestedTablesDescriptor(), out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[codecFile]
+
+	// One direction at a time, by the type each declaration names: a sub-reader
+	// is only ever declared in UnmarshalCOBOL and a sub-writer only ever in
+	// MarshalCOBOL, so the type is what tells the two methods apart without
+	// carving the file up.
+	for _, typ := range []string{"Reader", "Writer"} {
+		declared := regexp.MustCompile(`var (entry[0-9]+) \*codec\.`+typ).FindAllStringSubmatch(source, -1)
+
+		if len(declared) != 3 {
+			t.Errorf("this record carries three buffered tables and MarshalCOBOL/UnmarshalCOBOL declares %d codec.%s over them\n%s",
+				len(declared), typ, source)
+
+			continue
+		}
+
+		seen := make(map[string]struct{}, len(declared))
+
+		for _, match := range declared {
+			name := match[1]
+
+			if _, again := seen[name]; again {
+				t.Errorf("%s is declared twice as a codec.%s in one method, which is a record that does not compile\n%s",
+					name, typ, source)
+			}
+
+			seen[name] = struct{}{}
+
+			if !strings.Contains(source, name+".Reset(") {
+				t.Errorf("%s is declared as a codec.%s and never rewound onto an occurrence\n%s", name, typ, source)
+			}
+		}
+	}
+}
+
+// nestedTablesDescriptor is one record carrying three tables that each hold a
+// variant: ALPHA and BETA side by side, and GAMMA inside ALPHA.
+//
+// Every one of them repeats and holds an alternation, which is what makes each
+// an occurrence read whole before it is walked — the only thing a sub-codec is
+// built for.
+func nestedTablesDescriptor() *irpb.Descriptor {
+	return &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "MANY-RECORD", 2),
+			group(2, "MANY-RECORD", nil, 10, 20),
+
+			group(10, "ALPHA", constant(2), 11, 30, 12),
+			alphanumeric(11, "ALPHA-TYPE", 1),
+
+			group(30, "GAMMA", constant(2), 31, 32),
+			alphanumeric(31, "GAMMA-TYPE", 1),
+			variant(32, armOf(52, 35), armOf(53, 36)),
+			equals(52, 31, "D"),
+			equals(53, 31, "S"),
+			group(35, "GAMMA-DETAIL", nil, 37),
+			alphanumeric(37, "GAMMA-SKU", 3),
+			group(36, "GAMMA-SUMMARY", nil, 38),
+			alphanumeric(38, "GAMMA-TEXT", 3),
+
+			variant(12, armOf(50, 15), armOf(51, 16)),
+			equals(50, 11, "D"),
+			equals(51, 11, "S"),
+			group(15, "ALPHA-DETAIL", nil, 17),
+			alphanumeric(17, "ALPHA-SKU", 4),
+			group(16, "ALPHA-SUMMARY", nil, 18),
+			alphanumeric(18, "ALPHA-TEXT", 4),
+
+			group(20, "BETA", constant(2), 21, 22),
+			alphanumeric(21, "BETA-TYPE", 1),
+			variant(22, armOf(54, 25), armOf(55, 26)),
+			equals(54, 21, "D"),
+			equals(55, 21, "S"),
+			group(25, "BETA-DETAIL", nil, 27),
+			alphanumeric(27, "BETA-SKU", 2),
+			group(26, "BETA-SUMMARY", nil, 28),
+			alphanumeric(28, "BETA-TEXT", 2),
+		},
 	}
 }

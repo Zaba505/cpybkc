@@ -110,6 +110,15 @@ type filer struct {
 // uses bytes, and a file whose framing needs no delimiter and whose automaton
 // carries neither a predicate nor a guard over a bytes register makes none. See
 // [filer.survey] for the second.
+//
+// Comparisons are the whole of what reaches for bytes, which is why nothing
+// else is asked about. In particular a binding *writing* a bytes register does
+// not: it is emitted as append(w.registerN[:0], raw[a:b]...) by
+// [filer.emitFieldBinding], reusing the register's own array rather than
+// calling bytes.Clone, and that is the reason it can be. Anything emitted here
+// that reaches for bytes some other way has to be added to [filer.survey] in
+// the same commit — [TestAFileMachineImportsBytesOnlyWhereItComparesThem] is
+// what holds the four ways it is reached today.
 var fileImports = []string{"bufio", "errors", "fmt", "io", codecImport}
 
 // fileMachine is the source of [fileMachineFile] for this descriptor, or the

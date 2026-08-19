@@ -7,6 +7,9 @@ package main
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"strings"
 	"testing"
@@ -648,4 +651,176 @@ func TestNoRegisterIsReadThatNoBindingHasWritten(t *testing.T) {
 	if !strings.Contains(source, "no transition taken before it bound one") {
 		t.Error("the report for an unbound register does not say that nothing bound it")
 	}
+}
+
+// TestAFileMachineImportsBytesOnlyWhereItComparesThem holds the conditional
+// "bytes" import against what the generated file actually uses.
+//
+// It is stated as an equivalence rather than as four expectations, and that is
+// the point of it: the import block and the body are read out of the same
+// parsed file, so a construct that reaches for bytes and a condition in
+// [filer.survey] that does not know about it fail here rather than at an
+// adopter's compiler. The four cases are the four ways the body reaches for it
+// today, each isolated so that no case passes through a condition another case
+// covers — every golden package with a register file also carries a predicate,
+// so the guard case in particular is reachable nowhere else.
+//
+// The `wants` column is there so that a change making every case reach for
+// bytes — or none — still fails: an equivalence alone is satisfied by a
+// generator that imports nothing and uses nothing.
+func TestAFileMachineImportsBytesOnlyWhereItComparesThem(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		descriptor *irpb.Descriptor
+		wants      bool
+	}{
+		"nothing compares bytes": {descriptor: plainDescriptor(nil), wants: false},
+
+		"a transition carries a predicate": {descriptor: plainDescriptor(predicateOn(50)), wants: true},
+
+		"a guard reads a bytes register": {descriptor: guardedDescriptor(), wants: true},
+
+		"the framing carries a delimiter": {descriptor: terminatedDescriptor(), wants: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			out := t.TempDir()
+
+			if err := generate(io.Discard, tc.descriptor, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+
+			source := written(t, out)[fileMachineFile]
+
+			file, err := parser.ParseFile(token.NewFileSet(), fileMachineFile, source, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parsing the generated %s: %v\n%s", fileMachineFile, err, source)
+			}
+
+			imported := false
+
+			for _, spec := range file.Imports {
+				if spec.Path.Value == `"bytes"` {
+					imported = true
+				}
+			}
+
+			used := false
+
+			ast.Inspect(file, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+
+				if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "bytes" {
+					used = true
+				}
+
+				return true
+			})
+
+			if used != tc.wants {
+				t.Errorf("the generated %s reaches for bytes: %t, and this descriptor was written so that it would be %t\n%s",
+					fileMachineFile, used, tc.wants, source)
+			}
+
+			if imported != used {
+				t.Errorf("the generated %s imports bytes: %t, and reaches for it: %t\n%s",
+					fileMachineFile, imported, used, source)
+			}
+		})
+	}
+}
+
+// plainDescriptor is one unframed record type read by one state, with the
+// transition carrying the predicate given and nothing else: no delimiter, no
+// register file and no guard.
+//
+// Pass nil and the generated file has no reason to compare bytes at all, which
+// is what makes it the negative case; pass a reference to node 50 and the one
+// reason it has is the predicate.
+func plainDescriptor(predicate *uint64) *irpb.Descriptor {
+	return &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+				Framing:      &irpb.File_Unframed{Unframed: &irpb.Unframed{}},
+				StartStateId: 2,
+			}}},
+
+			{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{
+				Accepts: true, TransitionIds: []uint64{10},
+			}}},
+
+			edge(10, 100, 2, predicate, nil, nil),
+			equals(50, 101, "AB"),
+
+			record(100, "LINE-RECORD", 105),
+			group(105, "LINE-RECORD", nil, 101),
+			alphanumeric(101, "LINE-TAG", 2),
+		},
+	}
+}
+
+// guardedDescriptor is a header binding a bytes register and a detail record a
+// guard over that register admits, under an unframed file and with no predicate
+// anywhere.
+//
+// Each state offers one transition, so nothing has to be told apart by reading
+// the bytes in front of the walk — which is what leaves the guard as the only
+// comparison the generated file makes.
+func guardedDescriptor() *irpb.Descriptor {
+	return &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+				Framing:      &irpb.File_Unframed{Unframed: &irpb.Unframed{}},
+				StartStateId: 2,
+			}}},
+
+			// start — the header is what it reads, and a file of nothing at all
+			// is not one this layout describes.
+			{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{10}}}},
+
+			// bodied — accepts, and the detail it reads is guarded by the flag
+			// the header bound.
+			{Id: 3, Kind: &irpb.Node_State{State: &irpb.State{
+				Accepts: true, TransitionIds: []uint64{11},
+			}}},
+
+			edge(10, 100, 3, nil, nil, []uint64{40}),
+			edge(11, 200, 3, nil, []uint64{41}, nil),
+
+			flag(60),
+			binds(40, 60, 101),
+			equalsBytes(41, 60, "A"),
+
+			record(100, "HEADER-RECORD", 105),
+			group(105, "HEADER-RECORD", nil, 101),
+			alphanumeric(101, "HEADER-FLAG", 1),
+
+			record(200, "DETAIL-RECORD", 205),
+			group(205, "DETAIL-RECORD", nil, 201),
+			alphanumeric(201, "DETAIL-TEXT", 5),
+		},
+	}
+}
+
+// terminatedDescriptor is [plainDescriptor] with a delimiter behind every
+// record, which is the one comparison a framing itself makes.
+func terminatedDescriptor() *irpb.Descriptor {
+	d := plainDescriptor(nil)
+
+	d.Nodes[0] = &irpb.Node{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+		Framing: &irpb.File_Delimited{Delimited: &irpb.Delimited{
+			Delimiter: []byte{0x15},
+			Placement: irpb.DelimiterPlacement_DELIMITER_PLACEMENT_TERMINATOR,
+		}},
+		StartStateId: 2,
+	}}}
+
+	return d
 }

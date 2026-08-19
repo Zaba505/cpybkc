@@ -404,6 +404,17 @@ func (c *coder) subReaders() string {
 // the capacity the last occurrence grew it to; see [coder.encodeMembers]. The
 // paragraph on [coder.subReaders] about building these for the record rather
 // than at the first occurrence that needs one holds here unchanged.
+//
+// # The error branch it emits cannot be taken today
+//
+// codec.NewBytesWriter fails only on an Encoding that does not validate, and
+// the Encoding here is the one the caller's own codec.Writer was built with, so
+// it has validated already. The check is emitted regardless, exactly as
+// [coder.subReaders] emits it: discarding the error would be a `_` on a call
+// this package does not own, and a generated file whose reader has to be told
+// which of two error returns is real is a worse thing to read than a branch
+// that does not fire. If codec ever grows a second reason for that constructor
+// to fail, this is already the code that reports it.
 func (c *coder) subWriters() string {
 	var b strings.Builder
 
