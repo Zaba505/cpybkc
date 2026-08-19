@@ -105,14 +105,82 @@ func TestACodecFaultInASecondRecordReportsAnOffsetWithinThatRecord(t *testing.T)
 		t.Fatal("a record cut short by its own framing was read as a record")
 	}
 
-	if within := fmt.Sprintf("offset %d", len(short)); !strings.Contains(err.Error(), within) {
+	// Anchored on the whole of codec's phrase, colon and all, rather than on the
+	// digits: a substring ending at a digit matches every longer number that
+	// begins with it, so "offset 23" is in "offset 231" and both assertions
+	// below could report a result they had not earned.
+	if within := fmt.Sprintf("at byte offset %d:", len(short)); !strings.Contains(err.Error(), within) {
 		t.Errorf("the report reads %q and does not put the fault at %q, within the record it is in", err, within)
 	}
 
 	// What the same fault would read as if the offset counted from the start of
 	// the file rather than from the start of this record.
-	if absolute := fmt.Sprintf("offset %d", len(first)+len(short)); strings.Contains(err.Error(), absolute) {
+	if absolute := fmt.Sprintf("at byte offset %d:", len(first)+len(short)); strings.Contains(err.Error(), absolute) {
 		t.Errorf("the report reads %q and puts the fault at %q, which is a position in the file", err, absolute)
+	}
+}
+
+// TestARecordThatFailedLeavesNothingBehindInTheDecoder is the question one
+// decoder for the whole file raises and one decoder per record could not: a
+// record that failed part-way through leaves the decoder holding an offset, a
+// slice and whatever its scratch buffers last held, and the next record is
+// decoded through that same decoder.
+//
+// It is answered by where the rewind stands. [Reader.admit] resets before it
+// decodes rather than after, so what a failed record left behind is dropped by
+// the record after it whatever the failure was — which is the property this
+// reads back, by failing the first record of a file and then reading the same
+// record, well framed, through the reader that failed.
+//
+// The automaton is what makes that file legal: a transition is taken when a
+// record is admitted, so a record that failed leaves the walk in the state it
+// was in, and the state that admits an ORDER-RECORD admits the next one too.
+func TestARecordThatFailedLeavesNothingBehindInTheDecoder(t *testing.T) {
+	t.Parallel()
+
+	order := orderBytes(t, Encoding(), 2)
+
+	// The first record, cut short by three bytes of its own framing, so that it
+	// fails inside codec with bytes consumed and an offset stopped part-way.
+	cut := order[:len(order)-3]
+
+	in := append(framed(cut), framed(order)...)
+
+	r, err := NewReader(bytes.NewReader(in), Encoding())
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+
+	if _, err := r.Next(); err == nil {
+		t.Fatal("a record cut short by its own framing was read as a record")
+	}
+
+	rec, err := r.Next()
+	if err != nil {
+		t.Fatalf("the record after a failed one: %v", err)
+	}
+
+	got, ok := rec.(*OrderRecord)
+	if !ok {
+		t.Fatalf("the record after a failed one came back as a %T", rec)
+	}
+
+	// Written back rather than compared field by field, because the bytes are
+	// what a decoder carrying something over would get wrong: an offset the
+	// rewind did not clear moves every item behind it.
+	var out bytes.Buffer
+
+	w, err := codec.NewWriter(&out, Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewWriter: %v", err)
+	}
+
+	if err := got.MarshalCOBOL(w); err != nil {
+		t.Fatalf("MarshalCOBOL: %v", err)
+	}
+
+	if !bytes.Equal(out.Bytes(), order) {
+		t.Errorf("the record read after a failed one is\n % x\nand the record in the file is\n % x", out.Bytes(), order)
 	}
 }
 
@@ -130,9 +198,18 @@ const tolerance = 0.5
 //
 // Before one sub-decoder served every occurrence it was sixteen: three
 // decoders, and the three bytes.Readers wrapping bytes the record already held,
-// one pair per occurrence. That is the multiplier this story removed, and on a
-// real copybook's OCCURS 100 holding a REDEFINES it is two hundred allocations
-// per record rather than six.
+// one pair per occurrence. Six of the sixteen were the multiplier, and it is
+// the multiplier this story removed — on a real copybook's OCCURS 100 holding a
+// REDEFINES those same six are two hundred, and they become the one decoder
+// this record now builds whatever the count is.
+//
+// It is a cost and not a correctness criterion. That an occurrence decodes to
+// the right values, and that no occurrence's bytes bleed into the next through
+// the scratch buffers they now share, is
+// [TestATableOfVariantsWritesBackTheBytesItWasReadFrom] in
+// record_roundtrip_test.go: it round-trips this exact input byte for byte, over
+// four arm patterns, and each occurrence's retained slack is a different byte
+// so that one standing in for another fails it.
 //
 // An upper bound rather than an equality, so that codec allocating less for a
 // field than it does today passes rather than failing on an improvement. What

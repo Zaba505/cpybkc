@@ -601,7 +601,7 @@ func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	// over those occurrences, and rewound onto each occurrence's bytes there.
 	var entry1 *codec.Reader
 	if entry1, err = codec.NewBytesReader(nil, r.Encoding()); err != nil {
-		return fmt.Errorf("ENTRY-RECORD: reading over the bytes of ENTRY: %w", err)
+		return fmt.Errorf("ENTRY-RECORD: building the decoder the occurrences of ENTRY are read through: %w", err)
 	}
 
 	for i0 := range x.Entry {

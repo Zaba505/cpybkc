@@ -344,6 +344,20 @@ of the file in hand, and %s is what this descriptor resolved.`,
 // It is the decode direction only. An encoder's sub-writer fills a buffer of
 // its own per occurrence and hands those bytes back to the writer above it, so
 // there is nothing there for one built once to be rewound onto.
+//
+// # Built for the record rather than at the first occurrence that needs one
+//
+// A record therefore pays one construction for a table whose loop runs no
+// times — an OCCURS DEPENDING ON that decoded to zero — and one for a
+// variant-carrying table inside an arm the record did not take. The lazy
+// alternative, a nil check at each Reset site, removes both and was declined:
+// what it charges instead is five lines of generated Go at every buffered
+// table, in a package whose output is what an adopter reads, and what it saves
+// is bounded by the record's *shape* — the handful of tables it declares —
+// rather than by its *data*, which is the unbounded per-occurrence tax this
+// whole method exists to remove. If a descriptor ever makes the shape half of
+// that cost matter, the nil check is the change and this paragraph is the
+// reason it was not made first.
 func (c *coder) subReaders() string {
 	var b strings.Builder
 
@@ -353,7 +367,7 @@ func (c *coder) subReaders() string {
 		line(&b, "// over those occurrences, and rewound onto each occurrence's bytes there.")
 		line(&b, "var %s *codec.Reader", sub.name)
 		line(&b, "if %s, err = codec.NewBytesReader(nil, r.Encoding()); err != nil {", sub.name)
-		line(&b, "return fmt.Errorf(%s, err)", strconv.Quote(c.record+": reading over the bytes of "+sub.item+": %w"))
+		line(&b, "return fmt.Errorf(%s, err)", strconv.Quote(c.record+": building the decoder the occurrences of "+sub.item+" are read through: %w"))
 		line(&b, "}")
 		line(&b, "")
 	}
@@ -534,11 +548,14 @@ func (c *coder) decodeMembers(b *strings.Builder, id uint64, expr string, s scop
 
 	buf := fmt.Sprintf("occurrence%d", s.depth)
 
-	// The sub-reader is declared and built once for the record, by
-	// [coder.prologue], and rewound onto each occurrence here. So its name is
-	// unique across the whole method rather than to this depth: two tables
-	// nested one inside the other are two names because their depths differ,
-	// and two standing side by side would otherwise be one name declared twice.
+	// The sub-reader is declared and built once for the record by
+	// [coder.subReaders], and rewound onto each occurrence here. That
+	// declaration stands at the top of the method rather than inside this
+	// loop's block, which is what its name now has to be unique against: a
+	// suffix telling this table apart from the ones it is nested inside was
+	// enough while each declaration had a block of its own, and two tables
+	// standing side by side are at one depth and would now be one identifier
+	// declared twice.
 	c.counter++
 
 	sub := fmt.Sprintf("entry%d", c.counter)
