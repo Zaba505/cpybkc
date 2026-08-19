@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Zaba505/cobol-go/picture"
+
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
@@ -329,6 +331,78 @@ func (e *UnresolvedEncodingError) Diagnostic() diag.Diagnostic {
 			"in record %s, %s was resolved with no %s: every field carries all four encoding axes, and this is a bug in cpybkc rather than in the copybook or the layout",
 			e.Record, e.Item, joinAnd(axisNames(e.Axes))),
 		Spans: []diag.Span{e.Pos},
+	}
+}
+
+// CharsetNoneError is `(charset none)` reaching an item whose bytes the charset
+// does govern.
+//
+// `none` says an item's bytes are a payload rather than characters, and that is
+// a reading only an alphanumeric DISPLAY item admits. On a zoned item the
+// charset governs the digit zone and the byte values of a separate sign, so
+// taking it away leaves the digits with nothing to be read through and the item
+// with no reading at all. On an alphabetic or an edited item the PICTURE is
+// itself a statement about characters — `PIC A` says letters and `PIC ZZ9.99`
+// says where the zeroes are suppressed — so an item declared as one is
+// characters by declaration and a payload cannot be what it holds.
+//
+// It is not raised where charset governs nothing. A packed, binary, COMP-6,
+// floating-point, INDEX or POINTER item is unaffected by `none` exactly as it is
+// unaffected by `cp037`, and that inertness is what lets an override name a
+// group and reach the alphanumeric items under it without the group's numeric
+// items becoming errors (docs/layout/SPEC.md, "A byte is not a character, and
+// such an item has no charset", #275).
+//
+// A FILLER is not raised against either, whatever its PICTURE says. An item
+// COBOL gives no data-name is one no accessor is generated for and no item
+// reference can name, so its charset is never read and the diagnostic would name
+// an item the adopter cannot address — leaving them nothing to do but delete the
+// override that reaches the items they meant.
+//
+// It carries two spans, and the first is the layout's, for [LRECLExtentError]'s
+// reason: the override is the line the adopter wrote and the copybook may not be
+// theirs to change, so a diagnostic naming only the copybook names the half they
+// cannot fix.
+type CharsetNoneError struct {
+	// Pos is the `encoding-override` form in the layout.
+	Pos diag.Span
+
+	// Item is the item's entry in the copybook.
+	Item diag.Span
+
+	// Record is the record being resolved.
+	Record string
+
+	// Name is the item the override reached, which is the elementary item
+	// rather than the group the override may have named.
+	Name string
+
+	// Category is what the item's PICTURE declares it to be.
+	Category picture.Category
+}
+
+// Error implements the error interface.
+func (e *CharsetNoneError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+//
+// The two categories fault for different reasons and the message says which,
+// because they are fixed differently: a zoned item wants the override narrowed
+// to the items that really are payload, and an edited or alphabetic one wants
+// the copybook's own declaration believed.
+func (e *CharsetNoneError) Diagnostic() diag.Diagnostic {
+	fault := fmt.Sprintf("an item of category %s is characters by declaration", e.Category)
+	if e.Category == picture.CategoryNumeric {
+		fault = "a zoned decimal item's digit zone and separate sign are read through the charset," +
+			" so it would be left with no reading at all"
+	}
+
+	item := e.Item
+	item.Note = fmt.Sprintf("%s is declared here", e.Name)
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("in record %s, charset none reaches %s, and %s", e.Record, e.Name, fault),
+		Spans:   []diag.Span{e.Pos, item},
 	}
 }
 

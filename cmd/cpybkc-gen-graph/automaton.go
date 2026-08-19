@@ -403,11 +403,14 @@ func predicateResolved(nodes nodeSet, id uint64, record *irpb.Record, position s
 
 	p.field = path
 
-	// The target's own charset decides whether its literals are text. The
-	// resolution above has already established that the field is there, so this
-	// lookup cannot fail; it is written as a lookup rather than threaded out of
-	// [fieldPath] because the path and the encoding are two different questions
-	// about the same node.
+	// The target's own charset decides whether its literals are text. A charset
+	// of none is the axis saying the field holds bytes rather than characters,
+	// so it takes the same side of this test as an EBCDIC one and for a
+	// stronger reason: there is no character for a literal over it to be spelled
+	// as. The resolution above has already established that the field is there,
+	// so this lookup cannot fail; it is written as a lookup rather than threaded
+	// out of [fieldPath] because the path and the encoding are two different
+	// questions about the same node.
 	if target, ok := nodes.field(node.GetFieldId()); ok {
 		p.text = target.GetEncoding().GetCharset() == irpb.Charset_CHARSET_ASCII
 	}

@@ -1,0 +1,26 @@
+;; A fixed-length ASCII dataset whose record carries both text and a payload,
+;; which is the file an adopter has when a vendor converts a mainframe extract
+;; and two of its PIC X items were never text to begin with.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 270))
+
+(record TXN
+  (copybook "txn.cpy" TXN-RECORD))
+
+;; One override on the group, which reaches every elementary item beneath it.
+;; Naming the group rather than the four items is what an adopter writes when
+;; the manual describes a run of the record as a payload, and it is the same
+;; reach any other override has.
+(encoding-override (item TXN TXN-PAYLOAD)
+  (charset none))
+
+(discriminate TXN single-record-type)
+
+(sequence (* TXN))

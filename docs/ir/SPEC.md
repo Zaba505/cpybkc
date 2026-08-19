@@ -1770,6 +1770,71 @@ an exception. And which axes actually govern a given field's bytes — charset
 does not touch packed decimal — is `codec/SPEC.md`'s answer, not a second table
 in this document. The IR names the axes; what the bytes are is answered there.
 
+### An item with no charset carries bytes, not characters
+
+The charset axis has a value meaning that the item has none. A field carrying
+it holds a payload rather than characters: a consumer **MUST** read and write
+its bytes as they stand, **MUST** apply no translation to them, and **MUST**
+strip and add no padding on either side (#275).
+
+The axis is still resolved and still carried — this is a value on it, not a hole
+in it — so the rule above that a producer sets all four and a consumer defaults
+none is unchanged.
+
+A field carrying it **MUST** be an item whose `USAGE` is `DISPLAY` and whose
+category is alphanumeric, which is a `PIC X` item. A consumer **MUST** treat a
+field carrying it on a DISPLAY item of any other category as a malformed
+descriptor: an item with digits to read and no charset to read them through has
+no reading at all, and one declared alphabetic or edited is characters by
+declaration. On the usages charset does not govern — packed decimal, `COMP-6`,
+binary, `COMP-5`, `COMP-1`, `COMP-2`, `INDEX`, `POINTER`, `NATIONAL` — it is
+inert, exactly as a code page already is on them, because a layout may set the
+axis on a group and a group holds items of every usage.
+
+Which item this is cannot be derived from the copybook, which is why it is in
+the IR at all. `PIC X(1)` is what a vendor's manual writes for a status flag
+whose values are `0x01` to `0x03` and for a region identifier holding a
+hexadecimal value, and it is also what it writes for two characters of text.
+The copybook has no room to tell them apart; the layout is where an adopter says
+so ([`layout/SPEC.md`](../layout/SPEC.md#a-byte-is-not-a-character-and-such-an-item-has-no-charset)),
+and a field node is where that statement arrives resolved.
+
+The value the reader produces is the bytes and their count is the field's width.
+There is nothing else it could be: a byte item has no pad byte that is not also
+a legal payload value, so a writer **MUST NOT** pad a value short of the width
+or truncate one past it, and **MUST** refuse such a value instead. That is the
+same rule [Slack survives a read](#slack-survives-a-read) already puts on a run
+of bytes no item covers, reached from the other direction — those bytes are
+retained rather than reconstructed for exactly this reason.
+
+**Adding it did not advance the version, and the reason is not the one it looks
+like.** `Charset` is a closed set, and [What breaks it](#what-breaks-it) calls
+adding a member to one breaking — a consumer that read this item as text would
+trim it, translate it, and be wrong about 236 of the 256 values a byte may hold.
+That bullet is right and this is not an exception to it. It is the case its own
+last sentence describes: the sets are enumerated **before the first release**
+rather than after it, `IR_VERSION_1` is the version being assembled and not one
+anything has yet been held to, and there is nothing to advance from. Every other
+closed set in this document was settled that way; the charset axis is being
+settled the same way, once.
+
+What is deliberately **not** the argument is that an old consumer would refuse
+it. A consumer **MUST** refuse a charset it does not recognise, and that is a
+rule this document places on consumers rather than a mechanism protobuf
+provides: an unknown enum value is preserved as its own number, so a consumer
+whose `switch` has no default falls through rather than failing. This project's
+own `cpybkc-gen-graph` read the charset in exactly one place and refused
+nothing; it was changed alongside this value, and had it not been it would have
+gone on printing an item's width as a count of characters. The rule is worth
+stating and is not worth resting a version decision on.
+
+The two are not the same claim for a *code page*, which is why the enum's own
+note may rest on refusal where this section does not. A consumer handed a code
+page it has no table for cannot emit a reader at all, so it fails whether or not
+it remembered the rule; a consumer handed this value has a translation it could
+apply and would be wrong to. After the first release, a member added to this set
+— or to any other — is breaking, and the version moves.
+
 ## Names
 
 Every named node carries the original COBOL name, spelled as the copybook spells
@@ -3678,7 +3743,7 @@ records offer them.
 | [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve` |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir` |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
-| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve` |
+| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir` |

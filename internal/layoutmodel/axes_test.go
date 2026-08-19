@@ -31,6 +31,7 @@ func TestCharsetRegistryIsBounded(t *testing.T) {
 		{name: "a Unicode encoding, which is not a code page", value: "utf-8"},
 		{name: "the right code page under the wrong name", value: "ebcdic-us"},
 		{name: "a code page written with the case a title uses", value: "CP037"},
+		{name: "the statement that an item has no characters, which is not a code page", value: "none"},
 		{name: "nothing at all", value: ""},
 	}
 
@@ -71,22 +72,44 @@ func TestCharsetsIsACopy(t *testing.T) {
 // TestAxisValuesAreTheClosedSets holds each axis to what docs/layout/SPEC.md's
 // table says it admits, in the order the table states it, because that order is
 // what every diagnostic naming the set is read in.
+//
+// Each axis is held in both positions, because the set is a function of both:
+// `none` is a statement about one item, so an `encoding-override` admits it and
+// the `encoding` profile does not, and an axis that admitted the same values in
+// both would pass a test that only asked about one of them.
 func TestAxisValuesAreTheClosedSets(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		axis Axis
-		tag  string
-		want []string
+		axis     Axis
+		tag      string
+		want     []string
+		override []string
 	}{
-		{axis: AxisCharset, tag: "charset", want: []string{"cp037", "cp500", "cp1047", "cp1140", "ascii"}},
 		{
-			axis: AxisSignConvention,
-			tag:  "sign-convention",
-			want: []string{"ebcdic", "ascii-zone-37", "translated-ebcdic", "realia"},
+			axis:     AxisCharset,
+			tag:      "charset",
+			want:     []string{"cp037", "cp500", "cp1047", "cp1140", "ascii"},
+			override: []string{"cp037", "cp500", "cp1047", "cp1140", "ascii", "none"},
 		},
-		{axis: AxisByteOrder, tag: "byte-order", want: []string{"big-endian", "little-endian"}},
-		{axis: AxisFloatFormat, tag: "float-format", want: []string{"ieee-754", "hfp"}},
+		{
+			axis:     AxisSignConvention,
+			tag:      "sign-convention",
+			want:     []string{"ebcdic", "ascii-zone-37", "translated-ebcdic", "realia"},
+			override: []string{"ebcdic", "ascii-zone-37", "translated-ebcdic", "realia"},
+		},
+		{
+			axis:     AxisByteOrder,
+			tag:      "byte-order",
+			want:     []string{"big-endian", "little-endian"},
+			override: []string{"big-endian", "little-endian"},
+		},
+		{
+			axis:     AxisFloatFormat,
+			tag:      "float-format",
+			want:     []string{"ieee-754", "hfp"},
+			override: []string{"ieee-754", "hfp"},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -97,10 +120,35 @@ func TestAxisValuesAreTheClosedSets(t *testing.T) {
 				t.Errorf("axis renders as %q, want %q", got, testCase.tag)
 			}
 
-			if got := testCase.axis.Values(); !slices.Equal(got, testCase.want) {
-				t.Errorf("admits %v, want %v", got, testCase.want)
+			if got := testCase.axis.Values(inProfile); !slices.Equal(got, testCase.want) {
+				t.Errorf("the profile admits %v, want %v", got, testCase.want)
+			}
+
+			if got := testCase.axis.Values(inOverride); !slices.Equal(got, testCase.override) {
+				t.Errorf("an override admits %v, want %v", got, testCase.override)
 			}
 		})
+	}
+}
+
+// TestOnlyAnOverrideAdmitsCharsetNone is the positional half stated on its own,
+// because it is the whole reason [Axis.Values] takes a position: `none` says one
+// item's bytes are a payload, and the profile names no item for that to be about.
+func TestOnlyAnOverrideAdmitsCharsetNone(t *testing.T) {
+	t.Parallel()
+
+	if AxisCharset.admits(string(None), inProfile) {
+		t.Error("the encoding profile admits charset none, which is a statement about one item")
+	}
+
+	if !AxisCharset.admits(string(None), inOverride) {
+		t.Error("an encoding-override does not admit charset none")
+	}
+
+	// The registry stays the published set of code pages, which is what a
+	// caller asking which tables exist is asking about.
+	if slices.Contains(Charsets(), None) {
+		t.Error("none is in the code-page registry, and it is not a code page")
 	}
 }
 

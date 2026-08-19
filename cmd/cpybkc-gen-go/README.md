@@ -279,6 +279,7 @@ width is what the item occupies in the file, and the two agree only for
 | `COMP-1` | `float32` |
 | `COMP-2` | `float64` |
 | `INDEX`, `POINTER`, `NATIONAL` | `[]byte` |
+| A `PIC X` item a layout gave the charset `none` | `[]byte` |
 
 The integer widths are the ones cobol-go's `codec` reads an item into, so the
 type an item takes here is the type the accessor `codec.go` calls already
@@ -355,6 +356,61 @@ that an item the copybook declares is visible in the record instead of silently
 missing from it. An **edited** item is a `string` for the same reason and a
 different one: its storage really is characters, and what the field holds is the
 edited text as it stands in the record.
+
+### An item that carries bytes rather than characters
+
+A `PIC X` item is routinely used to carry something that is not text: a status
+flag whose documented values are `0x01` through `0x03`, a region identifier
+holding a hex value, a run of packed bits. The copybook cannot say so — `PIC X`
+is the only picture there is for it — so the layout says it, on the charset
+axis, with the value `none`:
+
+```
+(encoding-override (item ORDER-RECORD STATUS-FLAG)
+  (charset none))
+```
+
+`none` is not a code page and not an identity translation. It is the charset
+axis answering that these bytes do not become characters at all, so nothing
+translates them, nothing trims them and nothing pads them. The field is a
+`[]byte` and not a `string`, and both halves of that matter:
+
+- `encoding/json` writes a `[]byte` as base64, so all 256 byte values survive a
+  round trip through your own serialisation. A `string` holding a byte above
+  `0x7F` marshals to a replacement character no viewer can show.
+- `ReadAlphanumeric` trims trailing spaces, which is right for text and deletes
+  a payload byte that happens to be the charset's space. `ReadBytes` trims
+  nothing.
+
+Neither loss is recoverable from what you are left holding, and neither says
+anything when it happens. That is the whole argument.
+
+On the **writing** side there is one thing to know, and it is the price of the
+padding not happening. `WriteAlphanumeric` pads a short value out to the item's
+declared width; `WriteBytes` takes no width and pads nothing, so the generated
+writer enforces the width itself, on three terms:
+
+| What the field holds | What the writer does |
+|---|---|
+| a run of the item's width | writes those bytes, as they stand |
+| `nil` | writes that many **zero** bytes |
+| a run of any other length | **reports** — no truncation, no padding |
+
+Zero for `nil` because a record you built rather than read has to be writable
+and there is no pad byte to reach for instead: the space that pads a text item
+is a value this item may legitimately hold, which is the reason it is not going
+through the text writer in the first place. A wrong-length run is reported
+rather than fixed because truncating it would drop bytes you supplied and
+padding it would add bytes you did not, and either one moves every item behind
+it in the record.
+
+Where the charset is `none`, the item is `USAGE DISPLAY` and its picture is
+alphanumeric. A descriptor putting `none` on a `DISPLAY` item of any other
+category is **refused** as malformed: an edited item's storage really is
+characters and a zoned item's digits are read through the charset's own digit
+zone, so there is no reading that honours both. On a usage the charset does not
+govern at all — packed, binary, `COMP-5`, `COMP-6`, `COMP-1`, `COMP-2`, `INDEX`,
+`POINTER`, `NATIONAL` — it is inert and ignored, exactly as `cp037` is.
 
 ### An item your copybook gives no name
 
@@ -529,6 +585,23 @@ different `Encoding`, not by regenerating. A charset `codec` ships no table for
 is an **error** rather than a substitution: generating `cp037` for a descriptor
 naming `cp500` would read most of a file correctly and the bracket, currency and
 accent characters wrongly.
+
+Items whose descriptor gives them **all four** axes are what `Encoding()` is
+read off, and they have to agree: `codec` carries one `Encoding` per `Reader`,
+so a descriptor whose items disagree on any axis describes a file there is no
+single `Encoding` for, and that is reported.
+
+The agreement is per **axis**, not per item. An item whose charset is
+[`none`](#an-item-that-carries-bytes-rather-than-characters) is not a party to
+the **charset** half of it — it states that its bytes become characters under no
+code page, so it makes no claim there to disagree with, and a byte item sitting
+beside a `cp037` text item leaves `Encoding()` naming `cp037`. Its sign
+convention, byte order and float format are claims like any other item's and are
+held to the agreement, because an `encoding-override` may name a **group**, and
+a group holds packed and binary items whose sign and byte order are read
+whatever the charset says. A descriptor **no** item of which states a charset
+states nothing about the file at all, and no `Encoding()` is generated for it;
+you pass your own, exactly as you would for a descriptor holding no item.
 
 ### What the writer supplies, and what it refuses to
 

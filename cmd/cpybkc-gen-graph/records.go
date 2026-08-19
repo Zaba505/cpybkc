@@ -818,12 +818,50 @@ func described(f *irpb.Field) (string, string, error) {
 			return "", "", err
 		}
 
-		return usageName(f.GetUsage()), printed, nil
+		return usageName(f.GetUsage()), withCharset(f, printed), nil
 	default:
 		return "", "", malformed(
 			fmt.Sprintf("an item carries USAGE %d, which this generator has no name for", int32(f.GetUsage())),
 			"the set is closed and a consumer MUST refuse a member it does not recognise rather than fall back to one it does; see docs/ir/SPEC.md, \"Dereferencing is not recomputation\"")
 	}
+}
+
+// noCharset is what the picture column says of an item whose layout gave it no
+// charset at all.
+const noCharset = "no charset"
+
+// withCharset is a picture with [noCharset] beside it where the item's bytes
+// are a payload rather than characters.
+//
+// The spelling itself is left alone, and deliberately: the copybook wrote
+// `PIC X(8)` and the whole claim this column makes is that it spells what the
+// copybook wrote. What the charset axis adds is that those eight bytes are not
+// eight characters — see docs/ir/SPEC.md, "An item with no charset carries
+// bytes, not characters" — and a reader holding `X(8)` against a hex dump of
+// their own file would otherwise count characters across it and never be told
+// that there are none to count.
+//
+// The alternative was to say nothing, since the picture is not wrong. It was
+// rejected for the reason [pictureOf] refuses a blank cell: this column is the
+// only place in the row where the item's contents are described, and an item
+// carrying a status flag of 0x03 described as eight characters is a row a
+// reader would act on.
+//
+// Said only where the axis governs the item at all. A charset is inert on every
+// usage other than DISPLAY — a packed or binary item's bytes are not characters
+// under any charset — so a charset of none is passed over there exactly as
+// cp037 is, rather than putting a fact in the row that says nothing about the
+// item.
+func withCharset(f *irpb.Field, picture string) string {
+	if f.GetUsage() != irpb.Usage_USAGE_DISPLAY {
+		return picture
+	}
+
+	if f.GetEncoding().GetCharset() != irpb.Charset_CHARSET_NONE {
+		return picture
+	}
+
+	return picture + ", " + noCharset
 }
 
 // usageName is a USAGE as the table spells it: the enum's own name for the

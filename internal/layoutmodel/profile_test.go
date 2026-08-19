@@ -175,6 +175,29 @@ func TestReadProfileModelsTheEncodingLayer(t *testing.T) {
 			},
 		},
 		{
+			// The fifth charset value, which only an override may write: it says
+			// this item's bytes are a payload rather than characters.
+			name: "an override says the item carries no characters at all",
+			source: strings.Join([]string{
+				"(encoding",
+				"  (charset cp037)",
+				"  (sign-convention ebcdic)",
+				"  (byte-order big-endian)",
+				"  (float-format hfp))",
+				"(encoding-override (item ORDER-HEADER OH-REGION-CODE)",
+				"  (charset none))",
+			}, "\n"),
+			want: []string{
+				"layout.sexpr:1:1 encoding",
+				"  charset cp037",
+				"  sign-convention ebcdic",
+				"  byte-order big-endian",
+				"  float-format hfp",
+				"layout.sexpr:6:1 override (item ORDER-HEADER OH-REGION-CODE)",
+				"  charset none",
+			},
+		},
+		{
 			name: "the other layers are not this reader's and are not faults",
 			source: strings.Join([]string{
 				"(framing (recfm VB) (lrecl 512))",
@@ -214,11 +237,16 @@ func TestReadProfileModelsTheEncodingLayer(t *testing.T) {
 // TestReadProfileAcceptsEveryAdmittedValue holds the reader to the sets the axes
 // admit, member by member, so that a value SPEC.md names and this package does
 // not read is a failure here rather than a layout an adopter cannot write.
+//
+// Every value is written on an override, which is the position that admits all
+// of them: the four sets are the same in both positions but for `none`, and
+// driving the wider one is what keeps the fifth charset value from being a value
+// the reader knows about and no test writes.
 func TestReadProfileAcceptsEveryAdmittedValue(t *testing.T) {
 	t.Parallel()
 
 	for _, axis := range allAxes {
-		for _, value := range axis.Values() {
+		for _, value := range axis.Values(inOverride) {
 			t.Run(fmt.Sprintf("%s %s", axis, value), func(t *testing.T) {
 				t.Parallel()
 
@@ -297,6 +325,18 @@ func TestReadProfileRejects(t *testing.T) {
 			},
 		},
 		{
+			// Not an AxisValueError. The value is spelled the way SPEC.md
+			// spells it and what is wrong is where it stands, so a message
+			// listing the code pages would send an adopter hunting for a
+			// misspelling in a word they wrote correctly.
+			name:   "the charset that says an item has none, written where there is no item",
+			source: "(encoding (charset none) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))",
+			want: []string{
+				"layout.sexpr:1:20: charset none says one item carries no characters, and is written on an " +
+					"encoding-override naming that item; a file has a charset even where an item in it does not",
+			},
+		},
+		{
 			name:   "a sign convention spelled as codec/SPEC.md's Go identifier",
 			source: "(encoding (charset cp037) (sign-convention SignEBCDIC) (byte-order big-endian) (float-format hfp))",
 			want: []string{
@@ -370,7 +410,7 @@ func TestReadProfileRejects(t *testing.T) {
 				"(encoding-override (item ORDER-HEADER OH-PARTNER-REF) (charset cp1252))",
 			}, "\n"),
 			want: []string{
-				"layout.sexpr:2:64: charset is one of cp037, cp500, cp1047, cp1140 or ascii, and this one says \"cp1252\"",
+				"layout.sexpr:2:64: charset is one of cp037, cp500, cp1047, cp1140, ascii or none, and this one says \"cp1252\"",
 			},
 		},
 		{
@@ -422,7 +462,7 @@ func TestReadProfileRejects(t *testing.T) {
 			}, "\n"),
 			want: []string{
 				"layout.sexpr:2:20: an item reference is written (item <record-name> <name> ...), and this is a reference naming nothing",
-				"layout.sexpr:2:36: charset is one of cp037, cp500, cp1047, cp1140 or ascii, and this one says \"cp1252\"",
+				"layout.sexpr:2:36: charset is one of cp037, cp500, cp1047, cp1140, ascii or none, and this one says \"cp1252\"",
 			},
 		},
 		{

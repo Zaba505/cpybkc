@@ -207,8 +207,11 @@ text because it happened to be printable would print `"@"` for a literal that is
 a space in your file. Where the target field's charset *is* ASCII the literal is
 quoted text, and the quotes are there so that the padding the producer applied
 is visible: whether a literal is `"Y"` or `"Y "` is exactly the kind of thing you
-are reading this document to check. A guard's literal is always bytes, because a
-guard reads a register and a register declares its kind and no charset.
+are reading this document to check. A field whose charset is `none` takes the
+bytes side of that, and for a stronger reason than an EBCDIC one does: there is
+no character for the literal to be spelled as. A guard's literal is always
+bytes, because a guard reads a register and a register declares its kind and no
+charset.
 
 #### The register table
 
@@ -307,6 +310,18 @@ bytes**, which is the one cell not derived from the picture at all — the digit
 count counts `9` symbols and those pictures have none. It is the character count
 because every charset the IR admits is one byte per character; the one
 multi-byte thing in the schema is `NATIONAL`, which carries no picture.
+
+An item whose layout gave it the charset **`none`** is the one case where that
+length is not a character count, because there are no characters: the axis says
+the item's bytes are a payload rather than text. The picture is still spelled —
+the copybook wrote `PIC X(8)` — and `no charset` is printed beside it, so that
+`X(8), no charset` is a row you read as eight bytes rather than eight
+characters. Saying nothing was the alternative, since the picture on its own is
+not wrong; it was rejected because this column is the only place in the row
+where the item's contents are described, and a status flag holding `0x03`
+described as eight characters is a row somebody would act on. On a `USAGE` the
+charset does not reach — everything other than `DISPLAY` — it is passed over
+exactly as `cp037` is.
 
 The **sign position is spelled whenever it is asked**, the default included:
 `SIGN TRAILING` is a position and not an absence, and it is the one axis where

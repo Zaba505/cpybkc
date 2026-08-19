@@ -100,9 +100,18 @@ func encodingOf(axes layoutmodel.Axes) *irpb.Encoding {
 }
 
 // charsetOf is the code page governing alphanumeric data, the digit zone of
-// zoned decimal, and the byte values of a separate sign.
+// zoned decimal, and the byte values of a separate sign — or the statement that
+// the item has no characters for one to govern.
+//
+// [layoutmodel.None] maps like any other member of the set. It is a value of the
+// axis rather than a hole in it, so a field carrying it carries CHARSET_NONE and
+// not the unspecified zero: the zero is nobody having answered, which
+// docs/ir/SPEC.md makes a malformed descriptor a consumer refuses, and mapping
+// the two together would spell an answer as its own absence.
 func charsetOf(charset layoutmodel.Charset) irpb.Charset {
 	switch charset {
+	case layoutmodel.None:
+		return irpb.Charset_CHARSET_NONE
 	case layoutmodel.CP037:
 		return irpb.Charset_CHARSET_CP037
 	case layoutmodel.CP500:

@@ -128,9 +128,13 @@
   (child byte-order at-most-one)
   (child float-format at-most-one))
 
-;; `charset` takes a symbol and not a closed set. The charsets are
-;; `cobol-go`'s `codec/SPEC.md`'s, and a code page added to that axis would
-;; otherwise have to be added here before an adopter could name it.
+;; `charset` takes a symbol and not a closed set. The code pages are
+;; `cobol-go`'s `codec/SPEC.md`'s, and one added to that axis would otherwise
+;; have to be added here before an adopter could name it. The axis also takes
+;; `none`, which is not a code page but the statement that an item's bytes are
+;; not characters, and which only `encoding-override` admits — a value admitted
+;; in one position and not the other is a condition of the same kind as the
+;; conditional arities `framing` carries, and is the reader's.
 (form charset
   (argument value symbol exactly-one))
 

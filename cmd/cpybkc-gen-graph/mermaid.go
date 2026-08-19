@@ -110,7 +110,9 @@ const mermaidRecordsSaid = "Each record's items, in containment order, beginning
 	" so `S9(5)V9(2)` may not be the text the copybook wrote for an item it describes exactly." +
 	" An edited item's editing characters are not carried at all, so its category is named and nothing of it is spelled." +
 	" The length of an alphabetic or alphanumeric picture is the item's width in bytes," +
-	" which is its character count for every charset the IR admits."
+	" which is its character count for every charset the IR admits except `none` —" +
+	" the charset axis saying the item's bytes are a payload rather than characters at all," +
+	" which the picture column names beside the width so that the length is not read as a count of characters."
 
 // mermaidNoItems is what stands where a record's table would be when its top
 // level holds nothing.

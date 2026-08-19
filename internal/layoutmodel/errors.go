@@ -68,6 +68,12 @@ func (e *MissingAxisError) Error() string {
 // question an adopter can answer from it — a code page nobody has a table for, a
 // sign convention spelled as `codec/SPEC.md`'s Go identifier rather than as a
 // layout spells it, `little` for `little-endian`.
+//
+// The set it names is the one admitted where the value was written, which is why
+// it carries [AxisValueError.Position]. `none` is a charset an override may
+// write and the profile may not, so a message on the profile that offered it
+// would send an adopter to write a line that is itself a diagnostic, and one on
+// an override that withheld it would hide the value they were looking for.
 type AxisValueError struct {
 	// Pos is the value, not the form carrying it.
 	Pos layout.Pos
@@ -77,11 +83,51 @@ type AxisValueError struct {
 
 	// Value is what was written.
 	Value string
+
+	// Position is which of the two forms the value stands under, which is what
+	// decides the set the message names. Its zero value is the profile, the
+	// position that admits the smaller set — so a value assembled without it
+	// offers an adopter nothing the profile would refuse.
+	Position position
 }
 
 // Error implements the error interface.
 func (e *AxisValueError) Error() string {
-	return fmt.Sprintf("%s: %s is one of %s, and this one says %s", e.Pos, e.Axis, and(e.Axis.Values()), quote(e.Value))
+	return fmt.Sprintf(
+		"%s: %s is one of %s, and this one says %s",
+		e.Pos, e.Axis, and(e.Axis.Values(e.Position)), quote(e.Value),
+	)
+}
+
+// ProfileCharsetNoneError is `(charset none)` written on the `encoding` profile.
+//
+// It is not an [AxisValueError], and separating the two is the whole point.
+// `none` is a value of this axis, spelled the way SPEC.md spells it, and a
+// message listing the five code pages would tell an adopter who wrote a real
+// value correctly that they had misspelled something — sending them to hunt for
+// a typo instead of to the form the line belongs on.
+//
+// What is wrong with it is where it stands. `none` says one item's bytes are a
+// payload rather than characters, so it is written on an `encoding-override`,
+// which names an item; the profile names none, and a file has a character set
+// even where an item in it carries no characters — its text items and the digit
+// zone of its zoned items are read through one. A profile stating `none` would
+// leave every item in the file with no reading rather than exempting the one the
+// adopter meant (docs/layout/SPEC.md, "A byte is not a character, and such an
+// item has no charset").
+type ProfileCharsetNoneError struct {
+	// Pos is the value, not the form carrying it, as [AxisValueError]'s is: the
+	// word `none` is what has to move.
+	Pos layout.Pos
+}
+
+// Error implements the error interface.
+func (e *ProfileCharsetNoneError) Error() string {
+	return fmt.Sprintf(
+		"%s: charset none says one item carries no characters, and is written on an "+
+			"encoding-override naming that item; a file has a charset even where an item in it does not",
+		e.Pos,
+	)
 }
 
 // AxisFormError is an axis form that does not carry exactly one symbol naming

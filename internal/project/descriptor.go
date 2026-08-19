@@ -412,7 +412,7 @@ func (l *layers) overrides(bound *bindings) (map[string][]resolve.EncodingOverri
 			continue
 		}
 
-		resolved := resolve.EncodingOverride{Item: item, Axes: override.Axes}
+		resolved := resolve.EncodingOverride{Pos: override.Pos, Item: item, Axes: override.Axes}
 
 		overrides[override.Item.Record] = append(overrides[override.Item.Record], resolved)
 		flat = append(flat, resolved)

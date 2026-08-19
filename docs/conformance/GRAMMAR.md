@@ -116,8 +116,10 @@ whose exponent is always `+0`.
 ## Runs of bytes
 
 [SPEC.md](SPEC.md)'s [*`INDEX`, `POINTER` and `NATIONAL` are
-base64*](SPEC.md#index-pointer-and-national-are-base64). RFC 4648 section 4's
-alphabet, padded with `=`, canonical in the final quantum.
+base64*](SPEC.md#index-pointer-and-national-are-base64) and [*An item with no
+charset is a run of bytes as
+well*](SPEC.md#an-item-with-no-charset-is-a-run-of-bytes-as-well). RFC 4648
+section 4's alphabet, padded with `=`, canonical in the final quantum.
 
 | Row | Value | Written as |
 |---|---|---|
@@ -125,6 +127,7 @@ alphabet, padded with `=`, canonical in the final quantum.
 | `bytes-pointer` | A `POINTER` item holding the eight bytes `00 00 00 00 00 01 00 00`. | `"AAAAAAABAAA="` |
 | `bytes-national` | A `PIC N(2) USAGE NATIONAL` item holding the four bytes `00 41 00 42`, which is `AB` in UTF-16BE. The encoding is the descriptor's to record and not this format's to interpret. | `"AEEAQg=="` |
 | `bytes-empty` | An `INDEX` item of no bytes. | `""` |
+| `bytes-payload` | A `PIC X(4)` item whose resolved charset says it has none, holding the four bytes `00 20 40 FF`. The `20` and the `40` are the bytes an ASCII and an EBCDIC file pad an alphanumeric item with, and neither is trimmed here: the item is not characters. | `"ACBA/w=="` |
 
 ## Groups, tables and variants
 

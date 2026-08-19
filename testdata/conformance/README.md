@@ -254,13 +254,14 @@ with four items in it.
 | [`segmented-spanning`](segmented-spanning) | `RECFM=VBS`: a record laid into as few segments as the largest allows, and one laid into more than it allows a writer, both spanning. |
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 | [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
+| [`alphanumeric-payload`](alphanumeric-payload) | A `PIC X` item that carries bytes rather than text: one `encoding-override` on the group they sit in, a status flag of `0x03`, a region byte of `0x93`, all 256 byte values in one item, and both pad bytes — beside text items still read as characters. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Nine are not derived from it — `float-ieee754-special`,
+it came from (#67). Ten are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
-`segmented-spanning`, `odo-sliding` and
-`sync-slack` — and the subsections
+`segmented-spanning`, `odo-sliding`,
+`sync-slack` and `alphanumeric-payload` — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
 question about the entries that *are* derived from it.
@@ -493,6 +494,41 @@ claim nobody reviewing a change can check unless it is also in text:
 All four differ, none is zero and none is a space, so a generator that filled
 them instead of keeping them is visible to somebody holding a written file
 against this one — which is the most a corpus that compares values can offer.
+
+### The payload entry cites the three specs that decide it, and no vector
+
+Appendix A tabulates a byte string against the value it decodes to, and every
+one of its alphanumeric rows is characters. There is no row for an item that is
+not text, because whether a `PIC X` item is text is not a fact about the bytes
+that a table of bytes could carry — it is a fact about the file, which the
+adopter has and the copybook does not. So `alphanumeric-payload` is authored
+fresh against [`docs/layout/SPEC.md`](../../docs/layout/SPEC.md)'s *A byte is
+not a character, and such an item has no charset*,
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *An item with no charset carries
+bytes, not characters*, and
+[`docs/conformance/SPEC.md`](../../docs/conformance/SPEC.md)'s *An item with no
+charset is a run of bytes as well* — the layer that spells it, the layer that
+resolves it, and the layer that writes the value down.
+
+Its bytes need no derivation, which is the entry's whole shape: a payload item's
+value is the bytes of the file at its offset, so `input.bin` and `values.json`
+are one fact written twice, once as bytes and once as base64. What has to be
+checked by hand is that they are the same fact, and the entry is arranged so
+that a wrong reader cannot accidentally produce the right answer. `TXN-BYTES`
+holds all 256 values, so a generator that translated it through any charset —
+including the identity one, which is what this file declares — differs
+somewhere. `TXN-PAD` holds `0x20` and `0x40`, the bytes an ASCII and an EBCDIC
+file pad an alphanumeric item with, so a generator that trimmed a payload loses
+one of them and shortens the item. `TXN-STATUS` and `TXN-REGION` are the issue's
+own two items, `0x03` and `0x93`: one of the twenty bytes a text conversion
+leaves alone, and one that a text conversion moved and that `encoding/json`
+writes as a control character no viewer draws.
+
+`TXN-KEY` and `TXN-NAME` are the control. They are `PIC X` items in the same
+record, under no override, and they are still characters — `TXN-NAME` is padded
+to six bytes and comes back as two, which is the trailing-space rule holding
+where it still applies. An entry of payload items alone would pass for a
+generator that had stopped reading charsets altogether.
 
 ### No row of Appendix A is deliberately absent, and two once were
 

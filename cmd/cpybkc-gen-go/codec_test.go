@@ -243,6 +243,301 @@ func TestItemsThatDisagreeAboutTheFileTheyAreInAreRefused(t *testing.T) {
 	}
 }
 
+// TestAnItemNoCharsetGovernsIsBytesOnBothSides is the accessor pair a PIC X
+// item carrying a payload takes, held against the source that calls them.
+//
+// ReadAlphanumeric and WriteAlphanumeric are what every other PIC X item takes
+// and what this one may not: the first trims the charset's trailing spaces off
+// a value whose 0x20 is a payload byte, and the second translates through a
+// code page a payload was never in. ReadBytes and WriteBytes do neither.
+func TestAnItemNoCharsetGovernsIsBytesOnBothSides(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			alphanumeric(3, "CUSTOMER-NAME", 20),
+			opaque(4, "STATUS-FLAG", 4),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	files := written(t, out)
+
+	// The field the two accessors are on either side of.
+	if !strings.Contains(files[recordsFile], "StatusFlag []byte") {
+		t.Errorf("%s does not declare STATUS-FLAG as a []byte:\n%s", recordsFile, files[recordsFile])
+	}
+
+	source := files[codecFile]
+
+	for _, want := range []string{
+		// The read: the bytes as they stand, and the item's own width.
+		"x.StatusFlag, err = r.ReadBytes(4)",
+
+		// The write, on the three terms WriteBytes leaves to the caller
+		// because it takes no width of its own.
+		"case x.StatusFlag == nil:",
+		"w.WriteBytes(zeroFill[:4])",
+		"case len(x.StatusFlag) != 4:",
+		"rather than truncating or padding them",
+		"w.WriteBytes(x.StatusFlag)",
+
+		// The run the nil arm slices out of has to be declared wide enough
+		// for the item, which is the same mechanism a slack node sizes.
+		"var zeroFill = make([]byte, 4)",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not carry %q:\n%s", codecFile, want, source)
+		}
+	}
+
+	// The two accessors this item may not reach, named so that a regression to
+	// them fails here rather than in a corpus entry.
+	for _, refused := range []string{"ReadAlphanumeric(4)", "WriteAlphanumeric(x.StatusFlag"} {
+		if strings.Contains(source, refused) {
+			t.Errorf("%s reaches %s for an item no charset governs", codecFile, refused)
+		}
+	}
+}
+
+// TestAnItemNoCharsetGovernsIsNotAPartyToTheCharsetAgreement is the byte item
+// beside a text item, which is the ordinary shape rather than an exotic one.
+//
+// A descriptor whose items disagree on an axis is refused, because codec
+// carries one Encoding per Reader. An item stating that its bytes become
+// characters under no code page makes no claim about the file's charset to
+// disagree with, so it takes no part in that comparison — and the alternative,
+// comparing it, would refuse the very case this charset was added for: a status
+// flag sitting in a cp037 record.
+func TestAnItemNoCharsetGovernsIsNotAPartyToTheCharsetAgreement(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			opaque(3, "STATUS-FLAG", 4),
+			alphanumeric(4, "CUSTOMER-NAME", 20),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[codecFile]
+
+	// The opaque item is first in the record, so a walk that read an encoding
+	// off it would have taken none at all and then refused the text item for
+	// disagreeing with it.
+	if !strings.Contains(source, "codec.CP037()") {
+		t.Errorf("%s does not name the charset the text item carries:\n%s", codecFile, source)
+	}
+}
+
+// TestAGroupOverrideReachingEveryUsageUnderItStillGenerates is the shape an
+// `encoding-override` naming a group actually produces.
+//
+// docs/layout/SPEC.md, docs/ir/SPEC.md and this command's README all say the
+// same thing: `(charset none)` is inert on every usage the charset does not
+// govern, because an override names an item and that item **MAY** be a group,
+// and a group holds items of every usage. So the packed item below carries
+// CHARSET_NONE and is a packed item still — it is read through its digits, not
+// through a code page — and the descriptor it sits in resolves to the charset
+// the items the charset does govern carry.
+//
+// It is pinned here because the per-field reading of the agreement generates
+// for the alphanumeric item and refuses this: a packed field skipped by nothing
+// and compared on all four axes disagrees with every text field beside it, and
+// the whole descriptor is turned down over an item the charset was never read
+// on.
+func TestAGroupOverrideReachingEveryUsageUnderItStillGenerates(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "REGION-RECORD", 2),
+			group(2, "REGION-RECORD", nil, 3, 4, 5),
+			alphanumeric(3, "REG-CODE", 2),
+			noCharset(packed(4, "REG-AMT", 4, 7, 2, true)),
+			noCharset(binary(5, "REG-COUNT", 2, 4, true)),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[codecFile]
+
+	// The charset is the one item that stated one, and the other two are read
+	// as the numbers they are rather than as bytes.
+	for _, want := range []string{
+		"codec.CP037()",
+		"r.ReadPackedInt32(7)",
+		"r.ReadBinaryInt16(4)",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("%s does not carry %q:\n%s", codecFile, want, source)
+		}
+	}
+}
+
+// TestAnItemNoCharsetGovernsIsStillHeldToTheOtherThreeAxes is the other
+// direction of the same split, and the reason it is a split rather than a skip.
+//
+// Stating no charset is a statement about the charset and about nothing else. A
+// packed item's sign convention and a binary item's byte order are read whether
+// its charset is cp037, none, or anything else, and an `encoding-override` may
+// set those axes too — so a field that dropped out of the agreement entirely
+// would be a field whose byte order this generator never checked and whose
+// numbers come back reversed with nothing reporting it.
+func TestAnItemNoCharsetGovernsIsStillHeldToTheOtherThreeAxes(t *testing.T) {
+	t.Parallel()
+
+	item := noCharset(binary(4, "REG-COUNT", 2, 4, true))
+	item.GetField().GetEncoding().ByteOrder = irpb.ByteOrder_BYTE_ORDER_LITTLE_ENDIAN
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "REGION-RECORD", 2),
+			group(2, "REGION-RECORD", nil, 3, 4),
+			alphanumeric(3, "REG-CODE", 2),
+			item,
+		},
+	}
+
+	err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+
+	var refusal *mixedEncodingError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("generate returned %v, want a refusal", err)
+	}
+
+	for _, want := range []string{"REG-CODE", "REG-COUNT", "byte order"} {
+		if !strings.Contains(refusal.Error(), want) {
+			t.Errorf("the refusal reads %q and does not name %s", refusal, want)
+		}
+	}
+}
+
+// TestADescriptorEveryItemOfWhichCarriesNoCharsetDeclaresNoEncoding is the
+// consequence of the rule above, taken to the end of its range.
+//
+// Where no item states a charset there is nothing to read an Encoding off, which
+// is the answer a descriptor carrying no field at all already gives: no helper,
+// and the caller passes their own. It is the right answer rather than a gap —
+// the descriptor states no charset for the file its records live in, so there is
+// none to hand anybody — and this is here because the alternative is a nil
+// dereference somewhere in the walk rather than an omission anybody decided on.
+func TestADescriptorEveryItemOfWhichCarriesNoCharsetDeclaresNoEncoding(t *testing.T) {
+	t.Parallel()
+
+	d := &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			record(1, "ORDER-RECORD", 2),
+			group(2, "ORDER-RECORD", nil, 3, 4),
+			opaque(3, "STATUS-FLAG", 4),
+			opaque(4, "REGION-CODE", 2),
+		},
+	}
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	files := written(t, out)
+
+	if strings.Contains(files[codecFile], "func "+encodingFunc+"()") {
+		t.Errorf("%s declares %s for a descriptor that states nothing about the file:\n%s", codecFile, encodingFunc, files[codecFile])
+	}
+
+	// Both items are still fields, and both are still read and written: it is
+	// the file-level profile that is absent, not the records.
+	for _, want := range []string{"r.ReadBytes(4)", "r.ReadBytes(2)"} {
+		if !strings.Contains(files[codecFile], want) {
+			t.Errorf("%s does not carry %q:\n%s", codecFile, want, files[codecFile])
+		}
+	}
+
+	// The generated tests lay their bytes out under the same profile, so a
+	// descriptor that resolved none has no case to make rather than a case
+	// made under a profile this generator picked.
+	if _, written := files[recordsTestFile]; written {
+		t.Errorf("%s was generated for a descriptor with no encoding to lay bytes out under", recordsTestFile)
+	}
+}
+
+// TestADisplayItemCarryingNoCharsetAndNoAlphanumericPictureIsRefused is the
+// producer bug the charset admits no reading of.
+//
+// docs/ir/SPEC.md puts CHARSET_NONE on a DISPLAY item of the alphanumeric
+// category and on nothing else. On any other DISPLAY item the descriptor states
+// two facts that cannot both be honoured — an edited item's storage is the
+// edited characters, and a zoned item's digits are read through the charset's
+// own digit zone — so it is refused rather than read one way or the other, for
+// the reason every other refusal in this generator exists: either reading hands
+// a caller a value nothing in the file disagrees with.
+func TestADisplayItemCarryingNoCharsetAndNoAlphanumericPictureIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for name, item := range map[string]*irpb.Node{
+		"a zoned item":                zoned(3, "LINE-COUNT", 3, 3, 0, false),
+		"an alphabetic item":          categorized(3, "REGION-NAME", 6, irpb.Category_CATEGORY_ALPHABETIC),
+		"an alphanumeric-edited item": categorized(3, "MASKED-ID", 6, irpb.Category_CATEGORY_ALPHANUMERIC_EDITED),
+		"a numeric-edited item":       categorized(3, "SHOWN-TOTAL", 8, irpb.Category_CATEGORY_NUMERIC_EDITED),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			item.GetField().GetEncoding().Charset = irpb.Charset_CHARSET_NONE
+
+			d := &irpb.Descriptor{
+				Version: supportedIRVersion,
+				Nodes: []*irpb.Node{
+					record(1, "ORDER-RECORD", 2),
+					group(2, "ORDER-RECORD", nil, 3),
+					item,
+				},
+			}
+
+			err := generate(io.Discard, d, t.TempDir(), options{packageName: goldenPackage, importPath: goldenImport})
+
+			var refusal *malformedError
+			if !errors.As(err, &refusal) {
+				t.Fatalf("generate returned %v, want a malformed descriptor", err)
+			}
+
+			original := item.GetField().GetNames().GetOriginal()
+			category := categoryName(item.GetField().GetPicture().GetCategory())
+
+			for _, want := range []string{original, category} {
+				if !strings.Contains(refusal.Error(), want) {
+					t.Errorf("the refusal reads %q and does not name %s", refusal, want)
+				}
+			}
+		})
+	}
+}
+
 // TestATableCountedByARegisterReadsTheOccurrencesTheRecordAlreadyCarries is
 // where this story stops and #52 begins.
 //

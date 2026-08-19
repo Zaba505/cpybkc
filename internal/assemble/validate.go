@@ -341,6 +341,41 @@ func (v *validator) field(id uint64, field *irpb.Field) {
 		v.fault(id, "carries a PICTURE of no category")
 	}
 
+	// The second pairing of a USAGE and a PICTURE attribute, and the guard
+	// against a producer that is not this one: `resolve` reports the same fault
+	// against the layout that wrote it, with the line, and a descriptor arriving
+	// from somewhere else has no line to be reported against. CHARSET_NONE says
+	// the field's bytes are a payload rather than characters, which is a reading
+	// only an alphanumeric DISPLAY item admits — on a zoned item the charset
+	// governs the digit zone, and on an alphabetic or edited item the PICTURE is
+	// itself a statement about characters.
+	//
+	// It is not read on a usage the charset does not govern. A packed, binary,
+	// floating-point, INDEX or POINTER field carries the axis and nothing reads
+	// it, exactly as it carries a code page nothing reads, and that is what lets
+	// a layout name a group. Nor is it read where the category is unspecified:
+	// that is already a fault above where there is a PICTURE to read it from, and
+	// reporting it again under another description would name one thing twice.
+	//
+	// Nor on a field carrying no names message at all, which is an item COBOL
+	// gave no data-name. `resolve` skips a FILLER here for a reason this pass
+	// shares: such an item is read as the bytes it is whatever its PICTURE says,
+	// no accessor is generated for it and no item reference can name it, so its
+	// charset is never read and there is nothing for this rule to protect. A
+	// fault raised on one is also the fault `resolve` does *not* raise, so
+	// refusing it here would refuse a descriptor the stage before this one
+	// blessed, with a diagnostic naming a node id and no line.
+	if field.GetEncoding().GetCharset() == irpb.Charset_CHARSET_NONE &&
+		field.GetUsage() == irpb.Usage_USAGE_DISPLAY && field.GetNames() != nil {
+		switch category := field.GetPicture().GetCategory(); category {
+		case irpb.Category_CATEGORY_UNSPECIFIED, irpb.Category_CATEGORY_ALPHANUMERIC:
+		default:
+			v.fault(id,
+				"carries charset none and is a DISPLAY item of category %s, and a field whose charset is none is a DISPLAY item of category alphanumeric",
+				categoryNamed(category))
+		}
+	}
+
 	// The one pairing of a USAGE and a PICTURE attribute this pass reads, and
 	// it reads it rather than deriving it: docs/ir/SPEC.md states outright that
 	// a COMP-6 item is always unsigned, so the two fields of the message
@@ -662,6 +697,27 @@ func repeated(values [][]byte) ([]byte, bool) {
 // rendering that is right whatever charset the file is in.
 func quoteBytes(value []byte) string {
 	return "0x" + hex.EncodeToString(value)
+}
+
+// categoryNamed is a category in the words docs/ir/SPEC.md's table uses, which
+// are the PICTURE's own rather than the enum member's: a message about a
+// copybook item reads better as `numeric-edited` than as
+// CATEGORY_NUMERIC_EDITED, and the adopter never wrote the second.
+func categoryNamed(category irpb.Category) string {
+	switch category {
+	case irpb.Category_CATEGORY_NUMERIC:
+		return "numeric"
+	case irpb.Category_CATEGORY_ALPHABETIC:
+		return "alphabetic"
+	case irpb.Category_CATEGORY_ALPHANUMERIC:
+		return "alphanumeric"
+	case irpb.Category_CATEGORY_NUMERIC_EDITED:
+		return "numeric-edited"
+	case irpb.Category_CATEGORY_ALPHANUMERIC_EDITED:
+		return "alphanumeric-edited"
+	}
+
+	return "unspecified"
 }
 
 // kindOf is what a node is, in the words docs/ir/SPEC.md's table uses.

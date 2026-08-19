@@ -1072,56 +1072,72 @@ func TestTheTypeTableIsWhatTheReadmeDocuments(t *testing.T) {
 		category irpb.Category
 		digits   uint32
 		signed   bool
-		want     string
+
+		// charset is the item's, where it is not the one every other row is
+		// read under. It is in the table because it is in the mapping: the
+		// charset axis decides one row of it and nothing else here does.
+		charset irpb.Charset
+
+		want string
 	}{
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHABETIC, 0, false, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC, 0, false, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC_EDITED, 0, false, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC_EDITED, 0, false, "string"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, true, "int32"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 10, true, "int64"},
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 19, true, bigIntType},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHABETIC, 0, false, 0, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC, 0, false, 0, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC_EDITED, 0, false, 0, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC_EDITED, 0, false, 0, "string"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, true, 0, "int32"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 10, true, 0, "int64"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 19, true, 0, bigIntType},
+
+		// The one row a charset decides. A PIC X item a layout gave no charset
+		// carries bytes rather than characters, so it is a []byte: a string
+		// would lose every byte above 0x7F to encoding/json and every trailing
+		// 0x20 to the trim ReadAlphanumeric applies.
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_ALPHANUMERIC, 0, false, irpb.Charset_CHARSET_NONE, "[]byte"},
 
 		// A zoned or packed item takes a signed type whichever it is: the sign
 		// lives in a zone or a nibble, so an unsigned one is a reading that
 		// never comes back negative rather than a different accessor.
-		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, false, "int32"},
-		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, true, "int32"},
-		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, false, "int32"},
-		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 18, true, "int64"},
+		{irpb.Usage_USAGE_DISPLAY, irpb.Category_CATEGORY_NUMERIC, 9, false, 0, "int32"},
+		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, true, 0, "int32"},
+		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 4, false, 0, "int32"},
+		{irpb.Usage_USAGE_PACKED_DECIMAL, irpb.Category_CATEGORY_NUMERIC, 18, true, 0, "int64"},
 		// A COMP-6 item is always unsigned — there is no sign nibble in the
 		// field to hold an S — and it takes the packed family's Go types all
 		// the same, because codec's COMP-6 accessors return them.
-		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, false, "int32"},
-		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 18, false, "int64"},
-		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 9, false, 0, "int32"},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 18, false, 0, "int64"},
+		{irpb.Usage_USAGE_COMP_6, irpb.Category_CATEGORY_NUMERIC, 19, false, 0, bigIntType},
 
 		// A binary item stores two's complement, where the top bit is a digit
 		// in an unsigned item and the sign in a signed one, so the S is what
 		// picks the family and the Go type with it.
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, true, "int16"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 5, true, "int32"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, true, "int64"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, true, bigIntType},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 1, false, "uint64"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, false, "uint64"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 9, false, "uint64"},
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, false, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, true, 0, "int16"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 5, true, 0, "int32"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, true, 0, "int64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, true, 0, bigIntType},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 1, false, 0, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 4, false, 0, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 9, false, 0, "uint64"},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 18, false, 0, "uint64"},
 
 		// Nineteen digits and up is sixteen bytes, where codec has only the
 		// Big family: a *big.Int whether the PICTURE carries an S or not.
-		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
-		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, true, "int16"},
-		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, false, "uint64"},
-		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 19, false, bigIntType},
+		{irpb.Usage_USAGE_BINARY, irpb.Category_CATEGORY_NUMERIC, 19, false, 0, bigIntType},
+		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, true, 0, "int16"},
+		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 4, false, 0, "uint64"},
+		{irpb.Usage_USAGE_COMP_5, irpb.Category_CATEGORY_NUMERIC, 19, false, 0, bigIntType},
 
-		{irpb.Usage_USAGE_COMP_1, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "float32"},
-		{irpb.Usage_USAGE_COMP_2, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "float64"},
-		{irpb.Usage_USAGE_INDEX, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "[]byte"},
-		{irpb.Usage_USAGE_POINTER, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "[]byte"},
-		{irpb.Usage_USAGE_NATIONAL, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, "[]byte"},
+		{irpb.Usage_USAGE_COMP_1, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, 0, "float32"},
+		{irpb.Usage_USAGE_COMP_2, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, 0, "float64"},
+		{irpb.Usage_USAGE_INDEX, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, 0, "[]byte"},
+		{irpb.Usage_USAGE_POINTER, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, 0, "[]byte"},
+		{irpb.Usage_USAGE_NATIONAL, irpb.Category_CATEGORY_UNSPECIFIED, 0, false, 0, "[]byte"},
 	} {
 		f := &irpb.Field{Usage: tc.usage, Encoding: resolvedEncoding()}
+
+		if tc.charset != irpb.Charset_CHARSET_UNSPECIFIED {
+			f.Encoding.Charset = tc.charset
+		}
 
 		if tc.category != irpb.Category_CATEGORY_UNSPECIFIED {
 			f.Picture = &irpb.Picture{Category: tc.category, Digits: tc.digits, Signed: tc.signed}
@@ -1503,6 +1519,42 @@ func alphanumeric(id uint64, name string, width uint32) *irpb.Node {
 		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
 		Names:   &irpb.Names{Original: name},
 	}}}
+}
+
+// categorized is a DISPLAY item of a category [alphanumeric] does not cover:
+// alphabetic, or one of the two edited ones.
+//
+// The digit count is what a numeric-edited picture carries and an alphabetic
+// one does not, so it is left at zero and the width is what stands for the
+// item's size, which is what every consumer here reads for a picture that is
+// not numeric.
+func categorized(id uint64, name string, width uint32, category irpb.Category) *irpb.Node {
+	node := alphanumeric(id, name, width)
+	node.GetField().GetPicture().Category = category
+
+	return node
+}
+
+// opaque is a PIC X(width) DISPLAY item a layout gave no charset: the item
+// whose bytes are a payload rather than characters.
+//
+// Every axis is still set — [opaqueDisplay] is a reading of the charset axis
+// and not a licence to leave one unresolved — and the charset is the fifth
+// value rather than the unset one.
+func opaque(id uint64, name string, width uint32) *irpb.Node {
+	return noCharset(alphanumeric(id, name, width))
+}
+
+// noCharset is the charset axis answering none on an item of any usage.
+//
+// [opaque] is the one shape that reading is admitted on. This is the same axis
+// on the items beside it, which is what an `encoding-override` naming a *group*
+// leaves behind: the override reaches every item under the group, and a group
+// holds packed, binary and floating-point items the charset governs nothing of.
+func noCharset(node *irpb.Node) *irpb.Node {
+	node.GetField().GetEncoding().Charset = irpb.Charset_CHARSET_NONE
+
+	return node
 }
 
 // zoned is a numeric DISPLAY item.

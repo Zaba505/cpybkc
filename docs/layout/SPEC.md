@@ -367,7 +367,7 @@ stream](#lrecl-and-blksize-describe-the-dataset-not-the-stream)).
 
 | Child | Arity | Value |
 |---|---|---|
-| `charset` | 1 | A charset `codec/SPEC.md` names, spelled as it spells the code page — `cp037`, `cp500`, `cp1047`, `cp1140` — or `ascii` for the identity charset |
+| `charset` | 1 | A charset `codec/SPEC.md` names, spelled as it spells the code page — `cp037`, `cp500`, `cp1047`, `cp1140` — or `ascii` for the identity charset. Never `none`, which is an item's statement and not a file's |
 | `sign-convention` | 1 | `ebcdic`, `ascii-zone-37`, `translated-ebcdic`, `realia` |
 | `byte-order` | 1 | `big-endian`, `little-endian` |
 | `float-format` | 1 | `ieee-754`, `hfp` |
@@ -421,7 +421,7 @@ item.
 
 | Child | Arity | Value |
 |---|---|---|
-| `charset` | 0..1 | as above |
+| `charset` | 0..1 | as above, or `none` — [A byte is not a character, and such an item has no charset](#a-byte-is-not-a-character-and-such-an-item-has-no-charset) |
 | `sign-convention` | 0..1 | as above |
 | `byte-order` | 0..1 | as above |
 | `float-format` | 0..1 | as above |
@@ -445,6 +445,69 @@ of overrides. What the resolved side does with the pair is
 [`ir/SPEC.md`](../ir/SPEC.md#the-encoding-profile-applied)'s: resolution applies
 the override over the profile and a field node carries the result, with no
 profile surviving into the IR for anything to inherit from (#25, #33).
+
+### A byte is not a character, and such an item has no charset
+
+```
+(encoding-override <item-ref>
+  (charset none))
+```
+
+`none` is a fifth value of the `charset` axis and the only value an override
+admits that the profile does not. It says that the item's bytes are a payload
+rather than characters: a consumer **MUST** read and write them as they stand,
+**MUST** apply no translation to them, and **MUST** strip and add no padding
+(#275).
+
+A `PIC X` item is routinely used to carry one. A status flag whose vendor manual
+gives its values as `01`, `02` and `03` holds those bytes and not those two
+digits, and a region identifier documented as holding the hexadecimal value of a
+region holds one byte of any of 256. Read through a charset each becomes a
+character nobody can print, compare or write into a document, and the
+trailing-space rule that makes a fixed-width text field read back as the value
+written into it deletes a payload byte of `0x20` outright. Neither loss is
+reported and neither is recoverable.
+
+Every axis is declared because it fails silently when it is wrong ([All four,
+always, with no default for any](#all-four-always-with-no-default-for-any)), and
+this is that failure reached by another road: a converted region byte reads as
+some other plausible byte for 236 of the 256 values it may hold, with no error
+and no warning. The remedy is the one that rule already prescribes — say so in
+the layout — and the axis to say it on is the one that answers how an item's
+bytes become characters. For this item the answer is that they do not.
+
+**It is a value on this axis and not a fifth axis.** A fifth axis would have to
+be stated on every `encoding` form by the rule above, which turns a property of
+one item into a declaration every layout that already exists has to add, and it
+would be an axis `codec/SPEC.md` does not have — [The encoding
+profile](#the-encoding-profile) is a way of writing that document's four axes
+down, and a fifth invented here would make that sentence false. Nor is it a form
+of its own beside `rename`: `rename` is about names and this is about bytes, and
+a form whose only content is its own presence is the boolean this format does
+not take ([What this document delegates](#what-this-document-delegates)).
+
+**It is written on an override and never on the profile.** A layout stating
+`(charset none)` on its `encoding` form is a diagnostic. A file has a character
+set even where an item in it carries no characters — its text items and the
+digit zone of its zoned items are read through one — and a profile stating none
+would leave every item in the file with no reading rather than exempting the one
+item the adopter meant.
+
+**Which items it may reach.** The reference **MAY** name a group, and reaches
+every elementary item beneath it, and **MAY** name an item that repeats, and
+reaches every occurrence; both are the override rule above and neither is
+special here. Charset governs alphanumeric character data, the digit zone of
+zoned decimal and the byte values of a separate sign, and nothing else, so
+`none` arriving at a packed, binary or floating-point item under a group is
+inert there exactly as `cp037` already is. Arriving at a **zoned** item it is a
+diagnostic naming that item: charset does govern those bytes, and an item with
+digits to read and no charset to read them through has no reading at all.
+Arriving at an alphabetic or an edited item it is a diagnostic for the opposite
+reason — `PIC A` and `PIC ZZ9.99` describe what the characters are, so an item
+declared as either of them is characters by declaration.
+
+What the resolved side carries, and what a generator does with it, is
+[`ir/SPEC.md`](../ir/SPEC.md#an-item-with-no-charset-carries-bytes-not-characters)'s.
 
 ## Physical framing
 
@@ -1783,6 +1846,34 @@ other way — syntax owning semantics — would make the IR a transcription of
 whatever notation happened to be convenient, and would leave a second generator
 with nowhere to look up what it is expected to do.
 
+### Undoing a character-set conversion
+
+A layout says what an item's bytes **are**. It does not say what they were
+before something else rewrote them, and there is no way to declare that a byte
+item arrived through an EBCDIC-to-ASCII conversion and should be read back
+through that conversion's inverse. Adding one is **not** a planned extension.
+
+Reason: the `translated-ebcdic` sign convention looks like the precedent for it
+and is not. That value names how a sign is spelled in the file in hand — four
+bytes, each with a sign the convention assigns it — so reading one is a lookup
+over the small closed set of values the item may legally hold, and the file
+supplies every fact the lookup needs. A byte item holds any of 256 values and
+has no legal set to look them up in, so undoing a conversion over one is not a
+reading but a preimage. It needs the code page the converter used, and it is
+defined at all only if that converter was bijective and eight-bit clean, which
+the ones that write `?` for a byte they cannot map are not. A layout cannot
+state either fact about a file it did not watch being produced, and a
+declaration whose correctness rests on a claim nobody can check is the silent
+failure the four axes exist to prevent, wearing the clothes of a fix for it.
+
+The adopter's answer is a file rather than a layout. An extract read back
+through the code page its converter used — `iconv` is the usual tool — or asked
+for again unconverted is the file this format describes, and it is one an
+adopter can check against the vendor's manual byte for byte before any layout
+reads it. Until then cpybkc reports what the file holds: a region byte delivered
+as `0x93` comes back as `0x93`, which is the true statement about the file in
+hand and the only one a reader can act on.
+
 ### Named encoding bundles
 
 There is no `(encoding ibm-enterprise)` and no other name expanding to a
@@ -1883,7 +1974,7 @@ computed once by `resolve`.
 | Section | Implemented by |
 |---|---|
 | [The surface syntax](#the-surface-syntax) | #22 `layout` |
-| [The encoding profile](#the-encoding-profile) | #25 `layout` |
+| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
 | [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |

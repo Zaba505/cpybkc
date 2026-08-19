@@ -759,6 +759,25 @@ func (e *emitter) fieldType(f *irpb.Field) (string, error) {
 				"only COMP-1, COMP-2, INDEX, POINTER and NATIONAL items have no PICTURE to resolve")
 		}
 
+		// An item whose charset axis says no charset governs its bytes is
+		// those bytes, and it is the one place in this table where an
+		// encoding decides a Go type. A string was the alternative and it
+		// loses data twice over: encoding/json writes a []byte as base64, so
+		// all 256 byte values survive a caller's own serialisation, while a
+		// string holding a byte above 0x7F marshals to a replacement
+		// character no viewer can show and a string holding the charset's
+		// space loses that byte to the trim ReadAlphanumeric applies. Neither
+		// loss is recoverable and neither says anything when it happens. See
+		// [opaqueDisplay].
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return "", err
+		}
+
+		if opaque {
+			return "[]byte", nil
+		}
+
 		if picture.GetCategory() == irpb.Category_CATEGORY_NUMERIC {
 			return e.decimal(picture.GetDigits()), nil
 		}
@@ -861,10 +880,49 @@ func numeric(f *irpb.Field) error {
 	return nil
 }
 
+// opaqueDisplay reports whether a DISPLAY item's bytes are a payload rather
+// than characters, and refuses a descriptor that says they are and says they
+// are something else in the same breath.
+//
+// CHARSET_NONE is the charset axis answering that these bytes do not become
+// characters at all. docs/ir/SPEC.md admits that answer on one shape of item —
+// a DISPLAY item of the alphanumeric category, which is the PIC X a copybook
+// routinely uses to carry a status flag or a hex identifier — and on any other
+// DISPLAY item it is a producer bug. It is refused rather than read past
+// because the two facts cannot both be honoured: an edited item's storage is
+// the edited characters, and a zoned item's digits are read through the
+// charset's own digit zone, so a generator that ignored the charset would hand
+// back text nothing in the file disagrees with, and one that ignored the
+// category would hand back bytes nothing in the file disagrees with either.
+//
+// A usage other than DISPLAY reaches here and reports false. On those the
+// charset is inert — a packed or binary item's bytes are not characters under
+// any charset — so a charset of none is ignored there exactly as cp037 is,
+// rather than being a second thing to refuse.
+func opaqueDisplay(f *irpb.Field) (bool, error) {
+	if f.GetUsage() != irpb.Usage_USAGE_DISPLAY {
+		return false, nil
+	}
+
+	if f.GetEncoding().GetCharset() != irpb.Charset_CHARSET_NONE {
+		return false, nil
+	}
+
+	if category := f.GetPicture().GetCategory(); category != irpb.Category_CATEGORY_ALPHANUMERIC {
+		return false, malformed(
+			fmt.Sprintf("%s is a DISPLAY item of the %s category and its charset is none", f.GetNames().GetOriginal(), categoryName(category)),
+			"a field carrying no charset MUST be USAGE DISPLAY with an alphanumeric category; see docs/ir/SPEC.md, \"An item with no charset carries bytes, not characters\"")
+	}
+
+	return true, nil
+}
+
 // resolved refuses a field whose encoding leaves one of its four axes unset.
 //
-// Nothing in this file reads an axis — a Go type does not turn on a charset —
-// and the check is here all the same, because docs/ir/SPEC.md puts it on every
+// One of the four decides a Go type and three do not: a charset of none is what
+// makes an item's field a []byte rather than a string, and nothing here turns
+// on the sign convention, the byte order or the float format. All four are
+// checked all the same, because docs/ir/SPEC.md puts the check on every
 // consumer and every one of the four fails silently when wrong. An IR that
 // reached a generator with an axis unresolved is a bug upstream of it, and a
 // generator that emitted a struct for it would be the last thing in a position
@@ -931,6 +989,21 @@ func (e *emitter) fieldSummary(f *irpb.Field) (string, error) {
 	}
 
 	summary := strings.Join(parts, ", ") + "."
+
+	// The charset is named in the comment only where it is none, and that is
+	// not an omission on the other five. Every other charset leaves the field
+	// a string holding the characters the item stores, which is what a reader
+	// already assumes; none leaves it the bytes, which is the one case where a
+	// reader who assumed the usual thing would be wrong about what they may do
+	// with the value.
+	opaque, err := opaqueDisplay(f)
+	if err != nil {
+		return "", err
+	}
+
+	if opaque {
+		summary += "\nThe bytes are the value: no charset governs them, so nothing translates,\ntrims or pads them."
+	}
 
 	// The scale is the one attribute the Go type does not carry, so it is the
 	// one the comment has to say out loud: the field holds the unscaled

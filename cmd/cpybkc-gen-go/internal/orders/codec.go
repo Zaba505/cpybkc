@@ -48,19 +48,28 @@ var (
 	_ codec.Marshaler   = (*ShapeRecord)(nil)
 )
 
-// zeroFill is what a writer emits for a slack node — or for an item the copybook
-// gives no data-name — of a record its caller built rather than read: zero
-// bytes, 8 of them at the most, sliced to the run's own width.
+// zeroFill is what a writer emits for a run of bytes a record its caller built
+// rather than read carries none for: zero bytes, 8 of them at the most, sliced
+// to the run's own width.
 //
-// Zero rather than a space. Charset is a property of a field and slack is not a
-// field, so there is no charset to resolve a space against and zero is the byte
-// that names none. A FILLER is a field and does have one, and it gets the same
-// answer for a different reason: its value is nobody's — no program names it
-// and nothing outside this package can set it — so filling it with spaces would
-// be choosing a value on behalf of a caller who never had one to give. Those
-// bytes were never in a file, so nothing is being overwritten — a record that
-// was read carries the bytes it was read from and they are emitted instead. See
-// docs/ir/SPEC.md, "What the descriptor determines, a writer supplies".
+// Three kinds of run reach it. A slack node and an item the copybook gives no
+// data-name hold bytes no program names. An item the layout says carries a
+// payload rather than characters is a []byte a caller can name and set, and
+// this is what it gets where they left it nil.
+//
+// Zero rather than a space, and the reason differs by run. Charset is a
+// property of a field and slack is not a field, so there is no charset to
+// resolve a space against and zero is the byte that names none. A FILLER is a
+// field and does have one, and filling it with spaces would be choosing a value
+// on behalf of a caller who never had one to give. A payload item has no pad
+// byte that is not also a legal value of it — the space that pads a text item
+// is a byte such an item may hold — so a writer handed nothing writes zeros
+// rather than choosing a byte that could have been data.
+//
+// Those bytes were never in a file, so nothing is being overwritten — a record
+// that was read carries the bytes it was read from and they are emitted
+// instead. See docs/ir/SPEC.md, "What the descriptor determines, a writer
+// supplies".
 var zeroFill = make([]byte, 8)
 
 // resized is s with n zero occurrences in it.

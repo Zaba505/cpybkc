@@ -195,6 +195,11 @@ func TestATargetInASCIIIsTheOnlyLiteralDrawnAsText(t *testing.T) {
 		{name: "ascii", charset: irpb.Charset_CHARSET_ASCII, want: `when ENTRY.SUB.KIND = "H"`},
 		{name: "cp037", charset: irpb.Charset_CHARSET_CP037, want: "when ENTRY.SUB.KIND = 0x48"},
 		{name: "unset", charset: irpb.Charset_CHARSET_UNSPECIFIED, want: "when ENTRY.SUB.KIND = 0x48"},
+
+		// `none` is the axis saying the field holds bytes rather than
+		// characters, so it takes the bytes side for a stronger reason than
+		// cp037 does: there is no character for the literal to be spelled as.
+		{name: "none", charset: irpb.Charset_CHARSET_NONE, want: "when ENTRY.SUB.KIND = 0x48"},
 	}
 
 	for _, testCase := range testCases {

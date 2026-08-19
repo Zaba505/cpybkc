@@ -184,12 +184,13 @@ func options(t *testing.T, source string, copybooks map[string]string, redefines
 		})
 
 		resolved, err := resolve.Resolve(record, resolve.Options{
-			Copybook:  path,
-			Dialect:   copybook.IBMEnterprise(),
-			Framing:   framing,
-			Reading:   layoutmodel.ODOSlide,
-			Encoding:  profile.Axes,
-			Redefines: stated(t, redefines, discriminator.Record, record),
+			Copybook:          path,
+			Dialect:           copybook.IBMEnterprise(),
+			Framing:           framing,
+			Reading:           layoutmodel.ODOSlide,
+			Encoding:          profile.Axes,
+			EncodingOverrides: overriding(t, profile, discriminator.Record, record),
+			Redefines:         stated(t, redefines, discriminator.Record, record),
 		})
 		if err != nil {
 			t.Fatalf("resolving %s: %v", discriminator.Record, err)
@@ -213,6 +214,41 @@ func options(t *testing.T, source string, copybooks map[string]string, redefines
 	opts.Automaton = automaton
 
 	return opts
+}
+
+// overriding is the layout's `encoding-override` forms that name items of one
+// record, resolved against the copybook the pipeline built.
+//
+// Resolving an item reference is `project`'s in the shipped pipeline, and this
+// is the smallest thing that stands in for it: each name of the path is
+// resolved under the item the name before it found, outermost first. A
+// reference naming another record is left alone rather than failing, because an
+// override may name any record in the layout and only one is being resolved
+// here.
+func overriding(t *testing.T, profile *layoutmodel.Profile, name string, record *copybook.Field) []resolve.EncodingOverride {
+	t.Helper()
+
+	var overrides []resolve.EncodingOverride
+
+	for _, override := range profile.Overrides {
+		if override.Item.Record != name {
+			continue
+		}
+
+		item := record
+
+		for _, step := range override.Item.Path {
+			item = fieldNamed(t, item, step)
+		}
+
+		overrides = append(overrides, resolve.EncodingOverride{
+			Pos:  override.Pos,
+			Item: item,
+			Axes: override.Axes,
+		})
+	}
+
+	return overrides
 }
 
 // redefiner states a test's redefines against the copybook the pipeline built,
@@ -1201,4 +1237,45 @@ func TestARenameNamingNoRecordIsReported(t *testing.T) {
 	if !strings.Contains(err.Error(), "ORD-NO") || !strings.Contains(err.Error(), "OpeningOrderNumber") {
 		t.Errorf("the diagnostic names neither the item nor the substitute: %v", err)
 	}
+}
+
+// TestCharsetNoneReachesTheFieldTheOverrideNames is #275 through the whole
+// pipeline: a `PIC X` item whose bytes are a payload carries CHARSET_NONE into
+// the descriptor, and every field beside it carries the profile's code page.
+//
+// It is asserted on the assembled descriptor rather than on the mapping
+// function because what has to be right is which field the value lands on. A
+// mapping test would pass just as well against a producer that put the value on
+// every field of the record.
+func TestCharsetNoneReachesTheFieldTheOverrideNames(t *testing.T) {
+	const regions = `01 REG-REC.
+   05 REG-TYPE PIC X(1).
+   05 REG-NAME PIC X(4).
+   05 REG-CODE PIC X(2).
+   05 REG-COUNT PIC 9(2).
+`
+
+	const source = `(framing (recfm FB) (lrecl 9))
+(encoding (charset cp037) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))
+(encoding-override (item REGION REG-CODE) (charset none))
+(record REGION (copybook "reg.cpy" REG-REC))
+(discriminate REGION (equals (item REGION REG-TYPE) "R"))
+(sequence (+ REGION))`
+
+	descriptor := assembled(t, source, map[string]string{"REGION": regions})
+
+	equal(t, render(descriptor), `version 1
+0 file unframed start=7
+1 record REG-REC root=2
+2 group REG-REC members=[3 4 5 6]
+3 field REG-TYPE width=1 display cp037/ebcdic/big-endian/ibm-hfp alphanumeric(0,0)
+4 field REG-NAME width=4 display cp037/ebcdic/big-endian/ibm-hfp alphanumeric(0,0)
+5 field REG-CODE width=2 display none/ebcdic/big-endian/ibm-hfp alphanumeric(0,0)
+6 field REG-COUNT width=2 display cp037/ebcdic/big-endian/ibm-hfp numeric(2,0)
+7 state transitions=[9]
+8 state accepts transitions=[11]
+9 transition record=1 to=8 predicate=10
+10 predicate field=3 equals 0xd9
+11 transition record=1 to=8 predicate=10
+`)
 }

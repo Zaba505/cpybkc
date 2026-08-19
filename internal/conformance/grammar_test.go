@@ -75,6 +75,7 @@ const grammarDescriptor = `{
     {"id": "132", "field": {"usage": "USAGE_POINTER", "names": {"original": "P-ADDRESS"}}},
     {"id": "133", "field": {"usage": "USAGE_NATIONAL", "names": {"original": "N-TEXT"}}},
     {"id": "134", "field": {"usage": "USAGE_INDEX", "names": {"original": "I-NONE"}}},
+    {"id": "135", "field": {"usage": "USAGE_DISPLAY", "encoding": {"charset": "CHARSET_NONE"}, "picture": {"category": "CATEGORY_ALPHANUMERIC"}, "names": {"original": "X-PAYLOAD"}}},
 
     {"id": "140", "group": {"member_ids": ["141", "142"], "names": {"original": "PAIR"}}},
     {"id": "141", "field": {"usage": "USAGE_DISPLAY", "picture": {"category": "CATEGORY_NUMERIC", "digits": 1}, "names": {"original": "A"}}},
@@ -200,6 +201,7 @@ var grammarValues = map[string]grammarValue{
 	"bytes-pointer":  {node: 132, value: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00}},
 	"bytes-national": {node: 133, value: []byte{0x00, 0x41, 0x00, 0x42}},
 	"bytes-empty":    {node: 134, value: []byte{}},
+	"bytes-payload":  {node: 135, value: []byte{0x00, 0x20, 0x40, 0xFF}},
 
 	"group-two-members": {node: 140, value: grammarPair{A: 1, B: 2}},
 	"group-nested":      {node: 143, value: grammarHeader{HdrID: 1, HdrWhen: grammarWhen{WhenDay: 2}}},

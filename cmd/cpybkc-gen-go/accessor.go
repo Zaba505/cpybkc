@@ -37,6 +37,21 @@ func (c *coder) readCall(f *irpb.Field, rdr string) (string, error) {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
 		return fmt.Sprintf("%s.ReadBytes(%d)", rdr, f.GetWidth()), nil
 	case irpb.Usage_USAGE_DISPLAY:
+		// An item no charset governs is read as the bytes it is, by the same
+		// accessor the three usages above take: ReadBytes translates nothing
+		// and trims nothing, which is the whole of what such an item asks for.
+		// Asked before the category is looked at, so that a DISPLAY item
+		// carrying no charset and no alphanumeric picture is refused here as
+		// well as in [emitter.fieldType]. See [opaqueDisplay].
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return "", err
+		}
+
+		if opaque {
+			return fmt.Sprintf("%s.ReadBytes(%d)", rdr, f.GetWidth()), nil
+		}
+
 		if f.GetPicture().GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := c.fieldType(f); err != nil {
 				return "", err
@@ -106,6 +121,20 @@ func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
 		return fmt.Sprintf("%s.WriteBytes(%s)", wtr, value), nil
 	case irpb.Usage_USAGE_DISPLAY:
+		// WriteBytes takes no width, which is the one thing WriteAlphanumeric
+		// did for this item and no longer does: it padded a short value to the
+		// declared width. So the width is enforced by the statements
+		// [coder.encodeOpaque] wraps this call in rather than by codec, and
+		// this returns the call alone.
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return "", err
+		}
+
+		if opaque {
+			return fmt.Sprintf("%s.WriteBytes(%s)", wtr, value), nil
+		}
+
 		if f.GetPicture().GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := c.fieldType(f); err != nil {
 				return "", err
@@ -154,14 +183,20 @@ func (c *coder) writeCall(f *irpb.Field, value, wtr string) (string, error) {
 	}
 }
 
-// rawWidth reports whether the item's field holds the bytes themselves, which
-// is the one Go type a writer has to check the length of: every other one is as
-// wide as the item by construction, and a []byte is whatever the caller put in
-// it.
+// rawWidth reports whether the item's field holds the bytes themselves and
+// takes codec's WriteBytes with nothing wrapped around it but a length check:
+// every other Go type here is as wide as the item by construction, and a []byte
+// is whatever the caller put in it.
 // It is read off the USAGE rather than off the Go type [emitter.fieldType]
 // gives, because asking for that type is what tells the struct emitter a file
 // imports math/big — and this file imports it only where it writes a count too
 // wide for an int64.
+//
+// An item no charset governs is a []byte too and is not one of these. Its
+// length is checked on three terms rather than one — see [coder.encodeOpaque] —
+// because a nil there is a record a caller built rather than read, which is an
+// ordinary thing to hand a writer and which an INDEX or POINTER field, holding
+// bytes nobody names, has no reason to be.
 func (c *coder) rawWidth(f *irpb.Field) (bool, error) {
 	switch f.GetUsage() {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
@@ -336,17 +371,50 @@ Float: %s,
 }
 
 // descriptorEncoding is the one encoding every field of the descriptor carries,
-// or nil where it carries no field for one to be read off.
+// or nil where no field of it states a charset.
 //
 // A function rather than a step of [coder.profile] because two files need the
 // answer and neither may reach it a second way: the profile the generated
 // package declares and the profile the generated tests lay their bytes out
 // under are the same four axes, and a descriptor whose items disagree has to be
 // refused with the same diagnostic whichever one asked.
+//
+// # The agreement is per axis, not per field
+//
+// A field carrying CHARSET_NONE states that its bytes become characters under
+// no code page, so it makes no claim about the file's charset to be in conflict
+// with and it takes no part in *that* comparison. Its other three axes are
+// claims like anybody else's and it is held to them: a packed item's sign
+// convention and a binary item's byte order are read whatever the charset says,
+// and an override may set those axes too.
+//
+// Per axis rather than per field because CHARSET_NONE arrives from an
+// `encoding-override` that **MAY** name a group, and a group holds items of
+// every usage. Skipping the whole field would put the packed and binary items
+// under such a group beyond the reach of the sign and byte-order checks, and
+// comparing the whole field would refuse the ordinary case this charset was
+// added for: a status flag holding a hex value sitting in a cp037 record.
+//
+// The charset is skipped after [resolved] has been run on the field, not
+// instead. All four axes are still set on such a field and CHARSET_NONE is one
+// of the set values, so a producer that left an axis unresolved is caught on an
+// opaque item exactly as it is on a text one — and [opaqueDisplay]'s refusal of
+// a DISPLAY item whose category admits no payload is raised here as well.
+//
+// What comes back is the encoding of the first field that stated a charset, so
+// the value carries all four axes as one field wrote them rather than as this
+// walk assembled them out of several. Where *no* field states one this returns
+// nil, which is the answer a descriptor carrying no field at all already gives:
+// no [encodingFunc] is declared and the caller passes their own Encoding to
+// codec. That is the correct answer rather than a gap — there is no charset the
+// descriptor stated, so there is none for it to hand anybody.
 func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
+	// stated is the first field that stated a charset and held is the first
+	// field of any kind. The charset comes off the one and the other three axes
+	// off the other, because a field stating no charset is still held to those.
 	var (
-		enc  *irpb.Encoding
-		from string
+		stated, held     *irpb.Encoding
+		statedBy, heldBy string
 	)
 
 	for _, node := range d.GetNodes() {
@@ -359,26 +427,52 @@ func descriptorEncoding(d *irpb.Descriptor) (*irpb.Encoding, error) {
 			return nil, err
 		}
 
-		if enc == nil {
-			enc, from = field.GetEncoding(), originalOf(node)
+		// Called for its refusal rather than for its answer. Which accessor
+		// the item takes is decided where the item is emitted; what decides
+		// whether it is a party to the charset agreement is the charset axis
+		// alone, because a packed item carrying CHARSET_NONE states no charset
+		// and is not an opaque DISPLAY item.
+		if _, err := opaqueDisplay(field); err != nil {
+			return nil, err
+		}
+
+		enc, item := field.GetEncoding(), originalOf(node)
+
+		if held == nil {
+			held, heldBy = enc, item
+		} else if axis := disagreement(held, enc); axis != "" {
+			return nil, &mixedEncodingError{Axis: axis, First: heldBy, Second: item}
+		}
+
+		if enc.GetCharset() == irpb.Charset_CHARSET_NONE {
+			continue
+		}
+
+		if stated == nil {
+			stated, statedBy = enc, item
 
 			continue
 		}
 
-		if axis := disagreement(enc, field.GetEncoding()); axis != "" {
-			return nil, &mixedEncodingError{Axis: axis, First: from, Second: originalOf(node)}
+		if stated.GetCharset() != enc.GetCharset() {
+			return nil, &mixedEncodingError{Axis: "character set", First: statedBy, Second: item}
 		}
 	}
 
-	return enc, nil
+	return stated, nil
 }
 
-// disagreement is the first of the four axes two encodings differ on, or the
-// empty string where they agree.
+// disagreement is the first of the three axes every field is held to that two
+// encodings differ on, or the empty string where they agree.
+//
+// The charset is not among them, and [descriptorEncoding] compares it itself.
+// It is the one axis a field may decline to state: CHARSET_NONE is not a fifth
+// code page to disagree with cp037 about, it is the absence of a claim. The
+// other three have no such value — every field states a sign convention, a byte
+// order and a float format, and the file has one of each for them to be wrong
+// about.
 func disagreement(a, b *irpb.Encoding) string {
 	switch {
-	case a.GetCharset() != b.GetCharset():
-		return "character set"
 	case a.GetSignConvention() != b.GetSignConvention():
 		return "zoned sign convention"
 	case a.GetByteOrder() != b.GetByteOrder():
@@ -392,6 +486,15 @@ func disagreement(a, b *irpb.Encoding) string {
 
 // charsetCall is the codec constructor for a charset, and a refusal for one
 // codec ships no table for.
+//
+// CHARSET_NONE falls into the refusal and is meant to: it is not a table codec
+// is missing, it is an item that asks for no table, and no such item reaches
+// here. The only caller is [coder.profile], over the encoding
+// [descriptorEncoding] read off the descriptor's fields, and that walk takes
+// the charset off a field that stated one — so a charset of none is either
+// never the answer or is no answer at all, which [coder.profile] has already
+// returned on. A case returning some codec charset for it would be this
+// generator picking a translation for bytes the descriptor said were not text.
 func charsetCall(charset irpb.Charset) (string, error) {
 	switch charset {
 	case irpb.Charset_CHARSET_CP037:
@@ -416,6 +519,8 @@ func charsetName(charset irpb.Charset) string {
 		return "cp1140"
 	case irpb.Charset_CHARSET_ASCII:
 		return "ASCII"
+	case irpb.Charset_CHARSET_NONE:
+		return "none"
 	default:
 		return "a charset the descriptor does not name"
 	}
@@ -478,23 +583,40 @@ file that implements it.`))
 	return b.String()
 }
 
-// zeroFillDeclaration is the run of zero bytes a writer emits for a slack node,
-// or an item the copybook gives no data-name, the record it was handed carries
-// no run for.
+// zeroFillDeclaration is the run of zero bytes a writer emits where the record
+// it was handed carries none of its own: for a slack node, for an item the
+// copybook gives no data-name, and for an item no charset governs.
+//
+// The third user is the one the emitted comment has to be written for. The
+// first two hold bytes no program names, and the argument for zero over a space
+// is that nobody had a value to give; a payload item's value *is* nameable and
+// settable by a caller, so the argument for it is [coder.encodeOpaque]'s — there
+// is no pad byte for such an item that is not also a legal value of it. That
+// belongs in the generated file, because the reader who wonders why their nil
+// field came back as zeros is reading that file rather than this one.
 func zeroFillDeclaration(width uint32) string {
-	return commentLines(fmt.Sprintf(`%s is what a writer emits for a slack node — or for an item the copybook
-gives no data-name — of a record its caller built rather than read: zero
-bytes, %d of them at the most, sliced to the run's own width.
+	return commentLines(fmt.Sprintf(`%s is what a writer emits for a run of bytes a record its caller built
+rather than read carries none for: zero bytes, %d of them at the most, sliced
+to the run's own width.
 
-Zero rather than a space. Charset is a property of a field and slack is not a
-field, so there is no charset to resolve a space against and zero is the byte
-that names none. A FILLER is a field and does have one, and it gets the same
-answer for a different reason: its value is nobody's — no program names it
-and nothing outside this package can set it — so filling it with spaces would
-be choosing a value on behalf of a caller who never had one to give. Those
-bytes were never in a file, so nothing is being overwritten — a record that
-was read carries the bytes it was read from and they are emitted instead. See
-docs/ir/SPEC.md, "What the descriptor determines, a writer supplies".`, zeroFillHelper, width)) +
+Three kinds of run reach it. A slack node and an item the copybook gives no
+data-name hold bytes no program names. An item the layout says carries a
+payload rather than characters is a []byte a caller can name and set, and
+this is what it gets where they left it nil.
+
+Zero rather than a space, and the reason differs by run. Charset is a
+property of a field and slack is not a field, so there is no charset to
+resolve a space against and zero is the byte that names none. A FILLER is a
+field and does have one, and filling it with spaces would be choosing a value
+on behalf of a caller who never had one to give. A payload item has no pad
+byte that is not also a legal value of it — the space that pads a text item
+is a byte such an item may hold — so a writer handed nothing writes zeros
+rather than choosing a byte that could have been data.
+
+Those bytes were never in a file, so nothing is being overwritten — a record
+that was read carries the bytes it was read from and they are emitted
+instead. See docs/ir/SPEC.md, "What the descriptor determines, a writer
+supplies".`, zeroFillHelper, width)) +
 		fmt.Sprintf("var %s = make([]byte, %d)", zeroFillHelper, width)
 }
 

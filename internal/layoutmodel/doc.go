@@ -65,9 +65,15 @@
 // the two to disagree about.
 //
 // So the reading happens once, here, and what comes out is data: [Charset] is a
-// code page this project supports and cannot hold anything else, and
-// [Axes.Complete] is a question about a value rather than about a check somebody
-// remembered to run.
+// code page this project supports or [None], the statement that an item's bytes
+// are not characters at all, and cannot hold anything else; and [Axes.Complete]
+// is a question about a value rather than about a check somebody remembered to
+// run.
+//
+// One value is admitted in one place and not the other, which is the one thing
+// the axes are not uniform about. [None] is a statement about a single item's
+// bytes, so an `encoding-override` admits it and the `encoding` profile does
+// not, and [Axis.Values] therefore takes the position the value was written at.
 //
 // # What it assumes about the schema
 //

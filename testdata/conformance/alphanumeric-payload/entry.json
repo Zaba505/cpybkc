@@ -1,0 +1,4 @@
+{
+  "description": "A PIC X item that carries bytes rather than text: a status flag of 0x03, a region byte of 0x93, all 256 byte values in one item, and the two bytes an ASCII and an EBCDIC file pad with, declared by one encoding-override naming the group they sit in — beside a text key and a text name that are still read, trimmed and written as characters.",
+  "source": "docs/layout/SPEC.md, \"A byte is not a character, and such an item has no charset\"; docs/ir/SPEC.md, \"An item with no charset carries bytes, not characters\"; docs/conformance/SPEC.md, \"An item with no charset is a run of bytes as well\""
+}

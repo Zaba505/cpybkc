@@ -129,6 +129,12 @@ func newSynth(c *coder, d *irpb.Descriptor, enc *irpb.Encoding) (*synth, error) 
 // generated Encoding and another way in the bytes the generated tests read
 // would make every case fail for a reason that has nothing to do with the
 // walk.
+//
+// A charset of none falls into the refusal below and never reaches it, on the
+// same terms it never reaches [charsetCall]: the encoding here is the one
+// [descriptorEncoding] read off the descriptor's fields, and that walk takes
+// the charset off a field that stated one. What the individual opaque items get
+// is [synth.write]'s WriteBytes, which consults no charset at all.
 func encodingValue(enc *irpb.Encoding) (codec.Encoding, error) {
 	if err := resolved(enc); err != nil {
 		return codec.Encoding{}, err
@@ -963,6 +969,15 @@ func (s *synth) value(id uint64, f *irpb.Field, at int) (any, error) {
 
 		return body, nil
 	case irpb.Usage_USAGE_DISPLAY:
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return nil, err
+		}
+
+		if opaque {
+			return payloadValue(at, int(f.GetWidth())), nil
+		}
+
 		if f.GetPicture().GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := s.fieldType(f); err != nil {
 				return nil, err
@@ -986,6 +1001,51 @@ func (s *synth) value(id uint64, f *irpb.Field, at int) (any, error) {
 // to a width no copybook chose.
 func textValue(at, width int) string {
 	return strings.Repeat(string(rune('A'+at%26)), width)
+}
+
+// payloadValue is what an item no charset governs holds: a run that is not
+// text, so that a case fails if anything treated it as text.
+//
+// Three claims, in the order the width admits them, because the item this
+// charset was added for is routinely a `PIC X(1)` status flag and a run that
+// only carries its claims from six bytes up makes none of them there:
+//
+//   - byte 0 is high — 0x80 and above, the values no charset renders as a
+//     printable character and a charset table translates. A run of printable
+//     ASCII survives cp037 and back unchanged in the places it matters, so a
+//     case made of one would pass whether the translation happened or not. It
+//     is first because it is the one claim a one-byte item has room for.
+//   - byte 1 is 0x20, the space ReadAlphanumeric trims off the tail of a text
+//     item and the byte WriteAlphanumeric pads a short one with. At a fixed
+//     position rather than at the end because it must survive a read, not
+//     merely be present.
+//   - byte 2 is 0x00, a byte no run of characters would carry.
+//
+// Every remaining byte is high. So a run of any width holds a byte that is not
+// zero, from two bytes up one the trim would eat, and from three up one no text
+// carries — and the zero the third claim is made of is never the whole of a
+// narrow field, which is what would make a written value byte-identical to the
+// zeros [zeroFillDeclaration] emits for a record that carries none. The
+// discrimination is on the *first* byte at every width for that reason.
+//
+// Derived from the item's offset like every other value here, so that nothing
+// comes from the clock or the environment, and so that the same item at a
+// different offset is a different literal.
+func payloadValue(at, width int) []byte {
+	body := make([]byte, width)
+
+	for i := range body {
+		switch i {
+		case 1:
+			body[i] = 0x20
+		case 2:
+			body[i] = 0x00
+		default:
+			body[i] = byte(0x80 + (at+i)%0x70)
+		}
+	}
+
+	return body
 }
 
 // magnitude is the number an item with no predicate over it holds.
@@ -1078,6 +1138,23 @@ func (s *synth) write(f *irpb.Field, value any) error {
 
 		return s.w.WriteBytes(v)
 	case irpb.Usage_USAGE_DISPLAY:
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return err
+		}
+
+		if opaque {
+			v, ok := value.([]byte)
+			if !ok {
+				return mistyped(f, value, "[]byte")
+			}
+
+			// No width, exactly as [coder.writeCall] emits none: the
+			// generated encoder checks the length itself and so does
+			// [synth.value], which hands this a run of the item's own width.
+			return s.w.WriteBytes(v)
+		}
+
 		if picture.GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			v, ok := value.(string)
 			if !ok {
@@ -1239,6 +1316,15 @@ func (s *synth) read(r *codec.Reader, f *irpb.Field) (any, error) {
 	case irpb.Usage_USAGE_INDEX, irpb.Usage_USAGE_POINTER, irpb.Usage_USAGE_NATIONAL:
 		return r.ReadBytes(int(f.GetWidth()))
 	case irpb.Usage_USAGE_DISPLAY:
+		opaque, err := opaqueDisplay(f)
+		if err != nil {
+			return nil, err
+		}
+
+		if opaque {
+			return r.ReadBytes(int(f.GetWidth()))
+		}
+
 		if picture.GetCategory() != irpb.Category_CATEGORY_NUMERIC {
 			if _, err := s.fieldType(f); err != nil {
 				return nil, err

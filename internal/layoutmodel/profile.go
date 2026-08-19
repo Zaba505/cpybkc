@@ -93,7 +93,7 @@ func ReadProfile(file *layout.File) (*Profile, error) {
 		case tagEncoding:
 			encodings = append(encodings, form)
 
-			axes, stated := read.axes(form, form.Elements)
+			axes, stated := read.axes(form, form.Elements, inProfile)
 
 			// Only an axis the profile says nothing at all about is missing. An
 			// axis stated with a value the axis does not admit has already been
@@ -161,7 +161,7 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 		// The axes are read anyway. An override whose reference is misspelled is
 		// still an override, and a charset misspelled underneath it is a second
 		// thing to fix rather than something to discover on the next run.
-		_, _ = r.axes(form, form.Elements[1:])
+		_, _ = r.axes(form, form.Elements[1:], inOverride)
 
 		return
 	}
@@ -176,7 +176,7 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 		r.overridden[item.identity()] = form.Pos
 	}
 
-	axes, stated := r.axes(form, form.Elements[1:])
+	axes, stated := r.axes(form, form.Elements[1:], inOverride)
 
 	// An override states an axis when it carries one of the four forms, whatever
 	// the form turned out to say. One whose only axis was rejected on its own
@@ -202,7 +202,12 @@ func (r *profileReader) override(profile *Profile, form layout.Form) {
 // How many are required is the caller's to judge: `encoding` takes all four and
 // `encoding-override` takes at least one, and neither rule is visible from the
 // children alone.
-func (r *profileReader) axes(form layout.Form, elements []layout.Node) (Axes, map[Axis]layout.Pos) {
+//
+// where says which of the two forms these children are under. What an axis
+// admits depends on it — `(charset none)` is a statement about one item, and an
+// override is the only form that names one — so the position travels down with
+// the children rather than being rediscovered from the tag at the bottom.
+func (r *profileReader) axes(form layout.Form, elements []layout.Node, where position) (Axes, map[Axis]layout.Pos) {
 	var (
 		axes  Axes
 		first = make(map[Axis]layout.Pos)
@@ -231,7 +236,7 @@ func (r *profileReader) axes(form layout.Form, elements []layout.Node) (Axes, ma
 
 		first[axis] = child.Pos
 
-		value, ok := r.axisValue(child, axis)
+		value, ok := r.axisValue(child, axis, where)
 		if !ok {
 			continue
 		}
@@ -243,8 +248,8 @@ func (r *profileReader) axes(form layout.Form, elements []layout.Node) (Axes, ma
 }
 
 // axisValue reads the one symbol an axis form carries, holding it to the set the
-// axis admits.
-func (r *profileReader) axisValue(form layout.Form, axis Axis) (string, bool) {
+// axis admits where it stands.
+func (r *profileReader) axisValue(form layout.Form, axis Axis, where position) (string, bool) {
 	if len(form.Elements) != 1 {
 		found := "no value"
 		if len(form.Elements) > 1 {
@@ -263,8 +268,18 @@ func (r *profileReader) axisValue(form layout.Form, axis Axis) (string, bool) {
 		return "", false
 	}
 
-	if !axis.admits(symbol.Value) {
-		r.Fail(&AxisValueError{Pos: symbol.Pos, Axis: axis, Value: symbol.Value})
+	// `(charset none)` on the profile is a fault of its own rather than a
+	// misspelling: the value is one the axis has, written where there is no item
+	// for it to be about, and a message listing the code pages would send an
+	// adopter looking for a typo in a word they spelled correctly.
+	if where == inProfile && axis == AxisCharset && symbol.Value == string(None) {
+		r.Fail(&ProfileCharsetNoneError{Pos: symbol.Pos})
+
+		return "", false
+	}
+
+	if !axis.admits(symbol.Value, where) {
+		r.Fail(&AxisValueError{Pos: symbol.Pos, Axis: axis, Value: symbol.Value, Position: where})
 
 		return "", false
 	}

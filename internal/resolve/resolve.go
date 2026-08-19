@@ -9,6 +9,7 @@ import (
 	"errors"
 
 	"github.com/Zaba505/cobol-go/copybook"
+	"github.com/Zaba505/cobol-go/picture"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
@@ -106,6 +107,16 @@ type Options struct {
 // profile" is the whole of it: the axes it states replace the profile's for the
 // item it names, and the ones it leaves unstated leave the profile's alone.
 type EncodingOverride struct {
+	// Pos is the `encoding-override` form in the layout.
+	//
+	// It is here because one fault about an override is about the item it
+	// reached rather than about the form itself — `(charset none)` over an item
+	// whose bytes are characters — and a diagnostic naming only the copybook
+	// would name the half of the pair an adopter may not own. A caller that
+	// assembled [Options] by hand and left it unstated gets a diagnostic that
+	// names the copybook alone, which is all there is to name.
+	Pos layout.Pos
+
 	// Item is the copybook item the override names.
 	//
 	// It **MAY** be a group, in which case the override reaches every
@@ -476,6 +487,8 @@ func (r *resolver) encoding(field *copybook.Field, in layoutmodel.Axes) layoutmo
 // encoding stays on the field node inside it: the wrapper is this package's own
 // and stands for no copybook item, and the padding is not a field's bytes.
 func (r *resolver) elementary(item *copybook.Item, in layoutmodel.Axes) *Node {
+	r.checkCharsetNone(item.Field, in)
+
 	field := &Node{
 		Kind:       KindField,
 		Field:      item.Field,
@@ -494,6 +507,85 @@ func (r *resolver) elementary(item *copybook.Item, in layoutmodel.Axes) *Node {
 		Members:    []*Node{field, slackNode(item.Stride - item.Length)},
 		Repetition: repetition,
 	}
+}
+
+// checkCharsetNone holds an item whose charset resolved to [layoutmodel.None] to
+// being an item that charset value can mean something for.
+//
+// It is `resolve`'s rather than `layoutmodel`'s because it is the one question
+// about an override that needs the copybook open: whether the item the layout
+// named is a payload or is characters is decided by its USAGE and its PICTURE,
+// and `layoutmodel` never opens a copybook. It is checked here rather than over
+// the finished records because the walk visits each item once and arrives
+// carrying the encoding in effect at it, which is what an inner override
+// restoring a code page has already changed.
+//
+// Three answers, and which one an item gets is [CharsetNoneError]'s subject:
+// legal on an alphanumeric DISPLAY item, a fault on any other DISPLAY item, and
+// inert on every usage the charset does not govern — where `none` is as
+// unremarkable as `cp037` is, which is what lets an override name a group and
+// reach the text under it without the packed and binary items beside it
+// becoming errors.
+//
+// An item with no PICTURE at all takes the inert answer. USAGE INDEX, POINTER,
+// COMP-1 and COMP-2 are the items COBOL declares without one, and every one of
+// them is a usage the charset does not govern anyway.
+func (r *resolver) checkCharsetNone(field *copybook.Field, in layoutmodel.Axes) {
+	if in.Charset != layoutmodel.None || field == nil {
+		return
+	}
+
+	// A FILLER is skipped for the reason [CharsetNoneError] gives: nothing reads
+	// its charset and no item reference can name it, so the diagnostic would be
+	// about an item the adopter has no way to say anything about.
+	if field.Filler || field.Name == "" {
+		return
+	}
+
+	if field.Usage != copybook.UsageDisplay || field.Picture == nil {
+		return
+	}
+
+	if field.Picture.Category == picture.CategoryAlphanumeric {
+		return
+	}
+
+	r.faults.Fail(&CharsetNoneError{
+		Pos:      layoutSpan(r.charsetOrigin(field)),
+		Item:     r.span(field),
+		Record:   r.record.Name,
+		Name:     itemName(field),
+		Category: field.Picture.Category,
+	})
+}
+
+// charsetOrigin is where the layout wrote the charset governing field: the
+// nearest `encoding-override` at or above it that states the axis.
+//
+// It walks the entry tree the way [resolver.encoding] composes down it, and
+// takes the first entry naming each item for the reason that one does. The
+// nearest override stating the axis is the one whose value survived, so an
+// override deeper in the tree that restored a code page is never the one named:
+// its item is not the one being reported.
+//
+// It comes back unstated where nothing above the field states a charset, which
+// is a caller who built [Options] by hand — the profile cannot say `none`.
+func (r *resolver) charsetOrigin(field *copybook.Field) layout.Pos {
+	for item := field; item != nil; item = item.Parent {
+		for i := range r.opts.EncodingOverrides {
+			if r.opts.EncodingOverrides[i].Item != item {
+				continue
+			}
+
+			if r.opts.EncodingOverrides[i].Axes.Charset != "" {
+				return r.opts.EncodingOverrides[i].Pos
+			}
+
+			break
+		}
+	}
+
+	return layout.Pos{}
 }
 
 // run is what one redefine cluster contributes to its group's member list: the
