@@ -67,7 +67,7 @@ const companionModuleDir = "daggerverse/cpybkc"
 // whose init panics without a session, so a test beside main could not run here
 // at all — that constraint is why the pure part is a package of its own.
 //
-// It is handed the same .golangci.yml, so all three Go modules are linted
+// It is handed the same .golangci.yml, so all five Go modules are linted
 // against one configuration rather than one each.
 //
 // +check
