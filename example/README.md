@@ -25,6 +25,18 @@ a field nothing outside can — see
 [Slack](#slack-and-why-a-test-lives-inside-the-package). The regeneration below
 leaves it alone.
 
+[`parquet/`](parquet) is neither either, and for a different reason: it is what
+somebody *does* with the generated package. It converts this ledger into the two
+Parquet files a data platform would query it as, and it is here because the
+decisions that takes are real, unobvious, and met all at once the first time an
+adopter tries it — [not because there is a right answer to
+generate](https://github.com/Zaba505/cpybkc/issues/272). It is a **Go module of
+its own**, so that `parquet-go` never reaches the root `go.mod`, which means the
+regeneration below does not reach it and `go test ./example/...` does not run it;
+`dagger call example-parquet-ci` is what does. Read
+[`parquet/README.md`](parquet/README.md) before the code — the prose is as much
+the artifact as the Go is.
+
 `ledger/records_test.go` and `ledger/file_test.go` **are** generated, and they
 are pinned like every other generated file. `cpybkc-gen-go` writes one case per
 record type and per variant arm into the first, and one case per path through the

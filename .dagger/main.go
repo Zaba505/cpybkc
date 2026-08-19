@@ -43,7 +43,7 @@
 //     they state have no counterpart upstream and gain none: which IR version the
 //     published image speaks is the one fact about a release a reader cannot
 //     recover from its tag.
-//   - Which four Go modules this repository holds, and that the IR schema under
+//   - Which five Go modules this repository holds, and that the IR schema under
 //     proto/ is linted. The archetype has no opinion about either.
 //
 // # Why the release is decided here too
@@ -103,18 +103,24 @@
 // is the gate a contributor runs, and a check CI performs that the gate does
 // not is an arrangement of local commands that passes while CI fails.
 //
-// # Why the standard is invoked four times
+// # Why the standard is invoked five times
 //
-// This repository holds four Go modules: the CLI at the root, the published IR
-// module at irpb/, the companion Dagger module at daggerverse/cpybkc/, and this
-// pipeline itself at .dagger/. A nested go.mod is where `go test ./...` stops,
-// so the source directory that reaches one of them reaches none of the others,
-// and IrCi, CompanionCi and PipelineCi are the three further invocations that
-// cover the three further modules. Each is the standard again and not a
-// variation on it — same archetype, same lint configuration — because the module
-// third-party generators import, the module strangers call, and the pipeline
-// that judges everything else are the last three places this repository should
-// be checking something bespoke.
+// This repository holds five Go modules: the CLI at the root, the published IR
+// module at irpb/, the companion Dagger module at daggerverse/cpybkc/, this
+// pipeline itself at .dagger/, and the worked Parquet conversion at
+// example/parquet/. A nested go.mod is where `go test ./...` stops, so the
+// source directory that reaches one of them reaches none of the others, and
+// IrCi, CompanionCi, PipelineCi and ExampleParquetCi are the four further
+// invocations that cover the four further modules. Each is the standard again
+// and not a variation on it — same archetype, same lint configuration — because
+// the module third-party generators import, the module strangers call, the
+// pipeline that judges everything else, and a worked example whose whole point
+// is that it compiles are the last four places this repository should be
+// checking something bespoke.
+//
+// ExampleParquetCi is the one whose *source directory* is composed rather than
+// taken whole, and exampleParquetSource says why: it is the only module here
+// whose go.mod points outside its own tree.
 //
 // ProtoGen is the odd one out: it is not a check at all but the generator that
 // produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
@@ -383,7 +389,7 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 }
 
 // Ci runs the whole pipeline: fmt, vet, golangci-lint and `go test -race`, as
-// the Z5Labs standard defines them, over each of this repository's four Go
+// the Z5Labs standard defines them, over each of this repository's five Go
 // modules, plus `buf lint` over the IR schema, a build of the CLI itself, a
 // build of the four artifacts a release publishes, the published base image on
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
@@ -393,19 +399,23 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 // one `dagger call ci` and stays one, because a workflow step that reran any of
 // these stages would be a second definition of them.
 //
-// The sixteen parts run concurrently and all are reported, for the reason the
+// The seventeen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
 //
-// It was fifteen between #185 and #202, and sixteen before that for a different
+// It was sixteen between #202 and #274, fifteen between #185 and #202, and
+// sixteen before that for a different
 // reason. Attestations checked the provenance predicate and the SBOM set this
 // module used to render, and both are the archetype's now, so that stage went
 // with sign.go rather than being kept as a check on somebody else's output.
 // ConformanceArtifact is the one that arrived, for the conformance archive a
 // release attaches (#202).
 //
-// ImageContract is one of the sixteen, and since #185 that stage builds an App —
+// ExampleParquetCi is the one that arrived at seventeen, for the worked Parquet
+// conversion's own module (#274).
+//
+// ImageContract is one of the seventeen, and since #185 that stage builds an App —
 // so this call needs real git metadata and does not run from a git worktree. See
 // New.
 //
@@ -414,10 +424,10 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 func (m *Cpybkc) Ci(ctx context.Context) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr error
 	var tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr error
-	var conformanceErr error
+	var conformanceErr, parquetErr error
 
 	var wg sync.WaitGroup
-	wg.Add(16)
+	wg.Add(17)
 
 	go func() {
 		defer wg.Done()
@@ -502,10 +512,16 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		pipelineErr = m.PipelineCi(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		parquetErr = m.ExampleParquetCi(ctx)
+	}()
+
 	wg.Wait()
 
 	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, conformanceErr, imageErr,
-		exampleErr, tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr)
+		exampleErr, tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr,
+		parquetErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.
@@ -549,13 +565,78 @@ const pipelineModuleDir = ".dagger"
 // companion; keeping the readable part in a package that imports no Dagger is
 // what turns these rules into something a test pins.
 //
-// It is handed the same .golangci.yml, so all four Go modules are linted against
+// It is handed the same .golangci.yml, so all five Go modules are linted against
 // one configuration rather than one each.
 //
 // +check
 // +cache="session"
 func (m *Cpybkc) PipelineCi(ctx context.Context) error {
 	return m.goChain(m.Source.Directory(pipelineModuleDir)).Ci(ctx)
+}
+
+// exampleParquetModuleDir is the worked Parquet conversion's own Go module. It
+// is a module rather than a package of the repository so that parquet-go stays
+// out of the root go.mod — the one `go install …/cmd/cpybkc@version` builds, and
+// the one a signed, attested, distroless release image is made of.
+const exampleParquetModuleDir = "example/parquet"
+
+// exampleParquetNestDir is where exampleParquetSource puts the repository inside
+// the tree it hands the chain. The leading underscore is load bearing: the go
+// tool and golangci-lint both skip a directory whose name begins with `_` when
+// they expand `./...`, so the repository nested there is a replacement target and
+// never a second set of packages to check.
+const exampleParquetNestDir = "_cpybkc"
+
+// ExampleParquetCi runs the standard Go pipeline over example/parquet.
+//
+// It is a fifth call for the reason IrCi is a second, CompanionCi a third and
+// PipelineCi a fourth: a nested go.mod is where `go test ./...` stops. Without
+// it the worked conversion — which exists precisely because #272's nine-line
+// prose sample was wrong in ten ways — would be the one Go module here that
+// nothing compiles.
+//
+// It is handed the same .golangci.yml, so all five Go modules are linted against
+// one configuration rather than one each.
+//
+// +check
+// +cache="session"
+func (m *Cpybkc) ExampleParquetCi(ctx context.Context) error {
+	return m.goChain(m.exampleParquetSource()).Ci(ctx)
+}
+
+// exampleParquetSource is the tree ExampleParquetCi hands the shared chain.
+//
+// It is the one stage here that does not hand over a plain sub-directory of the
+// source, and that is a property of the module rather than a preference. irpb,
+// .dagger and daggerverse/cpybkc resolve entirely from their own directories;
+// example/parquet does not, because it reads its dataset through example/ledger,
+// which is a package of the *root* module. So its go.mod carries
+// `replace github.com/Zaba505/cpybkc => ../..`, which is what a contributor's
+// `go test ./...` in that directory resolves through.
+//
+// The chain mounts what it is handed at one path and runs the go tool there, so
+// handing it example/parquet alone would put `../..` outside the mount and every
+// stage would fail on a module it cannot resolve. What is handed over instead is
+// that directory with the repository nested inside it, and the two replacements
+// re-pointed at the nest.
+//
+// Re-pointing is `go mod edit` rather than a second committed go.mod, because two
+// go.mod files for one module are two dependency lists to keep in step and only
+// one of them would ever be the one a contributor reads. The edit is mechanical
+// and names both directives, so a replace added or removed in the committed file
+// without a change here fails loudly rather than being silently ignored.
+func (m *Cpybkc) exampleParquetSource() *dagger.Directory {
+	nested := m.Source.Directory(exampleParquetModuleDir).
+		WithDirectory(exampleParquetNestDir, m.Source)
+
+	return dag.Go().
+		Container(nested).
+		WithExec([]string{
+			"go", "mod", "edit",
+			"-replace", "github.com/Zaba505/cpybkc=./" + exampleParquetNestDir,
+			"-replace", "github.com/Zaba505/cpybkc/irpb=./" + exampleParquetNestDir + "/irpb",
+		}).
+		Directory(".")
 }
 
 // Fmt reports any file that gofmt would rewrite, as a diff.

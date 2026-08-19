@@ -5,7 +5,7 @@
 # the configuration committed here is the configuration the lint stage runs
 # against. A .golangci.yml that CI ignored would be a file contributors read and
 # trusted while the pipeline enforced something else. The same file is passed to
-# all four invocations, so this repository's four Go modules are linted against
+# all five invocations, so this repository's five Go modules are linted against
 # one configuration rather than one each.
 #
 # Written in the golangci-lint **v2** dialect, because that is the major the

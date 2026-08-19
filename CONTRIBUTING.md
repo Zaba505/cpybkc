@@ -39,6 +39,7 @@ dagger call lint          # golangci-lint over ./... against .golangci.yml
 dagger call test          # go test -race ./...
 dagger call proto-lint    # buf lint over proto/ against buf.yaml
 dagger call ir-ci         # the whole standard again, over the irpb/ module
+dagger call example-parquet-ci  # and again, over the example/parquet/ module
 dagger call build         # builds cpybkc CGO-free and runs it in an empty image
 dagger call ir-artifacts  # builds the two IR artifacts a release attaches
 dagger call layout-artifact  # builds the layout schema a release attaches
@@ -54,7 +55,10 @@ standard has no protobuf stage to wrap; see [Linting the IR
 schema](#linting-the-ir-schema).
 
 `ir-ci` is not a stage but the whole standard a second time, over the second Go
-module; see [The IR module](#the-ir-module) for why there is one. `build`,
+module; see [The IR module](#the-ir-module) for why there is one.
+`example-parquet-ci` is the same thing over the fifth; see [The Parquet example
+is checked like any other Go module
+here](#the-parquet-example-is-checked-like-any-other-go-module-here). `build`,
 `ir-artifacts`, `layout-artifact` and `image-contract` are not stages either; see
 [Building the CLI](#building-the-cli), [The release
 artifacts](#the-release-artifacts) and [Building the image](#building-the-image).
@@ -232,7 +236,7 @@ family, pushes one index under every tag of it, signs it recursively and attache
 provenance and SBOMs.
 
 What this module still owns is the contract checks, whether a commit is a release,
-the release notes, and the fact that this repository holds four Go modules.
+the release notes, and the fact that this repository holds five Go modules.
 [`.dagger/main.go`](.dagger/main.go)'s package comment is the full list and the
 argument for each.
 
@@ -1337,6 +1341,43 @@ test beside it cannot run under plain `go test`, exactly as in the companion.
 Without this stage those tests would run on a contributor's machine and nowhere
 else, and a drift guard nothing exercises is a drift guard nobody finds out has
 stopped working.
+
+### The Parquet example is checked like any other Go module here
+
+`dagger call example-parquet-ci` runs the standard pipeline over
+[`example/parquet/`](example/parquet/), the worked conversion of the example
+ledger into Parquet, and it is in `ci`. It is a fifth call for the reason
+[`IrCi`](.dagger/main.go) is a second, [`CompanionCi`](.dagger/companion.go) a
+third and [`PipelineCi`](.dagger/main.go) a fourth: a nested `go.mod` is where
+`go test ./...` stops.
+
+**Why that module has a `go.mod` at all** is
+[`parquet-go`](example/parquet/README.md#its-own-go-module-and-that-is-the-load-bearing-decision):
+it must not reach the root `go.mod`, which is what `go install
+github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds and what a release image is
+made of. `example/ledger` has no `go.mod` of its own, so a conversion written
+beside it would have put a dozen transitive requires into the CLI's build list.
+`example/parquet/module_test.go` reads the root `go.mod` and fails if it ever
+does.
+
+**And why that stage is not a one-liner** is the one way this module is unlike
+the other four. It is the only one whose `go.mod` points outside its own tree:
+the conversion reads its dataset through `example/ledger`, a package of the
+*root* module, so it carries `replace github.com/Zaba505/cpybkc => ../..`. That
+directive is what your own `go test ./...` in that directory resolves through:
+
+```sh
+cd example/parquet && go test ./...
+```
+
+The shared chain mounts what it is handed at one path and runs the go tool
+there, so handing it `example/parquet` alone would put `../..` outside the mount.
+[`exampleParquetSource`](.dagger/main.go) hands over that directory with the
+repository nested inside it under a `_`-prefixed name — which is what keeps the
+go tool and golangci-lint from expanding `./...` into it — and re-points both
+replace directives at the nest with `go mod edit`. If you add or remove a
+`replace` in `example/parquet/go.mod`, that function is the other half of the
+change.
 
 ### The default image tag is the moving major tag
 
