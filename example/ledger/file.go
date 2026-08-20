@@ -26,9 +26,18 @@ type Record interface {
 	codec.Marshaler
 }
 
-// readAhead is the reader's buffer, which is bufio's own default: this file's
-// framing puts a record's bytes in hand before a predicate is evaluated
-// against them, so nothing has to be seen in front of a record.
+// readAhead is the reader's buffer. This file's framing puts a record's bytes
+// in hand before a predicate is evaluated against them, so nothing has to be
+// seen in front of a record and no correctness floor applies to the size.
+//
+// Nothing derives that size from these records: 4096 is bufio's own default,
+// and what a larger buffer would be worth is a property of what a read of the
+// file costs — the filesystem it sits on, and what the host does on the way to
+// it — which no descriptor carries. Where a read is expensive, hand NewReader a
+// reader that is already buffered and this one draws from that rather than
+// from the operating system:
+//
+//	r, err := NewReader(bufio.NewReaderSize(f, 1<<20), Encoding())
 const readAhead = 4096
 
 // Reader reads the records of one file, walking the automaton this descriptor

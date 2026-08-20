@@ -11,6 +11,8 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"maps"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -823,4 +825,222 @@ func terminatedDescriptor() *irpb.Descriptor {
 	}}}
 
 	return d
+}
+
+// deepDescriptor is [terminatedDescriptor] with a predicate, and with the item
+// that predicate reads pushed pad bytes into the record.
+//
+// A predicate under a framing that states nothing about a record's length is
+// what makes the lookahead the reader's, and the pad is what carries its target
+// past [bufioDefault] — which is the only way the read-ahead is anything other
+// than that number, and so the only way the correctness floor is observable
+// from the outside.
+func deepDescriptor(pad uint32) *irpb.Descriptor {
+	d := plainDescriptor(predicateOn(50))
+
+	d.Nodes[0] = &irpb.Node{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+		Framing: &irpb.File_Delimited{Delimited: &irpb.Delimited{
+			Delimiter: []byte{0x15},
+			Placement: irpb.DelimiterPlacement_DELIMITER_PLACEMENT_TERMINATOR,
+		}},
+		StartStateId: 2,
+	}}}
+
+	for i, node := range d.GetNodes() {
+		if node.GetId() == 105 {
+			d.Nodes[i] = group(105, "LINE-RECORD", nil, 102, 101)
+		}
+	}
+
+	d.Nodes = append(d.Nodes, alphanumeric(102, "LINE-PAD", pad))
+
+	return d
+}
+
+// readAheadDeclaration is the const declaration the generated file.go carries
+// readAhead in, with the value every constant of it is declared with.
+//
+// Read out of the parsed file rather than matched in the text, so that a
+// declaration that moved into or out of a const group is still found and the
+// doc comment above it is the one the compiler would attach.
+func readAheadDeclaration(t *testing.T, source string) (*ast.GenDecl, map[string]string) {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), fileMachineFile, source,
+		parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing the generated %s: %v\n%s", fileMachineFile, err, source)
+	}
+
+	for _, node := range file.Decls {
+		decl, ok := node.(*ast.GenDecl)
+		if !ok || decl.Tok != token.CONST {
+			continue
+		}
+
+		values := make(map[string]string)
+
+		for _, spec := range decl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+
+			for i, name := range value.Names {
+				if i >= len(value.Values) {
+					continue
+				}
+
+				if lit, ok := value.Values[i].(*ast.BasicLit); ok {
+					values[name.Name] = lit.Value
+				}
+			}
+		}
+
+		if _, ok := values[readAheadConst]; ok {
+			return decl, values
+		}
+	}
+
+	t.Fatalf("the generated %s declares no %s\n%s", fileMachineFile, readAheadConst, source)
+
+	return nil, nil
+}
+
+// TestTheReadAheadIsNeverBelowTheDeepestPredicateTarget is the correctness floor
+// this generator's read-ahead carries, and the one thing about the size that is
+// not a decision.
+//
+// A predicate is evaluated against a window in front of a record the reader has
+// not identified yet, so a buffer that cannot hold the deepest such window is a
+// Peek that can never be satisfied. Asserted as both floors at once — the
+// lookahead and bufio's own default — because the answer is their maximum and a
+// bug in either direction is a buffer somebody has to debug at an adopter.
+func TestTheReadAheadIsNeverBelowTheDeepestPredicateTarget(t *testing.T) {
+	t.Parallel()
+
+	for _, lookahead := range []int{0, 1, 2, bufioDefault - 1, bufioDefault, bufioDefault + 1, 1 << 16} {
+		f := &filer{lookahead: lookahead}
+
+		want := max(lookahead, bufioDefault)
+
+		if got := f.readAhead(); got != want {
+			t.Errorf("a lookahead of %d read ahead %d, and the floors it sits above are %d and %d",
+				lookahead, got, lookahead, bufioDefault)
+		}
+	}
+}
+
+// TestAPredicateBeyondBufiosDefaultRaisesTheReadAhead is the same floor from the
+// other side: through a descriptor, into the constant the generated file
+// declares.
+//
+// None of the golden descriptors reaches past bufio's default — a predicate
+// target that deep is not a shape a copybook writes often — so the floor would
+// otherwise be asserted only by the arithmetic that implements it.
+func TestAPredicateBeyondBufiosDefaultRaisesTheReadAhead(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, deepDescriptor(bufioDefault), out,
+		options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[fileMachineFile]
+
+	_, values := readAheadDeclaration(t, source)
+
+	if values[lookaheadConst] != values[readAheadConst] {
+		t.Errorf("%s is %s and %s is %s, and a buffer smaller than the window a predicate reads is a Peek that cannot be satisfied",
+			lookaheadConst, values[lookaheadConst], readAheadConst, values[readAheadConst])
+	}
+
+	if values[readAheadConst] == strconv.Itoa(bufioDefault) {
+		t.Errorf("this descriptor reads past %d and %s is still %s", bufioDefault, readAheadConst, values[readAheadConst])
+	}
+}
+
+// TestTheReadAheadSaysWhyItIsBufiosDefault is the emitted comment answering the
+// question the size actually raises.
+//
+// The comment used to say only why the buffer need not be *larger* for
+// correctness, which is a different question from why it is this number and
+// leaves the reader of a slow run with nowhere to go. Both are now on it, and
+// the second one is the wrapping idiom — the fix that works today and needs
+// nothing from this generator, which is worth nothing to an adopter who has to
+// already know it exists. See README.md, "Decided: the read-ahead buffer is a
+// constant".
+func TestTheReadAheadSaysWhyItIsBufiosDefault(t *testing.T) {
+	t.Parallel()
+
+	for dir, descriptor := range machineGoldens {
+		t.Run(dir, func(t *testing.T) {
+			t.Parallel()
+
+			out := t.TempDir()
+
+			name := dir[strings.LastIndex(dir, "/")+1:]
+
+			if err := generate(io.Discard, descriptor(), out, options{packageName: name, importPath: goldenModule + dir}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+
+			decl, _ := readAheadDeclaration(t, written(t, out)[fileMachineFile])
+
+			doc := decl.Doc.Text()
+
+			for _, want := range []string{
+				strconv.Itoa(bufioDefault),
+				"bufio's own default",
+				newReaderFunc + "(bufio.NewReaderSize(",
+			} {
+				if !strings.Contains(doc, want) {
+					t.Errorf("the comment above %s never says %q\n%s", readAheadConst, want, doc)
+				}
+			}
+		})
+	}
+}
+
+// TestTheReadAheadIsTheSameForTheSameDescriptor is determinism, held over the
+// declaration rather than over the whole file.
+//
+// The size is a constant and a constant is a function of the descriptor: there
+// is no option that sets it, nothing reads the host it is generated on, and two
+// runs of one descriptor that disagreed would be a diff an adopter reviews for
+// no reason.
+func TestTheReadAheadIsTheSameForTheSameDescriptor(t *testing.T) {
+	t.Parallel()
+
+	for dir, descriptor := range machineGoldens {
+		t.Run(dir, func(t *testing.T) {
+			t.Parallel()
+
+			name := dir[strings.LastIndex(dir, "/")+1:]
+
+			var first map[string]string
+
+			for range 2 {
+				out := t.TempDir()
+
+				if err := generate(io.Discard, descriptor(), out, options{packageName: name, importPath: goldenModule + dir}); err != nil {
+					t.Fatalf("generate: %v", err)
+				}
+
+				_, values := readAheadDeclaration(t, written(t, out)[fileMachineFile])
+
+				if first == nil {
+					first = values
+
+					continue
+				}
+
+				if !maps.Equal(first, values) {
+					t.Errorf("two generations of one descriptor declared %v and %v", first, values)
+				}
+			}
+		})
+	}
 }

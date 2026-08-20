@@ -228,33 +228,76 @@ func (f *filer) emitFramingDeclarations(b *strings.Builder, _ [][]transition) {
 	// about a record's length. Under the other two the record's bytes are in
 	// hand before a predicate runs, so there is nothing to see in front of.
 	if !f.needsShort() {
-		line(b, "// %s is the reader's buffer, which is bufio's own default: this file's", readAheadConst)
-		line(b, "// framing puts a record's bytes in hand before a predicate is evaluated")
-		line(b, "// against them, so nothing has to be seen in front of a record.")
+		b.WriteString(commentLines(fmt.Sprintf(`%s is the reader's buffer. This file's framing puts a record's bytes
+in hand before a predicate is evaluated against them, so nothing has to be
+seen in front of a record and no correctness floor applies to the size.
+
+%s`, readAheadConst, readAheadNote())))
 		line(b, "const %s = %d", readAheadConst, f.readAhead())
 
 		return
 	}
 
-	line(b, "// %s is how far in front of a record the reader has to see to evaluate the", lookaheadConst)
-	line(b, "// predicates of the state it is in, and %s is the buffer that guarantees it.", readAheadConst)
-	line(b, "//")
-	line(b, "// A predicate's target has a constant position within the record it belongs to,")
-	line(b, "// so this is a number the descriptor fixes rather than one the data moves.")
+	b.WriteString(commentLines(fmt.Sprintf(`%[1]s is how far in front of a record the reader has to see to evaluate
+the predicates of the state it is in, and %[2]s is the buffer that
+guarantees it.
+
+A predicate's target has a constant position within the record it belongs
+to, so this is a number the descriptor fixes rather than one the data
+moves. %[2]s is never below it — a window the buffer cannot hold is a
+Peek that can never be satisfied — which is the whole of the correctness
+this size carries.
+
+%[3]s`, lookaheadConst, readAheadConst, readAheadNote())))
 	line(b, "const (")
 	line(b, "%s = %d", lookaheadConst, f.lookahead)
 	line(b, "%s = %d", readAheadConst, f.readAhead())
 	line(b, ")")
 }
 
-// readAhead is how big the reader's buffer is: enough for the deepest predicate
-// target of any state, and never smaller than bufio's own default.
+// bufioDefault is bufio.NewReader's own buffer size, which is where the
+// generated reader's read-ahead starts.
+//
+// Named rather than written twice, because the emitted comment argues about
+// this number and [filer.readAhead] computes with it, and the argument is only
+// true while they are the same number.
+const bufioDefault = 4096
+
+// readAheadNote is the paragraph both forms of the read-ahead declaration
+// carry: why the size is what it is, and what an adopter does when it is not
+// enough.
+//
+// It is here rather than in either branch above because it is the same answer
+// in both — the size is not a throughput decision, and the buffer is not where
+// a throughput decision would go. See README.md, "Decided: the read-ahead
+// buffer is a constant".
+func readAheadNote() string {
+	return fmt.Sprintf(`Nothing derives that size from these records: %[1]d is bufio's own default,
+and what a larger buffer would be worth is a property of what a read of the
+file costs — the filesystem it sits on, and what the host does on the way to
+it — which no descriptor carries. Where a read is expensive, hand %[2]s a
+reader that is already buffered and this one draws from that rather than
+from the operating system:
+
+	r, err := %[2]s(bufio.NewReaderSize(f, 1<<20), %[3]s())`,
+		bufioDefault, newReaderFunc, encodingFunc)
+}
+
+// readAhead is how big the reader's buffer is: bufio's own default, and the
+// deepest predicate target of any state where that does not hold it.
+//
+// A constant rather than a value derived from the record's extent or an option
+// on the plugin contract; README.md's "Decided: the read-ahead buffer is a
+// constant" is the argument, and [readAheadNote] is what the generated file
+// tells an adopter about it. What is not a decision is the floor: a lookahead
+// the buffer cannot hold is a Peek that can never be satisfied, so the maximum
+// below is the whole of this function.
 func (f *filer) readAhead() int {
-	if f.lookahead > 4096 {
+	if f.lookahead > bufioDefault {
 		return f.lookahead
 	}
 
-	return 4096
+	return bufioDefault
 }
 
 // emitPredicates writes one function per transition carrying a predicate.

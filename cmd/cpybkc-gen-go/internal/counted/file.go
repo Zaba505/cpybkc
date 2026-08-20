@@ -36,11 +36,24 @@ type Record interface {
 // See docs/ir/SPEC.md, "A delimiter is bytes, not a character".
 var delimiter = []byte("\x15")
 
-// lookahead is how far in front of a record the reader has to see to evaluate the
-// predicates of the state it is in, and readAhead is the buffer that guarantees it.
+// lookahead is how far in front of a record the reader has to see to evaluate
+// the predicates of the state it is in, and readAhead is the buffer that
+// guarantees it.
 //
-// A predicate's target has a constant position within the record it belongs to,
-// so this is a number the descriptor fixes rather than one the data moves.
+// A predicate's target has a constant position within the record it belongs
+// to, so this is a number the descriptor fixes rather than one the data
+// moves. readAhead is never below it — a window the buffer cannot hold is a
+// Peek that can never be satisfied — which is the whole of the correctness
+// this size carries.
+//
+// Nothing derives that size from these records: 4096 is bufio's own default,
+// and what a larger buffer would be worth is a property of what a read of the
+// file costs — the filesystem it sits on, and what the host does on the way to
+// it — which no descriptor carries. Where a read is expensive, hand NewReader a
+// reader that is already buffered and this one draws from that rather than
+// from the operating system:
+//
+//	r, err := NewReader(bufio.NewReaderSize(f, 1<<20), Encoding())
 const (
 	lookahead = 1
 	readAhead = 4096
