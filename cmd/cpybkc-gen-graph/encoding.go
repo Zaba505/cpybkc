@@ -27,9 +27,9 @@ import (
 // trust a layout, so an axis defaulted here is a wrong fact handed to the
 // person with nothing to check it against — the same error a reader makes, not
 // a smaller one. And a rule binding only the axes a consumer happens to read
-// today is a rule that narrows silently: the day this document gains a column
-// stating an item's byte order, the descriptors it accepts change with nothing
-// in the diff saying so. A descriptor reaching any consumer with an axis unset
+// today is a rule that narrows silently: the day the item table gains a column
+// stating an item's byte order, the descriptors this generator accepts change
+// with nothing in the diff saying so. A descriptor reaching any consumer with an axis unset
 // is a bug in `resolve`, and refusing is how this one says so instead of
 // drawing over it.
 //

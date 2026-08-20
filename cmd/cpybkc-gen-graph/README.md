@@ -518,10 +518,10 @@ reads one of the five. It is not stricter than it needs to be. A diagram is
 what an adopter checks a layout against before trusting it, so an axis
 defaulted here is a wrong fact handed to the person with nothing to check it
 against; and a rule binding only the axes a generator happens to read today
-would narrow the day that generator gained a column stating another.
-[`ir/SPEC.md`](../../docs/ir/SPEC.md)'s "Which consumers the rule binds" is the
-argument in full, and it binds a third-party generator the same way it binds
-this one.
+would narrow the day that generator gained a column stating another. [Which
+consumers the rule
+binds](../../docs/ir/SPEC.md#which-consumers-the-rule-binds) is the argument in
+full, and it binds a third-party generator the same way it binds this one.
 
 What is *not* refused is an axis in a part of the descriptor this program does
 not draw. Under `--opt records=none` no item table is written, so a record

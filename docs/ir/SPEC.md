@@ -1882,10 +1882,9 @@ diagram that spells a discriminator's literal as text where the field carries no
 charset, or that describes an item's width as a count of characters where its
 bytes are a payload, has stated something about the file the descriptor never
 said — and has stated it to the person deciding whether to trust the layout,
-which is the one artifact whose entire purpose is that decision. Defaulting an
-axis there is not a smaller error than defaulting one in a reader; it is the
-same error, delivered by hand to somebody with no second source to check it
-against.
+which is the whole of what a diagram is drawn for. Defaulting an axis there is
+not a smaller error than defaulting one in a reader; it is the same error,
+delivered by hand to somebody with no second source to check it against.
 
 The other rule cannot be written without a boundary nobody can hold. It would
 have to divide consumers into those that lay bytes out and those that only
