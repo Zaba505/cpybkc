@@ -1835,7 +1835,9 @@ Every field node **MUST** carry all five axes, resolved, and a producer
 default for a missing axis, and **MUST** treat a field missing one as a
 malformed descriptor rather than filling it in: an IR that reached a generator
 with an axis unresolved is a bug in `resolve`, and papering over it is exactly
-how a silently-failing setting produces a silent failure.
+how a silently-failing setting produces a silent failure. [Which consumers the
+rule binds](#which-consumers-the-rule-binds) says which consumers "a consumer"
+is, and why it is all of them.
 
 Four of the five and the fifth are answered by different facts, and the
 difference is worth stating once here because nothing downstream can see it. The
@@ -1860,6 +1862,63 @@ the mixed record `codec/SPEC.md` describes is the ordinary case here rather than
 an exception. And which axes actually govern a given field's bytes — charset
 does not touch packed decimal — is `codec/SPEC.md`'s answer, not a second table
 in this document. The IR names the axes; what the bytes are is answered there.
+
+### Which consumers the rule binds
+
+"A consumer", above, is **every** consumer, and one that lays no bytes out is
+not exempt (#297). A generator emitting a reader, a renderer drawing a diagram,
+a checker reporting on a descriptor: each **MUST** refuse a field whose encoding
+leaves an axis unset, and none of them **MAY** supply a default for one.
+
+The reading this rules out is the plausible one, which is why it is ruled out
+here rather than left to be inferred. Every axis is described above as failing
+silently *when the bytes are read*, and a consumer that reads no bytes might be
+thought to inherit no duty from that: it computes no offset, so it can get none
+wrong. That reading was considered and rejected, for three reasons that are not
+the ones the sentence itself suggests.
+
+The axes decide what a renderer *says*, and not only what a reader *does*. A
+diagram that spells a discriminator's literal as text where the field carries no
+charset, or that describes an item's width as a count of characters where its
+bytes are a payload, has stated something about the file the descriptor never
+said — and has stated it to the person deciding whether to trust the layout,
+which is the one artifact whose entire purpose is that decision. Defaulting an
+axis there is not a smaller error than defaulting one in a reader; it is the
+same error, delivered by hand to somebody with no second source to check it
+against.
+
+The other rule cannot be written without a boundary nobody can hold. It would
+have to divide consumers into those that lay bytes out and those that only
+describe them, and that division is not a property of a program but of a program
+*this week*: a renderer that gains an offset column, a hex example or a size
+total has crossed the line with nothing in its diff saying so. A scope that
+changes when a feature is added is a scope a plugin author cannot check
+themselves against, and a plugin author with no way to tell which rule they are
+under is the failure this section exists to remove.
+
+And refusing is cheap exactly where the descriptor is not. It costs a consumer
+one comparison per axis at the point it first reads a field, and what it catches
+is a bug in `resolve` — which no consumer can fix and every consumer is placed
+to report. A second consumer refusing is a second place that bug is caught
+before an adopter meets it, and it is worth most from the consumer that draws
+the picture, because that is the one an adopter consults first.
+
+What the rule does **not** require is that a consumer refuse a descriptor over a
+part of it the consumer never reads. A renderer drawing only the sequencing
+automaton, or a generator emitting code for one record of several, refuses on
+the fields it reaches and is not obliged to walk the rest to find more: refusing
+over something its own output does not describe would be refusing on somebody
+else's behalf, and would make a diagnostic depend on which sections a caller
+asked for. The duty attaches to reading a field, not to holding a descriptor.
+
+`cpybkc-gen-graph` is the worked case, and it is why this is written down. It
+reads one axis, the charset, in two places — whether an item's picture is drawn
+with "no charset" beside it, and whether a predicate's literals are spelled as
+text or as hex — and it lays no bytes out at all. It refuses all five all the
+same, at the two places it reads a field: the item table's walk, and the
+resolution of a predicate against the field it tests. Under `--opt
+records=none` no item table is drawn and the first of those is never reached,
+which is the previous paragraph rather than an exception to this one.
 
 ### An item with no charset carries bytes, not characters
 
@@ -3835,7 +3894,7 @@ records offer them.
 | [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve` |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir`; what a binary item's width depends on, and the requirement that a descriptor say which staircase it was resolved under, by #293 |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
-| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293 |
+| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir` |

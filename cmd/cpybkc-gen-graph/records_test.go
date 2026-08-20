@@ -937,10 +937,11 @@ func numericEditedPicture(digits uint32, scale int32, sign bool) *irpb.Picture {
 // [fieldNode] deliberately does not offer.
 func pictureFieldNode(id uint64, original string, width uint32, usage irpb.Usage, picture *irpb.Picture) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width:   width,
-		Usage:   usage,
-		Picture: picture,
-		Names:   &irpb.Names{Original: original},
+		Width:    width,
+		Usage:    usage,
+		Picture:  picture,
+		Names:    &irpb.Names{Original: original},
+		Encoding: resolvedEncoding(irpb.Charset_CHARSET_CP037),
 	}}}
 }
 
@@ -988,9 +989,10 @@ func registerCount(register uint64, min, max uint32) *irpb.Repetition {
 // beside, and the schema makes the original the member that must be present.
 func fillerFieldNode(id uint64, width uint32) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width:   width,
-		Usage:   irpb.Usage_USAGE_DISPLAY,
-		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+		Width:    width,
+		Usage:    irpb.Usage_USAGE_DISPLAY,
+		Picture:  &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+		Encoding: resolvedEncoding(irpb.Charset_CHARSET_CP037),
 	}}}
 }
 

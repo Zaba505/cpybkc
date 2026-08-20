@@ -411,7 +411,20 @@ func predicateResolved(nodes nodeSet, id uint64, record *irpb.Record, position s
 	// so this lookup cannot fail; it is written as a lookup rather than threaded
 	// out of [fieldPath] because the path and the encoding are two different
 	// questions about the same node.
+	//
+	// The axes are refused before the one of them this reads is used. An
+	// unresolved charset would take the same side of the test below as an
+	// EBCDIC one and draw the literal as hex, which is a spelling this document
+	// would be stating on its own authority rather than on the descriptor's —
+	// the default docs/ir/SPEC.md, "Which consumers the rule binds" forbids a
+	// consumer to supply, and the reason that section binds a consumer that
+	// draws no bytes. This is the second of the two places a field is read
+	// here, and it is the one `--opt records=none` does not switch off.
 	if target, ok := nodes.field(node.GetFieldId()); ok {
+		if err := resolved(target.GetEncoding()); err != nil {
+			return predicate{}, err
+		}
+
 		p.text = target.GetEncoding().GetCharset() == irpb.Charset_CHARSET_ASCII
 	}
 

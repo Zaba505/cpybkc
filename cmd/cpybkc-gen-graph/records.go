@@ -472,6 +472,20 @@ func (w *itemWalk) slack(s *irpb.Slack, path []element, at span, chosen presence
 
 // field is one elementary item.
 func (w *itemWalk) field(id uint64, f *irpb.Field, path []element, at span, chosen presence) (span, error) {
+	// Ahead of everything the row is spelled from, because the encoding is what
+	// the rest of the row is spelled in terms of: [withCharset] annotates the
+	// picture off one of the five axes, and a picture drawn from an encoding
+	// that states none of them is a cell filled in from a default this consumer
+	// is not allowed to supply. See [resolved], and docs/ir/SPEC.md, "Which
+	// consumers the rule binds".
+	//
+	// Here rather than in [recordItems] because it is a check on a field, and
+	// this is the walk's one arrival at one: a group and a variant carry no
+	// encoding, and slack is bytes no item covers.
+	if err := resolved(f.GetEncoding()); err != nil {
+		return span{}, err
+	}
+
 	name, anonymous, err := itemName(f.GetNames(), id)
 	if err != nil {
 		return span{}, err
