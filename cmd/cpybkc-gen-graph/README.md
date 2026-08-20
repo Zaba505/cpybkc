@@ -510,8 +510,10 @@ the output directory; no particular non-zero value means anything beyond that.
 
 Every field node carries five encoding axes — charset, sign convention, byte
 order, float format, binary width staircase — and a field leaving one unset is
-refused rather than drawn, wherever this program reads a field: the items of a
-record it tables, and the field a predicate tests.
+refused rather than drawn, wherever this program reads a field's *encoding*: the
+items of a record it tables, and the field a predicate tests. Reading a field's
+*name* — for a register binding's label, say — asks nothing of the encoding and
+refuses nothing.
 
 That looks stricter than a program laying no bytes out needs to be, and it
 reads one of the five. It is not stricter than it needs to be. A diagram is

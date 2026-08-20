@@ -1905,18 +1905,31 @@ the picture, because that is the one an adopter consults first.
 What the rule does **not** require is that a consumer refuse a descriptor over a
 part of it the consumer never reads. A renderer drawing only the sequencing
 automaton, or a generator emitting code for one record of several, refuses on
-the fields it reaches and is not obliged to walk the rest to find more: refusing
-over something its own output does not describe would be refusing on somebody
-else's behalf, and would make a diagnostic depend on which sections a caller
-asked for. The duty attaches to reading a field, not to holding a descriptor.
+the fields whose encoding it reaches and is not obliged to walk the rest to find
+more: refusing over something its own output does not describe would be refusing
+on somebody else's behalf, and would make a diagnostic depend on which sections
+a caller asked for.
+
+The duty therefore attaches to **reading a field's encoding**, and not to
+reading a field, nor to holding a descriptor. Taking a field's *name* — to label
+an edge with it, to build a path out of it, to say which field a register was
+bound from — obliges a consumer to nothing here, because a name is not an axis
+and nothing about it can be silently defaulted. That is a narrower duty than
+"reading a field", and it is the one that can be met: a consumer knows exactly
+when it has asked for an encoding. It does not weaken the argument two
+paragraphs above, because the day a renderer gains a column stating an item's
+byte order is the day it starts reading an encoding, and the duty arrives with
+the column.
 
 `cpybkc-gen-graph` is the worked case, and it is why this is written down. It
 reads one axis, the charset, in two places — whether an item's picture is drawn
 with "no charset" beside it, and whether a predicate's literals are spelled as
 text or as hex — and it lays no bytes out at all. It refuses all five all the
-same, at the two places it reads a field: the item table's walk, and the
-resolution of a predicate against the field it tests. Under `--opt
-records=none` no item table is drawn and the first of those is never reached,
+same, at the two places it reads a field's encoding: the item table's walk, and
+the resolution of a predicate against the field it tests. It reads a field's
+*name* in a third place, for the label on a register's binding, and refuses
+nothing there. Under `--opt records=none` no item table is drawn and the first
+of the two is never reached,
 which is the previous paragraph rather than an exception to this one.
 
 ### An item with no charset carries bytes, not characters

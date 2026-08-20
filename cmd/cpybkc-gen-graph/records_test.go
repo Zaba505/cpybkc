@@ -530,15 +530,31 @@ func TestAMalformedItemIsOnlyReadWhereItIsDrawn(t *testing.T) {
 
 	// A field carrying no USAGE at all, which is a producer bug and not a
 	// copybook a reader could fix.
+	//
+	// Its encoding is resolved, and that is not decoration. [itemWalk.field]
+	// refuses an unresolved encoding ahead of the USAGE check, so a fixture
+	// left short of one would still fail this test — for the wrong reason,
+	// with the USAGE this test is named after never reached.
 	broken := oneRecordAutomaton(
 		edgeNode(30, 100, 2, nil, nil, nil),
 		&irpb.Node{
-			Id:   101,
-			Kind: &irpb.Node_Field{Field: &irpb.Field{Width: 1, Names: &irpb.Names{Original: "TYPE-CODE"}}},
+			Id: 101,
+			Kind: &irpb.Node_Field{Field: &irpb.Field{
+				Width:    1,
+				Names:    &irpb.Names{Original: "TYPE-CODE"},
+				Encoding: resolvedEncoding(irpb.Charset_CHARSET_CP037),
+			}},
 		})
 
-	if _, err := read(broken, defaults()); err == nil {
-		t.Error("read drew a table over an item the descriptor does not describe")
+	_, err := read(broken, defaults())
+	if err == nil {
+		t.Fatal("read drew a table over an item the descriptor does not describe")
+	}
+
+	// Named rather than merely non-nil, so that a refusal arriving from
+	// somewhere earlier in the walk cannot stand in for this one.
+	if !strings.Contains(err.Error(), "which this generator has no name for") {
+		t.Errorf("the refusal reads %q, and is not the one this test is about", err)
 	}
 
 	sequencing := options{records: recordsNone}.defaulted()

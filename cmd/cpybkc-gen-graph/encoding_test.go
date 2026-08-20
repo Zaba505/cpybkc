@@ -54,9 +54,12 @@ func TestAnItemLeavingAnEncodingAxisUnsetIsRefused(t *testing.T) {
 			axis:  "float format",
 		},
 		{
-			name:  "binary size",
+			// Named as docs/ir/SPEC.md names the axis and not as the schema
+			// names the field: the diagnostic's job is to get a reader to the
+			// rule, and the rule calls it the staircase.
+			name:  "binary width staircase",
 			clear: func(e *irpb.Encoding) { e.BinarySize = irpb.BinarySize_BINARY_SIZE_UNSPECIFIED },
-			axis:  "binary size",
+			axis:  "binary width staircase",
 		},
 	}
 
@@ -79,6 +82,14 @@ func TestAnItemLeavingAnEncodingAxisUnsetIsRefused(t *testing.T) {
 
 			if !strings.Contains(err.Error(), "unresolved") {
 				t.Errorf("the refusal reads %q, and does not say the axis is unresolved", err)
+			}
+
+			// The item as well as the axis. A refusal naming neither the item
+			// nor its identifier is true of every field in the record and
+			// actionable on none of them, and the axis assertions above would
+			// pass just as well without it.
+			if !strings.Contains(err.Error(), "DTL-COUNT") {
+				t.Errorf("the refusal reads %q, and does not name the item it is about", err)
 			}
 		})
 	}
@@ -109,14 +120,14 @@ func TestAnItemCarryingNoEncodingAtAllIsRefused(t *testing.T) {
 		t.Fatal("read drew a table over an item carrying no encoding at all")
 	}
 
-	if !strings.Contains(err.Error(), "carries no encoding") {
-		t.Errorf("the refusal reads %q, and does not say the item carries no encoding", err)
+	if !strings.Contains(err.Error(), "DTL-COUNT carries no encoding") {
+		t.Errorf("the refusal reads %q, and does not say which item carries no encoding", err)
 	}
 }
 
 // TestAPredicatesTargetLeavingAnAxisUnsetIsRefused is the second of the two
-// places this generator reads a field, and the one the item tables' option does
-// not switch off.
+// places this generator reads a field's encoding, and the one the item tables'
+// option does not switch off.
 //
 // A predicate's literals are spelled as text or as hex from the target field's
 // charset, so an unresolved charset there is not a missing cell — it is a
@@ -148,17 +159,21 @@ func TestAPredicatesTargetLeavingAnAxisUnsetIsRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), "charset") {
 		t.Errorf("the refusal reads %q, and does not name the axis that is unset", err)
 	}
+
+	if !strings.Contains(err.Error(), "KIND") {
+		t.Errorf("the refusal reads %q, and does not name the item it is about", err)
+	}
 }
 
 // TestAnUnresolvedItemIsOnlyRefusedWhereItIsRead is the limit on the rule, and
 // the reason [read] takes the options rather than the emitter alone.
 //
 // docs/ir/SPEC.md's "Which consumers the rule binds" attaches the duty to
-// reading a field rather than to holding a descriptor: refusing over a part of
-// the message this document does not describe would be refusing on somebody
-// else's behalf, and would make the diagnostic depend on which sections the
-// caller asked for. So an item no table draws and no predicate tests is passed
-// over under `records=none`, exactly as
+// reading a field's encoding rather than to holding a descriptor: refusing over
+// a part of the message this document does not describe would be refusing on
+// somebody else's behalf, and would make the diagnostic depend on which
+// sections the caller asked for. So an item no table draws and no predicate
+// tests is passed over under `records=none`, exactly as
 // [TestAMalformedItemIsOnlyReadWhereItIsDrawn] has a field carrying no USAGE
 // passed over.
 //

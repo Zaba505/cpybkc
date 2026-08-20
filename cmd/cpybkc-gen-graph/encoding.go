@@ -29,9 +29,9 @@ import (
 // a smaller one. And a rule binding only the axes a consumer happens to read
 // today is a rule that narrows silently: the day the item table gains a column
 // stating an item's byte order, the descriptors this generator accepts change
-// with nothing in the diff saying so. A descriptor reaching any consumer with an axis unset
-// is a bug in `resolve`, and refusing is how this one says so instead of
-// drawing over it.
+// with nothing in the diff saying so. A descriptor reaching any consumer with
+// an axis unset is a bug in `resolve`, and refusing is how this one says so
+// instead of drawing over it.
 //
 // Written here rather than imported from cmd/cpybkc-gen-go, which carries the
 // same check under the same name. That is the reason this command's package
@@ -43,9 +43,16 @@ import (
 // oversight in it — and this check is the one place that claim is load bearing,
 // because a third-party generator has to arrive at the same refusal from the
 // specification alone.
-func resolved(enc *irpb.Encoding) error {
+//
+// item is what the refusal calls the field it is about, from [itemNamed]. It is
+// threaded in rather than composed here because the failure is a bug in
+// `resolve` that somebody has to go and find: "an item's encoding leaves byte
+// order unresolved" is true of a copybook with three hundred elementary items
+// and actionable on none of them, and both call sites are holding the node's
+// identity when they ask.
+func resolved(enc *irpb.Encoding, item string) error {
 	if enc == nil {
-		return malformed("an item carries no encoding", axesRule)
+		return malformed(item+" carries no encoding", axesRule)
 	}
 
 	unset := make([]string, 0, 5)
@@ -66,15 +73,34 @@ func resolved(enc *irpb.Encoding) error {
 		unset = append(unset, "float format")
 	}
 
+	// Named as docs/ir/SPEC.md names the axis rather than as the schema names
+	// the field. `BinarySize` is what the message calls it and "binary width
+	// staircase" is what the rule an adopter is about to go and read calls it,
+	// and the diagnostic's whole job is to get them to that rule.
 	if enc.GetBinarySize() == irpb.BinarySize_BINARY_SIZE_UNSPECIFIED {
-		unset = append(unset, "binary size")
+		unset = append(unset, "binary width staircase")
 	}
 
 	if len(unset) == 0 {
 		return nil
 	}
 
-	return malformed(fmt.Sprintf("an item's encoding leaves %s unresolved", english(unset)), axesRule)
+	return malformed(fmt.Sprintf("the encoding of %s leaves %s unresolved", item, english(unset)), axesRule)
+}
+
+// itemNamed is what a refusal from [resolved] calls the item it is about: the
+// name a table would show it under, and its node identifier where it has none.
+//
+// A FILLER has no name, so the identifier is not a fallback for a missing
+// lookup here — it is the only thing there is to say about an item COBOL
+// declined to name, and it is what the reader needs to find the node in an
+// emitted descriptor.
+func itemNamed(f *irpb.Field, id uint64) string {
+	if name := strings.TrimSpace(nameOf(f.GetNames())); name != "" {
+		return name
+	}
+
+	return fmt.Sprintf("node %d", id)
 }
 
 // axesRule is the `note:` line both refusals above carry.
