@@ -407,13 +407,37 @@ func predicateResolved(nodes nodeSet, id uint64, record *irpb.Record, position s
 	// of none is the axis saying the field holds bytes rather than characters,
 	// so it takes the same side of this test as an EBCDIC one and for a
 	// stronger reason: there is no character for a literal over it to be spelled
-	// as. The resolution above has already established that the field is there,
-	// so this lookup cannot fail; it is written as a lookup rather than threaded
-	// out of [fieldPath] because the path and the encoding are two different
-	// questions about the same node.
-	if target, ok := nodes.field(node.GetFieldId()); ok {
-		p.text = target.GetEncoding().GetCharset() == irpb.Charset_CHARSET_ASCII
+	// as. It is written as a lookup rather than threaded out of [fieldPath]
+	// because the path and the encoding are two different questions about the
+	// same node.
+	//
+	// The axes are refused before the one of them this reads is used. An
+	// unresolved charset would take the same side of the test below as an
+	// EBCDIC one and draw the literal as hex, which is a spelling this document
+	// would be stating on its own authority rather than on the descriptor's —
+	// the default docs/ir/SPEC.md, "Which consumers the rule binds" forbids a
+	// consumer to supply, and the reason that section binds a consumer that
+	// draws no bytes. This is the second of the two places this generator reads
+	// a field's encoding, and it is the one `--opt records=none` does not
+	// switch off.
+	//
+	// A miss refuses rather than falling through, and that is this rule applied
+	// to itself. [fieldPath] resolved the same identifier a few lines up, so a
+	// miss here is not reachable from a descriptor — but a silent one would
+	// leave `text` at its zero value, which is the hex side, and reaching the
+	// hex side without the descriptor having said so is exactly what the check
+	// above exists to stop. An unreachable branch that defaults an axis is
+	// still a branch that defaults an axis.
+	target, ok := nodes.field(node.GetFieldId())
+	if !ok {
+		return predicate{}, unresolved(node.GetFieldId(), fmt.Sprintf("the field predicate %d tests", id))
 	}
+
+	if err := resolved(target.GetEncoding(), itemNamed(target, node.GetFieldId())); err != nil {
+		return predicate{}, err
+	}
+
+	p.text = target.GetEncoding().GetCharset() == irpb.Charset_CHARSET_ASCII
 
 	return p, nil
 }

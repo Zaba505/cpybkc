@@ -477,6 +477,23 @@ func (w *itemWalk) field(id uint64, f *irpb.Field, path []element, at span, chos
 		return span{}, err
 	}
 
+	// Behind the name and ahead of everything the row is spelled from, which is
+	// the one position that gets both halves right. Behind it, because a
+	// refusal that cannot say which item it is about sends a reader looking
+	// through a record with three hundred of them. Ahead of [described],
+	// because the encoding is what the rest of the row is spelled in terms of:
+	// [withCharset] annotates the picture off one of the five axes, and a
+	// picture drawn from an encoding that states none of them is a cell filled
+	// in from a default this consumer is not allowed to supply. See [resolved],
+	// and docs/ir/SPEC.md, "Which consumers the rule binds".
+	//
+	// Here rather than in [recordItems] because it is a check on a field, and
+	// this is the walk's one arrival at one: a group and a variant carry no
+	// encoding, and slack is bytes no item covers.
+	if err := resolved(f.GetEncoding(), itemNamed(f, id)); err != nil {
+		return span{}, err
+	}
+
 	usage, picture, err := described(f)
 	if err != nil {
 		return span{}, err

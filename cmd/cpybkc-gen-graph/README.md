@@ -506,6 +506,31 @@ Everything this program has to say goes to standard error as
 only severities. A non-zero exit means the invocation failed and cpybkc discards
 the output directory; no particular non-zero value means anything beyond that.
 
+### A descriptor with an unresolved encoding is refused
+
+Every field node carries five encoding axes — charset, sign convention, byte
+order, float format, binary width staircase — and a field leaving one unset is
+refused rather than drawn, wherever this program reads a field's *encoding*: the
+items of a record it tables, and the field a predicate tests. Reading a field's
+*name* — for a register binding's label, say — asks nothing of the encoding and
+refuses nothing.
+
+That looks stricter than a program laying no bytes out needs to be, and it
+reads one of the five. It is not stricter than it needs to be. A diagram is
+what an adopter checks a layout against before trusting it, so an axis
+defaulted here is a wrong fact handed to the person with nothing to check it
+against; and a rule binding only the axes a generator happens to read today
+would narrow the day that generator gained a column stating another. [Which
+consumers the rule
+binds](../../docs/ir/SPEC.md#which-consumers-the-rule-binds) is the argument in
+full, and it binds a third-party generator the same way it binds this one.
+
+What is *not* refused is an axis in a part of the descriptor this program does
+not draw. Under `--opt records=none` no item table is written, so a record
+item's encoding is never read and never refused; the field a predicate tests is
+read either way, because its charset is what decides whether the literal beside
+it appears as text or as hex.
+
 ## Why the name is `graph`
 
 The notation is an option, so the executable may not be called `cpybkc-gen-dot`

@@ -194,7 +194,15 @@ func TestATargetInASCIIIsTheOnlyLiteralDrawnAsText(t *testing.T) {
 	}{
 		{name: "ascii", charset: irpb.Charset_CHARSET_ASCII, want: `when ENTRY.SUB.KIND = "H"`},
 		{name: "cp037", charset: irpb.Charset_CHARSET_CP037, want: "when ENTRY.SUB.KIND = 0x48"},
-		{name: "unset", charset: irpb.Charset_CHARSET_UNSPECIFIED, want: "when ENTRY.SUB.KIND = 0x48"},
+
+		// There is no `unset` case here, and its absence is the decision #297
+		// took. An unresolved charset used to fall to this side of the test and
+		// draw the literal as hex, which is the default docs/ir/SPEC.md,
+		// "Which consumers the rule binds" forbids a consumer to supply —
+		// including one that lays no bytes out. It is now a refusal, held by
+		// [TestAPredicatesTargetLeavingAnAxisUnsetIsRefused], and a row here
+		// asserting the spelling would be asserting that this generator still
+		// draws a descriptor it must not read.
 
 		// `none` is the axis saying the field holds bytes rather than
 		// characters, so it takes the bytes side for a stronger reason than
@@ -1086,23 +1094,44 @@ func decrementBinding(id, reg uint64) *irpb.Node {
 
 // fieldNode is an elementary item, with the name a path is built out of.
 //
-// It carries no encoding, which is a charset this generator cannot name and so
-// a literal it prints as bytes — the case every fixture here but
-// [encodedFieldNode]'s wants.
+// It carries a resolved encoding, a USAGE and a picture, because a descriptor
+// missing any of the three is one no producer emits: the item table draws the
+// last two and refuses an item that states neither, and [resolved] refuses a
+// field whose encoding leaves an axis unset wherever this generator reads one.
+// A fixture short of them would be testing this generator against a message
+// `resolve` cannot produce, which is [unresolvedFieldNode]'s job and no other
+// fixture's.
 //
-// It does carry a USAGE and a picture, because a record's item table draws both
-// and refuses an item that states neither: docs/ir/SPEC.md has a producer set
-// them on every field, and a fixture that left them off would be a descriptor
-// no producer emits. Alphanumeric is the choice that says nothing — a field
-// these fixtures reach for is one a predicate tests or a binding reads, and the
-// automaton is what they are about.
+// The choices are the ones that say nothing. Alphanumeric, because a field
+// these fixtures reach for is one a predicate tests or a binding reads and the
+// automaton is what they are about; and cp037 for the charset, because it is a
+// charset this generator has no special reading of — a literal over it prints
+// as bytes, which is what every fixture here but [encodedFieldNode]'s wants.
 func fieldNode(id uint64, original string, width uint32) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width:   width,
-		Usage:   irpb.Usage_USAGE_DISPLAY,
-		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
-		Names:   &irpb.Names{Original: original},
+		Width:    width,
+		Usage:    irpb.Usage_USAGE_DISPLAY,
+		Picture:  &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
+		Names:    &irpb.Names{Original: original},
+		Encoding: resolvedEncoding(irpb.Charset_CHARSET_CP037),
 	}}}
+}
+
+// resolvedEncoding is an encoding with all five axes set, which is the only
+// kind a producer may emit and the only kind these fixtures carry.
+//
+// The four beside the charset are a mainframe file's ordinary answers rather
+// than anything a test turns on: nothing this generator draws reads them, and
+// what they are for is being *present*, so that a fixture is a descriptor
+// rather than a half of one.
+func resolvedEncoding(charset irpb.Charset) *irpb.Encoding {
+	return &irpb.Encoding{
+		Charset:        charset,
+		SignConvention: irpb.SignConvention_SIGN_CONVENTION_EBCDIC,
+		ByteOrder:      irpb.ByteOrder_BYTE_ORDER_BIG_ENDIAN,
+		FloatFormat:    irpb.FloatFormat_FLOAT_FORMAT_IBM_HFP,
+		BinarySize:     irpb.BinarySize_BINARY_SIZE_248,
+	}
 }
 
 // numericFieldNode is the same item as a zoned decimal of that many digits,
@@ -1113,21 +1142,28 @@ func fieldNode(id uint64, original string, width uint32) *irpb.Node {
 // somebody else's copybook.
 func numericFieldNode(id uint64, original string, width uint32, digits uint32) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
-		Width:   width,
-		Usage:   irpb.Usage_USAGE_DISPLAY,
-		Picture: &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: digits},
-		Names:   &irpb.Names{Original: original},
+		Width:    width,
+		Usage:    irpb.Usage_USAGE_DISPLAY,
+		Picture:  &irpb.Picture{Category: irpb.Category_CATEGORY_NUMERIC, Digits: digits},
+		Names:    &irpb.Names{Original: original},
+		Encoding: resolvedEncoding(irpb.Charset_CHARSET_CP037),
 	}}}
 }
 
-// encodedFieldNode is the same item with a charset on it, which is the one
-// thing that decides whether a predicate's literals are drawn as text.
+// encodedFieldNode is the same item with a charset of the caller's choosing,
+// which is the one axis that decides anything this generator draws: whether a
+// predicate's literals appear as text, and whether the picture column says the
+// item's bytes are not characters.
+//
+// The other four are still set, by [resolvedEncoding]. A fixture that named a
+// charset and left them off would be exercising the charset against a
+// descriptor [resolved] refuses before it reads one.
 func encodedFieldNode(id uint64, original string, width uint32, charset irpb.Charset) *irpb.Node {
 	return &irpb.Node{Id: id, Kind: &irpb.Node_Field{Field: &irpb.Field{
 		Width:    width,
 		Usage:    irpb.Usage_USAGE_DISPLAY,
 		Picture:  &irpb.Picture{Category: irpb.Category_CATEGORY_ALPHANUMERIC},
 		Names:    &irpb.Names{Original: original},
-		Encoding: &irpb.Encoding{Charset: charset},
+		Encoding: resolvedEncoding(charset),
 	}}}
 }
