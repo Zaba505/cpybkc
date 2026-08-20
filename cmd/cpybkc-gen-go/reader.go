@@ -57,7 +57,21 @@ func (f *filer) emitReader(b *strings.Builder, walks [][]transition) error {
 		line(b, "// record is what codec refuses to allow.")
 		line(b, "cr *codec.Reader")
 	} else {
-		line(b, "enc codec.Encoding")
+		line(b, "")
+		line(b, "// cr decodes the record being read, and is the only one this reader")
+		line(b, "// builds: the framing says nothing about where a record ends, so the")
+		line(b, "// record's bytes come off the same input the framing does and are never")
+		line(b, "// held — and [%s.admit] rewinds this onto that input for each record", readerType)
+		line(b, "// rather than constructing one over it. A rewind onto a stream reads")
+		line(b, "// nothing and discards nothing, which is what lets everything drawn off")
+		line(b, "// that input — this record, the framing around it, and the record behind")
+		line(b, "// it — go on sharing it across a rewind. Everything the encoding derives —")
+		line(b, "// the zoned decimal byte tables, the alphanumeric translation table and the")
+		line(b, "// scratch buffers every field is read into — is built once for the file and")
+		line(b, "// survives every rewind, which is why the encoding is not kept beside it:")
+		line(b, "// codec.Reader carries it, and one that could be swapped under a half-read")
+		line(b, "// record is what codec refuses to allow.")
+		line(b, "cr *codec.Reader")
 	}
 
 	line(b, "")
@@ -99,6 +113,19 @@ func (f *filer) emitReader(b *strings.Builder, walks [][]transition) error {
 		line(b, "// holds its source field's bytes as they appear in the record. It is")
 		line(b, "// reused between records, and a binding copies out of it.")
 		line(b, "raw []byte")
+		line(b, "")
+		line(b, "// tap is what [%s.cr] is rewound onto, and it is a field of this reader", readerType)
+		line(b, "// rather than a value built per record. Neither of the things it holds is")
+		line(b, "// a record's — the input every record is drawn off, and the address of the")
+		line(b, "// field above, which does not move when the slice it holds is regrown.")
+		line(b, "//")
+		line(b, "// Hoisting it is the other half of hoisting the decoder rather than a")
+		line(b, "// detail of it: it escapes into the decoder, so one built per record")
+		line(b, "// would be exactly the allocation per record the rewind was for.")
+		line(b, "// [%s.admit] points it at this reader before each rewind, which is two", readerType)
+		line(b, "// field stores and no allocation — and is why a %s value copied out of", readerType)
+		line(b, "// one cannot go on writing into the original's bytes.")
+		line(b, "tap %s", recordingType)
 	}
 
 	if f.how == delimited && f.placement == irpb.DelimiterPlacement_DELIMITER_PLACEMENT_SEPARATOR {
@@ -151,29 +178,24 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 
 	if f.how.bounded() {
 		line(b, "// The one decoder this reader builds, over no bytes until a record is in")
-		line(b, "// hand. Construction is what validates the encoding, and it reports the")
-		line(b, "// same error for the same axis that enc.Validate does, so nothing is")
-		line(b, "// checked twice here.")
-		line(b, "cr, err := codec.NewBytesReader(nil, enc)")
-		line(b, "if err != nil {")
-		line(b, "return nil, err")
-		line(b, "}")
+		line(b, "// hand.")
 	} else {
-		line(b, "if err := enc.Validate(); err != nil {")
-		line(b, "return nil, err")
-		line(b, "}")
+		line(b, "// The one decoder this reader builds, over no bytes until [%s.admit]", readerType)
+		line(b, "// rewinds it onto the input.")
 	}
 
+	line(b, "//")
+	line(b, "// Construction is what validates the encoding, and it reports the same error")
+	line(b, "// for the same axis that enc.Validate does, so nothing is checked twice here.")
+	line(b, "cr, err := codec.NewBytesReader(nil, enc)")
+	line(b, "if err != nil {")
+	line(b, "return nil, err")
+	line(b, "}")
 	line(b, "")
+
 	line(b, "return &%s{", readerType)
 	line(b, "src: bufio.NewReaderSize(r, %s),", readAheadConst)
-
-	if f.how.bounded() {
-		line(b, "cr: cr,")
-	} else {
-		line(b, "enc: enc,")
-	}
-
+	line(b, "cr: cr,")
 	line(b, "state: %d,", f.index[f.file.GetStartStateId()])
 
 	if f.how == delimited && f.placement == irpb.DelimiterPlacement_DELIMITER_PLACEMENT_SEPARATOR {
@@ -989,23 +1011,35 @@ func (f *filer) emitAdmit(b *strings.Builder) {
 		line(b, "")
 	}
 
-	line(b, "// One decoder per record, which is what this framing costs and the two that")
-	line(b, "// state a record's length do not pay: the framing says nothing about where")
-	line(b, "// this record ends, so the record's bytes are drawn off the same input the")
-	line(b, "// framing came off and are never held. A decoder is rewound onto bytes, and")
-	line(b, "// there are none to rewind this one onto, so it is built over the stream.")
+	line(b, "// The decoder is rewound onto the input rather than built over it. The")
+	line(b, "// framing says nothing about where this record ends, so the record's bytes")
+	line(b, "// are drawn off the same input the framing came off and are never held —")
+	line(b, "// and a rewind onto a stream reads nothing and discards nothing, so the")
+	line(b, "// byte behind this record's extent is still there for whatever reads next:")
+	line(b, "// the framing behind the record, or the record behind it where this framing")
+	line(b, "// carries nothing.")
+	line(b, "//")
+	line(b, "// A rewind keeps everything the encoding derives and swaps only the source,")
+	line(b, "// which is a construction and an allocation this reader does not make per")
+	line(b, "// record — and it puts the offset back to zero, so every offset codec")
+	line(b, "// reports is counted from the start of this record rather than from the")
+	line(b, "// start of the file.")
 
 	if f.keepsBytes {
-		line(b, "cr, err := codec.NewReader(&%s{src: r.src, into: &r.raw}, r.enc)", recordingType)
+		line(b, "//")
+		line(b, "// The tap is pointed at this reader before every rewind rather than wired")
+		line(b, "// once, so that it follows the receiver that is decoding. It is two field")
+		line(b, "// stores into a [%s] that is already on the heap and allocates nothing,", readerType)
+		line(b, "// which is the whole of what hoisting it out of here would have bought.")
+		line(b, "r.tap.src = r.src")
+		line(b, "r.tap.into = &r.raw")
+		line(b, "r.cr.ResetStream(&r.tap)")
 	} else {
-		line(b, "cr, err := codec.NewReader(r.src, r.enc)")
+		line(b, "r.cr.ResetStream(r.src)")
 	}
 
-	line(b, "if err != nil {")
-	line(b, "return fmt.Errorf(\"reading record %%d: %%w\", r.ordinal, err)")
-	line(b, "}")
 	line(b, "")
-	line(b, "if err := rec.UnmarshalCOBOL(cr); err != nil {")
+	line(b, "if err := rec.UnmarshalCOBOL(r.cr); err != nil {")
 	line(b, "if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {")
 	line(b, "return fmt.Errorf(\"the file ends part-way through record %%d: %%v\", r.ordinal, err)")
 	line(b, "}")
@@ -1112,6 +1146,12 @@ func (f *filer) emitHelpers(b *strings.Builder, walks [][]transition) error {
 		line(b, "// %s is the reader a record is decoded through where a binding writes a", recordingType)
 		line(b, "// bytes register: it keeps what it hands on, so that the record's own bytes")
 		line(b, "// are in hand once its values are.")
+		line(b, "//")
+		line(b, "// One of these serves the whole file — it is [%s.tap], and every record", readerType)
+		line(b, "// is rewound onto it. Neither field is a record's: the source is the file's")
+		line(b, "// input, and into is the address of a field rather than of the bytes in it,")
+		line(b, "// so what a record changes is the length of the slice there and")
+		line(b, "// [%s.admit] truncating it is the whole of the per-record reset.", readerType)
 		line(b, "type %s struct {", recordingType)
 		line(b, "src io.Reader")
 		line(b, "into *[]byte")

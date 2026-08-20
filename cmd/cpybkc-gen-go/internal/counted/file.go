@@ -61,7 +61,21 @@ const (
 // register file the automaton remembers in, whatever the file's size.
 type Reader struct {
 	src *bufio.Reader
-	enc codec.Encoding
+
+	// cr decodes the record being read, and is the only one this reader
+	// builds: the framing says nothing about where a record ends, so the
+	// record's bytes come off the same input the framing does and are never
+	// held — and [Reader.admit] rewinds this onto that input for each record
+	// rather than constructing one over it. A rewind onto a stream reads
+	// nothing and discards nothing, which is what lets everything drawn off
+	// that input — this record, the framing around it, and the record behind
+	// it — go on sharing it across a rewind. Everything the encoding derives —
+	// the zoned decimal byte tables, the alphanumeric translation table and the
+	// scratch buffers every field is read into — is built once for the file and
+	// survives every rewind, which is why the encoding is not kept beside it:
+	// codec.Reader carries it, and one that could be swapped under a half-read
+	// record is what codec refuses to allow.
+	cr *codec.Reader
 
 	// state is where in the automaton the read is, as a position in the switch
 	// [Reader.Next] walks. The descriptor's state nodes are numbered by ascending
@@ -86,6 +100,19 @@ type Reader struct {
 	// holds its source field's bytes as they appear in the record. It is
 	// reused between records, and a binding copies out of it.
 	raw []byte
+
+	// tap is what [Reader.cr] is rewound onto, and it is a field of this reader
+	// rather than a value built per record. Neither of the things it holds is
+	// a record's — the input every record is drawn off, and the address of the
+	// field above, which does not move when the slice it holds is regrown.
+	//
+	// Hoisting it is the other half of hoisting the decoder rather than a
+	// detail of it: it escapes into the decoder, so one built per record
+	// would be exactly the allocation per record the rewind was for.
+	// [Reader.admit] points it at this reader before each rewind, which is two
+	// field stores and no allocation — and is why a Reader value copied out of
+	// one cannot go on writing into the original's bytes.
+	tap recording
 
 	// The register file. There is one for the whole read, a register holds what the
 	// most recent binding put in it, and nothing saves or restores one — so the
@@ -117,13 +144,19 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 		return nil, codec.ErrNilReader
 	}
 
-	if err := enc.Validate(); err != nil {
+	// The one decoder this reader builds, over no bytes until [Reader.admit]
+	// rewinds it onto the input.
+	//
+	// Construction is what validates the encoding, and it reports the same error
+	// for the same axis that enc.Validate does, so nothing is checked twice here.
+	cr, err := codec.NewBytesReader(nil, enc)
+	if err != nil {
 		return nil, err
 	}
 
 	return &Reader{
 		src:   bufio.NewReaderSize(r, readAhead),
-		enc:   enc,
+		cr:    cr,
 		state: 0,
 	}, nil
 }
@@ -487,17 +520,29 @@ func (r *Reader) leading() error {
 func (r *Reader) admit(rec Record) error {
 	r.raw = r.raw[:0]
 
-	// One decoder per record, which is what this framing costs and the two that
-	// state a record's length do not pay: the framing says nothing about where
-	// this record ends, so the record's bytes are drawn off the same input the
-	// framing came off and are never held. A decoder is rewound onto bytes, and
-	// there are none to rewind this one onto, so it is built over the stream.
-	cr, err := codec.NewReader(&recording{src: r.src, into: &r.raw}, r.enc)
-	if err != nil {
-		return fmt.Errorf("reading record %d: %w", r.ordinal, err)
-	}
+	// The decoder is rewound onto the input rather than built over it. The
+	// framing says nothing about where this record ends, so the record's bytes
+	// are drawn off the same input the framing came off and are never held —
+	// and a rewind onto a stream reads nothing and discards nothing, so the
+	// byte behind this record's extent is still there for whatever reads next:
+	// the framing behind the record, or the record behind it where this framing
+	// carries nothing.
+	//
+	// A rewind keeps everything the encoding derives and swaps only the source,
+	// which is a construction and an allocation this reader does not make per
+	// record — and it puts the offset back to zero, so every offset codec
+	// reports is counted from the start of this record rather than from the
+	// start of the file.
+	//
+	// The tap is pointed at this reader before every rewind rather than wired
+	// once, so that it follows the receiver that is decoding. It is two field
+	// stores into a [Reader] that is already on the heap and allocates nothing,
+	// which is the whole of what hoisting it out of here would have bought.
+	r.tap.src = r.src
+	r.tap.into = &r.raw
+	r.cr.ResetStream(&r.tap)
 
-	if err := rec.UnmarshalCOBOL(cr); err != nil {
+	if err := rec.UnmarshalCOBOL(r.cr); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return fmt.Errorf("the file ends part-way through record %d: %v", r.ordinal, err)
 		}
@@ -536,6 +581,12 @@ func (r *Reader) trailing() error {
 // recording is the reader a record is decoded through where a binding writes a
 // bytes register: it keeps what it hands on, so that the record's own bytes
 // are in hand once its values are.
+//
+// One of these serves the whole file — it is [Reader.tap], and every record
+// is rewound onto it. Neither field is a record's: the source is the file's
+// input, and into is the address of a field rather than of the bytes in it,
+// so what a record changes is the length of the slice there and
+// [Reader.admit] truncating it is the whole of the per-record reset.
 type recording struct {
 	src  io.Reader
 	into *[]byte
