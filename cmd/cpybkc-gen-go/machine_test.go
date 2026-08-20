@@ -11,6 +11,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"maps"
 	"strconv"
 	"strings"
 	"testing"
@@ -983,9 +984,7 @@ func TestTheReadAheadSaysWhereItsSizeCameFrom(t *testing.T) {
 		"a predicate past bufio's default": func() *irpb.Descriptor { return deepDescriptor(bufioDefault) },
 	}
 
-	for dir, descriptor := range machineGoldens {
-		cases[dir] = descriptor
-	}
+	maps.Copy(cases, machineGoldens)
 
 	for name, descriptor := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1048,9 +1047,7 @@ func TestTheGeneratedFileMachineIsTheSameForTheSameDescriptor(t *testing.T) {
 		"a predicate past bufio's default": func() *irpb.Descriptor { return deepDescriptor(bufioDefault) },
 	}
 
-	for dir, descriptor := range machineGoldens {
-		cases[dir] = descriptor
-	}
+	maps.Copy(cases, machineGoldens)
 
 	for name, descriptor := range cases {
 		t.Run(name, func(t *testing.T) {
