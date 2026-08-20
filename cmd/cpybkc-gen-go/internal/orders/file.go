@@ -92,9 +92,10 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 	}
 
 	// The one decoder this reader builds, over no bytes until a record is in
-	// hand. Construction is what validates the encoding, and it reports the
-	// same error for the same axis that enc.Validate does, so nothing is
-	// checked twice here.
+	// hand.
+	//
+	// Construction is what validates the encoding, and it reports the same error
+	// for the same axis that enc.Validate does, so nothing is checked twice here.
 	cr, err := codec.NewBytesReader(nil, enc)
 	if err != nil {
 		return nil, err

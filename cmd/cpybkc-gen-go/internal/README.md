@@ -22,7 +22,7 @@ DO NOT EDIT.` header is what tells them apart. `records_test.go` and
 arm, the second one case per path through the automaton, each carrying the bytes
 it reads as a literal, and `written` pins both byte for byte like every other
 generated file. Everything else — `file_roundtrip_test.go` in all six,
-`record_roundtrip_test.go` in `orders`, and the two `file_reuse_test.go` — is
+`record_roundtrip_test.go` in `orders`, and the four `file_reuse_test.go` — is
 hand-written and is skipped, because those assertions live *inside* each package
 for a reason the generated ones do not have: the bytes retained for a slack node
 are unexported, so a run of the wrong length is something only code in the
@@ -32,14 +32,26 @@ The hand-written names carry `roundtrip` because `file_test.go` is the name
 `cpybkc-gen-go` itself writes, for the file tier; see [the names, and which
 side moves](../README.md#the-names-and-which-side-moves).
 
-`file_reuse_test.go` in [`chunks`](chunks) and [`orders`](orders) is the pair
-that is not a round trip. They hold what a reader and a writer may *cost*, in
-both directions of each: `chunks` that one more record of a file costs neither
-one more decoder nor one more encoder, and `orders` that one sub-decoder and one
-sub-encoder serve every occurrence of a table holding a variant. Both assert in
-allocations rather than in nanoseconds, because an allocation count is the same
-on every machine and a duration is not, and both carry a benchmark beside each
+`file_reuse_test.go` in [`chunks`](chunks), [`orders`](orders),
+[`counted`](counted) and [`sep`](sep) is the set that is not a round trip. They
+hold what a reader and a writer may *cost*: `chunks` that one more record of a
+file costs neither one more decoder nor one more encoder, `orders` that one
+sub-decoder and one sub-encoder serve every occurrence of a table holding a
+variant, and `counted` and `sep` that a framing which does not state a record's
+length costs no decoder per record either. All of them assert in allocations
+rather than in nanoseconds, because an allocation count is the same on every
+machine and a duration is not, and all of them carry a benchmark beside each
 assertion for the nanoseconds somebody reading a regression will want.
+
+The last two are one claim on two arms of the emitter rather than the same
+assertion twice. A reader under an unbounded framing rewinds its decoder onto
+the *input* rather than onto bytes it holds, so those two also hold what the
+rewind must not disturb: that codec's offsets stay counted from the start of the
+record, and that a rewind reads nothing ahead of it, so the byte behind a
+record's extent is still the framing's to read. `counted` binds a bytes register
+and `sep` does not, which is the line of generated code that differs between
+them — and it is on the margin, because the tap a bytes register is read through
+escapes into the decoder.
 
 ## Why there is more than one
 

@@ -44,7 +44,21 @@ const readAhead = 4096
 // register file the automaton remembers in, whatever the file's size.
 type Reader struct {
 	src *bufio.Reader
-	enc codec.Encoding
+
+	// cr decodes the record being read, and is the only one this reader
+	// builds: the framing says nothing about where a record ends, so the
+	// record's bytes come off the same input the framing does and are never
+	// held — and [Reader.admit] rewinds this onto that input for each record
+	// rather than constructing one over it. A rewind onto a stream reads
+	// nothing and discards nothing, which is what lets everything drawn off
+	// that input — this record, the framing around it, and the record behind
+	// it — go on sharing it across a rewind. Everything the encoding derives —
+	// the zoned decimal byte tables, the alphanumeric translation table and the
+	// scratch buffers every field is read into — is built once for the file and
+	// survives every rewind, which is why the encoding is not kept beside it:
+	// codec.Reader carries it, and one that could be swapped under a half-read
+	// record is what codec refuses to allow.
+	cr *codec.Reader
 
 	// state is where in the automaton the read is, as a position in the switch
 	// [Reader.Next] walks. The descriptor's state nodes are numbered by ascending
@@ -72,13 +86,19 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 		return nil, codec.ErrNilReader
 	}
 
-	if err := enc.Validate(); err != nil {
+	// The one decoder this reader builds, over no bytes until [Reader.admit]
+	// rewinds it onto the input.
+	//
+	// Construction is what validates the encoding, and it reports the same error
+	// for the same axis that enc.Validate does, so nothing is checked twice here.
+	cr, err := codec.NewBytesReader(nil, enc)
+	if err != nil {
 		return nil, err
 	}
 
 	return &Reader{
 		src:   bufio.NewReaderSize(r, readAhead),
-		enc:   enc,
+		cr:    cr,
 		state: 0,
 	}, nil
 }
@@ -175,17 +195,21 @@ func (r *Reader) leading() error {
 // are line delimiters on some mainframe code page. A reader counting the extent
 // never reads those bytes as anything but the number they are.
 func (r *Reader) admit(rec Record) error {
-	// One decoder per record, which is what this framing costs and the two that
-	// state a record's length do not pay: the framing says nothing about where
-	// this record ends, so the record's bytes are drawn off the same input the
-	// framing came off and are never held. A decoder is rewound onto bytes, and
-	// there are none to rewind this one onto, so it is built over the stream.
-	cr, err := codec.NewReader(r.src, r.enc)
-	if err != nil {
-		return fmt.Errorf("reading record %d: %w", r.ordinal, err)
-	}
+	// The decoder is rewound onto the input rather than built over it. The
+	// framing says nothing about where this record ends, so the record's bytes
+	// are drawn off the same input the framing came off and are never held —
+	// and a rewind onto a stream reads nothing and discards nothing, so the
+	// byte behind this record's extent is still there for whatever reads next:
+	// the framing behind the record, or the record behind it where this framing
+	// carries nothing.
+	// A rewind keeps everything the encoding derives and swaps only the source,
+	// which is a construction and an allocation this reader does not make per
+	// record — and it puts the offset back to zero, so every offset codec
+	// reports is counted from the start of this record rather than from the
+	// start of the file.
+	r.cr.ResetStream(r.src)
 
-	if err := rec.UnmarshalCOBOL(cr); err != nil {
+	if err := rec.UnmarshalCOBOL(r.cr); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return fmt.Errorf("the file ends part-way through record %d: %v", r.ordinal, err)
 		}
