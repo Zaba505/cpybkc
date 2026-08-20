@@ -771,6 +771,58 @@ transition it would take against the bytes it is about to emit and reports a
 record satisfying none, naming the record — see `ir/SPEC.md`'s *A writer
 evaluates a predicate, it never inverts one*.
 
+### Decided: the read-ahead buffer is a constant
+
+The generated reader wraps whatever you hand it in a `bufio.Reader` of
+`readAhead` bytes, and `readAhead` is 4096 — `bufio`'s own default — or the
+deepest predicate target of any state where 4096 does not hold it. It is not
+derived from the record's extent, and there is no option that sets it.
+
+**The floor is not the decision.** A predicate is evaluated against a window in
+front of a record the reader has not identified yet, so a buffer smaller than
+the deepest such window is a `Peek` that can never be satisfied. That much is
+arithmetic, and nothing configurable could lower it if there were anything
+configurable here. What was open is the number *above* the floor.
+
+**Not derived.** The descriptor knows a record's extent, and under a fixed-length
+dataset it knows LRECL, so a buffer of some multiple of a record is derivable.
+What is not derivable is whether that would be worth anything. The gain is read
+syscalls saved, and what a read syscall costs is a property of the filesystem the
+file sits on and of what the host does on the way to it — neither of which any
+descriptor carries. Measured on a plain Linux filesystem it is under 2%
+([#271](https://github.com/Zaba505/cpybkc/issues/271)): 254,981 rec/s at a 4 KB
+read-ahead against 259,749 rec/s at 64 KB. A derived size would be a number that
+looks principled, moves whenever an item's width changes, and buys almost nothing
+on the machine most of these files are read on.
+
+**Not an option either.** Every option this generator carries describes the
+*package it writes* — its name, its import path — and a checked-in manifest is
+the right place for those, because they are the same on every machine that
+regenerates. A read-ahead size is not: one descriptor is generated once and read
+from a laptop, from a CI runner and from whatever the adopter deploys to, and the
+number that pays differs across the three. It would be permanent surface on a
+contract shared by every generator, fixed at generation time, for a value whose
+right answer is a property of the run.
+
+**The fix that already works.** `NewReader` takes an `io.Reader`, so an adopter
+who wants bigger reads hands it one that is already buffered:
+
+```go
+r, err := ledger.NewReader(bufio.NewReaderSize(f, 1<<20), ledger.Encoding())
+```
+
+There is no second buffer in that, and no extra copy per fill:
+`bufio.NewReaderSize` hands back a `*bufio.Reader` whose buffer is already at
+least the size asked for rather than wrapping it, so the generated reader *is*
+that 1 MiB reader and the file is read in its bites. That works today and needs
+nothing from this generator. It is the answer where a
+read is expensive — a network filesystem, or a host with endpoint-security hooks
+on file reads, where the adopter who raised this measured 0.83s of system time
+against 3.36s of user. What it needed was saying out loud: the comment above
+`readAhead` in every generated `file.go` now says why 4096 rather than only why
+not smaller, and points at this idiom, because an adopter who has to already know
+the workaround exists does not have one.
+
 ## The generated tests
 
 `records_test.go` and `file_test.go` are the two files this generator writes

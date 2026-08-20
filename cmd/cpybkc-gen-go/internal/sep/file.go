@@ -35,9 +35,21 @@ type Record interface {
 // See docs/ir/SPEC.md, "A delimiter is bytes, not a character".
 var delimiter = []byte("\x15")
 
-// readAhead is the reader's buffer, which is bufio's own default: this file's
-// framing puts a record's bytes in hand before a predicate is evaluated
-// against them, so nothing has to be seen in front of a record.
+// readAhead is the reader's buffer. This file's framing puts a record's bytes
+// in hand before a predicate is evaluated against them, so nothing has to be
+// seen in front of a record.
+//
+// 4096 is bufio's own default, and nothing here derives a size from these
+// records.
+//
+// What a larger buffer would be worth is a property of what a read of the file
+// costs — the filesystem it sits on, and what the host does on the way to it —
+// which no descriptor carries. Where a read is expensive, hand NewReader a reader
+// that is already buffered to at least this size: bufio hands that reader back
+// rather than wrapping it a second time, so the file is read in its bites and
+// not in these.
+//
+//	r, err := NewReader(bufio.NewReaderSize(f, 1<<20), Encoding())
 const readAhead = 4096
 
 // Reader reads the records of one file, walking the automaton this descriptor
@@ -96,6 +108,14 @@ type Reader struct {
 // caller states all five at once — [Encoding] is what this descriptor resolved,
 // and a file of these records converted to another character set is read by
 // passing a different one.
+//
+// Reads are buffered: r is wrapped in a bufio.Reader of readAhead bytes, which is
+// bufio's own default wherever this file's predicates fit inside it. Where a
+// read of the file is expensive — a network filesystem, or a host with hooks on
+// file reads — hand this an r that is already buffered to at least that size and
+// bufio hands it back rather than wrapping it again:
+//
+//	NewReader(bufio.NewReaderSize(f, 1<<20), Encoding())
 func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 	if r == nil {
 		return nil, codec.ErrNilReader

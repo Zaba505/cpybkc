@@ -11,6 +11,8 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"maps"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -823,4 +825,257 @@ func terminatedDescriptor() *irpb.Descriptor {
 	}}}
 
 	return d
+}
+
+// deepDescriptor is [terminatedDescriptor] with a predicate, and with the item
+// that predicate reads pushed pad bytes into the record.
+//
+// A predicate under a framing that states nothing about a record's length is
+// what makes the lookahead the reader's, and the pad is what carries its target
+// past [bufioDefault] — which is the only way the read-ahead is anything other
+// than that number, and so the only way the correctness floor is observable
+// from the outside.
+func deepDescriptor(pad uint32) *irpb.Descriptor {
+	d := plainDescriptor(predicateOn(50))
+
+	d.Nodes[0] = &irpb.Node{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+		Framing: &irpb.File_Delimited{Delimited: &irpb.Delimited{
+			Delimiter: []byte{0x15},
+			Placement: irpb.DelimiterPlacement_DELIMITER_PLACEMENT_TERMINATOR,
+		}},
+		StartStateId: 2,
+	}}}
+
+	for i, node := range d.GetNodes() {
+		if node.GetId() == 105 {
+			d.Nodes[i] = group(105, "LINE-RECORD", nil, 102, 101)
+		}
+	}
+
+	d.Nodes = append(d.Nodes, alphanumeric(102, "LINE-PAD", pad))
+
+	return d
+}
+
+// readAheadDeclaration is the const declaration the generated file.go carries
+// readAhead in, with the value every constant of it is declared with.
+//
+// Read out of the parsed file rather than matched in the text, so that a
+// declaration that moved into or out of a const group is still found and the
+// doc comment above it is the one the compiler would attach.
+func readAheadDeclaration(t *testing.T, source string) (*ast.GenDecl, map[string]string) {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), fileMachineFile, source,
+		parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing the generated %s: %v\n%s", fileMachineFile, err, source)
+	}
+
+	for _, node := range file.Decls {
+		decl, ok := node.(*ast.GenDecl)
+		if !ok || decl.Tok != token.CONST {
+			continue
+		}
+
+		values := make(map[string]string)
+
+		for _, spec := range decl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+
+			for i, name := range value.Names {
+				if i >= len(value.Values) {
+					continue
+				}
+
+				if lit, ok := value.Values[i].(*ast.BasicLit); ok {
+					values[name.Name] = lit.Value
+				}
+			}
+		}
+
+		if _, ok := values[readAheadConst]; ok {
+			return decl, values
+		}
+	}
+
+	t.Fatalf("the generated %s declares no %s\n%s", fileMachineFile, readAheadConst, source)
+
+	return nil, nil
+}
+
+// TestTheReadAheadIsNeverBelowTheDeepestPredicateTarget is the correctness floor
+// this generator's read-ahead carries, and the one thing about the size that is
+// not a decision.
+//
+// A predicate is evaluated against a window in front of a record the reader has
+// not identified yet, so a buffer that cannot hold the deepest such window is a
+// Peek that can never be satisfied. Asserted as both floors at once — the
+// lookahead and bufio's own default — because the answer is their maximum and a
+// bug in either direction is a buffer somebody has to debug at an adopter.
+func TestTheReadAheadIsNeverBelowTheDeepestPredicateTarget(t *testing.T) {
+	t.Parallel()
+
+	for _, lookahead := range []int{0, 1, 2, bufioDefault - 1, bufioDefault, bufioDefault + 1, 1 << 16} {
+		f := &filer{lookahead: lookahead}
+
+		want := max(lookahead, bufioDefault)
+
+		if got := f.readAhead(); got != want {
+			t.Errorf("a lookahead of %d read ahead %d, and the floors it sits above are %d and %d",
+				lookahead, got, lookahead, bufioDefault)
+		}
+	}
+}
+
+// TestAPredicateBeyondBufiosDefaultRaisesTheReadAhead is the same floor from the
+// other side: through a descriptor, into the constant the generated file
+// declares.
+//
+// None of the golden descriptors reaches past bufio's default — a predicate
+// target that deep is not a shape a copybook writes often — so the floor would
+// otherwise be asserted only by the arithmetic that implements it.
+func TestAPredicateBeyondBufiosDefaultRaisesTheReadAhead(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, deepDescriptor(bufioDefault), out,
+		options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[fileMachineFile]
+
+	_, values := readAheadDeclaration(t, source)
+
+	if values[lookaheadConst] != values[readAheadConst] {
+		t.Errorf("%s is %s and %s is %s, and a buffer smaller than the window a predicate reads is a Peek that cannot be satisfied",
+			lookaheadConst, values[lookaheadConst], readAheadConst, values[readAheadConst])
+	}
+
+	if values[readAheadConst] == strconv.Itoa(bufioDefault) {
+		t.Errorf("this descriptor reads past %d and %s is still %s", bufioDefault, readAheadConst, values[readAheadConst])
+	}
+}
+
+// TestTheReadAheadSaysWhereItsSizeCameFrom is the emitted comment answering the
+// question the size actually raises.
+//
+// The comment used to say only why the buffer need not be *larger* for
+// correctness, which is a different question from why it is this number and
+// leaves the reader of a slow run with nowhere to go. Both are now on it, and
+// the second one is the wrapping idiom — the fix that works today and needs
+// nothing from this generator, which is worth nothing to an adopter who has to
+// already know it exists. See README.md, "Decided: the read-ahead buffer is a
+// constant".
+//
+// The descriptor whose predicate reaches past bufio's default is in the table
+// for the reason the whole table is: every golden sits at 4096, so a comment
+// hardcoding that number would satisfy the five of them and misstate the size
+// on the only shape where the size is anything else.
+func TestTheReadAheadSaysWhereItsSizeCameFrom(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]func() *irpb.Descriptor{
+		"a predicate past bufio's default": func() *irpb.Descriptor { return deepDescriptor(bufioDefault) },
+	}
+
+	maps.Copy(cases, machineGoldens)
+
+	for name, descriptor := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			out := t.TempDir()
+
+			if err := generate(io.Discard, descriptor(), out,
+				options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+
+			source := written(t, out)[fileMachineFile]
+
+			decl, values := readAheadDeclaration(t, source)
+
+			doc := decl.Doc.Text()
+
+			// The size it names is the size it is declared with, whichever of
+			// the two floors produced it.
+			for _, want := range []string{
+				values[readAheadConst],
+				"bufio's own default",
+				newReaderFunc + "(bufio.NewReaderSize(",
+			} {
+				if !strings.Contains(doc, want) {
+					t.Errorf("the comment above %s = %s never says %q\n%s",
+						readAheadConst, values[readAheadConst], want, doc)
+				}
+			}
+
+			if values[readAheadConst] != strconv.Itoa(bufioDefault) &&
+				strings.Contains(doc, "%d is bufio's own default") {
+				t.Errorf("%s is %s and its comment calls %d the size\n%s",
+					readAheadConst, values[readAheadConst], bufioDefault, doc)
+			}
+
+			// And the adopter reads NewReader, not an unexported constant, so
+			// the idiom is on the constructor's own doc as well.
+			if !strings.Contains(source, "//\t"+newReaderFunc+"(bufio.NewReaderSize(") {
+				t.Errorf("no doc comment in the generated %s carries the wrapping idiom\n%s", fileMachineFile, source)
+			}
+		})
+	}
+}
+
+// TestTheGeneratedFileMachineIsTheSameForTheSameDescriptor is determinism, held
+// over the whole file rather than over the read-ahead alone.
+//
+// The size is a constant and a constant is a function of the descriptor: there
+// is no option that sets it, and nothing reads the host it is generated on. Over
+// the bytes because the arithmetic producing that constant is a maximum of two
+// integers and could not disagree with itself — where a generator realistically
+// becomes nondeterministic is a map walked in hash order, and that shows up in
+// the order of what it emitted rather than in this number.
+func TestTheGeneratedFileMachineIsTheSameForTheSameDescriptor(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]func() *irpb.Descriptor{
+		"a predicate past bufio's default": func() *irpb.Descriptor { return deepDescriptor(bufioDefault) },
+	}
+
+	maps.Copy(cases, machineGoldens)
+
+	for name, descriptor := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var first string
+
+			for range 2 {
+				out := t.TempDir()
+
+				if err := generate(io.Discard, descriptor(), out,
+					options{packageName: goldenPackage, importPath: goldenImport}); err != nil {
+					t.Fatalf("generate: %v", err)
+				}
+
+				source := written(t, out)[fileMachineFile]
+
+				if first == "" {
+					first = source
+
+					continue
+				}
+
+				if source != first {
+					t.Errorf("two generations of one descriptor wrote different %s\n got:\n%s\nwant:\n%s",
+						fileMachineFile, source, first)
+				}
+			}
+		})
+	}
 }
