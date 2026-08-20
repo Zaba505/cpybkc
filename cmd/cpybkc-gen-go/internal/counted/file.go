@@ -101,15 +101,17 @@ type Reader struct {
 	// reused between records, and a binding copies out of it.
 	raw []byte
 
-	// tap is what [Reader.cr] is rewound onto, and it is wired once in
-	// [NewReader] rather than built per record. Both of the things it holds are
-	// properties of this reader rather than of a record — the input every
-	// record is drawn off, and the address of the field above, which does not
-	// move when the slice it holds is regrown.
+	// tap is what [Reader.cr] is rewound onto, and it is a field of this reader
+	// rather than a value built per record. Neither of the things it holds is
+	// a record's — the input every record is drawn off, and the address of the
+	// field above, which does not move when the slice it holds is regrown.
 	//
 	// Hoisting it is the other half of hoisting the decoder rather than a
 	// detail of it: it escapes into the decoder, so one built per record
 	// would be exactly the allocation per record the rewind was for.
+	// [Reader.admit] points it at this reader before each rewind, which is two
+	// field stores and no allocation — and is why a Reader value copied out of
+	// one cannot go on writing into the original's bytes.
 	tap recording
 
 	// The register file. There is one for the whole read, a register holds what the
@@ -152,21 +154,11 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 		return nil, err
 	}
 
-	rd := &Reader{
+	return &Reader{
 		src:   bufio.NewReaderSize(r, readAhead),
 		cr:    cr,
 		state: 0,
-	}
-
-	// The tap wired onto the reader that owns it, which is why there is a name
-	// for that reader here: it keeps the buffered input this constructor made
-	// and the address of a field of the reader, and neither exists until the
-	// reader does. It is wired once and never again — the address of a slice
-	// field does not move when the slice it holds is regrown.
-	rd.tap.src = rd.src
-	rd.tap.into = &rd.raw
-
-	return rd, nil
+	}, nil
 }
 
 // Next is the next record of the file, or io.EOF where the file is complete.
@@ -535,11 +527,19 @@ func (r *Reader) admit(rec Record) error {
 	// byte behind this record's extent is still there for whatever reads next:
 	// the framing behind the record, or the record behind it where this framing
 	// carries nothing.
+	//
 	// A rewind keeps everything the encoding derives and swaps only the source,
 	// which is a construction and an allocation this reader does not make per
 	// record — and it puts the offset back to zero, so every offset codec
 	// reports is counted from the start of this record rather than from the
 	// start of the file.
+	//
+	// The tap is pointed at this reader before every rewind rather than wired
+	// once, so that it follows the receiver that is decoding. It is two field
+	// stores into a [Reader] that is already on the heap and allocates nothing,
+	// which is the whole of what hoisting it out of here would have bought.
+	r.tap.src = r.src
+	r.tap.into = &r.raw
 	r.cr.ResetStream(&r.tap)
 
 	if err := rec.UnmarshalCOBOL(r.cr); err != nil {
@@ -582,10 +582,10 @@ func (r *Reader) trailing() error {
 // bytes register: it keeps what it hands on, so that the record's own bytes
 // are in hand once its values are.
 //
-// One of these serves the whole file — it is [Reader.tap], wired in [NewReader]
-// and rewound onto by every record. Neither field is a record's: the source
-// is the file's input, and into is the address of a field rather than of the
-// bytes in it, so what a record changes is the length of the slice there and
+// One of these serves the whole file — it is [Reader.tap], and every record
+// is rewound onto it. Neither field is a record's: the source is the file's
+// input, and into is the address of a field rather than of the bytes in it,
+// so what a record changes is the length of the slice there and
 // [Reader.admit] truncating it is the whole of the per-record reset.
 type recording struct {
 	src  io.Reader

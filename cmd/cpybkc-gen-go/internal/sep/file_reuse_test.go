@@ -17,7 +17,11 @@
 // The placement makes the read-ahead assertion sharper than a terminator can:
 // under a separator a delimiter stands *between* two records and nothing
 // follows the last, so a decoder that read one byte past a record's extent
-// would eat the delimiter the next record is found behind.
+// would eat the delimiter the next record is found behind. That is also why
+// this arm is asserted from here rather than from fixed or opt, which are the
+// other two packages it is emitted into: the three are the same generated
+// lines, and this is the framing under which an over-read has the least room
+// to hide.
 package sep
 
 import (
@@ -40,6 +44,14 @@ import (
 // field than it does today passes rather than failing on an improvement. What
 // it catches is the regression: a decoder back on the margin takes this to four
 // whatever else changes.
+//
+// It is a budget and not an attribution, and the difference matters when it
+// fires. Everything on the margin is summed — the decoder this is about, the
+// record, and whatever codec allocates for the items — so a decoder coming back
+// while something else on the margin went away lands at three and passes. The
+// attribution is the sentence above, checked by hand when the number moves;
+// nothing here can make it an assertion, because the allocations are
+// indistinguishable from outside the package that made them.
 const perRecordAllocations = 3
 
 // tolerance is the slack the bound is read with, which is what makes the
@@ -183,23 +195,52 @@ func TestCodecDiagnosticsStayRecordRelative(t *testing.T) {
 // the bytes behind the last record are still there to be read as the record
 // they are not, which is what this holds: three records come back, and the
 // fourth is reported as a file cut short rather than never being seen at all.
+//
+// The two cases are the distinction the whole path turns on, and this is the
+// placement where it is easiest to lose: nothing stands behind the last record,
+// so "the file ended" and "the last record was cut short" are the same byte
+// position. A record cut part-way through a field ends it with
+// io.ErrUnexpectedEOF and one cut at a field boundary ends it with io.EOF, and
+// neither is reported as the io.EOF a caller stops on — a %v that became a %w
+// would make a truncated file indistinguishable from a complete one.
 func TestARewindReadsNothingAheadOfTheRecord(t *testing.T) {
 	t.Parallel()
 
-	in := append(separatedFile(t, 3), 0x15, 0xd3, 0xc9)
+	for _, tc := range []struct {
+		name  string
+		trail []byte
+		want  string
+	}{
+		{
+			name:  "part-way through a field",
+			trail: []byte{0x15, 0xd3, 0xc9},
+			want:  "the file ends part-way through record 4: LINE-RECORD: reading LINE-TEXT: at byte offset 2: unexpected EOF",
+		},
+		{
+			name:  "at a field boundary",
+			trail: []byte{0x15, 0xd3, 0xc9, 0xd5, 0xc5, 0x40},
+			want:  "the file ends part-way through record 4: LINE-RECORD: reading LINE-AMOUNT: at byte offset 5: EOF",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	records, err := read(t, in)
-	if err == nil {
-		t.Fatal("the bytes behind the last record were read as the end of the file")
-	}
+			records, err := read(t, append(separatedFile(t, 3), tc.trail...))
+			if err == nil {
+				t.Fatal("the bytes behind the last record were read as the end of the file")
+			}
 
-	if len(records) != 3 {
-		t.Errorf("the file's three records came back as %d", len(records))
-	}
+			if errors.Is(err, io.EOF) {
+				t.Error("a file cut short reports io.EOF, which is what a complete file reports")
+			}
 
-	const want = "the file ends part-way through record 4: LINE-RECORD: reading LINE-TEXT: at byte offset 2: unexpected EOF"
+			if len(records) != 3 {
+				t.Errorf("the file's three records came back as %d", len(records))
+			}
 
-	if err.Error() != want {
-		t.Errorf("the diagnostic is\n got: %s\nwant: %s", err, want)
+			if err.Error() != tc.want {
+				t.Errorf("the diagnostic is\n got: %s\nwant: %s", err, tc.want)
+			}
+		})
 	}
 }

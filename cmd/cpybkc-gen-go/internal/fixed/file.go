@@ -202,6 +202,7 @@ func (r *Reader) admit(rec Record) error {
 	// byte behind this record's extent is still there for whatever reads next:
 	// the framing behind the record, or the record behind it where this framing
 	// carries nothing.
+	//
 	// A rewind keeps everything the encoding derives and swaps only the source,
 	// which is a construction and an allocation this reader does not make per
 	// record — and it puts the offset back to zero, so every offset codec

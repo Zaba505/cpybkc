@@ -114,15 +114,17 @@ func (f *filer) emitReader(b *strings.Builder, walks [][]transition) error {
 		line(b, "// reused between records, and a binding copies out of it.")
 		line(b, "raw []byte")
 		line(b, "")
-		line(b, "// tap is what [%s.cr] is rewound onto, and it is wired once in", readerType)
-		line(b, "// [%s] rather than built per record. Both of the things it holds are", newReaderFunc)
-		line(b, "// properties of this reader rather than of a record — the input every")
-		line(b, "// record is drawn off, and the address of the field above, which does not")
-		line(b, "// move when the slice it holds is regrown.")
+		line(b, "// tap is what [%s.cr] is rewound onto, and it is a field of this reader", readerType)
+		line(b, "// rather than a value built per record. Neither of the things it holds is")
+		line(b, "// a record's — the input every record is drawn off, and the address of the")
+		line(b, "// field above, which does not move when the slice it holds is regrown.")
 		line(b, "//")
 		line(b, "// Hoisting it is the other half of hoisting the decoder rather than a")
 		line(b, "// detail of it: it escapes into the decoder, so one built per record")
 		line(b, "// would be exactly the allocation per record the rewind was for.")
+		line(b, "// [%s.admit] points it at this reader before each rewind, which is two", readerType)
+		line(b, "// field stores and no allocation — and is why a %s value copied out of", readerType)
+		line(b, "// one cannot go on writing into the original's bytes.")
 		line(b, "tap %s", recordingType)
 	}
 
@@ -191,17 +193,7 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "}")
 	line(b, "")
 
-	// The tap holds this reader's own input and the address of this reader's
-	// own field, neither of which can be named inside the literal that builds
-	// it, so the reader is named where one is wired.
-	hoisted := f.keepsBytes && !f.how.bounded()
-
-	if hoisted {
-		line(b, "rd := &%s{", readerType)
-	} else {
-		line(b, "return &%s{", readerType)
-	}
-
+	line(b, "return &%s{", readerType)
 	line(b, "src: bufio.NewReaderSize(r, %s),", readAheadConst)
 	line(b, "cr: cr,")
 	line(b, "state: %d,", f.index[f.file.GetStartStateId()])
@@ -210,24 +202,7 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 		line(b, "first: true,")
 	}
 
-	if !hoisted {
-		line(b, "}, nil")
-		line(b, "}")
-
-		return
-	}
-
-	line(b, "}")
-	line(b, "")
-	line(b, "// The tap wired onto the reader that owns it, which is why there is a name")
-	line(b, "// for that reader here: it keeps the buffered input this constructor made")
-	line(b, "// and the address of a field of the reader, and neither exists until the")
-	line(b, "// reader does. It is wired once and never again — the address of a slice")
-	line(b, "// field does not move when the slice it holds is regrown.")
-	line(b, "rd.tap.src = rd.src")
-	line(b, "rd.tap.into = &rd.raw")
-	line(b, "")
-	line(b, "return rd, nil")
+	line(b, "}, nil")
 	line(b, "}")
 }
 
@@ -1043,6 +1018,7 @@ func (f *filer) emitAdmit(b *strings.Builder) {
 	line(b, "// byte behind this record's extent is still there for whatever reads next:")
 	line(b, "// the framing behind the record, or the record behind it where this framing")
 	line(b, "// carries nothing.")
+	line(b, "//")
 	line(b, "// A rewind keeps everything the encoding derives and swaps only the source,")
 	line(b, "// which is a construction and an allocation this reader does not make per")
 	line(b, "// record — and it puts the offset back to zero, so every offset codec")
@@ -1050,6 +1026,13 @@ func (f *filer) emitAdmit(b *strings.Builder) {
 	line(b, "// start of the file.")
 
 	if f.keepsBytes {
+		line(b, "//")
+		line(b, "// The tap is pointed at this reader before every rewind rather than wired")
+		line(b, "// once, so that it follows the receiver that is decoding. It is two field")
+		line(b, "// stores into a [%s] that is already on the heap and allocates nothing,", readerType)
+		line(b, "// which is the whole of what hoisting it out of here would have bought.")
+		line(b, "r.tap.src = r.src")
+		line(b, "r.tap.into = &r.raw")
 		line(b, "r.cr.ResetStream(&r.tap)")
 	} else {
 		line(b, "r.cr.ResetStream(r.src)")
@@ -1164,10 +1147,10 @@ func (f *filer) emitHelpers(b *strings.Builder, walks [][]transition) error {
 		line(b, "// bytes register: it keeps what it hands on, so that the record's own bytes")
 		line(b, "// are in hand once its values are.")
 		line(b, "//")
-		line(b, "// One of these serves the whole file — it is [%s.tap], wired in [%s]", readerType, newReaderFunc)
-		line(b, "// and rewound onto by every record. Neither field is a record's: the source")
-		line(b, "// is the file's input, and into is the address of a field rather than of the")
-		line(b, "// bytes in it, so what a record changes is the length of the slice there and")
+		line(b, "// One of these serves the whole file — it is [%s.tap], and every record", readerType)
+		line(b, "// is rewound onto it. Neither field is a record's: the source is the file's")
+		line(b, "// input, and into is the address of a field rather than of the bytes in it,")
+		line(b, "// so what a record changes is the length of the slice there and")
 		line(b, "// [%s.admit] truncating it is the whole of the per-record reset.", readerType)
 		line(b, "type %s struct {", recordingType)
 		line(b, "src io.Reader")

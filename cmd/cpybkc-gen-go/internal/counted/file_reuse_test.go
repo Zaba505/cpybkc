@@ -44,6 +44,15 @@ import (
 // field than it does today passes rather than failing on an improvement. What
 // it catches is the regression: a decoder back on the margin takes this to four
 // whatever else changes.
+//
+// It is a budget and not an attribution, and the difference matters when it
+// fires. Everything on the margin is summed — the decoder, the tap, the record
+// and whatever codec allocates for the items — so a tap back on the margin
+// beside a codec that shed one elsewhere lands at two and passes. Splitting
+// them is not something this can do: the allocations are indistinguishable from
+// outside the package that made them, and a two-sided bound would fail on the
+// improvement the paragraph above deliberately allows. The attribution is that
+// paragraph, checked by hand whenever the number moves.
 const perRecordAllocations = 2
 
 // tolerance is the slack the bound is read with, which is what makes the
