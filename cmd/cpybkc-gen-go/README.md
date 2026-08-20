@@ -805,14 +805,17 @@ contract shared by every generator, fixed at generation time, for a value whose
 right answer is a property of the run.
 
 **The fix that already works.** `NewReader` takes an `io.Reader`, so an adopter
-who wants bigger reads hands it one that is already buffered, and the generated
-`bufio.Reader` draws from that rather than from the operating system:
+who wants bigger reads hands it one that is already buffered:
 
 ```go
 r, err := ledger.NewReader(bufio.NewReaderSize(f, 1<<20), ledger.Encoding())
 ```
 
-That works today and needs nothing from this generator. It is the answer where a
+There is no second buffer in that, and no extra copy per fill:
+`bufio.NewReaderSize` hands back a `*bufio.Reader` whose buffer is already at
+least the size asked for rather than wrapping it, so the generated reader *is*
+that 1 MiB reader and the file is read in its bites. That works today and needs
+nothing from this generator. It is the answer where a
 read is expensive — a network filesystem, or a host with endpoint-security hooks
 on file reads, where the adopter who raised this measured 0.83s of system time
 against 3.36s of user. What it needed was saying out loud: the comment above

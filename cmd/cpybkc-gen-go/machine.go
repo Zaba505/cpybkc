@@ -230,9 +230,9 @@ func (f *filer) emitFramingDeclarations(b *strings.Builder, _ [][]transition) {
 	if !f.needsShort() {
 		b.WriteString(commentLines(fmt.Sprintf(`%s is the reader's buffer. This file's framing puts a record's bytes
 in hand before a predicate is evaluated against them, so nothing has to be
-seen in front of a record and no correctness floor applies to the size.
+seen in front of a record.
 
-%s`, readAheadConst, readAheadNote())))
+%s`, readAheadConst, readAheadNote(f.readAhead()))))
 		line(b, "const %s = %d", readAheadConst, f.readAhead())
 
 		return
@@ -248,7 +248,7 @@ moves. %[2]s is never below it — a window the buffer cannot hold is a
 Peek that can never be satisfied — which is the whole of the correctness
 this size carries.
 
-%[3]s`, lookaheadConst, readAheadConst, readAheadNote())))
+%[3]s`, lookaheadConst, readAheadConst, readAheadNote(f.readAhead()))))
 	line(b, "const (")
 	line(b, "%s = %d", lookaheadConst, f.lookahead)
 	line(b, "%s = %d", readAheadConst, f.readAhead())
@@ -264,23 +264,39 @@ this size carries.
 const bufioDefault = 4096
 
 // readAheadNote is the paragraph both forms of the read-ahead declaration
-// carry: why the size is what it is, and what an adopter does when it is not
+// carry: where the size came from, and what an adopter does when it is not
 // enough.
 //
 // It is here rather than in either branch above because it is the same answer
 // in both — the size is not a throughput decision, and the buffer is not where
 // a throughput decision would go. See README.md, "Decided: the read-ahead
 // buffer is a constant".
-func readAheadNote() string {
-	return fmt.Sprintf(`Nothing derives that size from these records: %[1]d is bufio's own default,
-and what a larger buffer would be worth is a property of what a read of the
-file costs — the filesystem it sits on, and what the host does on the way to
-it — which no descriptor carries. Where a read is expensive, hand %[2]s a
-reader that is already buffered and this one draws from that rather than
-from the operating system:
+//
+// It takes the size that is actually being declared rather than naming
+// [bufioDefault]: a descriptor whose deepest predicate target reaches past that
+// default declares that target instead, and a paragraph quoting 4096 above a
+// constant reading 5002 contradicts both itself and the declaration it sits on.
+func readAheadNote(size int) string {
+	chosen := fmt.Sprintf(`%d is bufio's own default, and nothing here derives a size from these
+records.`, bufioDefault)
+
+	if size > bufioDefault {
+		chosen = fmt.Sprintf(`%d is the deepest window a predicate of this file reads, which is the floor
+above bufio's own default of %d, and nothing here derives a size above that
+floor.`, size, bufioDefault)
+	}
+
+	return fmt.Sprintf(`%[1]s
+
+What a larger buffer would be worth is a property of what a read of the file
+costs — the filesystem it sits on, and what the host does on the way to it —
+which no descriptor carries. Where a read is expensive, hand %[2]s a reader
+that is already buffered to at least this size: bufio hands that reader back
+rather than wrapping it a second time, so the file is read in its bites and
+not in these.
 
 	r, err := %[2]s(bufio.NewReaderSize(f, 1<<20), %[3]s())`,
-		bufioDefault, newReaderFunc, encodingFunc)
+		chosen, newReaderFunc, encodingFunc)
 }
 
 // readAhead is how big the reader's buffer is: bufio's own default, and the
