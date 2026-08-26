@@ -198,7 +198,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits SYNC-RECORD.
 		expected = append(expected, "SYNC-RECORD")
-		if matches4At0(r.look) {
+		if matches1At0(r.look) {
 			rec := new(SyncRecord)
 
 			if err := r.admit(rec); err != nil {
@@ -364,14 +364,19 @@ func (r *Reader) fill(n int) error {
 	return err
 }
 
-// matches4At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 4: it admits SYNC-RECORD.
+// matches1At0 is the predicate over bytes 0:1 of a record: the transitions it
+// selects admit SYNC-RECORD.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches4At0(b []byte) bool {
+func matches1At0(b []byte) bool {
 	if len(b) < 1 {
 		return false
 	}
@@ -583,7 +588,7 @@ func (w *Writer) writeSyncRecord(rec *SyncRecord) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 4
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}

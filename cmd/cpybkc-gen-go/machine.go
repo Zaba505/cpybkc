@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +47,8 @@ func (f *filer) emit() (string, []string, error) {
 		return "", nil, err
 	}
 
+	f.gather(walks)
+
 	var b strings.Builder
 
 	f.emitRecord(&b, walks)
@@ -54,7 +57,7 @@ func (f *filer) emit() (string, []string, error) {
 		return "", nil, err
 	}
 
-	if err := f.emitPredicates(&b, walks); err != nil {
+	if err := f.emitPredicates(&b); err != nil {
 		return "", nil, err
 	}
 
@@ -316,43 +319,154 @@ func (f *filer) readAhead() int {
 	return bufioDefault
 }
 
-// emitPredicates writes one function per transition carrying a predicate.
+// emitPredicates writes one function per distinct predicate the automaton tests.
 //
 // A function rather than an expression inlined at both use sites, because both
 // directions evaluate the same predicate against the same offsets — the reader
 // against a window of the bytes in front of it, the writer against the bytes it
 // is about to emit — and two spellings of one test are two things to get wrong.
-func (f *filer) emitPredicates(b *strings.Builder, walks [][]transition) error {
-	for i, walk := range walks {
-		for j, t := range walk {
-			if t.match == "" {
-				continue
-			}
-
-			line(b, "")
-			line(b, "// %s is the predicate selecting transition %d of the state the descriptor", matcher(f.states[i].GetId(), j), j+1)
-			line(b, "// carries as node %d: it admits %s.", f.states[i].GetId(), t.record.GetNames().GetOriginal())
-			line(b, "//")
-			line(b, "// A target that is not wholly inside the bytes it is handed does not match. A")
-			line(b, "// reader hands it the record the framing bounds, or as much of the input as it")
-			line(b, "// can see where the framing bounds nothing; a writer hands it the whole of the")
-			line(b, "// record it is about to emit.")
-			line(b, "func %s(b []byte) bool {", matcher(f.states[i].GetId(), j))
-			line(b, "if len(b) < %d {", t.reads)
-			line(b, "return false")
-			line(b, "}")
-			line(b, "")
-			line(b, "return %s", t.match)
-			line(b, "}")
-		}
+//
+// One per predicate rather than one per transition testing it: see [filer.gather],
+// which is also where the state this reads comes from — the walks are gathered
+// once, before anything is emitted, so this takes no walk of its own.
+func (f *filer) emitPredicates(b *strings.Builder) error {
+	for _, p := range f.predicates {
+		line(b, "")
+		line(b, "// %s is the predicate over bytes %d:%d of a record: the transitions it", p.name, p.at, p.reads)
+		line(b, "// selects admit %s.", strings.Join(p.admits, ", "))
+		line(b, "//")
+		line(b, "// One function per distinct predicate rather than one per transition that")
+		line(b, "// tests it. A predicate is a function of where it reads, how wide that window")
+		line(b, "// is and what it is compared against, and not of the state whose transition")
+		line(b, "// happens to reach it — so every state testing this one names this function.")
+		line(b, "//")
+		line(b, "// A target that is not wholly inside the bytes it is handed does not match. A")
+		line(b, "// reader hands it the record the framing bounds, or as much of the input as it")
+		line(b, "// can see where the framing bounds nothing; a writer hands it the whole of the")
+		line(b, "// record it is about to emit.")
+		line(b, "func %s(b []byte) bool {", p.name)
+		line(b, "if len(b) < %d {", p.reads)
+		line(b, "return false")
+		line(b, "}")
+		line(b, "")
+		line(b, "return %s", p.match)
+		line(b, "}")
 	}
 
 	return nil
 }
 
-// matcher is what the predicate of one transition is called.
-func matcher(state uint64, at int) string {
-	return fmt.Sprintf("matches%dAt%d", state, at)
+// predicateFunc is one distinct predicate of the automaton and the single
+// function both directions test it with.
+type predicateFunc struct {
+	// name is that function's identifier, and match is the expression it
+	// returns.
+	name  string
+	match string
+
+	// at is where its window starts in the record and reads is how far into
+	// the record it reaches, which are the bounds of the slice match compares.
+	at    int
+	reads int
+
+	// admits is the records the transitions this predicate selects admit, in
+	// the order the automaton first reaches them and without repeats. It is
+	// what the emitted doc comment says the predicate is for.
+	admits []string
+}
+
+// gather is the one function per distinct predicate this file emits, and the
+// name each transition testing one calls it by.
+//
+// A predicate is a function of the offset it reads at, the width it reads and
+// the literals it compares against, and of nothing else. Emitting one function
+// per transition that tests it states a dependence on the state reaching it
+// which does not exist, and it is the one part of this output whose size grows
+// with the automaton's fan-out rather than with the number of things being
+// tested: example/policy carried 93 functions with 11 distinct bodies — eight of
+// them emitted nine times, two of them ten and one once — for 1,175 lines of a
+// 12,394-line tree.
+//
+// The expression is the key because it already carries the whole triple and
+// carries nothing else: the window is written into it as b[offset:offset+width]
+// and the literals are its operands, so two transitions testing the same thing
+// produce the same string by construction and two testing different things
+// cannot. Two one-of predicates carrying one set in two orders are two
+// predicates here, which is the conservative answer — they are two expressions,
+// and nothing reorders a set the descriptor stated.
+//
+// The order is the order the automaton reaches them, so the names are a function
+// of the descriptor and the numbering does not move when an unrelated state is
+// added behind them.
+// The slice and the index into it are built as locals and assigned together at
+// the end, because they are one data structure: a gather that reset the index
+// and appended to a slice it had not reset would emit every predicate twice,
+// the second copy numbered from the end of the first and named by every call
+// site. Nothing calls this twice today, which is exactly why the asymmetry
+// would be the bug rather than the symptom.
+func (f *filer) gather(walks [][]transition) {
+	var predicates []predicateFunc
+
+	predicateOf := make(map[string]int)
+
+	for _, walk := range walks {
+		for _, t := range walk {
+			if t.match == "" {
+				continue
+			}
+
+			i, ok := predicateOf[t.match]
+			if !ok {
+				i = len(predicates)
+				predicateOf[t.match] = i
+				predicates = append(predicates, predicateFunc{
+					name:  matcher(i+1, t.at),
+					match: t.match,
+					at:    t.at,
+					reads: t.reads,
+				})
+			}
+
+			original := t.record.GetNames().GetOriginal()
+			if !slices.Contains(predicates[i].admits, original) {
+				predicates[i].admits = append(predicates[i].admits, original)
+			}
+		}
+	}
+
+	f.predicates, f.predicateOf = predicates, predicateOf
+}
+
+// matcherOf is what the predicate of one transition is called, which is the
+// name of the one function every transition testing that predicate calls.
+//
+// It refuses a predicate [filer.gather] did not see rather than answering, and
+// that is the whole reason it is not a map read at the call site. A miss reads
+// back as position zero, so the answer would be the *first* predicate of the
+// file: a generated reader that compiles, admits the wrong record and reads the
+// wrong window, with nothing anywhere saying so. The invariant it rests on —
+// that emit gathers the same walks it then emits — is held by two adjacent
+// lines and by nothing else.
+func (f *filer) matcherOf(t transition) (string, error) {
+	i, ok := f.predicateOf[t.match]
+	if !ok {
+		return "", malformed("a transition tests a predicate that was not gathered before the file was emitted",
+			"every predicate of every walk is gathered first, so that one function serves every state testing it")
+	}
+
+	return f.predicates[i].name, nil
+}
+
+// matcher is what the nth distinct predicate of a file, reading at byte offset
+// at, is called.
+//
+// Keyed on the predicate rather than on the state that tests it. The offset is
+// in the name because it is a property of the predicate and it is what a reader
+// holding this file against the graph is looking for; the ordinal is what makes
+// the name unique, since a discriminator at one offset is exactly the case where
+// several predicates read the same window.
+func matcher(nth, at int) string {
+	return fmt.Sprintf("matches%dAt%d", nth, at)
 }
 
 // guardOf is the Go expression a guard tests, and the phrase a diagnostic

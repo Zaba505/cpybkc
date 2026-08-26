@@ -335,10 +335,22 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 
 		line(b, "expected = append(expected, %q)", t.record.GetNames().GetOriginal())
 
+		// Resolved once, because the two branches below emit the same call
+		// and a predicate this file cannot name is a refusal rather than a
+		// name either of them may improvise.
+		matches := ""
+
+		if t.match != "" {
+			matches, err = f.matcherOf(t)
+			if err != nil {
+				return err
+			}
+		}
+
 		closing := ""
 
 		if t.match != "" {
-			line(b, "if %s(r.look) {", matcher(f.states[at].GetId(), j))
+			line(b, "if %s(r.look) {", matches)
 
 			closing = "}"
 		}
@@ -359,7 +371,7 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 			// says nothing about the bytes in hand and never displaces the
 			// diagnostic.
 			if t.match != "" {
-				line(b, "} else if excluded == \"\" && %s(r.look) {", matcher(f.states[at].GetId(), j))
+				line(b, "} else if excluded == \"\" && %s(r.look) {", matches)
 				line(b, "excluded = fmt.Sprintf(%q%s)",
 					fmt.Sprintf("a guard excluded the transition that would have admitted %s, which is taken only where %s%s",
 						escaped(t.record.GetNames().GetOriginal()), escaped(phrase), f.holding(registers)),

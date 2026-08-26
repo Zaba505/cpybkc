@@ -231,7 +231,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits HEADER-RECORD.
 		expected = append(expected, "HEADER-RECORD")
-		if matches2At0(r.look) {
+		if matches1At0(r.look) {
 			rec := new(HeaderRecord)
 
 			if err := r.admit(rec); err != nil {
@@ -269,7 +269,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register20 > 0 {
 			expected = append(expected, "DETAIL-RECORD")
-			if matches3At0(r.look) {
+			if matches2At0(r.look) {
 				rec := new(DetailRecord)
 
 				if err := r.admit(rec); err != nil {
@@ -294,7 +294,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches3At0(r.look) {
+		} else if excluded == "" && matches2At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted DETAIL-RECORD, which is taken only where the register the descriptor carries as node 20 is greater than zero; node 20 holds %d", r.register20)
 		}
 
@@ -309,7 +309,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register20 == 0 && bytes.Equal(r.register21, []byte("\xe8")) {
 			expected = append(expected, "SUMMARY-RECORD")
-			if matches3At1(r.look) {
+			if matches3At0(r.look) {
 				rec := new(SummaryRecord)
 
 				if !r.register22Bound {
@@ -344,7 +344,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches3At1(r.look) {
+		} else if excluded == "" && matches3At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted SUMMARY-RECORD, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is \"\\xe8\"; node 20 holds %d and node 21 holds %q", r.register20, r.register21)
 		}
 
@@ -359,7 +359,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register20 == 0 && (bytes.Equal(r.register21, []byte("\xd5")) || bytes.Equal(r.register21, []byte("@"))) {
 			expected = append(expected, "HEADER-RECORD")
-			if matches3At2(r.look) {
+			if matches1At0(r.look) {
 				rec := new(HeaderRecord)
 
 				if err := r.admit(rec); err != nil {
@@ -383,7 +383,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches3At2(r.look) {
+		} else if excluded == "" && matches1At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted HEADER-RECORD, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is one of \"\\xd5\", \"@\"; node 20 holds %d and node 21 holds %q", r.register20, r.register21)
 		}
 
@@ -417,7 +417,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits HEADER-RECORD.
 		expected = append(expected, "HEADER-RECORD")
-		if matches4At1(r.look) {
+		if matches1At0(r.look) {
 			rec := new(HeaderRecord)
 
 			if err := r.admit(rec); err != nil {
@@ -640,8 +640,33 @@ func occurrences[T any](s []T, n int) []T {
 	return make([]T, n)
 }
 
-// matches2At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 2: it admits HEADER-RECORD.
+// matches1At0 is the predicate over bytes 0:1 of a record: the transitions it
+// selects admit HEADER-RECORD.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
+//
+// A target that is not wholly inside the bytes it is handed does not match. A
+// reader hands it the record the framing bounds, or as much of the input as it
+// can see where the framing bounds nothing; a writer hands it the whole of the
+// record it is about to emit.
+func matches1At0(b []byte) bool {
+	if len(b) < 1 {
+		return false
+	}
+
+	return bytes.Equal(b[0:1], []byte("\xc8"))
+}
+
+// matches2At0 is the predicate over bytes 0:1 of a record: the transitions it
+// selects admit DETAIL-RECORD.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
@@ -652,11 +677,16 @@ func matches2At0(b []byte) bool {
 		return false
 	}
 
-	return bytes.Equal(b[0:1], []byte("\xc8"))
+	return bytes.Equal(b[0:1], []byte("\xc4"))
 }
 
-// matches3At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 3: it admits DETAIL-RECORD.
+// matches3At0 is the predicate over bytes 0:1 of a record: the transitions it
+// selects admit SUMMARY-RECORD.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
@@ -667,52 +697,7 @@ func matches3At0(b []byte) bool {
 		return false
 	}
 
-	return bytes.Equal(b[0:1], []byte("\xc4"))
-}
-
-// matches3At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 3: it admits SUMMARY-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches3At1(b []byte) bool {
-	if len(b) < 1 {
-		return false
-	}
-
 	return bytes.Equal(b[0:1], []byte("\xe2"))
-}
-
-// matches3At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 3: it admits HEADER-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches3At2(b []byte) bool {
-	if len(b) < 1 {
-		return false
-	}
-
-	return bytes.Equal(b[0:1], []byte("\xc8"))
-}
-
-// matches4At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 4: it admits HEADER-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches4At1(b []byte) bool {
-	if len(b) < 1 {
-		return false
-	}
-
-	return bytes.Equal(b[0:1], []byte("\xc8"))
 }
 
 // Writer writes the records of one file, walking the automaton this descriptor
@@ -880,7 +865,7 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 		}
 
 		if w.register20 > 0 {
-			if matches3At0(raw) {
+			if matches2At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -900,7 +885,7 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches3At0(raw) {
+		} else if excluded == "" && matches2At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is greater than zero; node 20 holds %d", w.register20)
 		}
 	case 2: // the state the descriptor carries as node 4
@@ -953,7 +938,7 @@ func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
 	switch w.state {
 	case 0: // the state the descriptor carries as node 2
 		// Transition 1 of that state.
-		if matches2At0(raw) {
+		if matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -983,7 +968,7 @@ func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
 		}
 
 		if w.register20 == 0 && (bytes.Equal(w.register21, []byte("\xd5")) || bytes.Equal(w.register21, []byte("@"))) {
-			if matches3At2(raw) {
+			if matches1At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1002,12 +987,12 @@ func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches3At2(raw) {
+		} else if excluded == "" && matches1At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is one of \"\\xd5\", \"@\"; node 20 holds %d and node 21 holds %q", w.register20, w.register21)
 		}
 	case 2: // the state the descriptor carries as node 4
 		// Transition 2 of that state.
-		if matches4At1(raw) {
+		if matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -1091,7 +1076,7 @@ func (w *Writer) writeSummaryRecord(rec *SummaryRecord) error {
 		}
 
 		if w.register20 == 0 && bytes.Equal(w.register21, []byte("\xe8")) {
-			if matches3At1(raw) {
+			if matches3At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1101,7 +1086,7 @@ func (w *Writer) writeSummaryRecord(rec *SummaryRecord) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches3At1(raw) {
+		} else if excluded == "" && matches3At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is \"\\xe8\"; node 20 holds %d and node 21 holds %q", w.register20, w.register21)
 		}
 	}
