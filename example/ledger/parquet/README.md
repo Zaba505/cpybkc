@@ -438,6 +438,34 @@ tiny ones pays footer metadata and a dictionary reset on every one. Raising it
 raises the memory bound in exactly the same proportion, which is the trade this
 paragraph exists to make visible.
 
+### The number 64 is not derived, and the sibling's is
+
+This is the one place the two worked conversions differ on a number rather than on
+a decision, and it is worth being plain about which of them you should copy.
+Sixty-four is a *test* number: it exists so that 999 postings do not divide evenly
+into row groups. The wide sparse example's bound is arithmetic —
+`memoryBudget / 2 / bufferedPerRow` — over a memory model whose two constants are
+measurements:
+
+> **peak(N, R) ≈ a·C·(N/R) + W·R**, so size the row group such that the footer you
+> have accumulated is the same size as the row group you are holding.
+
+`a` is what one column of one closed row group retains until `Close`, and `W` is
+what one row costs the open row group. Both are measured rather than asserted, by
+a harness committed beside that conversion —
+[`example/policy/parquet/memory_test.go`](../../policy/parquet/memory_test.go),
+which runs in `dagger call ci` and asserts the model's *shape* rather than any
+byte count. [Its README's "What it costs to write"](../../policy/parquet/README.md#what-it-costs-to-write)
+is the derivation, and it applies to this schema exactly as much as to that one —
+the numbers change, the rule does not.
+
+It is one harness and not two because it is generic over the row type: nothing in
+`a` or `W` depends on what a row *means*, and pointing it at `posting` is one
+instantiation. It lives next door rather than here because a conversion whose bound
+is a test number has nothing to size, and a second copy of a measurement is a
+second measurement to keep in step. If you are sizing a real extract, start there
+and not with the 64 above.
+
 ## Not generated
 
 Nothing here is written by cpybkc. This directory is not named in

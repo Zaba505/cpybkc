@@ -195,13 +195,50 @@ record types the layout names, so counting them invents nothing.
 
 ## What it costs to write
 
-Everything in this section is [#304](https://github.com/Zaba505/cpybkc/discussions/304)'s
-measurement applied to this schema. None of it is measured *here* — a committed
-harness is [#314](https://github.com/Zaba505/cpybkc/issues/314) and the run at
-millions of records is [#315](https://github.com/Zaba505/cpybkc/issues/315). What
-is checked here is that the conversion's constants are the ones the rule takes
-and that the number falls out of them:
-`TestTheRowGroupBoundIsDerivedAndNotChosen`.
+Everything in this section is a **measurement**, and
+[`memory_test.go`](memory_test.go) is where it is taken. A measurement nobody can
+rerun is prose, and prose about heap stays plausible for a year while being wrong
+the whole time — so the harness is committed beside the conversion, it runs in
+`dagger call ci`, and every number below can be reproduced with one command:
+
+```console
+$ go test -run TestTheWriterMemoryModelHoldsItsShape -v
+```
+
+The readings first came out of
+[#304](https://github.com/Zaba505/cpybkc/discussions/304), on a converter written
+to produce them rather than to be read; what the harness does is take the same
+three readings against **this** row type, on your machine. Two other things are
+checked here and they are checks and not measurements: that the conversion's
+constants are the ones the rule takes and that the number falls out of them
+(`TestTheRowGroupBoundIsDerivedAndNotChosen`), and that C is the schema's leaves
+and not a number written down (`TestTheColumnCountIsTheSchemaAndNotANumberWrittenDown`).
+The run at millions of records is
+[#315](https://github.com/Zaba505/cpybkc/issues/315).
+
+**What CI gates is the shape and never a byte count.** The numbers are a property
+of the machine, the Go version and the parquet-go pin, so `a == 1024` is not
+something a pipeline can hold anybody to; what it holds is the model — that the
+retained term is linear in closed row groups, that a row of this schema costs the
+writer more than the record it came from, and that the curve of peak against rows
+per row group has an interior bottom near where the rule puts it. The measured
+values are logged beside the committed constants, so drift is visible in
+`go test -v` without being a failure.
+
+Two traps sit in front of anyone taking these readings by hand, and both report a
+plausible number rather than an error, which is what makes them worth naming:
+
+- **The writer has to stay reachable across the probe.** A `runtime.GC()` with the
+  writer already unreachable collects the entire retained footer. #304 got 72 KB
+  where 247 MB was live — small enough to believe, wrong by four orders of
+  magnitude. `liveHeap` holds it with `runtime.KeepAlive`.
+- **The sample has to land at a defined phase of the row group.** A probe that
+  fires at an arbitrary fill reads the buffered term at an arbitrary fraction of
+  itself, and on a sweep that halves R at every point that is a different fraction
+  every time. The curve still looks like a curve. The harness samples at *m·R + 1*
+  rows for the retained term and *m·R + R − 1* for the peak — the two phases at
+  which "m row groups closed, and one row or R−1 rows in the open one" is true
+  whichever write parquet-go closes a full row group on.
 
 ### The rule
 
@@ -229,10 +266,24 @@ Minimising over R gives `R* = √(a·C·N/W)` and `peak* = 2·√(a·C·W·N)`.
 
 **a ≈ 1 KB**, and read it as **1–3 KB**.
 
+The harness measures it by writing at a **small** row group — sixteen rows — so
+that the buffered term shrinks to a single row and the slope of live heap against
+*closed row groups* is all footer. Over eight to sixty-four closed row groups of
+this schema it reads **969 B** and the fit is straight to 1%, which is the term
+the model wants and the one this section's arithmetic uses at 1,024.
+
+It is measured at a small row group for a second reason as well as the first. What
+a closed row group retains is a `ColumnChunk`, a `ColumnIndex` and an
+`OffsetIndex` per column, and the last two carry **one entry per data page** — so
+a row group big enough to spill more than one page per column folds a page count
+into `a` and makes it a function of R. Sixteen rows of this schema is one page per
+column, which is the regime the constant is quoted in.
+
 #304 measured 975, 988 and 943 bytes per column per row group across schemas of
 4, 16 and 32 columns — flat to 5% over an eight-fold range — and 1,878 to 2,960
 on schemas whose values are wide, because the minimum and maximum are retained
-twice, once in `Statistics` and once in the `ColumnIndex`.
+twice, once in `Statistics` and once in the `ColumnIndex`. The 969 above is that
+same number taken again, on a different machine, against this row type.
 
 A kilobyte is the bottom of that range and it is the right end for this file: no
 item in `pxtract.cpy` is wider than 40 bytes and most are under ten. Being wrong
@@ -269,6 +320,32 @@ The record's bytes are taken at LRECL, which over-estimates every row —
 alphanumeric items arrive from the generated reader already trimmed of their
 `DISPLAY` padding, and a record's `FILLER` is not a column at all. Over-estimating
 W sizes the row group *smaller*, which is the safe direction.
+
+The harness measures W by writing one row group and never letting it close — the
+bound is `math.MaxInt64`, which is parquet-go's own default and is exactly the
+thing that makes an unbounded writer buffer the file it claims to stream. With
+nothing flushed there are no closed row groups, the retained term is zero, and the
+slope is all W. It reads **1,365 B a row** as a least-squares fit and **1,063** as
+the chord across the same range, against the 1,256 the arithmetic uses.
+
+**That spread is the reading and not an error bar.** What an open row group holds
+is allocated *capacity*: a column buffer grows by doubling, so it overshoots what
+is in it by up to a factor of two and then stands still until the next doubling,
+and a page that reaches `PageBufferSize` spills and gives its buffer back. The
+live heap is therefore a staircase that climbs, plateaus, and now and then falls —
+reproducible to the byte across runs, which is what makes it a property of the
+writer rather than noise. Two consequences worth carrying:
+
+- **Measure W over a wide range or not at all.** A four-sample fit over 512–2,048
+  rows read 709 B a row on the machine this was written on; thirty-two samples
+  over 512–16,384 read 1,365. The first is a reading of whichever doubling it
+  happened to straddle.
+- **The peak is a band, not a line.** A row group sized at R holds somewhere
+  between W·R and about 2·W·R depending on where its buffers last doubled, which
+  is one more reason to size for the neighbourhood of R\* rather than for R\*.
+
+So CI asserts of this term only that it grows and that it exceeds the record it
+came from. The number is read off the log.
 
 ### Which makes peak linear in the column count
 
@@ -343,6 +420,41 @@ and got *"the limit of 32767 row groups has been reached"* wrapped as *"flushing
 moves it. `convert.go` re-reports it with both. **The ceiling and the linear heap
 are one mistake with one fix, not two walls with two**: tiny row groups produce
 both, and a row group sized anywhere near R\* produces neither.
+
+### The bottom, observed
+
+`R* = √(a·C·N/W)` is where the arithmetic says the two terms cross. The harness
+does not take that on trust: it draws the curve, sampling peak at seven
+rows-per-row-group halving down from N, each point writing the same N records and
+sampled one row short of a flush. At N = 16,384 on the machine this was written
+on:
+
+```
+R = 16384   peak = 22.0 MB
+R =  8192   peak = 12.4 MB
+R =  4096   peak =  7.9 MB
+R =  2048   peak =  7.1 MB   <- observed minimum
+R =  1024   peak =  7.6 MB
+R =   512   peak = 10.5 MB
+R =   256   peak = 16.4 MB
+```
+
+The rule, fed the `a` and `W` this same run measured, puts R\* at 1,514. The
+observed bottom is at 2,048 — **a factor of 1.35, which is a 1.06× penalty on the
+curve**, and the point either side of it is within 7% of the minimum. That is the
+whole claim this section makes about the rule: it picks a neighbourhood.
+
+Three things about that table are the reason CI can gate on it. The minimum is
+*interior* — a sweep whose smallest reading is at an end has only seen one side of
+the curve. Both ends stand well above the bottom, so the curve has a bottom rather
+than being flat. And the observed argmin sits within a factor of four of the R\*
+the run's own measurements predict. None of those is a byte count, and all three
+fail on a model that has stopped being true.
+
+Every reading includes the writer's fixed overhead — around 4.8 MB of column
+buffer capacity for 197 columns — which is neither of the model's two terms and is
+why the ratios above are smaller than the arithmetic alone would give. It is left
+in rather than subtracted, because it is memory the process actually holds.
 
 ### It does not have to be hit, but it does have to be computed
 
