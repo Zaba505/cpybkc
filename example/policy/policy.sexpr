@@ -29,9 +29,9 @@
 ;; short carry the rest.
 ;;
 ;; The block size is a real one: 27904 is the half-track block a 3390 takes,
-;; and it is 109 records of 256 bytes. `resolve` checks that it divides LRECL
-;; and then drops it, because a stream that has arrived on a filesystem carries
-;; no blocks.
+;; and it is 109 records of 256 bytes. `resolve` checks that LRECL divides it --
+;; that it is a whole number of records -- and then drops it, because a stream
+;; that has arrived on a filesystem carries no blocks.
 (framing
   (recfm FB)
   (lrecl 256)
@@ -81,7 +81,9 @@
 ;; policy any number of its own detail records in any order. The unload writes
 ;; them grouped by policy and sorted within it, but the sort key is not in the
 ;; file and nothing here can say what it was, so the inner repetition is an
-;; `alt` of the eight detail types rather than a sequence of them.
+;; `alt` of the eight types that hang off a policy rather than a sequence of
+;; them. The file has nine detail record types; PX-POLICY is the ninth, and it
+;; is the grain the other eight hang off rather than one of them.
 ;;
 ;; Both repetitions are `*` rather than `times`: no record in this file counts
 ;; the ones that follow it. The trailer's counts are the receiving system's

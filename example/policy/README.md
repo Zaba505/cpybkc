@@ -42,11 +42,18 @@ file.
 
 **A merged table is wider than the fields the file holds.** The eleven record
 types declare 197 fields between them, and only 127 of those are distinct
-concepts. The other **70 columns are the same field written again under another
-record type's prefix** — `PLC-POLICY-NUMBER`, `INS-POLICY-NUMBER`,
+concepts. The other **70 columns are a field some other record type also declares
+under its own prefix** — `PLC-POLICY-NUMBER`, `INS-POLICY-NUMBER`,
 `LOC-POLICY-NUMBER` and six more. COBOL has no inheritance, so a shared key is
 repeated per `01`-level, and a merged table cannot collapse them because they are
-not the same data-name. That is exactly the 60–80 duplicated fields
+not the same data-name.
+
+Not every one of the 70 is the *same* field, and one pair in this copybook is
+deliberately not: `PLC-WRITTEN-PREMIUM` is `S9(9)V99` and `FTR-WRITTEN-PREMIUM`
+is `S9(13)V99`, a policy's premium against a file control total. They share a
+name and neither the width nor the grain, and a converter that collapsed them
+would be wrong to — which is the same reason none of the other 69 may be
+collapsed either. That is exactly the 60–80 duplicated fields
 [#304](https://github.com/Zaba505/cpybkc/discussions/304) measured on the
 production file this example is scaled from, arrived at the same way.
 
@@ -74,6 +81,15 @@ length and a record's extent *is* its width — which is why every `01`-level in
 [`pxtract.cpy`](pxtract.cpy) ends in a `FILLER` out to LRECL, and why the
 generated package's reader is the unframed one.
 
+It has one consequence worth knowing before an adopter writes this file rather
+than reads it. `filler` is unexported, so a record *built* in Go carries no bytes
+for its padding and the writer emits zeros — 198 of the file header's 256 bytes.
+A COBOL program writing the same record would have moved spaces and emitted
+`0x40`s. A record that was **read** carries the bytes it was read from and
+emits those instead, so a round trip is unaffected; it is only synthesis that
+differs, and `codec.go`'s `zeroFill` says why zero rather than a space is the
+right byte to choose when there is nothing to choose from.
+
 ## The file
 
 `PXTRACT` is what a P&C policy administration system unloads nightly for the data
@@ -84,8 +100,9 @@ the claims and the endorsements — in whatever order the unload wrote them.
 
 `RECFM=FB`, `LRECL=256`, `BLKSIZE=27904`, EBCDIC (`cp037`), packed decimal for
 every money field. 27904 is the half-track block a 3390 takes and is 109 records
-of 256; `resolve` checks that it divides LRECL and then drops it, because a
-stream that has arrived on a filesystem carries no blocks.
+of 256; `resolve` checks that LRECL divides it — that it is a whole number of
+records — and then drops it, because a stream that has arrived on a filesystem
+carries no blocks.
 
 Sparsity is a property of the *book of business*, not of the format. An
 automobile policy carries vehicles and drivers and no locations; a homeowners
@@ -134,35 +151,54 @@ apiece" — and this is the first example in the repository that is it.
 
 **Eleven: a header, a trailer and nine detail types, at 197 columns.** The
 production file is 21 types over 429 columns. The count here is scaled down from
-that and the scaling is not arbitrary — it is the smallest count that still
-crosses the line the example exists to be on the far side of, rounded up to a
-number of *record types* a reader can hold in their head.
+that, and there are two properties it has to keep. Each detail type adds twenty
+columns, so the whole question is how many detail types:
 
-The line is where the writer's buffers stop being about the data. A row costs
-about five bytes per absent optional column, and a record of this file is 256
-bytes, so absences cost more than the record itself once
+| Detail types | Record types | Columns | Duplicated columns | Absent-value cost per row |
+|---:|---:|---:|---:|---:|
+| 1 | 3 | 37 | 6 | 85 B — 0.3× the record |
+| 2 | 4 | 57 | 12 | 185 B — 0.7× |
+| 3 | 5 | 77 | 21 | 285 B — 1.1× |
+| 5 | 7 | 117 | 36 | 485 B — 1.9× |
+| 7 | 9 | 157 | 49 | 685 B — 2.7× |
+| 8 | 10 | 177 | 58 | 785 B — 3.1× |
+| **9** | **11** | **197** | **70** | **885 B — 3.5×** |
+
+**The first property is that absences cost more than the record.** A row costs
+about five bytes per absent optional column and a record of this file is 256
+bytes, so the writer's buffers stop being about the data once
 
 ```
 (columns − 20) × 5 > 256,   i.e. columns > 71
 ```
 
 Below that a wide table is an inefficiency; above it, peak writer memory is
-governed by the schema and the row-group size and barely at all by what is in the
-file. At 197 columns the ratio is about **3.5×** — a detail row buffers 885 bytes
-of level information for 256 bytes of record. `ledger/` sits at 0.8× and is
-therefore on the wrong side of the line by construction, which is what
-[#304](https://github.com/Zaba505/cpybkc/discussions/304) said and what this
-example is here to make demonstrable. The production file sits at about 9.7×;
-this one is less extreme and is on the same side, which is the honest claim.
+governed by the schema and the row-group size and barely at all by what is in
+the file. `ledger/` sits at 0.8× and is on the wrong side by construction, which
+is what [#304](https://github.com/Zaba505/cpybkc/discussions/304) said and what
+this example is here to make demonstrable.
 
-The bound from the other direction is the diff. Every generated byte of an
-example is checked in and reviewed, and the generated tree here is already 12,394
-lines against `ledger/`'s 2,593. Twenty-one record types would roughly double
-that again for nothing the eleven do not already show: the ratio above is already
-past the line, and the 70 duplicated columns are already in the 60–80 band the
-real file has. Eleven types over 197 columns is where those two bounds leave
-room, and it is a copybook a person can read end to end in one sitting — 295
-lines, of which 208 are a `PIC` clause.
+But that line is crossed at **three** detail types, and it is therefore *not*
+what fixes the count. Saying so is the point: a five-record-type example would
+already be past the threshold, and it would still not be this file.
+
+**The second property is the duplication, and that is the binding one.** The
+production file carries 60–80 fields duplicated across its types, and the table
+above is the only place the count is actually pinned: eight detail types give 58
+duplicated columns, which is below the band, and nine give 70, which is inside
+it. Nine is the first count that lands there. That is why the ratio ends up at
+3.5× rather than at some number chosen for being large — the ratio is a
+consequence of the count, and the count is a consequence of the duplication.
+
+The bound from above is the diff. Every generated byte of an example is checked
+in and reviewed, and the generated tree here is already 12,394 lines against
+`ledger/`'s 2,593. Twenty-one record types would more than double that again for
+nothing the eleven do not already show, both properties being met at nine. So
+eleven is the smallest count meeting both, and it is a copybook a person can
+read end to end in one sitting — 295 lines, of which 208 are a `PIC` clause.
+
+The production file sits at about 9.7× on the first property. This one is less
+extreme and on the same side of the line, which is the honest claim.
 
 The overlap between the types was fixed the same way. Each detail type repeats a
 five-field policy key and declares fifteen fields of its own, so **43** of the 70
