@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,13 +34,14 @@ import (
 // PST-TAIL — the base descriptions a mainframe-produced extract does not carry.
 const postingTypes = 2
 
-// ledgerBytes is a well-formed ledger extract of n postings, cycling through
-// both of the record types this layout names.
+// ledgerBytes is a ledger extract of n postings, cycling through both of the
+// record types this layout names.
 //
-// trlCount is stated apart from n so that a file whose trailer disagrees with
-// its own rows can be built: nothing in the layout ties TRL-COUNT to the
-// postings, and a reconciliation nobody can make fail is not a reconciliation.
-func ledgerBytes(t *testing.T, n int32, trlCount int32) []byte {
+// trlCount and trlNet are stated apart from the postings so that a file whose
+// trailer disagrees with its own rows can be built: nothing in the layout ties
+// either of them to the body, and a reconciliation nobody can make fail is not a
+// reconciliation. [netOf] is what makes a well-formed one.
+func ledgerBytes(t *testing.T, n int32, trlCount int32, trlNet int64) []byte {
 	t.Helper()
 
 	var b bytes.Buffer
@@ -67,7 +70,7 @@ func ledgerBytes(t *testing.T, n int32, trlCount int32) []byte {
 	if err := w.Write(&ledger.LedgerTrailer{
 		TrlType:  "99",
 		TrlCount: trlCount,
-		TrlNet:   trailerNet,
+		TrlNet:   trlNet,
 	}); err != nil {
 		t.Fatalf("writing the trailer: %v", err)
 	}
@@ -79,19 +82,40 @@ func ledgerBytes(t *testing.T, n int32, trlCount int32) []byte {
 	return b.Bytes()
 }
 
-// trailerNet is TRL-NET's unscaled value: fifteen digits with two after the
-// point, so -1234567890123.45. It is carried through the conversion unchanged
-// and nothing here divides by a hundred, which is the point of asserting it.
-const trailerNet = int64(-123456789012345)
-
 // debitAmount and creditAmount are the unscaled values of the two posting
 // amounts, chosen to fill their own precisions rather than to be small:
 // PDB-AMOUNT is thirteen digits and PCR-AMOUNT eleven, and a value that fits in
 // both would not tell a mistaken precision from a correct one.
+//
+// The debit is thirteen digits and not nine-nine-nine-nine, because now that
+// TRL-NET is reconciled the largest fixture here has to sum inside the
+// trailer's own fifteen: 999 postings of this one come to
+// 887,012,346,228,013, which fits, where 999 of a full 9,999,999,999,999 would
+// not. That is a property a real layout's trailer has to have and this one only
+// just does — a trailer two digits narrower than the sum of the rows it totals
+// is a layout that cannot describe its own worst case.
+//
+// The credit is negative because this file stores the sign of a posting on the
+// posting; see [TestTheNetTakesEachAmountWithTheSignTheRecordStoresIt].
 const (
-	debitAmount  = int64(9876543210987)
+	debitAmount  = int64(1876543210987)
 	creditAmount = int64(-98765432109)
 )
+
+// netOf is the TRL-NET a well-formed fixture of n postings carries: the amounts
+// its records store, summed.
+//
+// It is arithmetic over this file's own two constants rather than a second copy
+// of the conversion's accumulator — [posting] hands out a debit on every even i,
+// so n/2 of them are debits and the rest credits. A constant written down here
+// instead would have to be recomputed by hand every time either amount moved,
+// and the reconciliation would start failing for a reason that is not the one
+// under test.
+func netOf(n int32) int64 {
+	debits := n / 2
+
+	return int64(debits)*debitAmount + int64(n-debits)*creditAmount
+}
 
 // posting is the i'th posting of a fixture, of the i'th of the two record types.
 func posting(i int32) ledger.Record {
@@ -120,22 +144,38 @@ func posting(i int32) ledger.Record {
 }
 
 // converted runs the conversion over a ledger extract of n postings whose
-// trailer counts trlCount of them, and returns the two files it wrote.
-func converted(t *testing.T, n int32, trlCount int32) (extract, posting []byte, err error) {
+// trailer counts trlCount of them and totals trlNet, and returns the one file it
+// wrote.
+//
+// The bytes come back whether or not the conversion succeeded, because what a
+// failed conversion left behind is half of what the reconciliation tests assert.
+func converted(t *testing.T, n int32, trlCount int32, trlNet int64) ([]byte, error) {
 	t.Helper()
 
-	raw := ledgerBytes(t, n, trlCount)
+	raw := ledgerBytes(t, n, trlCount, trlNet)
 
 	r, rerr := ledger.NewReader(bytes.NewReader(raw), ledger.Encoding())
 	if rerr != nil {
 		t.Fatalf("ledger.NewReader: %v", rerr)
 	}
 
-	var extractBuf, postingBuf bytes.Buffer
+	var posting bytes.Buffer
 
-	err = convert(r, &extractBuf, &postingBuf)
+	err := convert(r, &posting)
 
-	return extractBuf.Bytes(), postingBuf.Bytes(), err
+	return posting.Bytes(), err
+}
+
+// postingTable is the table a well-formed extract of n postings converts to.
+func postingTable(t *testing.T, n int32) []byte {
+	t.Helper()
+
+	posting, err := converted(t, n, n, netOf(n))
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+
+	return posting
 }
 
 // rowsOf reads a whole Parquet file back as T.
@@ -175,46 +215,60 @@ func rowsOf[T any](t *testing.T, b []byte) []T {
 	return rows[:read]
 }
 
-// TestTheTwoGrainsBecomeTwoFiles is the first thing an adopter meets: a Parquet
-// file carries exactly one schema, and this extract has two grains.
-func TestTheTwoGrainsBecomeTwoFiles(t *testing.T) {
-	extract, posting, err := converted(t, postingTypes, postingTypes)
+// TestTheConversionWritesOneFile is the first thing an adopter meets, and it is
+// the decision this example changed its mind about: a Parquet file carries
+// exactly one schema and this extract has two grains, and the answer is still
+// one file. The file-level grain is denormalized and reconciled away rather than
+// given a table of its own.
+//
+// It goes through [run] rather than through [convert], because "one file" is a
+// claim about what is on the disk afterwards and not about how many writers the
+// conversion opened. That is also what asserts -out: it names the file, so a
+// directory that reads back with exactly one entry in it is both halves of the
+// claim at once.
+func TestTheConversionWritesOneFile(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "ledger.dat")
+	if err := os.WriteFile(in, ledgerBytes(t, postingTypes, postingTypes, netOf(postingTypes)), 0o600); err != nil {
+		t.Fatalf("writing the fixture extract: %v", err)
+	}
+
+	// A directory that is not there yet, because the invocation README.md
+	// documents has to run on a machine that has never run it.
+	dir := filepath.Join(t.TempDir(), "out")
+	out := filepath.Join(dir, "posting.parquet")
+
+	if err := run([]string{"-in", in, "-out", out}, io.Discard); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("convert: %v", err)
+		t.Fatalf("reading the output directory back: %v", err)
 	}
 
-	extracts := rowsOf[extractRow](t, extract)
-	if len(extracts) != 1 {
-		t.Fatalf("the extract table holds %d rows, want 1: its grain is the file", len(extracts))
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
 	}
 
-	want := extractRow{
-		HdrLedgerID: "GL-MAIN",
-		HdrPeriod:   202601,
-		HdrCurrency: "USD",
-		HdrCount:    postingTypes,
-		TrlCount:    postingTypes,
-		TrlNet:      trailerNet,
-	}
-	if extracts[0] != want {
-		t.Errorf("the extract row is %+v, want %+v", extracts[0], want)
+	if len(names) != 1 || names[0] != filepath.Base(out) {
+		t.Fatalf("the conversion left %v, want exactly [%q]: one grain that is not the posting is not a second file", names, filepath.Base(out))
 	}
 
-	postings := rowsOf[postingRow](t, posting)
-	if len(postings) != postingTypes {
-		t.Fatalf("the posting table holds %d rows, want %d: its grain is the posting", len(postings), postingTypes)
+	written, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("reading the posting table back: %v", err)
+	}
+
+	if rows := rowsOf[postingRow](t, written); len(rows) != postingTypes {
+		t.Errorf("the posting table holds %d rows, want %d: its grain is the posting", len(rows), postingTypes)
 	}
 }
 
 // TestHeaderContextIsDenormalizedOntoEveryPosting is the decision that makes the
 // posting table usable on its own.
 func TestHeaderContextIsDenormalizedOntoEveryPosting(t *testing.T) {
-	_, posting, err := converted(t, postingTypes, postingTypes)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-
-	for i, row := range rowsOf[postingRow](t, posting) {
+	for i, row := range rowsOf[postingRow](t, postingTable(t, postingTypes)) {
 		if row.HdrLedgerID != "GL-MAIN" || row.HdrPeriod != 202601 || row.HdrCurrency != "USD" {
 			t.Errorf("posting row %d carries (%q, %d, %q), want the header's (%q, %d, %q): a query filtering on the period has to be able to do it without a join",
 				i, row.HdrLedgerID, row.HdrPeriod, row.HdrCurrency, "GL-MAIN", 202601, "USD")
@@ -225,12 +279,16 @@ func TestHeaderContextIsDenormalizedOntoEveryPosting(t *testing.T) {
 // TestTrailerFieldsDoNotPromote is the other half of that decision, and the
 // reason it is a test rather than a sentence: TRL-COUNT and TRL-NET are
 // summaries *of* the posting rows, so denormalizing them would make
-// SUM(trl_net) return the total times the row count.
+// SUM(trl_net) return the total times the row count. With no second table to
+// keep them in, "they do not promote" now means there is no column for them
+// anywhere.
+//
+// HDR-COUNT is here for a different reason. It is a summary too, but it is one
+// the generated reader has already enforced — `ledger.sexpr` reads it into a
+// register and holds the body to it — so a column for it would be a number that
+// can only ever agree with a row count a query can take for itself.
 func TestTrailerFieldsDoNotPromote(t *testing.T) {
-	_, posting, err := converted(t, postingTypes, postingTypes)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
+	posting := postingTable(t, postingTypes)
 
 	f, err := parquet.OpenFile(bytes.NewReader(posting), int64(len(posting)))
 	if err != nil {
@@ -241,6 +299,10 @@ func TestTrailerFieldsDoNotPromote(t *testing.T) {
 		if strings.HasPrefix(field.Name(), "trl_") {
 			t.Errorf("the posting table carries a %q column: a trailer field is a summary of these rows, and one on every row is a summary multiplied by the row count", field.Name())
 		}
+
+		if field.Name() == "hdr_count" {
+			t.Error("the posting table carries an hdr_count column: ledger.Reader already holds the body to HDR-COUNT, so the column is a count that cannot disagree with COUNT(*)")
+		}
 	}
 }
 
@@ -249,13 +311,8 @@ func TestTrailerFieldsDoNotPromote(t *testing.T) {
 // so PST-TYPE and the group that is present have to name which of the two a row
 // was.
 func TestTheMergedTableKeepsTheRecordTypeRecoverable(t *testing.T) {
-	_, posting, err := converted(t, postingTypes, postingTypes)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-
 	byType := make(map[string]postingRow)
-	for _, row := range rowsOf[postingRow](t, posting) {
+	for _, row := range rowsOf[postingRow](t, postingTable(t, postingTypes)) {
 		byType[row.PstType] = row
 	}
 
@@ -311,10 +368,7 @@ func present(row postingRow) string {
 // column that is null on every row of every extract is one a query has to know
 // to ignore.
 func TestTheOnlyDescriptionOfATailIsARequiredColumn(t *testing.T) {
-	_, posting, err := converted(t, postingTypes, postingTypes)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
+	posting := postingTable(t, postingTypes)
 
 	f, err := parquet.OpenFile(bytes.NewReader(posting), int64(len(posting)))
 	if err != nil {
@@ -357,10 +411,7 @@ func TestEveryPostingReadIsAPostingWritten(t *testing.T) {
 		t.Fatalf("this fixture has %d postings and the batch is %d: a whole number of batches is the one file a missing terminal flush does not lose rows from", postings, batchSize)
 	}
 
-	_, posting, err := converted(t, postings, postings)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
+	posting := postingTable(t, postings)
 
 	rows := rowsOf[postingRow](t, posting)
 	if len(rows) != postings {
@@ -383,22 +434,21 @@ func TestEveryPostingReadIsAPostingWritten(t *testing.T) {
 	}
 }
 
-// TestTheThreeAmountsRoundTripThroughDecimal is the claim that looks like it
+// TestTheTwoAmountColumnsRoundTripThroughDecimal is the claim that looks like it
 // needs a conversion and does not.
 //
 // cpybkc-gen-go writes a COMP-3 item as an unscaled int64 with the scale in its
 // doc comment, which is what DECIMAL(p,s) is, so the mapping is an annotation.
 // Reading the written file back and comparing against what the ledger reader
 // produced is what makes that a fact rather than a plausible sentence.
-func TestTheThreeAmountsRoundTripThroughDecimal(t *testing.T) {
-	extract, posting, err := converted(t, postingTypes, postingTypes)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-
-	if got := rowsOf[extractRow](t, extract)[0].TrlNet; got != trailerNet {
-		t.Errorf("TRL-NET came back as %d, want %d", got, trailerNet)
-	}
+//
+// TRL-NET is the third amount of the same shape and it is not here, because it
+// is no longer a column: it is read, reconciled and discarded, which is
+// [TestTheTrailerNetIsReconciled]. That all three carry scale 2 is what lets the
+// reconciliation be plain addition, and it is the reason the mapping is worth
+// stating for an item nothing writes.
+func TestTheTwoAmountColumnsRoundTripThroughDecimal(t *testing.T) {
+	posting := postingTable(t, postingTypes)
 
 	debits, credits := 0, 0
 
@@ -427,7 +477,6 @@ func TestTheThreeAmountsRoundTripThroughDecimal(t *testing.T) {
 		t.Fatalf("%d debit and %d credit rows carried an amount to compare, want some of each", debits, credits)
 	}
 
-	assertDecimal(t, extract, "trl_net", 15, 2)
 	assertDecimal(t, posting, "pst_debit.pdb_amount", 13, 2)
 	assertDecimal(t, posting, "pst_credit.pcr_amount", 11, 2)
 }
@@ -475,10 +524,10 @@ func assertDecimal(t *testing.T, file []byte, path string, precision, scale int3
 	}
 }
 
-// TestTheTrailerCountIsReconciled is the check a conversion that streams can
-// still make, and it runs before either footer is written.
+// TestTheTrailerCountIsReconciled is one of the two checks a conversion that
+// streams can still make, and it runs before the footer is written.
 func TestTheTrailerCountIsReconciled(t *testing.T) {
-	extract, posting, err := converted(t, postingTypes, postingTypes+1)
+	posting, err := converted(t, postingTypes, postingTypes+1, netOf(postingTypes))
 	if err == nil {
 		t.Fatalf("a file whose TRL-COUNT is %d and whose body holds %d postings converted without complaint", postingTypes+1, postingTypes)
 	}
@@ -487,8 +536,78 @@ func TestTheTrailerCountIsReconciled(t *testing.T) {
 		t.Errorf("the reconciliation failure is %q, and it does not name TRL-COUNT", err)
 	}
 
-	assertUnopenable(t, extract, "extract")
 	assertUnopenable(t, posting, "posting")
+}
+
+// TestTheTrailerNetIsReconciled is the other, and it is the one that costs an
+// accumulator: TRL-COUNT falls out of the row count, and TRL-NET does not.
+//
+// TRL-NET, PDB-AMOUNT and PCR-AMOUNT all carry scale 2, so what is summed here
+// is the unscaled integers as they stand and nothing multiplies or divides by a
+// hundred. A conversion that rescaled one side would fail this on every fixture,
+// which is the point of running it over a net that is not zero.
+func TestTheTrailerNetIsReconciled(t *testing.T) {
+	// One cent out. A reconciliation that compared anything coarser than the
+	// unscaled integer — the count, the magnitude, the sign — would pass this.
+	const off = 1
+
+	posting, err := converted(t, postingTypes, postingTypes, netOf(postingTypes)+off)
+	if err == nil {
+		t.Fatalf("a file whose TRL-NET is %d and whose postings sum to %d converted without complaint", netOf(postingTypes)+off, netOf(postingTypes))
+	}
+
+	if !strings.Contains(err.Error(), "TRL-NET") {
+		t.Errorf("the reconciliation failure is %q, and it does not name TRL-NET", err)
+	}
+
+	assertUnopenable(t, posting, "posting")
+}
+
+// TestTheNetTakesEachAmountWithTheSignTheRecordStoresIt is the assumption this
+// conversion makes that the copybook does not.
+//
+// `posting.cpy` gives both amounts a signed PICTURE and says nothing about what
+// a debit or a credit does to a total, so a converter that reconciles TRL-NET at
+// all has to pick. This one adds every amount with the sign the record stores
+// it under: the file is read as one that already carries the sign, which is what
+// the fixtures do — [posting] stores its credits negative.
+//
+// The fixture here is the other kind of layout, the one where both amounts are
+// stored as magnitudes and the credit is meant to subtract. Its trailer is
+// right for that layout and this conversion reports it as wrong, which is
+// exactly what an adopter whose file is shaped that way must see happen rather
+// than have quietly accepted. README.md, "The sign the net assumes", is where
+// the choice is argued.
+func TestTheNetTakesEachAmountWithTheSignTheRecordStoresIt(t *testing.T) {
+	const magnitude = int64(50000)
+
+	debit := &ledger.DebitPosting{PstAccount: "ACCT000001", PstSequence: 1, PstType: "DR"}
+	debit.PstDebit.PdbAmount = magnitude
+
+	// Stored positive, and meant to subtract. That is the layout this
+	// conversion is not.
+	credit := &ledger.CreditPosting{PstAccount: "ACCT000002", PstSequence: 2, PstType: "CR"}
+	credit.PstCredit.PcrAmount = magnitude
+
+	src := &oneOff{records: []ledger.Record{
+		&ledger.LedgerHeader{HdrType: "01", HdrLedgerId: "GL-MAIN", HdrPeriod: 202601, HdrCurrency: "USD", HdrCount: 2},
+		debit,
+		credit,
+		// Debits less credits, which is zero — and this conversion sums them
+		// to twice the magnitude instead.
+		&ledger.LedgerTrailer{TrlType: "99", TrlCount: 2, TrlNet: 0},
+	}}
+
+	var posting bytes.Buffer
+
+	err := convert(src, &posting)
+	if err == nil {
+		t.Fatal("an extract whose credits are stored positive and meant to subtract reconciled against a net this conversion did not compute")
+	}
+
+	if !strings.Contains(err.Error(), fmt.Sprint(2*magnitude)) {
+		t.Errorf("the reconciliation failure is %q, and it does not say what this conversion summed the amounts to: an adopter whose layout is the other one finds out from this line", err)
+	}
 }
 
 // unmappable is a record no transition of this layout admits, which is what a
@@ -528,9 +647,9 @@ func TestAMappingErrorFailsTheConversion(t *testing.T) {
 		unmappable{},
 	}}
 
-	var extract, posting bytes.Buffer
+	var posting bytes.Buffer
 
-	err := convert(src, &extract, &posting)
+	err := convert(src, &posting)
 	if err == nil {
 		t.Fatal("a record neither of the two posting types describes converted without complaint")
 	}
@@ -547,9 +666,9 @@ func TestAMappingErrorFailsTheConversion(t *testing.T) {
 func TestAPostingBeforeItsHeaderIsReported(t *testing.T) {
 	src := &oneOff{records: []ledger.Record{posting(1)}}
 
-	var extract, posting bytes.Buffer
+	var written bytes.Buffer
 
-	err := convert(src, &extract, &posting)
+	err := convert(src, &written)
 	if err == nil {
 		t.Fatal("a posting ahead of its header converted without complaint")
 	}

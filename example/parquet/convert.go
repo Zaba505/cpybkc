@@ -4,12 +4,12 @@
 // https://opensource.org/licenses/MIT
 
 // Command parquet converts the ledger extract in the directory above this one
-// into the two Parquet files a data platform would query it as.
+// into the Parquet table a data platform would query it as.
 //
 // It is a worked conversion and a reference, not a recommendation and not a
 // library. Every decision it makes is one an adopter has to make for themselves
 // on their own layout; README.md beside this file states each of them, says why
-// this one was taken, and marks the four where another adopter would reasonably
+// this one was taken, and marks each place where another adopter would reasonably
 // differ. An adopter who reads it and does something else has used it correctly.
 //
 // It is package main rather than a package with a Convert function so that
@@ -45,34 +45,19 @@ import (
 // a test rather than theoretical.
 const batchSize = 64
 
-// extractRow is the `extract` table: one row per file.
+// postingRow is the `posting` table, and it is the only table: one row per
+// posting.
 //
-// A Parquet file carries exactly one schema and this example has two grains, so
-// there are two tables. The header and the trailer describe the extract as a
-// whole, and this is where they live — both of them, together, so that
-// TRL-COUNT and TRL-NET sit beside the HDR-COUNT they are a summary of.
-type extractRow struct {
-	HdrLedgerID string `parquet:"hdr_ledger_id"`
-	HdrPeriod   int32  `parquet:"hdr_period"`
-	HdrCurrency string `parquet:"hdr_currency"`
-	HdrCount    int32  `parquet:"hdr_count"`
-
-	TrlCount int32 `parquet:"trl_count"`
-
-	// TrlNet is TRL-NET, PIC S9(13)V99 COMP-3: fifteen digits with two after
-	// the point. cpybkc-gen-go produced it as an unscaled int64 with the scale
-	// in its doc comment, which is exactly what DECIMAL(15,2) is, so this is a
-	// re-annotation and not a conversion. Nothing here divides by a hundred.
-	TrlNet int64 `parquet:"trl_net,decimal(2:15)"`
-}
-
-// postingRow is the `posting` table: one row per posting.
+// A Parquet file carries exactly one schema and this extract has two grains, so
+// the file-level one had to go somewhere. Its identifying fields are
+// denormalized onto every row here; its summaries — TRL-COUNT and TRL-NET — are
+// reconciled by [convert] and never stored; and HDR-COUNT is the reader's
+// business rather than this conversion's. README.md says why a second table is
+// the wrong home for them.
 //
-// The header's identifying fields are denormalized onto every row and the
-// trailer's are not; README.md says why in terms of what SUM does to each. The
-// record types the layout names are one table rather than one each, and a run
-// the layout names more than one description of becomes one optional column per
-// description — which is what keeps the record type recoverable from a row.
+// The record types the layout names are one table rather than one each, and a
+// run the layout names more than one description of becomes one optional column
+// per description — which is what keeps the record type recoverable from a row.
 //
 // The shape of this struct is a function of the **layout** and not of the
 // copybook. `posting.cpy` admits six combinations; `ledger.sexpr` names the two
@@ -158,8 +143,8 @@ func main() {
 	os.Exit(1)
 }
 
-// run converts the dataset named by -in into extract.parquet and
-// posting.parquet under -out, creating that directory if it is not there.
+// run converts the dataset named by -in into the Parquet file named by -out,
+// creating the directory that file sits in if it is not there.
 //
 // What a failed run leaves behind is write's business; see there.
 func run(args []string, stderr io.Writer) error {
@@ -167,7 +152,12 @@ func run(args []string, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 
 	in := flags.String("in", "", "the ledger extract to convert")
-	out := flags.String("out", ".", "the directory the two Parquet files are written to")
+	// -out names the file and not a directory. With two tables it had to name a
+	// directory, because the conversion was choosing both filenames; with one
+	// there is no name for it to choose, and a flag that still named a
+	// directory would be inventing `posting.parquet` inside it for the caller
+	// to then go and find.
+	out := flags.String("out", "posting.parquet", "the Parquet file to write")
 
 	if err := flags.Parse(args); err != nil {
 		// The flag set has already written its message and the usage to stderr,
@@ -199,13 +189,14 @@ func run(args []string, stderr io.Writer) error {
 		return err
 	}
 
-	// -out is created rather than assumed, so that the invocation README.md
-	// documents runs as it is written on a machine that has never run it.
-	if err := os.MkdirAll(*out, 0o750); err != nil {
+	// The directory -out sits in is created rather than assumed, so that the
+	// invocation README.md documents runs as it is written on a machine that
+	// has never run it. The file itself is os.Create's business below.
+	if err := os.MkdirAll(filepath.Dir(*out), 0o750); err != nil {
 		return err
 	}
 
-	if err := write(r, filepath.Join(*out, "extract.parquet"), filepath.Join(*out, "posting.parquet")); err != nil {
+	if err := write(r, *out); err != nil {
 		return fmt.Errorf("converting %s: %w", *in, err)
 	}
 
@@ -216,36 +207,28 @@ func run(args []string, stderr io.Writer) error {
 // main exits non-zero on it and says nothing further.
 var errAlreadyReported = errors.New("")
 
-// write creates the two tables and converts into them.
+// write creates the table and converts into it.
 //
 // Nothing it created survives a failure. A conversion that fails returns before
-// either footer is written, and a Parquet file with no footer is bytes that read
-// as corruption rather than as a run somebody has to repeat — so the two paths
-// are removed, and only the ones this call actually opened.
+// the footer is written, and a Parquet file with no footer is bytes that read as
+// corruption rather than as a run somebody has to repeat — so the path is
+// removed, and only when this call is the one that opened it.
 //
-// Both files are closed whatever happens, and a failure to close is joined to
+// The file is closed whatever happens, and a failure to close is joined to
 // whatever the conversion reported rather than replacing it: a full disk shows
 // up here and nowhere else.
-func write(src recordSource, extractPath, postingPath string) error {
-	extract, err := os.Create(extractPath)
+func write(src recordSource, path string) error {
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 
-	posting, err := os.Create(postingPath)
-	if err != nil {
-		// posting was never opened by this call, so it is not this call's to
-		// remove: a file of that name is one an earlier successful conversion
-		// into the same directory left behind.
-		return errors.Join(err, extract.Close(), remove(extractPath))
-	}
-
-	err = errors.Join(convert(src, extract, posting), extract.Close(), posting.Close())
+	err = errors.Join(convert(src, f), f.Close())
 	if err == nil {
 		return nil
 	}
 
-	return errors.Join(err, remove(extractPath), remove(postingPath))
+	return errors.Join(err, remove(path))
 }
 
 // remove deletes a path this run created, treating an absent one as done rather
@@ -262,15 +245,14 @@ func remove(path string) error {
 	return nil
 }
 
-// convert reads every record of src once and writes the two tables.
+// convert reads every record of src once and writes the posting table.
 //
 // One pass, and the file is never held: what this carries at any moment is the
-// header, the batch of posting rows in hand, and the row group parquet-go is
-// buffering behind it. That is the whole of its footprint, and README.md states
-// it that way rather than as "constant".
-func convert(src recordSource, extract, posting io.Writer) error {
-	postings := parquet.NewGenericWriter[postingRow](posting)
-	extracts := parquet.NewGenericWriter[extractRow](extract)
+// header, the batch of posting rows in hand, the row group parquet-go is
+// buffering behind it, and two running totals. That is the whole of its
+// footprint, and README.md states it that way rather than as "constant".
+func convert(src recordSource, w io.Writer) error {
+	postings := parquet.NewGenericWriter[postingRow](w)
 
 	var hdr *ledger.LedgerHeader
 	var trl *ledger.LedgerTrailer
@@ -284,6 +266,27 @@ func convert(src recordSource, extract, posting io.Writer) error {
 	// batch is reused between flushes. Its capacity is the bound.
 	batch := make([]postingRow, 0, batchSize)
 	written := int64(0)
+
+	// net accumulates the posting amounts, to be reconciled against TRL-NET
+	// below. It is plain int64 addition with no rescaling anywhere, and that is
+	// a property of this layout rather than of decimals in general: TRL-NET is
+	// PIC S9(13)V99, PDB-AMOUNT is PIC S9(11)V99 and PCR-AMOUNT is
+	// PIC S9(9)V99, so all three carry scale 2 and their unscaled integers are
+	// already in the same units. A layout whose trailer kept whole currency
+	// units while its postings kept cents needs one side multiplied by a
+	// hundred here — and a conversion that forgot to would fail this
+	// reconciliation on every file, or pass it on the one file whose net is
+	// zero.
+	//
+	// The sign each amount contributes is an assumption and not a reading; see
+	// postingRowOf, and README.md, "The sign the net assumes".
+	//
+	// It cannot overflow on a file this layout describes. HDR-COUNT is
+	// PIC 9(3) and ledger.Reader holds the body to it, so at most 999 amounts
+	// of at most thirteen digits are summed — about 1e16, against int64's
+	// 9.2e18. A layout with a wider count, or wider amounts, is one where that
+	// has to be checked rather than argued.
+	net := int64(0)
 
 	flush := func() error {
 		if len(batch) == 0 {
@@ -343,7 +346,7 @@ func convert(src recordSource, extract, posting io.Writer) error {
 			return fmt.Errorf("record %d is a posting and no LEDGER-HEADER has been read: the header's fields are denormalized onto every posting row and there is nothing to denormalize", ordinal)
 		}
 
-		row, err := postingRowOf(hdr, rec)
+		row, amount, err := postingRowOf(hdr, rec)
 		if err != nil {
 			// The row is not appended. #272's sample discarded this error and
 			// appended the zero value, which writes a posting whose account is
@@ -353,6 +356,7 @@ func convert(src recordSource, extract, posting io.Writer) error {
 		}
 
 		batch = append(batch, row)
+		net += amount
 
 		if len(batch) == batchSize {
 			if err := flush(); err != nil {
@@ -376,41 +380,27 @@ func convert(src recordSource, extract, posting io.Writer) error {
 		return errors.New("the file carried no LEDGER-TRAILER")
 	}
 
-	// Reconciliation before either footer is written, so that a conversion which
-	// does not reconcile leaves two files no Parquet reader will open rather
-	// than two a query would happily return wrong answers from.
+	// Both reconciliations before the footer is written, so that a conversion
+	// which does not reconcile leaves a file no Parquet reader will open rather
+	// than one a query would happily return wrong answers from. This is what
+	// becomes of the trailer: it is checked and discarded, not stored.
 	if int64(trl.TrlCount) != written {
 		return fmt.Errorf("TRL-COUNT is %d and %d posting rows were written: the trailer counts the rows of this extract, so the two disagreeing means the file, the layout or this conversion is wrong and none of the three is a thing to write out anyway", trl.TrlCount, written)
+	}
+
+	if trl.TrlNet != net {
+		return fmt.Errorf("TRL-NET is %d and the posting amounts sum to %d, both unscaled at scale 2: the trailer totals the rows of this extract, so the two disagreeing means the file is wrong or this conversion's sign convention is — it adds every amount with the sign the record stores it under, and a layout whose credits are stored positive and are meant to subtract disagrees here first", trl.TrlNet, net)
 	}
 
 	if err := postings.Close(); err != nil {
 		return fmt.Errorf("closing the posting table: %w", err)
 	}
 
-	if _, err := extracts.Write([]extractRow{extractRowOf(hdr, trl)}); err != nil {
-		return fmt.Errorf("writing the extract row: %w", err)
-	}
-
-	if err := extracts.Close(); err != nil {
-		return fmt.Errorf("closing the extract table: %w", err)
-	}
-
 	return nil
 }
 
-// extractRowOf is the one row of the `extract` table.
-func extractRowOf(hdr *ledger.LedgerHeader, trl *ledger.LedgerTrailer) extractRow {
-	return extractRow{
-		HdrLedgerID: hdr.HdrLedgerId,
-		HdrPeriod:   hdr.HdrPeriod,
-		HdrCurrency: hdr.HdrCurrency,
-		HdrCount:    hdr.HdrCount,
-		TrlCount:    trl.TrlCount,
-		TrlNet:      trl.TrlNet,
-	}
-}
-
-// postingRowOf is the row one posting contributes, under the header in force.
+// postingRowOf is the row one posting contributes, under the header in force,
+// and the amount it contributes to the net.
 //
 // An item present in one alternative and absent in the other becomes an
 // optional column, and taking the address of a fresh composite literal is what
@@ -418,29 +408,48 @@ func extractRowOf(hdr *ledger.LedgerHeader, trl *ledger.LedgerTrailer) extractRo
 // reader is free to reuse behind it — a batch is held until it is flushed, which
 // is up to sixty-four records later.
 //
+// The amount comes back beside the row rather than being read off it, so that
+// there is exactly one place that decides what a record of each type contributes
+// — the arm that builds the row. Reading it back off the row would mean a second
+// switch on which optional group is present, which is a second place for the
+// same decision to be made and a place for the two to drift apart.
+//
+// **That amount is the copybook's value with the sign the record stores it
+// under, and taking it that way is an assumption the copybook does not make.**
+// `posting.cpy` gives both amounts a signed PICTURE and says nothing about what
+// a debit or a credit does to a total; this conversion reads the file as one
+// that already carries the sign, so the net is a plain sum. A layout that stores
+// both magnitudes positive and means the credit to subtract needs the credit arm
+// negated here, and README.md's "The sign the net assumes" is where that is
+// argued rather than merely noted.
+//
 // A record that is not one of this file's two posting types is an error and
 // never a row. The two are what the layout's `(alt …)` lists, and a third
 // arriving here means the layout and this conversion have gone out of step —
 // which is a thing to report, not to write a zero row for.
-func postingRowOf(hdr *ledger.LedgerHeader, rec ledger.Record) (postingRow, error) {
+func postingRowOf(hdr *ledger.LedgerHeader, rec ledger.Record) (postingRow, int64, error) {
 	row := postingRow{
 		HdrLedgerID: hdr.HdrLedgerId,
 		HdrPeriod:   hdr.HdrPeriod,
 		HdrCurrency: hdr.HdrCurrency,
 	}
 
+	amount := int64(0)
+
 	switch v := rec.(type) {
 	case *ledger.DebitPosting:
 		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
 		row.PstDebit = &debitBody{v.PstDebit.PdbCostCentre, v.PstDebit.PdbAmount, v.PstDebit.PdbMemo}
 		row.PstTailRef = tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
+		amount = v.PstDebit.PdbAmount
 	case *ledger.CreditPosting:
 		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
 		row.PstCredit = &creditBody{v.PstCredit.PcrSource, v.PstCredit.PcrAmount, v.PstCredit.PcrReference}
 		row.PstTailRef = tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
+		amount = v.PstCredit.PcrAmount
 	default:
-		return postingRow{}, fmt.Errorf("this file's postings are DEBIT-POSTING and CREDIT-POSTING, and a %T is neither of them", rec)
+		return postingRow{}, 0, fmt.Errorf("this file's postings are DEBIT-POSTING and CREDIT-POSTING, and a %T is neither of them", rec)
 	}
 
-	return row, nil
+	return row, amount, nil
 }
