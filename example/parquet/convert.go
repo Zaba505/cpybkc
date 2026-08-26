@@ -70,9 +70,17 @@ type extractRow struct {
 //
 // The header's identifying fields are denormalized onto every row and the
 // trailer's are not; README.md says why in terms of what SUM does to each. The
-// six record types the copybook's REDEFINES resolve to are one table rather than
-// six, and the two independent runs each become one optional column per
-// alternative — which is what keeps the record type recoverable from a row.
+// record types the layout names are one table rather than one each, and a run
+// the layout names more than one description of becomes one optional column per
+// description — which is what keeps the record type recoverable from a row.
+//
+// The shape of this struct is a function of the **layout** and not of the
+// copybook. `posting.cpy` admits six combinations; `ledger.sexpr` names the two
+// the extract carries, and the four it leaves out are the ones described by
+// PST-BODY or PST-TAIL — the base descriptions of the two redefined runs, which
+// a file a mainframe produced does not hold. So there is no `pst_body` and no
+// `pst_tail` column: a column for a description no record of this file is ever
+// described by would be null on every row of every extract.
 type postingRow struct {
 	HdrLedgerID string `parquet:"hdr_ledger_id"`
 	HdrPeriod   int32  `parquet:"hdr_period"`
@@ -82,17 +90,18 @@ type postingRow struct {
 	PstSequence int32  `parquet:"pst_sequence"`
 	PstType     string `parquet:"pst_type"`
 
-	// The first redefined run, PST-BODY, described three ways. Exactly one of
-	// these three is present on any row, and which one is a function of
-	// pst_type.
-	PstBody   *string     `parquet:"pst_body"`
+	// The first redefined run, PST-BODY. The layout names two of its three
+	// descriptions, so exactly one of these two is present on any row and
+	// which one is a function of pst_type.
 	PstDebit  *debitBody  `parquet:"pst_debit"`
 	PstCredit *creditBody `parquet:"pst_credit"`
 
-	// The second run, PST-TAIL, described two ways. Independent of the first,
-	// which is why six record types and not three come out of one 01-level.
-	PstTail    *string  `parquet:"pst_tail"`
-	PstTailRef *tailRef `parquet:"pst_tail_ref"`
+	// The second run, PST-TAIL. The layout names one description of it —
+	// PST-TAIL-REF — so every posting carries it and the column is required
+	// rather than optional. An optional column here would be one a query has
+	// to null-check on a file where it is never null, and its record type
+	// would look like something a row was still choosing between.
+	PstTailRef tailRef `parquet:"pst_tail_ref"`
 }
 
 // debitBody is PST-DEBIT, nested rather than flattened.
@@ -403,14 +412,14 @@ func extractRowOf(hdr *ledger.LedgerHeader, trl *ledger.LedgerTrailer) extractRo
 
 // postingRowOf is the row one posting contributes, under the header in force.
 //
-// An item present in one alternative and absent in the others becomes an
-// optional column, and `new(expr)` is what points at one: it allocates and
-// copies, so the row does not alias a record the reader is free to reuse behind
-// it — a batch is held until it is flushed, which is up to sixty-four records
-// later.
+// An item present in one alternative and absent in the other becomes an
+// optional column, and taking the address of a fresh composite literal is what
+// points at one: it allocates and copies, so the row does not alias a record the
+// reader is free to reuse behind it — a batch is held until it is flushed, which
+// is up to sixty-four records later.
 //
-// A record that is not one of this file's six posting types is an error and
-// never a row. The six are what the layout's `(alt …)` lists, and a seventh
+// A record that is not one of this file's two posting types is an error and
+// never a row. The two are what the layout's `(alt …)` lists, and a third
 // arriving here means the layout and this conversion have gone out of step —
 // which is a thing to report, not to write a zero row for.
 func postingRowOf(hdr *ledger.LedgerHeader, rec ledger.Record) (postingRow, error) {
@@ -424,29 +433,13 @@ func postingRowOf(hdr *ledger.LedgerHeader, rec ledger.Record) (postingRow, erro
 	case *ledger.DebitPosting:
 		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
 		row.PstDebit = &debitBody{v.PstDebit.PdbCostCentre, v.PstDebit.PdbAmount, v.PstDebit.PdbMemo}
-		row.PstTail = new(v.PstTail)
-	case *ledger.DebitPostingRef:
-		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
-		row.PstDebit = &debitBody{v.PstDebit.PdbCostCentre, v.PstDebit.PdbAmount, v.PstDebit.PdbMemo}
-		row.PstTailRef = &tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
+		row.PstTailRef = tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
 	case *ledger.CreditPosting:
 		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
 		row.PstCredit = &creditBody{v.PstCredit.PcrSource, v.PstCredit.PcrAmount, v.PstCredit.PcrReference}
-		row.PstTail = new(v.PstTail)
-	case *ledger.CreditPostingRef:
-		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
-		row.PstCredit = &creditBody{v.PstCredit.PcrSource, v.PstCredit.PcrAmount, v.PstCredit.PcrReference}
-		row.PstTailRef = &tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
-	case *ledger.MemoPosting:
-		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
-		row.PstBody = new(v.PstBody)
-		row.PstTail = new(v.PstTail)
-	case *ledger.MemoPostingRef:
-		row.PstAccount, row.PstSequence, row.PstType = v.PstAccount, v.PstSequence, v.PstType
-		row.PstBody = new(v.PstBody)
-		row.PstTailRef = &tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
+		row.PstTailRef = tailRef{v.PstTailRef.PtrBatch, v.PstTailRef.PtrLine}
 	default:
-		return postingRow{}, fmt.Errorf("this file's postings are DEBIT-POSTING, DEBIT-POSTING-REF, CREDIT-POSTING, CREDIT-POSTING-REF, MEMO-POSTING and MEMO-POSTING-REF, and a %T is none of them", rec)
+		return postingRow{}, fmt.Errorf("this file's postings are DEBIT-POSTING and CREDIT-POSTING, and a %T is neither of them", rec)
 	}
 
 	return row, nil

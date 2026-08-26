@@ -26,12 +26,14 @@ import (
 	"github.com/parquet-go/parquet-go/format"
 )
 
-// postingsPerType is how many of the six posting types the fixtures cycle
-// through, which is all of them.
-const postingsPerType = 6
+// postingTypes is how many posting record types the fixtures cycle through,
+// which is all of them: `ledger.sexpr` names two of the six combinations
+// `posting.cpy` admits, and the four it leaves out are described by PST-BODY or
+// PST-TAIL — the base descriptions a mainframe-produced extract does not carry.
+const postingTypes = 2
 
-// ledgerBytes is a well-formed ledger extract of n postings, cycling through all
-// six of the record types this layout resolves out of one 01-level.
+// ledgerBytes is a well-formed ledger extract of n postings, cycling through
+// both of the record types this layout names.
 //
 // trlCount is stated apart from n so that a file whose trailer disagrees with
 // its own rows can be built: nothing in the layout ties TRL-COUNT to the
@@ -91,64 +93,30 @@ const (
 	creditAmount = int64(-98765432109)
 )
 
-// posting is the i'th posting of a fixture, of the i'th of the six record types.
+// posting is the i'th posting of a fixture, of the i'th of the two record types.
 func posting(i int32) ledger.Record {
 	account := fmt.Sprintf("ACCT%06d", i)
 	sequence := i % 100
 
-	switch i % postingsPerType {
-	case 0:
-		p := &ledger.DebitPosting{PstAccount: account, PstSequence: sequence, PstType: "DA", PstTail: "TAIL0001"}
+	if i%postingTypes == 0 {
+		p := &ledger.DebitPosting{PstAccount: account, PstSequence: sequence, PstType: "DR"}
 		p.PstDebit.PdbCostCentre = "CC0001"
 		p.PstDebit.PdbAmount = debitAmount
 		p.PstDebit.PdbMemo = "DEBIT MEMO ABCD"
-
-		return p
-	case 1:
-		p := &ledger.DebitPostingRef{PstAccount: account, PstSequence: sequence, PstType: "DB"}
-		p.PstDebit.PdbCostCentre = "CC0002"
-		p.PstDebit.PdbAmount = debitAmount
-		p.PstDebit.PdbMemo = "DEBIT MEMO EFGH"
 		p.PstTailRef.PtrBatch = 4321
 		p.PstTailRef.PtrLine = 8765
 
 		return p
-	case 2:
-		p := &ledger.CreditPosting{PstAccount: account, PstSequence: sequence, PstType: "CA", PstTail: "TAIL0002"}
-		p.PstCredit.PcrSource = "SRC1"
-		p.PstCredit.PcrAmount = creditAmount
-		p.PstCredit.PcrReference = "CREDIT REF ABC"
-
-		return p
-	case 3:
-		p := &ledger.CreditPostingRef{PstAccount: account, PstSequence: sequence, PstType: "CB"}
-		p.PstCredit.PcrSource = "SRC2"
-		p.PstCredit.PcrAmount = creditAmount
-		p.PstCredit.PcrReference = "CREDIT REF DEF"
-		p.PstTailRef.PtrBatch = 1234
-		p.PstTailRef.PtrLine = 5678
-
-		return p
-	case 4:
-		return &ledger.MemoPosting{
-			PstAccount:  account,
-			PstSequence: sequence,
-			PstType:     "MA",
-			PstBody:     "MEMO BODY TWENTY EIGHT BYTES",
-			PstTail:     "TAIL0003",
-		}
-	default:
-		p := &ledger.MemoPostingRef{
-			PstAccount:  account,
-			PstSequence: sequence,
-			PstType:     "MB",
-			PstBody:     "MEMO BODY TWENTY EIGHT BYTES",
-		}
-		p.PstTailRef.PtrBatch = 2468
-		p.PstTailRef.PtrLine = 1357
-
-		return p
 	}
+
+	p := &ledger.CreditPosting{PstAccount: account, PstSequence: sequence, PstType: "CR"}
+	p.PstCredit.PcrSource = "SRC2"
+	p.PstCredit.PcrAmount = creditAmount
+	p.PstCredit.PcrReference = "CREDIT REF DEF"
+	p.PstTailRef.PtrBatch = 1234
+	p.PstTailRef.PtrLine = 5678
+
+	return p
 }
 
 // converted runs the conversion over a ledger extract of n postings whose
@@ -210,7 +178,7 @@ func rowsOf[T any](t *testing.T, b []byte) []T {
 // TestTheTwoGrainsBecomeTwoFiles is the first thing an adopter meets: a Parquet
 // file carries exactly one schema, and this extract has two grains.
 func TestTheTwoGrainsBecomeTwoFiles(t *testing.T) {
-	extract, posting, err := converted(t, postingsPerType, postingsPerType)
+	extract, posting, err := converted(t, postingTypes, postingTypes)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -224,8 +192,8 @@ func TestTheTwoGrainsBecomeTwoFiles(t *testing.T) {
 		HdrLedgerID: "GL-MAIN",
 		HdrPeriod:   202601,
 		HdrCurrency: "USD",
-		HdrCount:    postingsPerType,
-		TrlCount:    postingsPerType,
+		HdrCount:    postingTypes,
+		TrlCount:    postingTypes,
 		TrlNet:      trailerNet,
 	}
 	if extracts[0] != want {
@@ -233,15 +201,15 @@ func TestTheTwoGrainsBecomeTwoFiles(t *testing.T) {
 	}
 
 	postings := rowsOf[postingRow](t, posting)
-	if len(postings) != postingsPerType {
-		t.Fatalf("the posting table holds %d rows, want %d: its grain is the posting", len(postings), postingsPerType)
+	if len(postings) != postingTypes {
+		t.Fatalf("the posting table holds %d rows, want %d: its grain is the posting", len(postings), postingTypes)
 	}
 }
 
 // TestHeaderContextIsDenormalizedOntoEveryPosting is the decision that makes the
 // posting table usable on its own.
 func TestHeaderContextIsDenormalizedOntoEveryPosting(t *testing.T) {
-	_, posting, err := converted(t, postingsPerType, postingsPerType)
+	_, posting, err := converted(t, postingTypes, postingTypes)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -259,7 +227,7 @@ func TestHeaderContextIsDenormalizedOntoEveryPosting(t *testing.T) {
 // summaries *of* the posting rows, so denormalizing them would make
 // SUM(trl_net) return the total times the row count.
 func TestTrailerFieldsDoNotPromote(t *testing.T) {
-	_, posting, err := converted(t, postingsPerType, postingsPerType)
+	_, posting, err := converted(t, postingTypes, postingTypes)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -277,10 +245,11 @@ func TestTrailerFieldsDoNotPromote(t *testing.T) {
 }
 
 // TestTheMergedTableKeepsTheRecordTypeRecoverable is the merged-versus-narrow
-// decision, asserted rather than described: six record types share one table, so
-// PST-TYPE and the group that is present have to name which of the six a row was.
+// decision, asserted rather than described: both record types share one table,
+// so PST-TYPE and the group that is present have to name which of the two a row
+// was.
 func TestTheMergedTableKeepsTheRecordTypeRecoverable(t *testing.T) {
-	_, posting, err := converted(t, postingsPerType, postingsPerType)
+	_, posting, err := converted(t, postingTypes, postingTypes)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -293,54 +262,83 @@ func TestTheMergedTableKeepsTheRecordTypeRecoverable(t *testing.T) {
 	cases := []struct {
 		pstType string
 		body    string
-		tail    string
 	}{
-		{"DA", "pst_debit", "pst_tail"},
-		{"DB", "pst_debit", "pst_tail_ref"},
-		{"CA", "pst_credit", "pst_tail"},
-		{"CB", "pst_credit", "pst_tail_ref"},
-		{"MA", "pst_body", "pst_tail"},
-		{"MB", "pst_body", "pst_tail_ref"},
+		{"DR", "pst_debit"},
+		{"CR", "pst_credit"},
 	}
 
 	for _, c := range cases {
 		row, ok := byType[c.pstType]
 		if !ok {
-			t.Errorf("no row carries PST-TYPE %q, and the six record types are what the layout's (alt …) lists", c.pstType)
+			t.Errorf("no row carries PST-TYPE %q, and the two record types are what the layout's (alt …) lists", c.pstType)
 
 			continue
 		}
 
-		if got := present(row); got != c.body+"+"+c.tail {
-			t.Errorf("PST-TYPE %q arrived as %s, want %s+%s: the two redefined runs are independent, so the alternatives multiply", c.pstType, got, c.body, c.tail)
+		if got := present(row); got != c.body {
+			t.Errorf("PST-TYPE %q arrived as %s, want %s: the description of PST-BODY a row carries is what says which record type it was", c.pstType, got, c.body)
 		}
 	}
 }
 
-// present names the alternative of each of the two redefined runs that a row
-// carries, which is exactly what recovers its record type.
+// present names the description of PST-BODY that a row carries, which is
+// exactly what recovers its record type.
+//
+// There is no second term. PST-TAIL is described one way in this layout, so
+// every row carries pst_tail_ref and it distinguishes nothing —
+// [TestTheOnlyDescriptionOfATailIsARequiredColumn] is where that is asserted.
 func present(row postingRow) string {
-	body := "none"
-
 	switch {
-	case row.PstBody != nil:
-		body = "pst_body"
 	case row.PstDebit != nil:
-		body = "pst_debit"
+		return "pst_debit"
 	case row.PstCredit != nil:
-		body = "pst_credit"
+		return "pst_credit"
+	default:
+		return "none"
+	}
+}
+
+// TestTheOnlyDescriptionOfATailIsARequiredColumn is the half of the merged table
+// that the layout's narrowing changes.
+//
+// PST-TAIL is a redefined run of two descriptions in `posting.cpy` and of *one*
+// in `ledger.sexpr`: every posting this extract carries is described by
+// PST-TAIL-REF. A run with one description in play is not a choice a row is
+// making, so the column is required — an optional one would be null on no row
+// ever, and a reader would have to null-check it to find that out.
+//
+// And the descriptions the layout does not name carry no column at all. A
+// column that is null on every row of every extract is one a query has to know
+// to ignore.
+func TestTheOnlyDescriptionOfATailIsARequiredColumn(t *testing.T) {
+	_, posting, err := converted(t, postingTypes, postingTypes)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
 	}
 
-	tail := "none"
-
-	switch {
-	case row.PstTail != nil:
-		tail = "pst_tail"
-	case row.PstTailRef != nil:
-		tail = "pst_tail_ref"
+	f, err := parquet.OpenFile(bytes.NewReader(posting), int64(len(posting)))
+	if err != nil {
+		t.Fatalf("opening the posting table: %v", err)
 	}
 
-	return body + "+" + tail
+	tail := parquet.Node(nil)
+
+	for _, field := range f.Schema().Fields() {
+		switch field.Name() {
+		case "pst_body", "pst_tail":
+			t.Errorf("the posting table carries a %q column, and no record this layout names is described by it: it would be null on every row of every extract", field.Name())
+		case "pst_tail_ref":
+			tail = field
+		}
+	}
+
+	if tail == nil {
+		t.Fatal("the posting table carries no pst_tail_ref column, and every posting this layout names is described by PST-TAIL-REF")
+	}
+
+	if tail.Optional() {
+		t.Error("pst_tail_ref is optional, and the layout names one description of PST-TAIL: a column that is null on no row is one every query null-checks for nothing")
+	}
 }
 
 // TestEveryPostingReadIsAPostingWritten is the terminal flush, and it is run
@@ -393,7 +391,7 @@ func TestEveryPostingReadIsAPostingWritten(t *testing.T) {
 // Reading the written file back and comparing against what the ledger reader
 // produced is what makes that a fact rather than a plausible sentence.
 func TestTheThreeAmountsRoundTripThroughDecimal(t *testing.T) {
-	extract, posting, err := converted(t, postingsPerType, postingsPerType)
+	extract, posting, err := converted(t, postingTypes, postingTypes)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -480,9 +478,9 @@ func assertDecimal(t *testing.T, file []byte, path string, precision, scale int3
 // TestTheTrailerCountIsReconciled is the check a conversion that streams can
 // still make, and it runs before either footer is written.
 func TestTheTrailerCountIsReconciled(t *testing.T) {
-	extract, posting, err := converted(t, postingsPerType, postingsPerType+1)
+	extract, posting, err := converted(t, postingTypes, postingTypes+1)
 	if err == nil {
-		t.Fatalf("a file whose TRL-COUNT is %d and whose body holds %d postings converted without complaint", postingsPerType+1, postingsPerType)
+		t.Fatalf("a file whose TRL-COUNT is %d and whose body holds %d postings converted without complaint", postingTypes+1, postingTypes)
 	}
 
 	if !strings.Contains(err.Error(), "TRL-COUNT") {
@@ -534,7 +532,7 @@ func TestAMappingErrorFailsTheConversion(t *testing.T) {
 
 	err := convert(src, &extract, &posting)
 	if err == nil {
-		t.Fatal("a record none of the six posting types describes converted without complaint")
+		t.Fatal("a record neither of the two posting types describes converted without complaint")
 	}
 
 	if !strings.Contains(err.Error(), "record 2") {

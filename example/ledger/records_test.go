@@ -142,12 +142,13 @@ func TestDebitPostingReadsBackTheBytesItWasReadFrom(t *testing.T) {
 		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // PST-ACCOUNT @0 X(10)
 		0xc1, 0xc1, //
 		0xf1, 0xf1, // PST-SEQUENCE @10 9(2)
-		0xc4, 0xc1, // PST-TYPE @12 X(2)
+		0xc4, 0xd9, // PST-TYPE @12 X(2)
 		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // PST-DEBIT.PDB-COST-CENTRE @14 X(6)
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x1d, // PST-DEBIT.PDB-AMOUNT @20 S9(11)V9(2) PACKED-DECIMAL
 		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // PST-DEBIT.PDB-MEMO @27 X(15)
 		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, //
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // PST-TAIL @42 X(8)
+		0xf0, 0xf0, 0xf4, 0xf3, // PST-TAIL-REF.PTR-BATCH @42 9(4)
+		0xf0, 0xf0, 0xf4, 0xf7, // PST-TAIL-REF.PTR-LINE @46 9(4)
 	}
 
 	r, err := codec.NewReader(bytes.NewReader(in), ledger.Encoding())
@@ -169,81 +170,8 @@ func TestDebitPostingReadsBackTheBytesItWasReadFrom(t *testing.T) {
 		t.Errorf("PST-SEQUENCE: got %d, want %d", record.PstSequence, 11)
 	}
 
-	if record.PstType != "DA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "DA")
-	}
-
-	if record.PstDebit.PdbCostCentre != "OOOOOO" {
-		t.Errorf("PST-DEBIT.PDB-COST-CENTRE: got %q, want %q", record.PstDebit.PdbCostCentre, "OOOOOO")
-	}
-
-	if record.PstDebit.PdbAmount != -21 {
-		t.Errorf("PST-DEBIT.PDB-AMOUNT: got %d, want %d", record.PstDebit.PdbAmount, -21)
-	}
-
-	if record.PstDebit.PdbMemo != "BBBBBBBBBBBBBBB" {
-		t.Errorf("PST-DEBIT.PDB-MEMO: got %q, want %q", record.PstDebit.PdbMemo, "BBBBBBBBBBBBBBB")
-	}
-
-	if record.PstTail != "QQQQQQQQ" {
-		t.Errorf("PST-TAIL: got %q, want %q", record.PstTail, "QQQQQQQQ")
-	}
-
-	var out bytes.Buffer
-
-	w, err := codec.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewWriter: %v", err)
-	}
-
-	if err := record.MarshalCOBOL(w); err != nil {
-		t.Fatalf("MarshalCOBOL: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestDebitPostingRefReadsBackTheBytesItWasReadFrom is POSTING-RECORD: the
-// bytes below, every field they decode into, and the same bytes written back.
-func TestDebitPostingRefReadsBackTheBytesItWasReadFrom(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // PST-SEQUENCE @10 9(2)
-		0xc4, 0xc2, // PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // PST-DEBIT.PDB-COST-CENTRE @14 X(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x1d, // PST-DEBIT.PDB-AMOUNT @20 S9(11)V9(2) PACKED-DECIMAL
-		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // PST-DEBIT.PDB-MEMO @27 X(15)
-		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, //
-		0xf0, 0xf0, 0xf4, 0xf3, // PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // PST-TAIL-REF.PTR-LINE @46 9(4)
-	}
-
-	r, err := codec.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewReader: %v", err)
-	}
-
-	var record ledger.DebitPostingRef
-
-	if err := record.UnmarshalCOBOL(r); err != nil {
-		t.Fatalf("UnmarshalCOBOL: %v", err)
-	}
-
-	if record.PstAccount != "AAAAAAAAAA" {
-		t.Errorf("PST-ACCOUNT: got %q, want %q", record.PstAccount, "AAAAAAAAAA")
-	}
-
-	if record.PstSequence != 11 {
-		t.Errorf("PST-SEQUENCE: got %d, want %d", record.PstSequence, 11)
-	}
-
-	if record.PstType != "DB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "DB")
+	if record.PstType != "DR" {
+		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "DR")
 	}
 
 	if record.PstDebit.PdbCostCentre != "OOOOOO" {
@@ -291,13 +219,14 @@ func TestCreditPostingReadsBackTheBytesItWasReadFrom(t *testing.T) {
 		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // PST-ACCOUNT @0 X(10)
 		0xc1, 0xc1, //
 		0xf1, 0xf1, // PST-SEQUENCE @10 9(2)
-		0xc3, 0xc1, // PST-TYPE @12 X(2)
+		0xc3, 0xd9, // PST-TYPE @12 X(2)
 		0xd6, 0xd6, 0xd6, 0xd6, // PST-CREDIT.PCR-SOURCE @14 X(4)
 		0x00, 0x00, 0x00, 0x00, 0x01, 0x9d, // PST-CREDIT.PCR-AMOUNT @18 S9(9)V9(2) PACKED-DECIMAL
 		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, // PST-CREDIT.PCR-REFERENCE @24 X(14)
 		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, //
 		0xc6, 0xc7, 0xc8, 0xc9, // (slack) @38 4 bytes no item covers
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // PST-TAIL @42 X(8)
+		0xf0, 0xf0, 0xf4, 0xf3, // PST-TAIL-REF.PTR-BATCH @42 9(4)
+		0xf0, 0xf0, 0xf4, 0xf7, // PST-TAIL-REF.PTR-LINE @46 9(4)
 	}
 
 	r, err := codec.NewReader(bytes.NewReader(in), ledger.Encoding())
@@ -319,8 +248,8 @@ func TestCreditPostingReadsBackTheBytesItWasReadFrom(t *testing.T) {
 		t.Errorf("PST-SEQUENCE: got %d, want %d", record.PstSequence, 11)
 	}
 
-	if record.PstType != "CA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "CA")
+	if record.PstType != "CR" {
+		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "CR")
 	}
 
 	if record.PstCredit.PcrSource != "OOOO" {
@@ -333,213 +262,6 @@ func TestCreditPostingReadsBackTheBytesItWasReadFrom(t *testing.T) {
 
 	if record.PstCredit.PcrReference != "YYYYYYYYYYYYYY" {
 		t.Errorf("PST-CREDIT.PCR-REFERENCE: got %q, want %q", record.PstCredit.PcrReference, "YYYYYYYYYYYYYY")
-	}
-
-	if record.PstTail != "QQQQQQQQ" {
-		t.Errorf("PST-TAIL: got %q, want %q", record.PstTail, "QQQQQQQQ")
-	}
-
-	var out bytes.Buffer
-
-	w, err := codec.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewWriter: %v", err)
-	}
-
-	if err := record.MarshalCOBOL(w); err != nil {
-		t.Fatalf("MarshalCOBOL: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestCreditPostingRefReadsBackTheBytesItWasReadFrom is POSTING-RECORD: the
-// bytes below, every field they decode into, and the same bytes written back.
-func TestCreditPostingRefReadsBackTheBytesItWasReadFrom(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // PST-SEQUENCE @10 9(2)
-		0xc3, 0xc2, // PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, // PST-CREDIT.PCR-SOURCE @14 X(4)
-		0x00, 0x00, 0x00, 0x00, 0x01, 0x9d, // PST-CREDIT.PCR-AMOUNT @18 S9(9)V9(2) PACKED-DECIMAL
-		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, // PST-CREDIT.PCR-REFERENCE @24 X(14)
-		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, //
-		0xc6, 0xc7, 0xc8, 0xc9, // (slack) @38 4 bytes no item covers
-		0xf0, 0xf0, 0xf4, 0xf3, // PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // PST-TAIL-REF.PTR-LINE @46 9(4)
-	}
-
-	r, err := codec.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewReader: %v", err)
-	}
-
-	var record ledger.CreditPostingRef
-
-	if err := record.UnmarshalCOBOL(r); err != nil {
-		t.Fatalf("UnmarshalCOBOL: %v", err)
-	}
-
-	if record.PstAccount != "AAAAAAAAAA" {
-		t.Errorf("PST-ACCOUNT: got %q, want %q", record.PstAccount, "AAAAAAAAAA")
-	}
-
-	if record.PstSequence != 11 {
-		t.Errorf("PST-SEQUENCE: got %d, want %d", record.PstSequence, 11)
-	}
-
-	if record.PstType != "CB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "CB")
-	}
-
-	if record.PstCredit.PcrSource != "OOOO" {
-		t.Errorf("PST-CREDIT.PCR-SOURCE: got %q, want %q", record.PstCredit.PcrSource, "OOOO")
-	}
-
-	if record.PstCredit.PcrAmount != -19 {
-		t.Errorf("PST-CREDIT.PCR-AMOUNT: got %d, want %d", record.PstCredit.PcrAmount, -19)
-	}
-
-	if record.PstCredit.PcrReference != "YYYYYYYYYYYYYY" {
-		t.Errorf("PST-CREDIT.PCR-REFERENCE: got %q, want %q", record.PstCredit.PcrReference, "YYYYYYYYYYYYYY")
-	}
-
-	if record.PstTailRef.PtrBatch != 43 {
-		t.Errorf("PST-TAIL-REF.PTR-BATCH: got %d, want %d", record.PstTailRef.PtrBatch, 43)
-	}
-
-	if record.PstTailRef.PtrLine != 47 {
-		t.Errorf("PST-TAIL-REF.PTR-LINE: got %d, want %d", record.PstTailRef.PtrLine, 47)
-	}
-
-	var out bytes.Buffer
-
-	w, err := codec.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewWriter: %v", err)
-	}
-
-	if err := record.MarshalCOBOL(w); err != nil {
-		t.Fatalf("MarshalCOBOL: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestMemoPostingReadsBackTheBytesItWasReadFrom is POSTING-RECORD: the bytes
-// below, every field they decode into, and the same bytes written back.
-func TestMemoPostingReadsBackTheBytesItWasReadFrom(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // PST-SEQUENCE @10 9(2)
-		0xd4, 0xc1, // PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // PST-BODY @14 X(28)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // PST-TAIL @42 X(8)
-	}
-
-	r, err := codec.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewReader: %v", err)
-	}
-
-	var record ledger.MemoPosting
-
-	if err := record.UnmarshalCOBOL(r); err != nil {
-		t.Fatalf("UnmarshalCOBOL: %v", err)
-	}
-
-	if record.PstAccount != "AAAAAAAAAA" {
-		t.Errorf("PST-ACCOUNT: got %q, want %q", record.PstAccount, "AAAAAAAAAA")
-	}
-
-	if record.PstSequence != 11 {
-		t.Errorf("PST-SEQUENCE: got %d, want %d", record.PstSequence, 11)
-	}
-
-	if record.PstType != "MA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "MA")
-	}
-
-	if record.PstBody != "OOOOOOOOOOOOOOOOOOOOOOOOOOOO" {
-		t.Errorf("PST-BODY: got %q, want %q", record.PstBody, "OOOOOOOOOOOOOOOOOOOOOOOOOOOO")
-	}
-
-	if record.PstTail != "QQQQQQQQ" {
-		t.Errorf("PST-TAIL: got %q, want %q", record.PstTail, "QQQQQQQQ")
-	}
-
-	var out bytes.Buffer
-
-	w, err := codec.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewWriter: %v", err)
-	}
-
-	if err := record.MarshalCOBOL(w); err != nil {
-		t.Fatalf("MarshalCOBOL: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestMemoPostingRefReadsBackTheBytesItWasReadFrom is POSTING-RECORD: the
-// bytes below, every field they decode into, and the same bytes written back.
-func TestMemoPostingRefReadsBackTheBytesItWasReadFrom(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // PST-SEQUENCE @10 9(2)
-		0xd4, 0xc2, // PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // PST-BODY @14 X(28)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, //
-		0xf0, 0xf0, 0xf4, 0xf3, // PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // PST-TAIL-REF.PTR-LINE @46 9(4)
-	}
-
-	r, err := codec.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("codec.NewReader: %v", err)
-	}
-
-	var record ledger.MemoPostingRef
-
-	if err := record.UnmarshalCOBOL(r); err != nil {
-		t.Fatalf("UnmarshalCOBOL: %v", err)
-	}
-
-	if record.PstAccount != "AAAAAAAAAA" {
-		t.Errorf("PST-ACCOUNT: got %q, want %q", record.PstAccount, "AAAAAAAAAA")
-	}
-
-	if record.PstSequence != 11 {
-		t.Errorf("PST-SEQUENCE: got %d, want %d", record.PstSequence, 11)
-	}
-
-	if record.PstType != "MB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record.PstType, "MB")
-	}
-
-	if record.PstBody != "OOOOOOOOOOOOOOOOOOOOOOOOOOOO" {
-		t.Errorf("PST-BODY: got %q, want %q", record.PstBody, "OOOOOOOOOOOOOOOOOOOOOOOOOOOO")
 	}
 
 	if record.PstTailRef.PtrBatch != 43 {

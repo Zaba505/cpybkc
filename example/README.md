@@ -49,13 +49,13 @@ opening a real dataset. The two kinds of `_test.go` are told apart by the
 The file tier and [`graph/graph.md`](graph/graph.md) are the two halves of one
 spot-check and are meant to be held against each other. The diagram answers
 *which records, in which order, told apart on which bytes* about the descriptor:
-`s77 --> s78: LEDGER-HEADER, when HDR-TYPE = 0xF0 0xF1, then r76 = HDR-COUNT` is
+`s40 --> s41: LEDGER-HEADER, when HDR-TYPE = 0xF0 0xF1, then r39 = HDR-COUNT` is
 the edge, and `TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer` is that
 edge and the two it leads to as bytes — `0xf0 0xf1` at offset 0 of the first
 record, `0xf0 0xf0 0xf2` in `HDR-COUNT`, and the two debit postings the register
-it bound then admits. Seven cases cover all eight of the automaton's
-discriminators; the fifty edges the diagram draws are fifty ways to arrive at
-those eight, and [why one case per predicate rather than one per
+it bound then admits. Three cases cover all four of the automaton's
+discriminators; the ten edges the diagram draws are ten ways to arrive at those
+four, and [why one case per predicate rather than one per
 edge](../cmd/cpybkc-gen-go/README.md#decided-the-file-tier-covers-by-predicate-not-by-edge)
 is the whole of that decision.
 
@@ -113,7 +113,7 @@ describable, so the layout here is deliberately not a simple one. Three shapes
 in it are ordinary in production files and each is the reason this example is
 shaped the way it is.
 
-### Six record types out of one `01`-level
+### Six record types out of one `01`-level, and the two the file carries
 
 `posting.cpy` describes one fifty-byte record and redefines two independent runs
 inside it. `PST-BODY` is described three ways — as itself, as `PST-DEBIT` and as
@@ -123,28 +123,62 @@ one record type per alternative, and because the two runs are independent the
 alternatives *multiply* rather than merely branch: **six** record types come out
 of this one `01`-level.
 
-The layout is where each of them is named. Every one of the six `record` forms
-names the same copybook and the same `01`-level, and carries one `alternative`
-child per redefined run saying which description of it that form means:
+[`ledger.sexpr`](ledger.sexpr) names **two** of them, and that is the lesson
+rather than an omission.
+
+`PST-BODY` and `PST-TAIL` are *base descriptions*: they exist to declare the
+storage the `REDEFINES` items overlay. A file a mainframe produced carries the
+redefinitions, not the declaration underneath them — so the four combinations
+whose `alternative` names `PST-BODY` or `PST-TAIL` describe bytes no extract of
+this ledger holds. What is left is `PST-DEBIT` × `PST-TAIL-REF` and `PST-CREDIT`
+× `PST-TAIL-REF`, and the layout names exactly those:
 
 ```
-(record CREDIT-POSTING-REF
+(record CREDIT-POSTING
   (copybook "posting.cpy" POSTING-RECORD)
-  (alternative (item CREDIT-POSTING-REF PST-CREDIT))
-  (alternative (item CREDIT-POSTING-REF PST-TAIL-REF)))
+  (alternative (item CREDIT-POSTING PST-CREDIT))
+  (alternative (item CREDIT-POSTING PST-TAIL-REF)))
 ```
+
+**The copybook does not move.** [`posting.cpy`](posting.cpy) still describes all
+three ways `PST-BODY` can be read and both ways `PST-TAIL` can be, because that
+is what arrived from the mainframe and it is the source of truth. Narrowing to
+what a data file actually holds is the *layout's* job, and choosing is what a
+layout is for. Nothing here requires a layout to declare every combination its
+copybooks admit, and no `resolve` diagnostic fires on the ones it omits.
+
+`cpybkc init` derives one `record` form per combination — all six — and is right
+to: a copybook cannot say which combinations occur in a file. The two that
+survive here are the adopter's knowledge of their own data, which is why they are
+written in the layout and not inferred from anything.
+
+So the alternatives no longer multiply *in this layout*, and that is a property
+of `ledger.sexpr` rather than of `posting.cpy`. cpybkc's own coverage of the
+cross product does not go with them: `internal/resolve/shape_test.go` enumerates
+all six over a fixture written inline, and `internal/scaffold/derive_test.go`
+derives them from `posting.cpy` itself. That second one used to check the six by
+requiring *this layout* to enumerate them, and now pins the six it expects
+outright — so the coverage no longer depends on what a layout happens to name,
+which is the change this narrowing forced and an improvement on what was there.
 
 The pairing is stated and never inferred — cpybkc will not decide which bytes a
 record type describes by looking at which alternative its discriminator happens
 to reach into.
 
-All six carry one name in the IR, `POSTING-RECORD`, because that is what the
-copybook calls the record each of them is. Whether one name on six record types
-is a problem is a property of the target language, so the layout format does not
-require them to be told apart; Go requires it, and `cpybkc-gen-go` refuses to
-munge six record types into one identifier rather than picking. That is what the
-six `rename` forms are for, and they are why the package holds `DebitPosting`,
-`CreditPostingRef` and the rest.
+Both surviving record types carry one name in the IR, `POSTING-RECORD`, because
+that is what the copybook calls the record each of them is. Whether one name on
+two record types is a problem is a property of the target language, so the layout
+format does not require them to be told apart; Go requires it, and
+`cpybkc-gen-go` refuses to munge two record types into one identifier rather than
+picking. That is what the two `rename` forms are for, and they are why the
+package holds `DebitPosting` and `CreditPosting`.
+
+The `-REF` suffix went with the four that were dropped: it distinguished a
+`PST-TAIL-REF` posting from a `PST-TAIL` sibling, and there is no such sibling
+any more. For the same reason the `PST-TYPE` codes are `DR` and `CR` — what a
+ledger calls a debit and a credit — rather than the two-axis `DA`/`DB`/`CA`/`CB`
+scheme, whose second letter said which description of `PST-TAIL` a posting
+carried. There is no longer a second axis for a code to encode.
 
 ### Discrimination at two different offsets
 
@@ -158,7 +192,7 @@ reference: one strategy, two offsets.
 Two records that may be admitted at the *same* point in a file cannot be
 selected at two different offsets. A discriminator is evaluated before the
 record in front of a consumer has been identified, so nothing rules out a record
-carrying `99` in its first two bytes *and* `DA` in bytes twelve and thirteen —
+carrying `99` in its first two bytes *and* `DR` in bytes twelve and thirteen —
 and a state offering two transitions that can both apply is a layout `resolve`
 rejects before a consumer ever sees it.
 
@@ -169,7 +203,7 @@ how many postings follow, and the sequence counts them:
 ```
 (sequence
   (seq LEDGER-HEADER
-       (times (alt DEBIT-POSTING …) (item LEDGER-HEADER HDR-COUNT))
+       (times (alt DEBIT-POSTING CREDIT-POSTING) (item LEDGER-HEADER HDR-COUNT))
        LEDGER-TRAILER))
 ```
 
@@ -212,23 +246,24 @@ than of the file a person wrote.
 Everything in it is checkable against [`ledger.sexpr`](ledger.sexpr) by eye, and
 the point of it being here is that you should:
 
-- **Header, postings, trailer, in that order.** `[*] --> s77` is where a read
+- **Header, postings, trailer, in that order.** `[*] --> s40` is where a read
   begins; the one edge out of it is `LEDGER-HEADER`. Everything after it loops
   among the postings, and the only way out is `LEDGER-TRAILER`. That is
   `(seq LEDGER-HEADER (times (alt …)) LEDGER-TRAILER)` drawn.
-- **Six posting types, under a count.** Every state between the header and the
-  trailer offers all six — `DEBIT-POSTING`, `DEBIT-POSTING-REF`,
-  `CREDIT-POSTING`, `CREDIT-POSTING-REF`, `MEMO-POSTING`, `MEMO-POSTING-REF` —
-  which is the six `record` forms the copybook's three `REDEFINES` over two
-  independent runs resolve to, and the six names the `(alt …)` lists. Reading
-  one of them arrives at a state of its own, and a posting may be followed by a
-  posting of any type, so those seven states each carry the same seven
-  transitions and the picture is the complete graph over them. That density is
-  the layout's, not the drawing's.
+- **Two posting types, under a count.** Every state between the header and the
+  trailer offers both — `DEBIT-POSTING` and `CREDIT-POSTING` — which is the two
+  `record` forms this layout names out of the six the copybook admits, and the
+  two names the `(alt …)` lists. Reading one of them arrives at a state of its
+  own, and a posting may be followed by a posting of either type, so those three
+  states each carry the same three transitions and the picture is the complete
+  graph over them. That density is the layout's, not the drawing's: a layout
+  naming all six combinations would draw nine states and fifty edges for the
+  same file format, which is what this example drew until it narrowed to the two
+  the file carries.
 - **`HDR-COUNT` in the register table.** The header's edge carries
-  `then r76 = HDR-COUNT`; every posting edge carries `if r76 greater than zero,
-  then r76 = r76 - 1`; the trailer's carries `if r76 = 0`. The **Registers**
-  table names `r76` and every transition that binds it, because a register
+  `then r39 = HDR-COUNT`; every posting edge carries `if r39 greater than zero,
+  then r39 = r39 - 1`; the trailer's carries `if r39 = 0`. The **Registers**
+  table names `r39` and every transition that binds it, because a register
   carries an identifier and no name — without it the guards on the edges say
   nothing.
 
@@ -236,18 +271,18 @@ the point of it being here is that you should:
   header counts the postings](#why-the-header-counts-the-postings) says no state
   offers both a posting and the trailer, and what is drawn is every posting state
   offering both. Both are true, and the guards are the difference: the
-  alternatives are written at one state and are mutually exclusive on `r76`, so
+  alternatives are written at one state and are mutually exclusive on `r39`, so
   no *reachable* choice between them exists and the two offsets never have to be
   told apart. Read the guards, not the edge count.
 - **Two offsets, in the item tables.** `PST-TYPE` is at offset **12** in every
   posting table, behind the ten-byte account key and the two-byte sequence every
   posting shares; `HDR-TYPE` and `TRL-TYPE` are both at offset **0**. Those are
-  the eight `discriminate` forms, and the tables are where you check that the
+  the four `discriminate` forms, and the tables are where you check that the
   field a discriminator names is the field you meant.
-- **The literals are bytes.** `when PST-TYPE = 0xC4 0xC1` is `"DA"` in cp037,
+- **The literals are bytes.** `when PST-TYPE = 0xC4 0xD9` is `"DR"` in cp037,
   which is the charset `(encoding (charset cp037) …)` declares. A diagram that
-  printed `"DA"` would be printing ASCII for a field that is not in it.
-- **`*slack*` in the credit tables.** Four bytes at offset 38 that no credit
+  printed `"DR"` would be printing ASCII for a field that is not in it.
+- **`*slack*` in the credit table.** Four bytes at offset 38 that no credit
   posting describes — `PST-CREDIT` being shorter than the run it redefines —
   drawn as a row of its own rather than as a gap between two offsets.
 
@@ -256,16 +291,22 @@ those tables is the generator's own arithmetic; the document says so itself. Tha
 is why the tables are worth checking against a copybook rather than being taken
 as a restatement of it.
 
-`format=mermaid` is the manifest's choice and it is a judgment call: this
-automaton is dense — nine states and fifty transitions — and
+`format=mermaid` is the manifest's choice, and it used to be a close one. While
+this layout named all six combinations the automaton was nine states and fifty
+transitions, and
 [`cpybkc-gen-graph`'s README](../cmd/cpybkc-gen-graph/README.md#which-rendering-to-reach-for)
-reaches for `dot` at that density. Mermaid is what the example commits anyway,
-because a worked example is read where it is checked in: a `.md` renders the
-diagram on the forge, and its registers and item tables are Markdown tables a
-reader can check by eye in the diff, where Graphviz's are HTML markup inside a
-file that renders nowhere on its own. Changing `"format": "mermaid"` to `"dot"`
-in [`cpybkc.json`](cpybkc.json) and regenerating is what it takes to see the
-other one.
+reaches for `dot` at that density. Naming the two record types the file carries
+took it to five states and ten transitions, which Mermaid draws comfortably — so
+the call is no longer close, and that is worth noticing on its own: which
+rendering a layout wants is decided by what the layout names, not by what its
+copybooks admit.
+
+Mermaid is what this example would commit either way, because a worked example is
+read where it is checked in: a `.md` renders the diagram on the forge, and its
+registers and item tables are Markdown tables a reader can check by eye in the
+diff, where Graphviz's are HTML markup inside a file that renders nowhere on its
+own. Changing `"format": "mermaid"` to `"dot"` in [`cpybkc.json`](cpybkc.json)
+and regenerating is what it takes to see the other one.
 
 ## One descriptor, two generators
 

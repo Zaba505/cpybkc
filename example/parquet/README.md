@@ -119,29 +119,46 @@ diagnostics and does not export it — but it is a *diagnostic* and never a colu
 `TestAMappingErrorFailsTheConversion` asserts the failure says which record it
 was.
 
-### The six postings: one table
+### The postings: one table
 
-The copybook's three `REDEFINES` over two independent runs resolve to **six**
-record types out of one `01`-level, and `PST-TYPE` discriminates all six. They
-are written as **one** table, with one nullable column per alternative of each
-run:
+The copybook's three `REDEFINES` over two independent runs admit **six** record
+types out of one `01`-level. [`ledger.sexpr`](../ledger.sexpr) names **two** of
+them, and that is the first thing to notice here: the schema is a function of the
+*layout*, not of the copybook. The four it leaves out are the ones described by
+`PST-BODY` or `PST-TAIL` — the base descriptions the two `REDEFINES` runs exist
+to give storage to, which a file a mainframe produced does not carry.
+
+`PST-TYPE` discriminates the two, and they are written as **one** table, with one
+nullable column per description of each run the layout actually names:
 
 ```
-pst_body   pst_debit   pst_credit      the first run, PST-BODY, described three ways
-pst_tail   pst_tail_ref                the second run, PST-TAIL, described two ways
+pst_debit   pst_credit      the first run, PST-BODY, described two ways here
+pst_tail_ref                the second run, PST-TAIL, described one way here
 ```
 
-Exactly one of the first three and one of the last two is present on any row, so
-the record type is recoverable from a row without consulting anything else —
-which `TestTheMergedTableKeepsTheRecordTypeRecoverable` asserts for all six.
+Two consequences, and both of them are decisions:
 
-The alternative is **six narrow tables**, one per record type. It is a real
-option and it is better for some consumers: a debit's amount and a credit's
-amount are genuinely different columns, and a reader who only wants debits gets a
-table with nothing nullable in it. Six tables cost you the ability to ask "every
-posting on this account" without a six-way union, and they multiply by the number
-of independent redefined runs rather than adding — this layout would be six
-tables, and a layout with three runs of three would be twenty-seven.
+- Exactly one of `pst_debit` and `pst_credit` is present on any row, so the
+  record type is recoverable from a row without consulting anything else —
+  `TestTheMergedTableKeepsTheRecordTypeRecoverable`.
+- `pst_tail_ref` is **required**, not optional. One description of a run in play
+  is not a choice a row is making, and an optional column that is null on no row
+  of any extract is one every query null-checks for nothing.
+  `TestTheOnlyDescriptionOfATailIsARequiredColumn` asserts both that and the
+  absence of a `pst_body` or `pst_tail` column.
+
+Narrow the layout differently and this schema is different, which is the point.
+Had the extract carried all six, the first run would be three nullable columns
+and the second two.
+
+The alternative is **narrow tables**, one per record type. It is a real option
+and it is better for some consumers: a debit's amount and a credit's amount are
+genuinely different columns, and a reader who only wants debits gets a table with
+nothing nullable in it. Narrow tables cost you the ability to ask "every posting
+on this account" without a union, and they multiply by the number of independent
+redefined runs rather than adding — this layout would be two tables, one naming
+all six combinations would be six, and a layout with three runs of three would be
+twenty-seven.
 
 ### Nested, not flattened
 
