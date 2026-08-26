@@ -468,9 +468,9 @@ func TestEveryFaultIsReportedRatherThanTheFirst(t *testing.T) {
 	}
 }
 
-// exampleCrossProduct is every combination `example/posting.cpy` admits, sorted:
-// PST-BODY described three ways crossed with PST-TAIL described two, which is
-// the six record types docs/cli/SPEC.md's `init` arithmetic counts.
+// exampleCrossProduct is every combination `example/ledger/posting.cpy` admits,
+// sorted: PST-BODY described three ways crossed with PST-TAIL described two,
+// which is the six record types docs/cli/SPEC.md's `init` arithmetic counts.
 //
 // Written down rather than derived a second way. The point of pinning it is that
 // a derivation which lost or duplicated a combination is caught, and a `want`
@@ -484,7 +484,7 @@ var exampleCrossProduct = []string{
 	"PST-DEBIT+PST-TAIL-REF",
 }
 
-// exampleBaseDescriptions are the two items in `example/posting.cpy` that a
+// exampleBaseDescriptions are the two items in `example/ledger/posting.cpy` that a
 // REDEFINES is written *over*: PST-BODY, which PST-DEBIT and PST-CREDIT redefine,
 // and PST-TAIL, which PST-TAIL-REF does.
 //
@@ -494,9 +494,9 @@ var exampleCrossProduct = []string{
 // why the worked example's layout names neither of these.
 var exampleBaseDescriptions = []string{"PST-BODY", "PST-TAIL"}
 
-// The measure docs/cli/SPEC.md sets: `example/posting.cpy` is six record types
-// over one 01-level with twelve `alternative` children, and every one of them is
-// recoverable from the copybook alone.
+// The measure docs/cli/SPEC.md sets: `example/ledger/posting.cpy` is six record
+// types over one 01-level with twelve `alternative` children, and every one of
+// them is recoverable from the copybook alone.
 //
 // The worked example's layout names **two** of those six — the two whose every
 // alternative is a REDEFINES rather than a base description, which are the two a
@@ -518,12 +518,12 @@ var exampleBaseDescriptions = []string{"PST-BODY", "PST-TAIL"}
 func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 	t.Parallel()
 
-	source, err := os.ReadFile(filepath.Join("..", "..", "example", "posting.cpy"))
+	source, err := os.ReadFile(filepath.Join("..", "..", "example", "ledger", "posting.cpy"))
 	if err != nil {
 		t.Fatalf("reading the worked example's copybook: %v", err)
 	}
 
-	// The path as `example/ledger.sexpr` spells it, which is what makes the
+	// The path as `example/ledger/ledger.sexpr` spells it, which is what makes the
 	// two comparable.
 	derived := deriveOf(t, book("posting.cpy", string(source)))
 
@@ -573,9 +573,9 @@ func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 // so a layout that names one describes bytes no extract holds.
 //
 // Without this, a combination naming PST-BODY or PST-TAIL could be added back to
-// `example/ledger.sexpr` and every other test in this repository would still
-// pass: the derivation offers all six, `resolve` raises no diagnostic on the
-// four, and the generated tree would simply regenerate around it.
+// `example/ledger/ledger.sexpr` and every other test in this repository would
+// still pass: the derivation offers all six, `resolve` raises no diagnostic on
+// the four, and the generated tree would simply regenerate around it.
 func TestTheWorkedExampleLayoutNamesNoBaseDescription(t *testing.T) {
 	t.Parallel()
 
@@ -590,7 +590,7 @@ func TestTheWorkedExampleLayoutNamesNoBaseDescription(t *testing.T) {
 }
 
 // workedExampleCombinations is which description of each redefined run every
-// `record` form in `example/ledger.sexpr` over `posting.cpy` means, in the
+// `record` form in `example/ledger/ledger.sexpr` over `posting.cpy` means, in the
 // layout's own order.
 //
 // The whole containment path rather than the leaf name: a reference into the
@@ -599,7 +599,7 @@ func TestTheWorkedExampleLayoutNamesNoBaseDescription(t *testing.T) {
 func workedExampleCombinations(t *testing.T) []string {
 	t.Helper()
 
-	file, err := layout.ParseFile(filepath.Join("..", "..", "example", "ledger.sexpr"))
+	file, err := layout.ParseFile(filepath.Join("..", "..", "example", "ledger", "ledger.sexpr"))
 	if err != nil {
 		t.Fatalf("parsing the worked example's layout: %v", err)
 	}

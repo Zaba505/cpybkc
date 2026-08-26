@@ -26,17 +26,17 @@ const (
 
 	// thisModulePath is where this conversion lives, and it is a constant so
 	// that moving it fails a test that names it.
-	thisModulePath = "github.com/Zaba505/cpybkc/example/parquet"
+	thisModulePath = "github.com/Zaba505/cpybkc/example/ledger/parquet"
 )
 
 // TestParquetGoDoesNotReachTheRootModule asserts the property this module
 // boundary was drawn for.
 //
-// example/ledger has no go.mod of its own, so a conversion written beside it
-// would have put parquet-go — and its dozen transitive requires — into the
-// module `go install github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds, and
-// from there into a signed, attested, distroless release image. Nothing in the
-// Go toolchain enforces that it does not: an import added to a file under
+// example/ledger/ledger has no go.mod of its own, so a conversion written
+// beside it would have put parquet-go — and its dozen transitive requires — into
+// the module `go install github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds,
+// and from there into a signed, attested, distroless release image. Nothing in
+// the Go toolchain enforces that it does not: an import added to a file under
 // example/ would add a require to the root go.mod and no build would fail. So it
 // is enforced here, over the one artifact that decides it.
 //
@@ -65,7 +65,7 @@ func TestParquetGoDoesNotReachTheRootModule(t *testing.T) {
 	}
 
 	if _, ok := root.requires[parquetModulePath]; ok {
-		t.Errorf("%s requires %s: a converter's dependency has no business in the module a release image is built from, which is the whole reason example/parquet has a go.mod of its own", path, parquetModulePath)
+		t.Errorf("%s requires %s: a converter's dependency has no business in the module a release image is built from, which is the whole reason this conversion has a go.mod of its own", path, parquetModulePath)
 	}
 
 	if _, ok := root.requires[thisModulePath]; ok {
@@ -89,15 +89,15 @@ func TestThisModuleIsWhereParquetGoLives(t *testing.T) {
 	}
 
 	if _, ok := mod.requires[cliModulePath]; !ok {
-		t.Errorf("go.mod does not require %s: the conversion reads its dataset through the generated example/ledger, held against the tree as it stands", cliModulePath)
+		t.Errorf("go.mod does not require %s: the conversion reads its dataset through the generated example/ledger/ledger, held against the tree as it stands", cliModulePath)
 	}
 }
 
-// TestNothingHereIsMarkedGenerated is the line between the two halves of
-// example/.
+// TestNothingHereIsMarkedGenerated is the line between the two halves of the
+// example this conversion sits in.
 //
-// This directory is neither generated nor named by example/cpybkc.json, and a
-// hand-written file under example/ that carried the header would read as output
+// This directory is neither generated nor named by that example's cpybkc.json,
+// and a hand-written file under it that carried the header would read as output
 // — which would put it in front of the regeneration test as a file to be
 // reproduced, and it cannot be.
 //
@@ -141,7 +141,7 @@ func TestNothingHereIsMarkedGenerated(t *testing.T) {
 		}
 
 		if strings.Contains(string(b), marker) {
-			t.Errorf("%s carries a %q header and nothing here is generated: the two halves of example/ are told apart by that line", path, marker)
+			t.Errorf("%s carries a %q header and nothing here is generated: the two halves of an example are told apart by that line", path, marker)
 		}
 
 		return nil

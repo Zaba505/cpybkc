@@ -19,7 +19,7 @@ package ledger_test
 import (
 	"bytes"
 	"errors"
-	"github.com/Zaba505/cpybkc/example/ledger"
+	"github.com/Zaba505/cpybkc/example/ledger/ledger"
 	"io"
 	"testing"
 )

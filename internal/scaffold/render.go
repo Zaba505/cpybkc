@@ -17,7 +17,7 @@ import (
 // A comment is the only place a layout has for text its reader ignores
 // (docs/layout/SPEC.md, "Tagged forms over S-expressions"), and it is therefore
 // where everything cpybkc cannot state goes. Two semicolons rather than one,
-// which is what the format's own examples and `example/ledger.sexpr` use.
+// which is what the format's own examples and the ledger example's layout use.
 const (
 	commentMark   = ";;"
 	commentPrefix = commentMark + " "

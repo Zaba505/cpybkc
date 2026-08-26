@@ -4,15 +4,16 @@
 // That module is what `go install github.com/Zaba505/cpybkc/cmd/cpybkc@version`
 // builds. Every one of its requires has a paragraph beside it saying why the CLI
 // needs it, and a converter's dependency has no business in a signed, attested,
-// distroless release image. example/ledger has no go.mod of its own, so anything
-// importing parquet-go from inside example/ would land in the root module —
-// which is what this file exists to prevent.
+// distroless release image. The generated package this reads its dataset through
+// has no go.mod of its own, so anything importing parquet-go from inside the
+// example would land in the root module — which is what this file exists to
+// prevent.
 //
 // module_test.go fails the build if parquet-go ever appears in the root go.mod,
 // which is the only enforcement a module boundary has. The precedent is irpb,
 // whose own module_test.go keeps its require list at one entry for the same kind
 // of reason.
-module github.com/Zaba505/cpybkc/example/parquet
+module github.com/Zaba505/cpybkc/example/ledger/parquet
 
 go 1.26.2
 
@@ -36,13 +37,13 @@ require (
 
 // The tree beside this one, rather than a published version, because the whole
 // point of compiling this instead of writing it in a README is that it is held
-// against the generated package as it stands. A version pin would let
-// example/ledger's API move and leave this conversion compiling against the one
-// before it, which is the rot a checked-in worked example exists to catch.
-replace github.com/Zaba505/cpybkc => ../..
+// against the generated package as it stands. A version pin would let that
+// package's API move and leave this conversion compiling against the one before
+// it, which is the rot a checked-in worked example exists to catch.
+replace github.com/Zaba505/cpybkc => ../../..
 
 // The root module's own replace of the IR module is not inherited: a replace
 // directive in a dependency's go.mod is ignored, and only the main module's is
 // read. So the same line is restated here. It comes out when irpb carries its
 // first tag, at the same time as the root module's.
-replace github.com/Zaba505/cpybkc/irpb => ../../irpb
+replace github.com/Zaba505/cpybkc/irpb => ../../../irpb

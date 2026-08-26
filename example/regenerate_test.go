@@ -3,15 +3,21 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// The assertion that the committed example is what its committed inputs
+// The assertion that every committed example is what its committed inputs
 // produce.
 //
-// Everything under this directory divides in two. The layout, the copybooks it
-// names and the manifest are what a caller writes; the directories the
-// manifest's generators write into and `cpybkc.gen.json` are what cpybkc writes
-// for them. This test regenerates the second half from the first, through the
-// real CLI and the real generators, and holds every byte of the result against
-// what is checked in.
+// This directory holds a tree of examples rather than one, and each of them is a
+// self-contained cpybkc project: a `cpybkc.json` beside the layout it names, the
+// copybooks that layout names, and the directories its generators write into.
+// README.md says why the manifest is per example rather than one at this level.
+//
+// Everything inside an example divides in two. The layout, the copybooks and the
+// manifest are what a caller writes; the directories the manifest's generators
+// write into and `cpybkc.gen.json` are what cpybkc writes for them. These tests
+// regenerate the second half from the first, through the real CLI and the real
+// generators, and hold every byte of the result against what is checked in —
+// for every example, so that a third one is covered by having been added rather
+// than by anything here being extended.
 //
 // It is byte for byte, and it is the whole tree rather than a sample of it,
 // because the point of a committed example is that a change to any layer of the
@@ -20,9 +26,11 @@
 // that generation merely *succeeds* would pass on a run that generated the wrong
 // thing, which is the failure this whole directory exists to catch.
 //
-// The manifest runs two generators, and the second test below is the one that
-// could not be written while it ran one: that a run assembles a single
-// descriptor and hands every generator in it the same bytes.
+// The second test below is the one that could not be written while a project ran
+// one generator: that a run assembles a single descriptor and hands every
+// generator in it the same bytes. It needs an example whose manifest names two,
+// and it requires at least one of them to exist rather than passing over a tree
+// where none does.
 //
 // Regenerate with the lines README.md gives, and commit the result.
 package example
@@ -36,6 +44,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -71,15 +80,31 @@ type generator struct {
 	Out  string `json:"out"`
 }
 
-// TestTheCommittedExampleIsWhatItsInputsGenerate regenerates the example from
-// the inputs beside it and requires the result byte for byte.
-func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
-	// No t.Parallel: this test sets PATH for the process, which is how the
-	// generators it just built are the ones the CLI finds.
+// TestEveryCommittedExampleIsWhatItsInputsGenerate regenerates every example
+// from the inputs beside it and requires each result byte for byte.
+//
+// One sub-test per example, so a tree where one example drifted names that
+// example rather than reporting a file whose directory a reader has to work out.
+func TestEveryCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
+	// No t.Parallel, here or in the sub-tests: this test sets PATH for the
+	// process, which is how the generators it just built are the ones the CLI
+	// finds.
+
+	for _, example := range examples(t) {
+		t.Run(example, func(t *testing.T) {
+			regenerates(t, example)
+		})
+	}
+}
+
+// regenerates is [TestEveryCommittedExampleIsWhatItsInputsGenerate] over one
+// example.
+func regenerates(t *testing.T, example string) {
+	t.Helper()
 
 	root := repoRoot(t)
 	bin := t.TempDir()
-	gens := generators(t)
+	gens := generators(t, example)
 
 	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
 
@@ -88,8 +113,8 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 	}
 
 	project := t.TempDir()
-	for _, name := range inputs(t) {
-		copyFile(t, name, filepath.Join(project, name))
+	for _, name := range inputs(t, example) {
+		copyFile(t, filepath.Join(example, name), filepath.Join(project, name))
 	}
 
 	// The record of the last generation goes in too, even though it is output
@@ -100,7 +125,7 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 	// nobody's test predicted. It spans both generators' output, which is what
 	// lets a generator removed from the manifest have its output pruned, so a
 	// two-generator run is also the first one to exercise that.
-	copyFile(t, recordName, filepath.Join(project, recordName))
+	copyFile(t, filepath.Join(example, recordName), filepath.Join(project, recordName))
 
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
@@ -121,7 +146,7 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 
 	outs := outputDirs(gens)
 	generated := generatedTree(t, project, outs)
-	committed := generatedTree(t, ".", outs)
+	committed := generatedTree(t, example, outs)
 
 	for name, want := range committed {
 		got, ok := generated[name]
@@ -151,8 +176,13 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 // docs/plugin/SPEC.md states it and one generator could never show it: with a
 // single entry in the manifest there is no second set of bytes to be equal to,
 // and "every generator gets the same bytes" holds by there being nothing to
-// compare. This example is the first project in the repository that runs two, so
-// it is the first place the equality can fail.
+// compare. The ledger example is the first project in the repository that runs
+// two, so it is the first place the equality can fail — and this test walks
+// every example that runs two, so a second one is covered by having been added.
+//
+// An example running one generator is not asserted here and is not a failure;
+// what would be a failure is the tree holding none that runs two, which the
+// caller reports rather than skipping.
 //
 // # What this does not show
 //
@@ -170,22 +200,49 @@ func TestTheCommittedExampleIsWhatItsInputsGenerate(t *testing.T) {
 //
 // It is asserted through the contract rather than through the packages behind
 // it. Real generators keep the bytes they were handed to themselves, so this
-// run puts a stub generator on PATH under both of the manifest's names: it
+// run puts a stub generator on PATH under every one of the manifest's names: it
 // copies the file at `--descriptor` into its own `--out` and writes nothing
 // else. `--out` is a private scratch directory cpybkc merges into the project
 // tree on a zero exit, so the bytes each generator saw arrive in the project
 // under that generator's own output directory, with nothing this test has to
 // know about where cpybkc put them in the meantime.
 func TestEveryGeneratorInTheRunIsHandedTheSameDescriptor(t *testing.T) {
-	// No t.Parallel, for the reason above: PATH is process-wide.
+	// No t.Parallel, here or in the sub-tests, for the reason above: PATH is
+	// process-wide.
+
+	multiple := 0
+
+	for _, example := range examples(t) {
+		if len(generators(t, example)) < 2 {
+			continue
+		}
+
+		multiple++
+
+		t.Run(example, func(t *testing.T) {
+			handedTheSameDescriptor(t, example)
+		})
+	}
+
+	// The equality needs a project running two generators to hold between
+	// anything, and whether the tree still has one is not something a skip should
+	// report quietly. An example narrowed to a single generator, or renamed out
+	// of this walk, would otherwise take this assertion with it and leave a green
+	// run behind.
+	if multiple == 0 {
+		t.Errorf("no example here runs two generators, and this assertion needs one that does: with a single entry in a %s there is no second set of bytes to be equal to", manifestName)
+	}
+}
+
+// handedTheSameDescriptor is
+// [TestEveryGeneratorInTheRunIsHandedTheSameDescriptor] over one example, which
+// its caller has already checked runs at least two generators.
+func handedTheSameDescriptor(t *testing.T, example string) {
+	t.Helper()
 
 	root := repoRoot(t)
 	bin := t.TempDir()
-	gens := generators(t)
-
-	if len(gens) < 2 {
-		t.Fatalf("%s runs %d generator(s); this assertion needs at least two", manifestName, len(gens))
-	}
+	gens := generators(t, example)
 
 	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
 
@@ -194,8 +251,8 @@ func TestEveryGeneratorInTheRunIsHandedTheSameDescriptor(t *testing.T) {
 	}
 
 	project := t.TempDir()
-	for _, name := range inputs(t) {
-		copyFile(t, name, filepath.Join(project, name))
+	for _, name := range inputs(t, example) {
+		copyFile(t, filepath.Join(example, name), filepath.Join(project, name))
 	}
 
 	// No record goes in. The stubs write one file each and none of the files the
@@ -271,11 +328,23 @@ func TestEveryGeneratorInTheRunIsHandedTheSameDescriptor(t *testing.T) {
 // generator removed from the manifest has an `out` nothing writes to any more,
 // and the record outliving the entry is the whole of what prunes it.
 func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
-	// No t.Parallel, for the reason the tests above give: PATH is process-wide.
+	// No t.Parallel, here or in the sub-tests, for the reason the tests above
+	// give: PATH is process-wide.
+
+	for _, example := range examples(t) {
+		t.Run(example, func(t *testing.T) {
+			prunes(t, example)
+		})
+	}
+}
+
+// prunes is [TestTheRecordPrunesEveryGeneratorsOutput] over one example.
+func prunes(t *testing.T, example string) {
+	t.Helper()
 
 	root := repoRoot(t)
 	bin := t.TempDir()
-	gens := generators(t)
+	gens := generators(t, example)
 
 	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
 
@@ -284,8 +353,8 @@ func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
 	}
 
 	project := t.TempDir()
-	for _, name := range inputs(t) {
-		copyFile(t, name, filepath.Join(project, name))
+	for _, name := range inputs(t, example) {
+		copyFile(t, filepath.Join(example, name), filepath.Join(project, name))
 	}
 
 	// A stale file in each output directory and one in a directory no generator
@@ -334,9 +403,96 @@ func TestTheRecordPrunesEveryGeneratorsOutput(t *testing.T) {
 	}
 
 	got := readFile(t, filepath.Join(project, recordName))
-	if want := readFile(t, recordName); !bytes.Equal(got, want) {
+	if want := readFile(t, filepath.Join(example, recordName)); !bytes.Equal(got, want) {
 		t.Errorf("the record a pruning run wrote is not the one checked in\n got: %s\nwant: %s", got, want)
 	}
+}
+
+// indexName is the index this directory's README is, and the one file here that
+// names the examples in prose rather than by walking for them.
+const indexName = "README.md"
+
+// TestTheIndexNamesEveryExample holds README.md's table of examples against the
+// tree the tests above walk.
+//
+// It is the one place in this directory that is a list rather than a listing,
+// and the README says two lines under the table that "adding one is adding a
+// directory: everything below reads the tree rather than a list". Everything
+// below does. The table cannot, because a one-line description of what an
+// example is *for* is not derivable from the example — so the way to keep that
+// sentence true is to fail here when the two disagree, rather than to leave an
+// example the index does not name and nothing to say so.
+//
+// The link is what is matched and not the prose, because the link is the part
+// that has to be a real path: an index whose row points at a directory that is
+// not there is broken for a reader on the forge, and one missing a row for a
+// directory that is there is an example nobody finds.
+//
+// The precedent is internal/scaffold/derive_test.go, which pins docs/cli/SPEC.md's
+// arithmetic against the copybook it is stated over rather than against a number
+// somebody retypes.
+func TestTheIndexNamesEveryExample(t *testing.T) {
+	t.Parallel()
+
+	index := string(readFile(t, indexName))
+
+	linked := map[string]bool{}
+
+	for _, example := range examples(t) {
+		// The form a Markdown link to a directory takes, which is what the
+		// table's first column holds: `[`ledger/`](ledger)`. The trailing
+		// slash is a reader's convention and not part of the path, so both
+		// spellings count.
+		if strings.Contains(index, "]("+example+")") || strings.Contains(index, "]("+example+"/)") {
+			linked[example] = true
+
+			continue
+		}
+
+		t.Errorf("%s does not link to the %s example: an example the index does not name is one a reader does not find, and this table is the only thing here that does not read the tree",
+			indexName, example)
+	}
+
+	// And the other direction, which is the one that goes wrong on a rename: a
+	// row left behind pointing at a directory that has moved reads as an
+	// example and is a broken link.
+	for _, link := range indexLinks(index) {
+		if linked[link] {
+			continue
+		}
+
+		if _, err := os.Stat(filepath.Join(link, manifestName)); errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s links to %q as an example and nothing there carries a %s", indexName, link, manifestName)
+		} else if err != nil {
+			t.Fatalf("checking what %s links to at %q: %v", indexName, link, err)
+		}
+	}
+}
+
+// indexLinkTarget matches the target of a Markdown inline link whose text is a
+// bare directory name in code ticks — the shape the index's first column uses,
+// and narrow enough that the prose links everywhere else in the file are not
+// mistaken for entries in the table.
+var indexLinkTarget = regexp.MustCompile("\\[`([^`]+)/`\\]\\(([^)]+)\\)")
+
+// indexLinks is what the index's example table points at, with the trailing
+// slash a reader's convention adds taken back off.
+func indexLinks(index string) []string {
+	var found []string
+
+	for _, match := range indexLinkTarget.FindAllStringSubmatch(index, -1) {
+		target := strings.TrimSuffix(match[2], "/")
+
+		// A link out of this directory is prose rather than a row: the table
+		// names examples, which are underneath it.
+		if strings.HasPrefix(target, "..") || strings.HasPrefix(target, "/") || strings.Contains(target, "://") {
+			continue
+		}
+
+		found = append(found, target)
+	}
+
+	return found
 }
 
 // writeRecord writes a `cpybkc.gen.json` naming files, in the form cpybkc reads:
@@ -368,14 +524,14 @@ func writeRecord(t *testing.T, path string, files []string) {
 // readable is how long a generated file may be and still be printed whole when
 // it disagrees with what is checked in.
 //
-// The two files this example generates are not the same size and do not want the
-// same diagnostic. `graph/graph.md` is under two hundred lines, and a reviewer
+// The files an example generates are not all the same size and do not want the
+// same diagnostic. A diagram is under two hundred lines, and a reviewer
 // reading a failure wants to see what the diagram became — printing both sides
 // means the new document comes out of the test's own output, and what changed
 // about the picture is legible in the failure rather than only after
-// regenerating. `ledger/file.go` is several thousand lines: an emitter changing
-// is the ordinary reason this test fires rather than the rare one, and a failure
-// that dumps two copies of it is one nobody reads.
+// regenerating. A generated file tier runs to several thousand lines: an emitter
+// changing is the ordinary reason this test fires rather than the rare one, and
+// a failure that dumps two copies of it is one nobody reads.
 //
 // So the rule is the file's length rather than its name, and the number is where
 // two copies stop being something a person reads in a scrollback.
@@ -420,20 +576,91 @@ func lines(split []string) int {
 	return len(split)
 }
 
-// generators is the manifest's `generators` array, read rather than written
-// down.
+// examples is every worked example in this directory, by slash-separated path
+// relative to it.
 //
-// Which generators this example runs, what they are called and where each one
-// writes are facts `cpybkc.json` already states, and a second copy of them here
-// is one somebody would have to remember to update — a generator added to the
-// manifest and not to this file is output nothing asserts, which is the failure
-// this whole directory exists to catch, arrived at from the inside.
-func generators(t *testing.T) []generator {
+// An example is a directory carrying a manifest, which is the whole of what
+// makes one: each is a self-contained cpybkc project, so the tests below need
+// nothing about a new example written down here to cover it. Adding one is
+// adding a directory.
+//
+// It is a listing rather than a list, for the reason [inputs] is: a list would
+// be a second statement of what this directory holds, and the one failure mode
+// worth ruling out is an example that quietly stops being asserted.
+//
+// **At any depth**, which is not the same rule as "a directory here", and the
+// difference is what makes that claim true. A manifest one level further down —
+// `payroll/v1/cpybkc.json`, an ordinary shape for a format with variants — would
+// be an example a top-level listing skipped in silence, while the pipeline's own
+// discovery found the module beside it: `.dagger`'s exampleModuleDirs globs
+// `**/go.mod` at any depth, so a nested example's conversion would be compiled
+// and linted and its generated tree never compared. Two rules over one directory
+// that disagree about what an example is are worse than either rule.
+//
+// The walk stops at an example rather than descending through it. Everything
+// under a manifest belongs to that project — its copybooks, the directories its
+// generators write into, a conversion module beside them — and none of it is a
+// second example. That is also what keeps a `cpybkc.json` appearing in generated
+// output from being discovered as a project of its own.
+func examples(t *testing.T) []string {
 	t.Helper()
 
-	body, err := os.ReadFile(manifestName)
+	var found []string
+
+	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case !entry.IsDir():
+			return nil
+		case path == ".":
+			// This directory holds the examples and is not one. A manifest
+			// here would make it a project of its own, which README.md says
+			// it deliberately is not — and stopping the walk on it would
+			// report the tree as empty.
+			return nil
+		}
+
+		if _, err := os.Stat(filepath.Join(path, manifestName)); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+
+			return err
+		}
+
+		found = append(found, filepath.ToSlash(path))
+
+		return fs.SkipDir
+	})
 	if err != nil {
-		t.Fatalf("reading %s: %v", manifestName, err)
+		t.Fatalf("looking for the examples: %v", err)
+	}
+
+	if len(found) == 0 {
+		t.Fatalf("nothing under this directory carries a %s, and this test asserts over the ones that do", manifestName)
+	}
+
+	slices.Sort(found)
+
+	return found
+}
+
+// generators is an example's `generators` array, read rather than written down.
+//
+// Which generators an example runs, what they are called and where each one
+// writes are facts its `cpybkc.json` already states, and a second copy of them
+// here is one somebody would have to remember to update — a generator added to a
+// manifest and not to this file is output nothing asserts, which is the failure
+// this whole directory exists to catch, arrived at from the inside.
+func generators(t *testing.T, dir string) []generator {
+	t.Helper()
+
+	path := filepath.Join(dir, manifestName)
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
 	}
 
 	var manifest struct {
@@ -441,16 +668,16 @@ func generators(t *testing.T) []generator {
 	}
 
 	if err := json.Unmarshal(body, &manifest); err != nil {
-		t.Fatalf("reading %s: %v", manifestName, err)
+		t.Fatalf("reading %s: %v", path, err)
 	}
 
 	if len(manifest.Generators) == 0 {
-		t.Fatalf("%s names no generators", manifestName)
+		t.Fatalf("%s names no generators", path)
 	}
 
 	for _, gen := range manifest.Generators {
 		if gen.Name == "" || gen.Out == "" {
-			t.Fatalf("%s has a generator entry missing a name or an out directory: %+v", manifestName, gen)
+			t.Fatalf("%s has a generator entry missing a name or an out directory: %+v", path, gen)
 		}
 	}
 
@@ -480,18 +707,18 @@ func pluginName(name string) string {
 	return "cpybkc-gen-" + name
 }
 
-// inputs is what a caller writes: the manifest, the layout and the copybooks
-// the layout names.
+// inputs is what a caller writes in one example: the manifest, the layout and
+// the copybooks the layout names.
 //
-// It is a listing of this directory rather than a list written down, so that a
-// copybook added to the example and never copied into the run is a failure
+// It is a listing of that directory rather than a list written down, so that a
+// copybook added to an example and never copied into the run is a failure
 // rather than a file the assertion quietly stops covering.
-func inputs(t *testing.T) []string {
+func inputs(t *testing.T, dir string) []string {
 	t.Helper()
 
-	entries, err := os.ReadDir(".")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("reading the example: %v", err)
+		t.Fatalf("reading %s: %v", dir, err)
 	}
 
 	var found []string
