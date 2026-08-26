@@ -186,7 +186,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits LEDGER-HEADER.
 		expected = append(expected, "LEDGER-HEADER")
-		if matches40At0(r.look) {
+		if matches1At0(r.look) {
 			rec := new(LedgerHeader)
 
 			if err := r.admit(rec); err != nil {
@@ -214,7 +214,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches41At0(r.look) {
+			if matches2At12(r.look) {
 				rec := new(DebitPosting)
 
 				if err := r.admit(rec); err != nil {
@@ -235,7 +235,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches41At0(r.look) {
+		} else if excluded == "" && matches2At12(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
@@ -246,7 +246,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches41At1(r.look) {
+			if matches3At12(r.look) {
 				rec := new(CreditPosting)
 
 				if err := r.admit(rec); err != nil {
@@ -267,7 +267,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches41At1(r.look) {
+		} else if excluded == "" && matches3At12(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
@@ -278,7 +278,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 == 0 {
 			expected = append(expected, "LEDGER-TRAILER")
-			if matches41At2(r.look) {
+			if matches4At0(r.look) {
 				rec := new(LedgerTrailer)
 
 				if err := r.admit(rec); err != nil {
@@ -289,7 +289,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches41At2(r.look) {
+		} else if excluded == "" && matches4At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", r.register39)
 		}
 
@@ -306,7 +306,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches42At0(r.look) {
+			if matches2At12(r.look) {
 				rec := new(DebitPosting)
 
 				if err := r.admit(rec); err != nil {
@@ -327,7 +327,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches42At0(r.look) {
+		} else if excluded == "" && matches2At12(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
@@ -338,7 +338,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches42At1(r.look) {
+			if matches3At12(r.look) {
 				rec := new(CreditPosting)
 
 				if err := r.admit(rec); err != nil {
@@ -359,7 +359,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches42At1(r.look) {
+		} else if excluded == "" && matches3At12(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
@@ -370,7 +370,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 == 0 {
 			expected = append(expected, "LEDGER-TRAILER")
-			if matches42At2(r.look) {
+			if matches4At0(r.look) {
 				rec := new(LedgerTrailer)
 
 				if err := r.admit(rec); err != nil {
@@ -381,7 +381,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches42At2(r.look) {
+		} else if excluded == "" && matches4At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", r.register39)
 		}
 
@@ -398,7 +398,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches43At0(r.look) {
+			if matches2At12(r.look) {
 				rec := new(DebitPosting)
 
 				if err := r.admit(rec); err != nil {
@@ -419,7 +419,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches43At0(r.look) {
+		} else if excluded == "" && matches2At12(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
@@ -430,7 +430,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches43At1(r.look) {
+			if matches3At12(r.look) {
 				rec := new(CreditPosting)
 
 				if err := r.admit(rec); err != nil {
@@ -451,7 +451,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches43At1(r.look) {
+		} else if excluded == "" && matches3At12(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
@@ -462,7 +462,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register39 == 0 {
 			expected = append(expected, "LEDGER-TRAILER")
-			if matches43At2(r.look) {
+			if matches4At0(r.look) {
 				rec := new(LedgerTrailer)
 
 				if err := r.admit(rec); err != nil {
@@ -473,7 +473,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches43At2(r.look) {
+		} else if excluded == "" && matches4At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", r.register39)
 		}
 
@@ -614,14 +614,19 @@ func (r *Reader) fill(n int) error {
 	return err
 }
 
-// matches40At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 40: it admits LEDGER-HEADER.
+// matches1At0 is the predicate over bytes 0:2 of a record: the transitions it
+// selects admit LEDGER-HEADER.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches40At0(b []byte) bool {
+func matches1At0(b []byte) bool {
 	if len(b) < 2 {
 		return false
 	}
@@ -629,14 +634,19 @@ func matches40At0(b []byte) bool {
 	return bytes.Equal(b[0:2], []byte("\xf0\xf1"))
 }
 
-// matches41At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 41: it admits POSTING-RECORD.
+// matches2At12 is the predicate over bytes 12:14 of a record: the transitions it
+// selects admit POSTING-RECORD.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches41At0(b []byte) bool {
+func matches2At12(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
@@ -644,14 +654,19 @@ func matches41At0(b []byte) bool {
 	return bytes.Equal(b[12:14], []byte("\xc4\xd9"))
 }
 
-// matches41At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 41: it admits POSTING-RECORD.
+// matches3At12 is the predicate over bytes 12:14 of a record: the transitions it
+// selects admit POSTING-RECORD.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches41At1(b []byte) bool {
+func matches3At12(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
@@ -659,104 +674,19 @@ func matches41At1(b []byte) bool {
 	return bytes.Equal(b[12:14], []byte("\xc3\xd9"))
 }
 
-// matches41At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 41: it admits LEDGER-TRAILER.
+// matches4At0 is the predicate over bytes 0:2 of a record: the transitions it
+// selects admit LEDGER-TRAILER.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches41At2(b []byte) bool {
-	if len(b) < 2 {
-		return false
-	}
-
-	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
-}
-
-// matches42At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 42: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches42At0(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xd9"))
-}
-
-// matches42At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 42: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches42At1(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xd9"))
-}
-
-// matches42At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 42: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches42At2(b []byte) bool {
-	if len(b) < 2 {
-		return false
-	}
-
-	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
-}
-
-// matches43At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 43: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches43At0(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xd9"))
-}
-
-// matches43At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 43: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches43At1(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xd9"))
-}
-
-// matches43At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 43: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches43At2(b []byte) bool {
+func matches4At0(b []byte) bool {
 	if len(b) < 2 {
 		return false
 	}
@@ -909,7 +839,7 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 		}
 
 		if w.register39 > 0 {
-			if matches41At1(raw) {
+			if matches3At12(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -929,7 +859,7 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches41At1(raw) {
+		} else if excluded == "" && matches3At12(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	case 2: // the state the descriptor carries as node 42
@@ -939,7 +869,7 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 		}
 
 		if w.register39 > 0 {
-			if matches42At1(raw) {
+			if matches3At12(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -959,7 +889,7 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches42At1(raw) {
+		} else if excluded == "" && matches3At12(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	case 3: // the state the descriptor carries as node 43
@@ -969,7 +899,7 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 		}
 
 		if w.register39 > 0 {
-			if matches43At1(raw) {
+			if matches3At12(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -989,7 +919,7 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches43At1(raw) {
+		} else if excluded == "" && matches3At12(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	}
@@ -1029,7 +959,7 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 		}
 
 		if w.register39 > 0 {
-			if matches41At0(raw) {
+			if matches2At12(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1049,7 +979,7 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches41At0(raw) {
+		} else if excluded == "" && matches2At12(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	case 2: // the state the descriptor carries as node 42
@@ -1059,7 +989,7 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 		}
 
 		if w.register39 > 0 {
-			if matches42At0(raw) {
+			if matches2At12(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1079,7 +1009,7 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches42At0(raw) {
+		} else if excluded == "" && matches2At12(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	case 3: // the state the descriptor carries as node 43
@@ -1089,7 +1019,7 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 		}
 
 		if w.register39 > 0 {
-			if matches43At0(raw) {
+			if matches2At12(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1109,7 +1039,7 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches43At0(raw) {
+		} else if excluded == "" && matches2At12(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	}
@@ -1142,7 +1072,7 @@ func (w *Writer) writeLedgerHeader(rec *LedgerHeader) error {
 	switch w.state {
 	case 0: // the state the descriptor carries as node 40
 		// Transition 1 of that state.
-		if matches40At0(raw) {
+		if matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -1192,7 +1122,7 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 		}
 
 		if w.register39 == 0 {
-			if matches41At2(raw) {
+			if matches4At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1202,7 +1132,7 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches41At2(raw) {
+		} else if excluded == "" && matches4At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", w.register39)
 		}
 	case 2: // the state the descriptor carries as node 42
@@ -1212,7 +1142,7 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 		}
 
 		if w.register39 == 0 {
-			if matches42At2(raw) {
+			if matches4At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1222,7 +1152,7 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches42At2(raw) {
+		} else if excluded == "" && matches4At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", w.register39)
 		}
 	case 3: // the state the descriptor carries as node 43
@@ -1232,7 +1162,7 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 		}
 
 		if w.register39 == 0 {
-			if matches43At2(raw) {
+			if matches4At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1242,7 +1172,7 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches43At2(raw) {
+		} else if excluded == "" && matches4At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", w.register39)
 		}
 	}

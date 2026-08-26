@@ -89,6 +89,13 @@ type filer struct {
 	// far the reader has to see in front of a record it has not identified.
 	lookahead int
 
+	// predicates is every distinct predicate the automaton tests, in the order
+	// it first reaches them, and predicateOf is each one's position in that
+	// slice by the Go expression that is the predicate. See [filer.gather],
+	// which settles both.
+	predicates  []predicateFunc
+	predicateOf map[string]int
+
 	// keepsBytes is whether any binding writes a bytes register, which is the
 	// one thing that obliges the reader to hold the record's own bytes as well
 	// as its values.
@@ -300,7 +307,10 @@ type transition struct {
 	// bytes, empty where the transition carries no predicate.
 	match string
 
-	// reads is how far into the record its predicate looks, in bytes.
+	// at is the byte offset its predicate's window starts at, and reads is
+	// how far into the record that window reaches. Both are zero where the
+	// transition carries no predicate.
+	at    int
 	reads int
 
 	// next is the position in [filer.states] of the state it moves to.
@@ -346,7 +356,7 @@ func (f *filer) transitionsOf(state *irpb.State) ([]transition, error) {
 				"a transition names the state to move to; see docs/ir/SPEC.md, \"The sequencing automaton\"")
 		}
 
-		match, reads, err := f.predicate(t, record)
+		match, at, reads, err := f.predicate(t, record)
 		if err != nil {
 			return nil, err
 		}
@@ -355,54 +365,54 @@ func (f *filer) transitionsOf(state *irpb.State) ([]transition, error) {
 			f.lookahead = reads
 		}
 
-		out = append(out, transition{node: t, record: record, typ: typ, match: match, reads: reads, next: next})
+		out = append(out, transition{node: t, record: record, typ: typ, match: match, at: at, reads: reads, next: next})
 	}
 
 	return out, nil
 }
 
 // predicate is the Go expression testing a transition's predicate against a
-// window of the bytes in front of the reader, and how far into the record that
-// window has to reach.
+// window of the bytes in front of the reader, where in the record that window
+// starts and how far into it it reaches.
 //
 // The target's offset is a constant, and this is where a descriptor saying
 // otherwise is refused: a target whose position moved with a count would oblige
 // a consumer to decode that count out of bytes it has not identified yet, which
 // is exactly the position step 3 of the read loop is in.
-func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int, error) {
+func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int, int, error) {
 	if t.PredicateId == nil {
 		// A transition MAY carry no predicate, and one that does not matches
 		// every record. It is not a fall-through: it is evaluated in the order
 		// the state carries it like every other transition, and what it gives
 		// up is detection rather than order. See docs/ir/SPEC.md, "A transition
 		// may carry no predicate".
-		return "", 0, nil
+		return "", 0, 0, nil
 	}
 
 	node, ok := f.nodes[t.GetPredicateId()]
 	if !ok {
-		return "", 0, unresolved(t.GetPredicateId())
+		return "", 0, 0, unresolved(t.GetPredicateId())
 	}
 
 	predicate := node.GetPredicate()
 	if predicate == nil {
-		return "", 0, malformed(fmt.Sprintf("node %d selects a transition and is not a predicate node", t.GetPredicateId()),
+		return "", 0, 0, malformed(fmt.Sprintf("node %d selects a transition and is not a predicate node", t.GetPredicateId()),
 			"a transition names the predicate that selects it where it carries one; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
 
 	targetNode, ok := f.nodes[predicate.GetFieldId()]
 	if !ok {
-		return "", 0, unresolved(predicate.GetFieldId())
+		return "", 0, 0, unresolved(predicate.GetFieldId())
 	}
 
 	field := targetNode.GetField()
 	if field == nil {
-		return "", 0, malformed(fmt.Sprintf("node %d is a predicate's target and is not a field node", predicate.GetFieldId()),
+		return "", 0, 0, malformed(fmt.Sprintf("node %d is a predicate's target and is not a field node", predicate.GetFieldId()),
 			"a predicate always names a field; see docs/ir/SPEC.md, \"A predicate always names a field\"")
 	}
 
 	if field.GetRepetition() != nil {
-		return "", 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and repeats", originalOf(targetNode)),
+		return "", 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and repeats", originalOf(targetNode)),
 			"a predicate names a field, not an occurrence of one; see docs/ir/SPEC.md, \"A reference names a field, not an occurrence of one\"")
 	}
 
@@ -410,16 +420,16 @@ func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int,
 
 	at, found, err := c.offsetOf(record.GetRootId(), predicate.GetFieldId(), "", encoding)
 	if err != nil {
-		return "", 0, err
+		return "", 0, 0, err
 	}
 
 	if !found {
-		return "", 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and is not in the record that transition admits", originalOf(targetNode)),
+		return "", 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and is not in the record that transition admits", originalOf(targetNode)),
 			"a producer MUST ensure the target is contained in the record the referring transition admits, at any depth; see docs/ir/SPEC.md, \"A predicate always names a field\"")
 	}
 
 	if len(at.terms) != 0 {
-		return "", 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and sits behind a table whose length is data", originalOf(targetNode)),
+		return "", 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and sits behind a table whose length is data", originalOf(targetNode)),
 			"a predicate's target MUST have a constant position within the record, since a consumer evaluates it before it has identified the record; see docs/ir/SPEC.md, \"A predicate never reads past the record in front of it\"")
 	}
 
@@ -428,10 +438,10 @@ func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int,
 
 	switch test := predicate.GetTest().(type) {
 	case *irpb.Predicate_BytesEqual:
-		return fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(test.BytesEqual.GetValue()))), end, nil
+		return fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(test.BytesEqual.GetValue()))), at.fixed, end, nil
 	case *irpb.Predicate_BytesOneOf:
 		if len(test.BytesOneOf.GetValues()) < 2 {
-			return "", 0, malformed("a one-of predicate carries fewer than two literals",
+			return "", 0, 0, malformed("a one-of predicate carries fewer than two literals",
 				"a producer MUST carry at least two and MUST NOT carry the same literal twice; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 		}
 
@@ -441,9 +451,9 @@ func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int,
 			tests = append(tests, fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(value))))
 		}
 
-		return "(" + strings.Join(tests, " || ") + ")", end, nil
+		return "(" + strings.Join(tests, " || ") + ")", at.fixed, end, nil
 	default:
-		return "", 0, malformed("a predicate carries no test",
+		return "", 0, 0, malformed("a predicate carries no test",
 			"the set is closed and a predicate carries one member of it; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
 }

@@ -338,7 +338,7 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 		closing := ""
 
 		if t.match != "" {
-			line(b, "if %s(r.look) {", matcher(f.states[at].GetId(), j))
+			line(b, "if %s(r.look) {", f.matcherOf(t))
 
 			closing = "}"
 		}
@@ -359,7 +359,7 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 			// says nothing about the bytes in hand and never displaces the
 			// diagnostic.
 			if t.match != "" {
-				line(b, "} else if excluded == \"\" && %s(r.look) {", matcher(f.states[at].GetId(), j))
+				line(b, "} else if excluded == \"\" && %s(r.look) {", f.matcherOf(t))
 				line(b, "excluded = fmt.Sprintf(%q%s)",
 					fmt.Sprintf("a guard excluded the transition that would have admitted %s, which is taken only where %s%s",
 						escaped(t.record.GetNames().GetOriginal()), escaped(phrase), f.holding(registers)),

@@ -187,7 +187,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-FILE-HEADER.
 		expected = append(expected, "PX-FILE-HEADER")
-		if matches231At0(r.look) {
+		if matches1At0(r.look) {
 			rec := new(PxFileHeader)
 
 			if err := r.admit(rec); err != nil {
@@ -205,7 +205,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches232At0(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -219,7 +219,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches232At1(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -237,7 +237,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches233At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -251,7 +251,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches233At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -265,7 +265,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches233At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -279,7 +279,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches233At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -293,7 +293,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches233At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -307,7 +307,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches233At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -321,7 +321,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches233At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -335,7 +335,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches233At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -349,7 +349,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches233At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -363,7 +363,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches233At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -381,7 +381,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches234At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -395,7 +395,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches234At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -409,7 +409,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches234At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -423,7 +423,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches234At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -437,7 +437,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches234At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -451,7 +451,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches234At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -465,7 +465,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches234At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -479,7 +479,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches234At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -493,7 +493,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches234At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -507,7 +507,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches234At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -525,7 +525,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches235At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -539,7 +539,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches235At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -553,7 +553,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches235At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -567,7 +567,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches235At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -581,7 +581,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches235At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -595,7 +595,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches235At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -609,7 +609,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches235At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -623,7 +623,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches235At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -637,7 +637,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches235At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -651,7 +651,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches235At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -669,7 +669,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches236At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -683,7 +683,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches236At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -697,7 +697,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches236At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -711,7 +711,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches236At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -725,7 +725,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches236At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -739,7 +739,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches236At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -753,7 +753,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches236At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -767,7 +767,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches236At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -781,7 +781,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches236At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -795,7 +795,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches236At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -813,7 +813,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches237At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -827,7 +827,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches237At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -841,7 +841,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches237At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -855,7 +855,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches237At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -869,7 +869,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches237At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -883,7 +883,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches237At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -897,7 +897,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches237At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -911,7 +911,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches237At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -925,7 +925,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches237At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -939,7 +939,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches237At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -957,7 +957,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches238At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -971,7 +971,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches238At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -985,7 +985,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches238At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -999,7 +999,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches238At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1013,7 +1013,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches238At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1027,7 +1027,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches238At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1041,7 +1041,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches238At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1055,7 +1055,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches238At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1069,7 +1069,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches238At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1083,7 +1083,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches238At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1101,7 +1101,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches239At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -1115,7 +1115,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches239At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -1129,7 +1129,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches239At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -1143,7 +1143,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches239At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1157,7 +1157,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches239At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1171,7 +1171,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches239At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1185,7 +1185,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches239At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1199,7 +1199,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches239At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1213,7 +1213,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches239At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1227,7 +1227,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches239At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1245,7 +1245,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches240At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -1259,7 +1259,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches240At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -1273,7 +1273,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches240At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -1287,7 +1287,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches240At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1301,7 +1301,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches240At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1315,7 +1315,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches240At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1329,7 +1329,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches240At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1343,7 +1343,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches240At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1357,7 +1357,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches240At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1371,7 +1371,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches240At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1389,7 +1389,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches241At0(r.look) {
+		if matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -1403,7 +1403,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches241At1(r.look) {
+		if matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -1417,7 +1417,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches241At2(r.look) {
+		if matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -1431,7 +1431,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches241At3(r.look) {
+		if matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1445,7 +1445,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches241At4(r.look) {
+		if matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1459,7 +1459,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches241At5(r.look) {
+		if matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1473,7 +1473,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches241At6(r.look) {
+		if matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1487,7 +1487,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches241At7(r.look) {
+		if matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1501,7 +1501,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches241At8(r.look) {
+		if matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1515,7 +1515,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches241At9(r.look) {
+		if matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1630,14 +1630,19 @@ func (r *Reader) admit(rec Record) error {
 	return nil
 }
 
-// matches231At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 231: it admits PX-FILE-HEADER.
+// matches1At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-FILE-HEADER.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches231At0(b []byte) bool {
+func matches1At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1645,14 +1650,19 @@ func matches231At0(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xf0\xf0\xf0"))
 }
 
-// matches232At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 232: it admits PX-POLICY.
+// matches2At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-POLICY.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches232At0(b []byte) bool {
+func matches2At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1660,14 +1670,19 @@ func matches232At0(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
 }
 
-// matches232At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 232: it admits PX-FILE-TRAILER.
+// matches3At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-FILE-TRAILER.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches232At1(b []byte) bool {
+func matches3At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1675,14 +1690,19 @@ func matches232At1(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
 }
 
-// matches233At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 233: it admits PX-INSURED.
+// matches4At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-INSURED.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At0(b []byte) bool {
+func matches4At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1690,14 +1710,19 @@ func matches233At0(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
 }
 
-// matches233At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 233: it admits PX-LOCATION.
+// matches5At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-LOCATION.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At1(b []byte) bool {
+func matches5At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1705,14 +1730,19 @@ func matches233At1(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
 }
 
-// matches233At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 233: it admits PX-VEHICLE.
+// matches6At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-VEHICLE.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At2(b []byte) bool {
+func matches6At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1720,14 +1750,19 @@ func matches233At2(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
 }
 
-// matches233At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 233: it admits PX-DRIVER.
+// matches7At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-DRIVER.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At3(b []byte) bool {
+func matches7At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1735,14 +1770,19 @@ func matches233At3(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
 }
 
-// matches233At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 233: it admits PX-COVERAGE.
+// matches8At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-COVERAGE.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At4(b []byte) bool {
+func matches8At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1750,14 +1790,19 @@ func matches233At4(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
 }
 
-// matches233At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 233: it admits PX-PREMIUM.
+// matches9At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-PREMIUM.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At5(b []byte) bool {
+func matches9At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1765,14 +1810,19 @@ func matches233At5(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
 }
 
-// matches233At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 233: it admits PX-CLAIM.
+// matches10At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-CLAIM.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At6(b []byte) bool {
+func matches10At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
@@ -1780,1249 +1830,24 @@ func matches233At6(b []byte) bool {
 	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
 }
 
-// matches233At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 233: it admits PX-ENDORSEMENT.
+// matches11At0 is the predicate over bytes 0:3 of a record: the transitions it
+// selects admit PX-ENDORSEMENT.
+//
+// One function per distinct predicate rather than one per transition that
+// tests it. A predicate is a function of where it reads, how wide that window
+// is and what it is compared against, and not of the state whose transition
+// happens to reach it — so every state testing this one names this function.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches233At7(b []byte) bool {
+func matches11At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
 	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches233At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 233: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches233At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches233At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 233: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches233At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches234At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 234: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches234At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 234: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches234At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 234: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches234At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 234: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches234At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 234: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches234At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 234: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches234At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 234: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches234At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 234: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches234At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 234: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches234At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 234: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches234At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches235At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 235: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches235At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 235: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches235At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 235: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches235At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 235: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches235At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 235: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches235At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 235: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches235At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 235: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches235At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 235: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches235At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 235: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches235At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 235: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches235At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches236At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 236: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches236At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 236: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches236At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 236: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches236At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 236: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches236At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 236: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches236At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 236: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches236At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 236: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches236At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 236: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches236At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 236: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches236At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 236: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches236At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches237At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 237: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches237At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 237: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches237At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 237: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches237At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 237: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches237At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 237: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches237At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 237: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches237At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 237: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches237At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 237: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches237At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 237: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches237At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 237: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches237At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches238At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 238: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches238At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 238: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches238At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 238: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches238At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 238: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches238At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 238: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches238At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 238: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches238At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 238: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches238At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 238: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches238At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 238: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches238At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 238: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches238At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches239At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 239: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches239At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 239: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches239At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 239: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches239At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 239: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches239At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 239: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches239At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 239: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches239At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 239: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches239At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 239: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches239At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 239: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches239At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 239: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches239At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches240At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 240: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches240At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 240: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches240At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 240: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches240At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 240: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches240At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 240: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches240At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 240: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches240At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 240: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches240At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 240: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches240At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 240: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches240At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 240: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches240At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
-}
-
-// matches241At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 241: it admits PX-INSURED.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At0(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
-}
-
-// matches241At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 241: it admits PX-LOCATION.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At1(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
-}
-
-// matches241At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 241: it admits PX-VEHICLE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At2(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
-}
-
-// matches241At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 241: it admits PX-DRIVER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At3(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
-}
-
-// matches241At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 241: it admits PX-COVERAGE.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At4(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
-}
-
-// matches241At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 241: it admits PX-PREMIUM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At5(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
-}
-
-// matches241At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 241: it admits PX-CLAIM.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At6(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
-}
-
-// matches241At7 is the predicate selecting transition 8 of the state the descriptor
-// carries as node 241: it admits PX-ENDORSEMENT.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At7(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
-}
-
-// matches241At8 is the predicate selecting transition 9 of the state the descriptor
-// carries as node 241: it admits PX-POLICY.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At8(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
-}
-
-// matches241At9 is the predicate selecting transition 10 of the state the descriptor
-// carries as node 241: it admits PX-FILE-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches241At9(b []byte) bool {
-	if len(b) < 3 {
-		return false
-	}
-
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
 }
 
 // Writer writes the records of one file, walking the automaton this descriptor
@@ -3165,7 +1990,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 7 of that state.
-		if matches233At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3177,7 +2002,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 7 of that state.
-		if matches234At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3189,7 +2014,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 7 of that state.
-		if matches235At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3201,7 +2026,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 7 of that state.
-		if matches236At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3213,7 +2038,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 7 of that state.
-		if matches237At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3225,7 +2050,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 7 of that state.
-		if matches238At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3237,7 +2062,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 7 of that state.
-		if matches239At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3249,7 +2074,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 7 of that state.
-		if matches240At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3261,7 +2086,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 7 of that state.
-		if matches241At6(raw) {
+		if matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3301,7 +2126,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 5 of that state.
-		if matches233At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3313,7 +2138,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 5 of that state.
-		if matches234At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3325,7 +2150,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 5 of that state.
-		if matches235At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3337,7 +2162,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 5 of that state.
-		if matches236At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3349,7 +2174,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 5 of that state.
-		if matches237At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3361,7 +2186,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 5 of that state.
-		if matches238At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3373,7 +2198,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 5 of that state.
-		if matches239At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3385,7 +2210,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 5 of that state.
-		if matches240At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3397,7 +2222,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 5 of that state.
-		if matches241At4(raw) {
+		if matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3437,7 +2262,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 4 of that state.
-		if matches233At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3449,7 +2274,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 4 of that state.
-		if matches234At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3461,7 +2286,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 4 of that state.
-		if matches235At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3473,7 +2298,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 4 of that state.
-		if matches236At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3485,7 +2310,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 4 of that state.
-		if matches237At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3497,7 +2322,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 4 of that state.
-		if matches238At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3509,7 +2334,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 4 of that state.
-		if matches239At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3521,7 +2346,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 4 of that state.
-		if matches240At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3533,7 +2358,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 4 of that state.
-		if matches241At3(raw) {
+		if matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3573,7 +2398,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 8 of that state.
-		if matches233At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3585,7 +2410,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 8 of that state.
-		if matches234At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3597,7 +2422,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 8 of that state.
-		if matches235At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3609,7 +2434,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 8 of that state.
-		if matches236At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3621,7 +2446,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 8 of that state.
-		if matches237At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3633,7 +2458,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 8 of that state.
-		if matches238At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3645,7 +2470,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 8 of that state.
-		if matches239At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3657,7 +2482,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 8 of that state.
-		if matches240At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3669,7 +2494,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 8 of that state.
-		if matches241At7(raw) {
+		if matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3709,7 +2534,7 @@ func (w *Writer) writePxFileHeader(rec *PxFileHeader) error {
 	switch w.state {
 	case 0: // the state the descriptor carries as node 231
 		// Transition 1 of that state.
-		if matches231At0(raw) {
+		if matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3749,7 +2574,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 	switch w.state {
 	case 1: // the state the descriptor carries as node 232
 		// Transition 2 of that state.
-		if matches232At1(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3761,7 +2586,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 2: // the state the descriptor carries as node 233
 		// Transition 10 of that state.
-		if matches233At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3773,7 +2598,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 10 of that state.
-		if matches234At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3785,7 +2610,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 10 of that state.
-		if matches235At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3797,7 +2622,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 10 of that state.
-		if matches236At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3809,7 +2634,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 10 of that state.
-		if matches237At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3821,7 +2646,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 10 of that state.
-		if matches238At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3833,7 +2658,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 10 of that state.
-		if matches239At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3845,7 +2670,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 10 of that state.
-		if matches240At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3857,7 +2682,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 10 of that state.
-		if matches241At9(raw) {
+		if matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3897,7 +2722,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 1 of that state.
-		if matches233At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3909,7 +2734,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 1 of that state.
-		if matches234At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3921,7 +2746,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 1 of that state.
-		if matches235At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3933,7 +2758,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 1 of that state.
-		if matches236At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3945,7 +2770,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 1 of that state.
-		if matches237At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3957,7 +2782,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 1 of that state.
-		if matches238At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3969,7 +2794,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 1 of that state.
-		if matches239At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3981,7 +2806,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 1 of that state.
-		if matches240At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3993,7 +2818,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 1 of that state.
-		if matches241At0(raw) {
+		if matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4033,7 +2858,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 2 of that state.
-		if matches233At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4045,7 +2870,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 2 of that state.
-		if matches234At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4057,7 +2882,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 2 of that state.
-		if matches235At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4069,7 +2894,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 2 of that state.
-		if matches236At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4081,7 +2906,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 2 of that state.
-		if matches237At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4093,7 +2918,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 2 of that state.
-		if matches238At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4105,7 +2930,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 2 of that state.
-		if matches239At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4117,7 +2942,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 2 of that state.
-		if matches240At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4129,7 +2954,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 2 of that state.
-		if matches241At1(raw) {
+		if matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4169,7 +2994,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 	switch w.state {
 	case 1: // the state the descriptor carries as node 232
 		// Transition 1 of that state.
-		if matches232At0(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4181,7 +3006,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 2: // the state the descriptor carries as node 233
 		// Transition 9 of that state.
-		if matches233At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4193,7 +3018,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 9 of that state.
-		if matches234At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4205,7 +3030,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 9 of that state.
-		if matches235At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4217,7 +3042,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 9 of that state.
-		if matches236At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4229,7 +3054,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 9 of that state.
-		if matches237At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4241,7 +3066,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 9 of that state.
-		if matches238At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4253,7 +3078,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 9 of that state.
-		if matches239At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4265,7 +3090,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 9 of that state.
-		if matches240At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4277,7 +3102,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 9 of that state.
-		if matches241At8(raw) {
+		if matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4317,7 +3142,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 6 of that state.
-		if matches233At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4329,7 +3154,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 6 of that state.
-		if matches234At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4341,7 +3166,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 6 of that state.
-		if matches235At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4353,7 +3178,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 6 of that state.
-		if matches236At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4365,7 +3190,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 6 of that state.
-		if matches237At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4377,7 +3202,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 6 of that state.
-		if matches238At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4389,7 +3214,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 6 of that state.
-		if matches239At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4401,7 +3226,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 6 of that state.
-		if matches240At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4413,7 +3238,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 6 of that state.
-		if matches241At5(raw) {
+		if matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4453,7 +3278,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 3 of that state.
-		if matches233At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4465,7 +3290,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 3 of that state.
-		if matches234At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4477,7 +3302,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 3 of that state.
-		if matches235At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4489,7 +3314,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 3 of that state.
-		if matches236At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4501,7 +3326,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 3 of that state.
-		if matches237At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4513,7 +3338,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 3 of that state.
-		if matches238At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4525,7 +3350,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 3 of that state.
-		if matches239At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4537,7 +3362,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 3 of that state.
-		if matches240At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -4549,7 +3374,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 3 of that state.
-		if matches241At2(raw) {
+		if matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}

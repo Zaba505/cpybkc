@@ -296,7 +296,7 @@ func (f *filer) emitWriteRecords(b *strings.Builder, walks [][]transition, admit
 			line(b, "case %d: // the state the descriptor carries as node %d", i, f.states[i].GetId())
 
 			for _, j := range narrowed {
-				if err := f.emitWriterTransition(b, walk[j], f.states[i].GetId(), j); err != nil {
+				if err := f.emitWriterTransition(b, walk[j], j); err != nil {
 					return err
 				}
 			}
@@ -318,7 +318,7 @@ func (f *filer) emitWriteRecords(b *strings.Builder, walks [][]transition, admit
 }
 
 // emitWriterTransition writes one candidate transition of the narrowed walk.
-func (f *filer) emitWriterTransition(b *strings.Builder, t transition, state uint64, at int) error {
+func (f *filer) emitWriterTransition(b *strings.Builder, t transition, at int) error {
 	line(b, "// Transition %d of that state.", at+1)
 
 	test, phrase, registers, err := f.guardTests(t, "w")
@@ -340,7 +340,7 @@ func (f *filer) emitWriterTransition(b *strings.Builder, t transition, state uin
 	closing := ""
 
 	if t.match != "" {
-		line(b, "if %s(raw) {", matcher(state, at))
+		line(b, "if %s(raw) {", f.matcherOf(t))
 
 		closing = "}"
 	}
@@ -368,7 +368,7 @@ func (f *filer) emitWriterTransition(b *strings.Builder, t transition, state uin
 	}
 
 	if t.match != "" {
-		line(b, "} else if excluded == \"\" && %s(raw) {", matcher(state, at))
+		line(b, "} else if excluded == \"\" && %s(raw) {", f.matcherOf(t))
 		line(b, "excluded = fmt.Sprintf(%q%s)",
 			fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where %s%s",
 				escaped(phrase), f.holding(registers)),

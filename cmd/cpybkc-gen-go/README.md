@@ -771,6 +771,26 @@ transition it would take against the bytes it is about to emit and reports a
 record satisfying none, naming the record — see `ir/SPEC.md`'s *A writer
 evaluates a predicate, it never inverts one*.
 
+### One predicate, one function
+
+Each predicate is emitted as a function called `matches<n>At<offset>`, where
+`offset` is where in a record it reads and `n` is which of the file's predicates
+it is. There is **one function per distinct `(offset, width, literal)`** and not
+one per transition that tests it: every state whose transition tests that
+predicate names that function, and both directions call the same one.
+
+It is keyed on the predicate because a predicate is a function of the offset it
+reads at, the width it reads and the literals it compares against, and of nothing
+else — the state whose transition happens to reach it does not enter into it.
+Emitting per transition also grew that tier with the automaton's fan-out rather
+than with the number of things being discriminated:
+[`example/policy/`](../../example/policy/) is eleven record types told apart by
+eleven predicates, and it carried **93** functions with eleven distinct bodies
+until [#318](https://github.com/Zaba505/cpybkc/issues/318).
+
+The same rule decides the file tier of the generated tests, one layer up: see
+[*Decided: the file tier covers by predicate, not by edge*](#decided-the-file-tier-covers-by-predicate-not-by-edge).
+
 ### Decided: the read-ahead buffer is a constant
 
 The generated reader wraps whatever you hand it in a `bufio.Reader` of

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"io"
 	"maps"
@@ -1078,4 +1079,135 @@ func TestTheGeneratedFileMachineIsTheSameForTheSameDescriptor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNoTwoPredicateFunctionsAreTheSameTest is #318, over every golden: a
+// predicate is a function of the offset it reads at, the width it reads and the
+// literals it compares against, and of nothing else — so a file that emits two
+// functions with one body has stated a dependence that does not exist.
+//
+// It is asserted here as well as by the goldens because the goldens agree with
+// the bug. `example/policy/` carried 93 predicate functions with eleven distinct
+// bodies, nine and ten copies of each, and every byte of that was checked in and
+// reviewed: the duplication is invisible in a diff of the file that carries it,
+// and only a count over the whole file finds it.
+func TestNoTwoPredicateFunctionsAreTheSameTest(t *testing.T) {
+	t.Parallel()
+
+	for dir, descriptor := range machineGoldens {
+		t.Run(dir, func(t *testing.T) {
+			t.Parallel()
+
+			name := dir[strings.LastIndex(dir, "/")+1:]
+
+			by := make(map[string]string)
+
+			for fn, body := range predicateFunctions(t, generatedMachine(t, descriptor(), name, dir)) {
+				if other, ok := by[body]; ok {
+					t.Errorf("%s and %s are both %s, and one predicate is one function", fn, other, body)
+
+					continue
+				}
+
+				by[body] = fn
+			}
+		})
+	}
+}
+
+// TestStatesTestingOnePredicateNameOneFunction is the same rule from the
+// descriptor's side: that the count follows the predicates rather than the
+// transitions testing them.
+//
+// [countedDescriptor] is the one golden whose automaton tests a predicate from
+// more than one state — five of its transitions carry one, three predicate nodes
+// between them, and node 50 is reached from three different states. A generator
+// emitting per transition produces five functions here, which is the growth
+// #318 is about: it is quadratic in the automaton's fan-out while the number of
+// things being discriminated is not.
+func TestStatesTestingOnePredicateNameOneFunction(t *testing.T) {
+	t.Parallel()
+
+	d := countedDescriptor()
+
+	tested := 0
+
+	for _, node := range d.GetNodes() {
+		if t := node.GetTransition(); t != nil && t.PredicateId != nil {
+			tested++
+		}
+	}
+
+	functions := predicateFunctions(t, generatedMachine(t, d, "counted", "internal/counted"))
+
+	if len(functions) >= tested {
+		t.Errorf("%d transitions test a predicate and %d functions were emitted, and the three predicate nodes between them are what the count follows",
+			tested, len(functions))
+	}
+}
+
+// generatedMachine is the file-level reader and writer this descriptor
+// generates, as source.
+func generatedMachine(t *testing.T, d *irpb.Descriptor, name, dir string) string {
+	t.Helper()
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, d, out, options{packageName: name, importPath: goldenModule + dir}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	return written(t, out)[fileMachineFile]
+}
+
+// predicateFunctions is every predicate function the generated file declares,
+// by name, against the expression it returns.
+//
+// The expression is read out of the parsed file and printed back, so that two
+// tests are the same test exactly when they are the same Go expression —
+// whatever the emitter spelled around them and whatever gofmt did to it
+// afterwards.
+func predicateFunctions(t *testing.T, source string) map[string]string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, fileMachineFile, source, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing the generated %s: %v\n%s", fileMachineFile, err, source)
+	}
+
+	out := make(map[string]string)
+
+	for _, node := range file.Decls {
+		decl, ok := node.(*ast.FuncDecl)
+		if !ok || decl.Recv != nil || !strings.HasPrefix(decl.Name.Name, "matches") {
+			continue
+		}
+
+		var last ast.Expr
+
+		for _, stmt := range decl.Body.List {
+			ret, ok := stmt.(*ast.ReturnStmt)
+			if !ok || len(ret.Results) != 1 {
+				continue
+			}
+
+			last = ret.Results[0]
+		}
+
+		if last == nil {
+			t.Fatalf("%s returns nothing, and a predicate is an expression over the bytes it is handed\n%s", decl.Name.Name, source)
+		}
+
+		var b strings.Builder
+
+		if err := printer.Fprint(&b, fset, last); err != nil {
+			t.Fatalf("printing what %s returns: %v", decl.Name.Name, err)
+		}
+
+		out[decl.Name.Name] = b.String()
+	}
+
+	return out
 }
