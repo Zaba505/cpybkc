@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "files": [
+    "graph/graph.md",
+    "policy/codec.go",
+    "policy/doc.go",
+    "policy/file.go",
+    "policy/file_test.go",
+    "policy/records.go",
+    "policy/records_test.go"
+  ]
+}

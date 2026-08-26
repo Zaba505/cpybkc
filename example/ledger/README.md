@@ -20,10 +20,11 @@ them a person edited.
 
 The manifest names **two** generators, `go` and `graph`, each with its own `out`
 directory, because the path an adopter takes has two steps on it: generate, and
-then *look at the graph* before trusting what was generated. It is also the only
-project in this repository that runs more than one generator, which is what makes
-it the place [one thing the plugin contract
-asserts](#one-descriptor-two-generators) can be tested at all.
+then *look at the graph* before trusting what was generated. It was also the
+first project in this repository to run more than one generator, which is what
+made it the place [one thing the plugin contract
+asserts](#one-descriptor-two-generators) could be tested at all;
+[`policy/`](../policy) runs two now as well, and the assertion walks both.
 
 `ledger/roundtrip_test.go` is neither. It is hand-written, and it lives *inside*
 the generated package rather than beside it because one of its assertions reaches
