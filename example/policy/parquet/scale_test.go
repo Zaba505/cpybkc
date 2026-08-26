@@ -135,13 +135,22 @@ const (
 	pageBufferBytes = 256 << 10
 
 	// scaleTolerance is how far the observed argmin may sit from the R* the
-	// committed constants predict, as a factor.
+	// committed constants predict, **counted in steps of the sweep**.
 	//
-	// Four, which is two steps of this sweep, and it is the same number and the
-	// same reasoning as [curveTolerance] next door: the curve is flat where it
-	// matters, two steps is a 2.13x penalty, and the bottom two or three points
-	// of a real sweep sit within noise of each other.
-	scaleTolerance = 4.0
+	// Two steps, which is the same allowance [curveTolerance] next door makes as
+	// a factor of four: the curve is flat where it matters, two steps is a 2.13x
+	// penalty, and the bottom two or three points of a real sweep sit within
+	// noise of each other.
+	//
+	// **Counted in steps and not as a factor**, and that is a correction rather
+	// than a style. The sweep is centred on R* and the two ends already Fatalf,
+	// so the argmin can only be one, two or three steps out and the factor can
+	// only be about 2, 4 or 8 — but sweepAround divides an integer three times
+	// before doubling, so the low side comes out a hair over its factor and the
+	// high side a hair under. A float comparison at exactly 4.0 therefore fired
+	// on one side and never on the other, which is a check that looked like it
+	// held and did not.
+	scaleTolerance = 2
 
 	// recordsPerPolicy is how many records one policy term contributes: itself
 	// and one detail of each of the eight types, which is the shape [extract]
@@ -179,6 +188,20 @@ type scaleSource struct {
 	// done says the trailer has gone too.
 	done bool
 
+	// out is the sink the conversion is writing into, and flushed is how many
+	// bytes it had taken when the probe fired.
+	//
+	// **The snapshot is the whole point, and reading the sink afterwards was the
+	// bug.** Both halves of the model rest on row groups having closed by the
+	// peak phase, and a byte count taken after `convert` returns is the whole
+	// file — non-zero for every successful run, including one where nothing
+	// flushed until Close. That check could not fail. A row group's column chunks
+	// reach the sink when it closes and at no other time, so the count *at the
+	// probe* is exactly the observation that separates "m row groups closed and
+	// their footers are retained" from "one row group is still growing".
+	out     *sink
+	flushed int64
+
 	// phase is the number of rows written at which the reading is taken, and
 	// peak is that reading. See [scalePhase].
 	phase int32
@@ -194,6 +217,7 @@ func (s *scaleSource) records() int32 {
 func (s *scaleSource) Next() (policy.Record, error) {
 	if s.sent == s.phase {
 		s.peak = liveHeap(nil)
+		s.flushed = s.out.n
 	}
 
 	body := s.records() - 2
@@ -272,12 +296,10 @@ func scalePhase(n, r int32) int32 {
 func peakAt(t *testing.T, policies, r int32) (uint64, int64) {
 	t.Helper()
 
-	src := &scaleSource{policies: policies}
+	src := &scaleSource{policies: policies, out: &sink{}}
 	src.phase = scalePhase(src.records(), r)
 
-	out := &sink{}
-
-	if err := convert(src, out, int(r)); err != nil {
+	if err := convert(src, src.out, int(r)); err != nil {
 		t.Fatalf("converting %d records at %d rows a row group: %v", src.records(), r, err)
 	}
 
@@ -285,7 +307,7 @@ func peakAt(t *testing.T, policies, r int32) (uint64, int64) {
 		t.Fatalf("the probe never fired at %d rows a row group: the phase is %d rows and the run wrote %d", r, src.phase, src.records())
 	}
 
-	return src.peak, out.n
+	return src.peak, src.flushed
 }
 
 // TestPeakAgainstTheRowGroupAtScale is the run.
@@ -327,12 +349,16 @@ func TestPeakAgainstTheRowGroupAtScale(t *testing.T) {
 	peaks := make([]uint64, len(sweep))
 
 	for i, r := range sweep {
-		peak, bytes := peakAt(t, policies, r)
+		peak, flushed := peakAt(t, policies, r)
 		peaks[i] = peak
 
-		if bytes == 0 {
-			t.Fatalf("R = %d wrote %d rows and the writer handed over no bytes: no row group closed, so what was measured is one open row group and not the retained footer this curve is half made of",
-				r, n)
+		// The bytes the sink had taken **when the probe fired**, which is the
+		// observation that says row groups were closing by then. Zero means
+		// nothing had flushed and the reading is one growing row group rather
+		// than the sum of the two terms this curve is drawn from.
+		if flushed == 0 {
+			t.Fatalf("R = %d had flushed no bytes at the peak phase: a row group's column chunks reach the sink when it closes and at no other time, so nothing having closed by then means the reading is one open row group and not the retained footer this curve is half made of",
+				r)
 		}
 	}
 
@@ -375,13 +401,18 @@ func TestPeakAgainstTheRowGroupAtScale(t *testing.T) {
 	// cannot reach: a and W are what size this conversion's row group, and this
 	// is the curve they are held against.
 	off := math.Max(float64(sweep[at])/float64(star), float64(star)/float64(sweep[at]))
+	steps := at - scalePoints/2
 
-	t.Logf("R* from the committed constants is %d rows; the observed minimum is at %d, a factor of %.2f away",
-		star, sweep[at], off)
+	if steps < 0 {
+		steps = -steps
+	}
 
-	if off > scaleTolerance {
-		t.Errorf("the observed minimum is at R = %d and the committed constants predict R* = %d, a factor of %.2f: a = %d B and W = %d B are what size this conversion's row group, and this far out they are sizing a different curve",
-			sweep[at], star, off, retainedPerColumnPerRowGroup, bufferedPerRow)
+	t.Logf("R* from the committed constants is %d rows; the observed minimum is at %d, %d steps of the sweep and a factor of %.2f away",
+		star, sweep[at], steps, off)
+
+	if steps > scaleTolerance {
+		t.Errorf("the observed minimum is at R = %d and the committed constants predict R* = %d, %d steps of the sweep away (a factor of %.2f): a = %d B and W = %d B are what size this conversion's row group, and this far out they are sizing a different curve",
+			sweep[at], star, steps, off, retainedPerColumnPerRowGroup, bufferedPerRow)
 	}
 
 	// And what the rule's own point costs against the best of the sweep, which is
@@ -443,7 +474,10 @@ func reportConstants(t *testing.T, n int32, sweep []int32, peaks []uint64) {
 	t.Logf("the buffered term is linear below about %d rows a group, where one column's share of a row fills parquet-go's %d KB page buffer; %d of the sweep's %d points are under it",
 		knee, pageBufferBytes>>10, len(heap), len(sweep))
 
-	// Three parameters need four points to be a fit rather than a solution.
+	// Three parameters need four points to be a fit rather than a solution — and
+	// four is one residual degree of freedom, which is a fit with nothing left
+	// over to disagree with. Read a reading taken over four points as weaker
+	// than the same reading over six, and the count is logged above so it can be.
 	if len(heap) < 4 {
 		t.Logf("the model is not fitted: %d of the sweep's points sit below the knee and the fit has three parameters, so what came back would be an exact solution of an under-determined system rather than a reading",
 			len(heap))

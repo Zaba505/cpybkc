@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -904,11 +905,12 @@ func TestTheRowGroupCapIsReportedWithTheBoundThatMovesIt(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"32767",
+		fmt.Sprintf("at most %d row groups", parquet.MaxRowGroups),
 		fmt.Sprintf("bounded at %d rows", rowsPerRowGroup),
 		// 32767 × 64, which is the ceiling this bound puts on the file and the
-		// number #304 hit.
-		"2097088",
+		// number #304 hit. Written as an expression over the library's own cap
+		// rather than as 2097088, so a pin that moved the cap moves this with it.
+		fmt.Sprintf("ceiling of %d records", int64(rowsPerRowGroup)*parquet.MaxRowGroups),
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the report is %q, and it does not carry %q", err, want)
@@ -995,11 +997,160 @@ func TestTheCommittedBoundIsNotADerivedOne(t *testing.T) {
 		t.Errorf("at %d rows a group the budget gives out at %d postings and the 32767 row-group cap at %d: README.md says the heap wall arrives first at this bound, and it is the order that makes them one mistake", rowsPerRowGroup, maxRecords, ceiling)
 	}
 
-	// And the layout's own wall, which arrives before both of them by five
+	// And the layout's own wall, which arrives before both of them by three
 	// orders of magnitude. hdrCountMax is what PIC 9(3) can describe.
-	const hdrCountMax = 999
+	//
+	// The margin asserted is the one the README claims and not a round number
+	// underneath it: 999 postings against 1,198,336 is a ratio of 1,199, so a
+	// thousandfold is what holds with 20% to spare and a ten-thousandfold does
+	// not. Asserting less would leave the prose unchecked; asserting more would
+	// fail on a budget or a column count that moved by a fifth, and fail with a
+	// message about HDR-COUNT, which is not what would have changed.
+	const (
+		hdrCountMax = 999
+		wallDecades = 1000
+	)
 
-	if hdrCountMax*1000 > maxRecords {
-		t.Errorf("HDR-COUNT bounds this layout at %d postings and the budget gives out at %d: 64 is affordable because those are orders of magnitude apart, so a copybook with a wider count field is one this bound is wrong for", hdrCountMax, maxRecords)
+	if got := maxRecords / hdrCountMax; got < wallDecades {
+		t.Errorf("HDR-COUNT bounds this layout at %d postings and the budget gives out at %d, a ratio of %d: README.md says three orders of magnitude, and 64 is only affordable while that is true — a copybook with a wider count field is one this bound is wrong for", hdrCountMax, maxRecords, got)
 	}
+
+	// The other half, and it is what keeps the prose from drifting the other
+	// way: if the ratio grew past a decade beyond what is claimed, "three orders
+	// of magnitude" would be understating it and the README would be wrong in
+	// the direction nobody checks.
+	if got := maxRecords / hdrCountMax; got > wallDecades*10 {
+		t.Errorf("the ratio is %d, which is more than the three orders of magnitude README.md claims: the number is welcome and the prose is now wrong about it", got)
+	}
+
+}
+
+// TestWhatARowCostsTheOpenRowGroup is where [bufferedPerRow] comes from, and it
+// is the only direct measurement this module takes.
+//
+// W is the slope of live heap against rows with **one row group held open**, so
+// that the retained term is not in the reading at all: the writer is given a
+// bound of math.MaxInt64, which is parquet-go's own default and is what makes a
+// writer handed no option grow one row group for the whole file. Nothing may
+// close, and the byte count is what says so — a row group's column chunks reach
+// the sink when it closes and at no other time, so a sink that has been handed
+// anything means this is measuring the wrong thing.
+//
+// Thirty-two samples five hundred rows apart, and both numbers matter. The live
+// heap of an open row group is a **staircase** — a column buffer grows by
+// doubling — so a fit over a handful of closely spaced samples measures whichever
+// doubling it straddled. Wide and dense is what turns a staircase back into a
+// slope. It is the method [the sibling's harness] uses, and this is the one probe
+// of it this module needs: `a` is not measured here because it is not a function
+// of the schema's width, and scale_test.go's fit over the conversion's own curve
+// confirms it at 894 against the kilobyte committed.
+//
+// **It asserts shape and logs the byte count**, which is the line every
+// measurement in these two examples draws. Gating on `W == 128` would go red on a
+// parquet-go bump that changed nothing an adopter cares about. What is gated is
+// that a row costs the writer more than the record it came from — 128 bytes
+// against a fifty-byte posting — and that the *derivation* does not exceed the
+// reading, which is the direction that would size the row group too large.
+//
+// [the sibling's harness]: ../../policy/parquet/memory_test.go
+func TestWhatARowCostsTheOpenRowGroup(t *testing.T) {
+	const (
+		step    = 512
+		samples = 32
+		chunk   = 64
+	)
+
+	hdr := &ledger.LedgerHeader{HdrType: "01", HdrLedgerId: "GL-MAIN", HdrPeriod: 202601, HdrCurrency: "USD", HdrCount: 999}
+
+	out := &sink{}
+	w := parquet.NewGenericWriter[postingRow](out, parquet.MaxRowsPerRowGroup(math.MaxInt64))
+
+	buf := make([]postingRow, chunk)
+	written := 0
+
+	xs := make([]float64, 0, samples)
+	ys := make([]float64, 0, samples)
+
+	for s := 1; s <= samples; s++ {
+		total := s * step
+
+		for written < total {
+			n := min(len(buf), total-written)
+
+			for i := range n {
+				// The ring is the fixture's own postings, and it repeats — 999
+				// of them, which is every posting this layout can describe.
+				// Building a row per call would put the generator's garbage on
+				// the heap the probe is about to read.
+				row, _, err := postingRowOf(hdr, posting(int32((written+i)%999)+1))
+				if err != nil {
+					t.Fatalf("mapping posting %d: %v", written+i, err)
+				}
+
+				buf[i] = row
+			}
+
+			if _, err := w.Write(buf[:n]); err != nil {
+				t.Fatalf("writing rows %d..%d: %v", written, written+n, err)
+			}
+
+			written += n
+		}
+
+		xs = append(xs, float64(total))
+		ys = append(ys, float64(liveHeap()))
+
+		// The check that this is measuring the buffered term and not a mixture.
+		if out.n != 0 {
+			t.Fatalf("a row group closed by %d rows and the sink has taken %d bytes: this probe holds one row group open so that the slope is all buffer, and a close puts the retained term into every sample after it", total, out.n)
+		}
+	}
+
+	slope := slopeOf(xs, ys)
+	chord := (ys[len(ys)-1] - ys[0]) / (xs[len(xs)-1] - xs[0])
+
+	t.Logf("W = %.0f B a row over %d..%d rows in one open row group, %.0f as the chord — %.1fx the %d-byte posting (convert.go commits %d, and the derivation reaches %d)",
+		slope, step, step*samples, chord, slope/float64(postingBytes), postingBytes, bufferedPerRow, derivableBufferedPerRow)
+
+	if slope <= float64(postingBytes) {
+		t.Errorf("W measured %.0f B a row against a %d-byte posting: six of this schema's fourteen columns are optional and eight of them are byte arrays, so a row is meant to cost the writer more than the record it came from", slope, postingBytes)
+	}
+
+	// The derivation is a floor and never a ceiling. It models the definition
+	// levels, the record and #304's overhead, and it does not model parquet-go's
+	// byte-array bookkeeping — so it coming out *above* the reading would mean
+	// one of those three terms has stopped being what it says, and the committed
+	// W would then be sizing the row group larger than the curve's bottom.
+	if derivableBufferedPerRow > int(slope) {
+		t.Errorf("the derivation reaches %d B a row and the probe reads %.0f: it is meant to be a floor, and a floor above the reading means one of definitionLevelBytes, postingBytes or bufferedOverheadPerRow is no longer what it claims", derivableBufferedPerRow, slope)
+	}
+}
+
+// slopeOf is the least-squares slope of y against x.
+func slopeOf(xs, ys []float64) float64 {
+	var sx, sy float64
+
+	for i := range xs {
+		sx += xs[i]
+		sy += ys[i]
+	}
+
+	n := float64(len(xs))
+	mx, my := sx/n, sy/n
+
+	var num, den float64
+
+	for i := range xs {
+		num += (xs[i] - mx) * (ys[i] - my)
+		den += (xs[i] - mx) * (xs[i] - mx)
+	}
+
+	// Every sample at the same x has no slope, and num/den would be NaN — which
+	// **passes every gate**, because every comparison against NaN is false. A
+	// probe that had been given no range would read as agreeing with the model.
+	if den == 0 {
+		panic("slopeOf: every sample is at the same row count, so there is no slope to fit")
+	}
+
+	return num / den
 }

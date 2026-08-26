@@ -138,35 +138,54 @@ const (
 	pageBufferBytes = 256 << 10
 
 	// scaleTolerance is how far the observed argmin may sit from the R* the
-	// committed constants predict, as a factor.
+	// committed constants predict, **counted in steps of the sweep**.
 	//
-	// Four, which is two steps of this sweep, and the right order because the
-	// curve is flat where it matters: being off by k costs (k + 1/k)/2, so two
-	// steps is 2.13x and the bottom two or three points of a real sweep sit
-	// within noise of each other. The first run of this test read 2.5 MB at both
-	// 2,744 and 5,488 rows a group; tightening this would be asserting which of
-	// two indistinguishable points won.
-	scaleTolerance = 4.0
+	// Two steps, which is the right order because the curve is flat where it
+	// matters: being off by k costs (k + 1/k)/2, so two steps is 2.13x and the
+	// bottom two or three points of a real sweep sit within noise of each other.
+	// An early run read 2.5 MB at both 2,744 and 5,488 rows a group; tightening
+	// this would be asserting which of two indistinguishable points won.
+	//
+	// **Counted in steps and not as a factor**, and that is a correction rather
+	// than a style. The sweep is centred on R* and the two ends already Fatalf,
+	// so the argmin can only be one, two or three steps out and the factor can
+	// only be about 2, 4 or 8 — but sweepAround divides an integer three times
+	// before doubling, so the low side comes out a hair over its factor and the
+	// high side a hair under. A float comparison at exactly 4.0 therefore fired
+	// on one side and never on the other, which is a check that looked like it
+	// held and did not.
+	scaleTolerance = 2
 
 	// maxScaleRecords is the largest N this fixture can describe, and the limit
 	// is TRL-NET rather than anything about memory.
 	//
 	// [netOf] sums what the postings store, and the two constants convert_test.go
 	// carries net 1,777,777,778,878 per debit-and-credit pair — so an int64
-	// overflows at about 10.4 million postings and the conversion would fail its
-	// own TRL-NET reconciliation for a reason that has nothing to do with the
-	// run. Ten million is under it with room to spare.
+	// overflows at about **10.4 million** postings and the conversion would fail
+	// its own TRL-NET reconciliation for a reason that has nothing to do with the
+	// run.
 	//
-	// It is worth saying that this is *lower* than the record count README.md
+	// Five million and not ten. Ten leaves 3.7% of an int64, which is not
+	// headroom on a fixture whose amounts anyone might reasonably change; five
+	// leaves half. Nothing needs the extra range — README.md's table is taken at
+	// two million — and a ceiling that is nearly the overflow is a ceiling that
+	// stops being one the first time somebody widens an amount.
+	//
+	// It is worth saying that this is *far lower* than the record count README.md
 	// names as the memory ceiling at the derived bound. A fixture is not the
-	// thing it stands in for, and this one runs out of trailer before it runs
-	// out of budget.
-	maxScaleRecords = 10_000_000
+	// thing it stands in for, and this one runs out of trailer nine hundred times
+	// before it runs out of budget.
+	maxScaleRecords = 5_000_000
 
-	// ceilingRowGroups is parquet-go's MaxRowGroups, math.MaxInt16 (limits.go:29):
+	// ceilingRowGroups is [parquet.MaxRowGroups], math.MaxInt16 (limits.go:29):
 	// the most row groups a Parquet *file* can hold, which is the format's number
 	// and not the library's.
-	ceilingRowGroups = 32767
+	//
+	// Read from the library rather than written down, so that a pin which moved
+	// the cap moves this test and the diagnostic it checks together. A literal
+	// here and a literal in convert.go would go on agreeing with each other while
+	// both stated a number that was no longer true.
+	ceilingRowGroups = parquet.MaxRowGroups
 )
 
 // liveHeap is the probe: the live heap, taken with the world stopped.
@@ -241,6 +260,20 @@ type scaleSource struct {
 	sent int32
 	done bool
 
+	// out is the sink the conversion is writing into, and flushed is how many
+	// bytes it had taken when the probe fired.
+	//
+	// **The snapshot is the whole point, and reading the sink afterwards was the
+	// bug.** Both halves of the model rest on row groups having closed by the
+	// peak phase, and a byte count taken after `convert` returns is the whole
+	// file — non-zero for every successful run, including one where nothing
+	// flushed until Close. That check could not fail. A row group's column chunks
+	// reach the sink when it closes and at no other time, so the count *at the
+	// probe* is exactly the observation that separates "m row groups closed and
+	// their footers are retained" from "one row group is still growing".
+	out     *sink
+	flushed int64
+
 	// phase is the number of rows written at which the reading is taken, and
 	// peak is that reading. See [peakPhase].
 	phase int32
@@ -268,6 +301,7 @@ func (s *scaleSource) Next() (ledger.Record, error) {
 
 	if written == s.phase {
 		s.peak = liveHeap()
+		s.flushed = s.out.n
 	}
 
 	if written < s.postings {
@@ -312,10 +346,9 @@ func peakPhase(n, r int32) int32 {
 func peakAt(t *testing.T, n, r int32, net int64) (uint64, int64) {
 	t.Helper()
 
-	src := &scaleSource{postings: n, net: net, phase: peakPhase(n, r)}
-	out := &sink{}
+	src := &scaleSource{postings: n, net: net, phase: peakPhase(n, r), out: &sink{}}
 
-	if err := convert(src, out, int(r)); err != nil {
+	if err := convert(src, src.out, int(r)); err != nil {
 		t.Fatalf("converting %d postings at %d rows a row group: %v", n, r, err)
 	}
 
@@ -323,7 +356,7 @@ func peakAt(t *testing.T, n, r int32, net int64) (uint64, int64) {
 		t.Fatalf("the probe never fired at %d rows a row group: the phase is %d rows and the run wrote %d", r, src.phase, n)
 	}
 
-	return src.peak, out.n
+	return src.peak, src.flushed
 }
 
 // TestPeakAgainstTheRowGroupAtScale is the run.
@@ -363,12 +396,16 @@ func TestPeakAgainstTheRowGroupAtScale(t *testing.T) {
 	peaks := make([]uint64, len(sweep))
 
 	for i, r := range sweep {
-		peak, bytes := peakAt(t, n, r, net)
+		peak, flushed := peakAt(t, n, r, net)
 		peaks[i] = peak
 
-		if bytes == 0 {
-			t.Fatalf("R = %d wrote %d rows and the writer handed over no bytes: no row group closed, so what was measured is one open row group and not the retained footer this curve is half made of",
-				r, n)
+		// The bytes the sink had taken **when the probe fired**, which is the
+		// observation that says row groups were closing by then. Zero means
+		// nothing had flushed and the reading is one growing row group rather
+		// than the sum of the two terms this curve is drawn from.
+		if flushed == 0 {
+			t.Fatalf("R = %d had flushed no bytes at the peak phase: a row group's column chunks reach the sink when it closes and at no other time, so nothing having closed by then means the reading is one open row group and not the retained footer this curve is half made of",
+				r)
 		}
 	}
 
@@ -411,13 +448,18 @@ func TestPeakAgainstTheRowGroupAtScale(t *testing.T) {
 	// which are measurements taken on a different row type, and this is where
 	// they are confirmed against a curve drawn by the conversion itself.
 	off := math.Max(float64(sweep[at])/float64(star), float64(star)/float64(sweep[at]))
+	steps := at - scalePoints/2
 
-	t.Logf("R* from the committed constants is %d rows; the observed minimum is at %d, a factor of %.2f away",
-		star, sweep[at], off)
+	if steps < 0 {
+		steps = -steps
+	}
 
-	if off > scaleTolerance {
-		t.Errorf("the observed minimum is at R = %d and the committed constants predict R* = %d, a factor of %.2f: a = %d B and W = %d B are what size this conversion's row group, and this far out they are sizing a different curve",
-			sweep[at], star, off, retainedPerColumnPerRowGroup, bufferedPerRow)
+	t.Logf("R* from the committed constants is %d rows; the observed minimum is at %d, %d steps of the sweep and a factor of %.2f away",
+		star, sweep[at], steps, off)
+
+	if steps > scaleTolerance {
+		t.Errorf("the observed minimum is at R = %d and the committed constants predict R* = %d, %d steps of the sweep away (a factor of %.2f): a = %d B and W = %d B are what size this conversion's row group, and this far out they are sizing a different curve",
+			sweep[at], star, steps, off, retainedPerColumnPerRowGroup, bufferedPerRow)
 	}
 
 	// And what the rule's own point costs against the best of the sweep, which is
@@ -488,7 +530,10 @@ func reportConstants(t *testing.T, n int32, sweep []int32, peaks []uint64) {
 	t.Logf("the buffered term is linear below about %d rows a group, where one column's share of a row fills parquet-go's %d KB page buffer; %d of the sweep's %d points are under it",
 		knee, pageBufferBytes>>10, len(heap), len(sweep))
 
-	// Three parameters need four points to be a fit rather than a solution.
+	// Three parameters need four points to be a fit rather than a solution — and
+	// four is one residual degree of freedom, which is a fit with nothing left
+	// over to disagree with. Read a reading taken over four points as weaker
+	// than the same reading over six, and the count is logged above so it can be.
 	if len(heap) < 4 {
 		t.Logf("the model is not fitted: %d of the sweep's points sit below the knee and the fit has three parameters, so what came back would be an exact solution of an under-determined system rather than a reading",
 			len(heap))
@@ -756,17 +801,24 @@ func TestTheRowGroupCeilingIsReachedAndSaysWhichLimitItWas(t *testing.T) {
 		t.Skip("-scale.records was not passed: reaching the cap writes 32,768 row groups and retains a few hundred megabytes, which is not a thing to do on every pull request")
 	}
 
-	// One row a group, which is the smallest bound there is and the fastest way
-	// to the cap: the 32,768th row is the row that asks for a 32,768th row
-	// group. The postings themselves are the fixture's, so the row is the row
-	// this conversion really writes.
-	const rows = int32(1)
+	// **Two rows a group and not one**, which costs a second run of the fixture
+	// and buys the only thing this test is for. At one row a group the cap and
+	// the record ceiling it implies are both 32,767, so the three substrings
+	// below collapse to two and a diagnostic naming the cap and nothing else
+	// would pass — which is precisely the failure #304 is quoted for. At two they
+	// are 32,767 and 65,534, and each has to be there on its own.
+	//
+	// It is otherwise the smallest bound there is, and the fastest way to the
+	// cap: the 65,535th row is the row that asks for a 32,768th row group. The
+	// postings are the fixture's, so the row is the row this conversion really
+	// writes.
+	const rows = int32(2)
 
-	n := int32(ceilingRowGroups) + 1
+	n := int32(rows)*ceilingRowGroups + 1
 
-	src := &scaleSource{postings: n, net: netOf(n), phase: -1}
+	src := &scaleSource{postings: n, net: netOf(n), phase: -1, out: &sink{}}
 
-	err := convert(src, &sink{}, int(rows))
+	err := convert(src, src.out, int(rows))
 	if err == nil {
 		t.Fatalf("%d postings at %d row a row group converted without complaint: a Parquet file holds at most %d row groups, so this run asked for one more than the format has",
 			n, rows, ceilingRowGroups)
@@ -778,18 +830,20 @@ func TestTheRowGroupCeilingIsReachedAndSaysWhichLimitItWas(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		// The cap, which is the format's number.
-		fmt.Sprint(ceilingRowGroups),
+		// The cap, which is the format's number, in the phrase that says it is
+		// a count of row groups rather than of anything else.
+		fmt.Sprintf("at most %d row groups", ceilingRowGroups),
 		// The bound in force, which is the thing that moves it.
 		fmt.Sprintf("bounded at %d rows", rows),
 		// And the ceiling the two imply, which is the number an adopter
-		// compares against the extract in front of them.
-		fmt.Sprint(int64(rows) * ceilingRowGroups),
+		// compares against the extract in front of them. Distinct from the cap
+		// only because the bound is not one; see above.
+		fmt.Sprintf("ceiling of %d records", int64(rows)*ceilingRowGroups),
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the report is %q, and it does not carry %q: #304 got the cap and nothing that moves it, which is the half of this that was missing", err, want)
 		}
 	}
 
-	t.Logf("the cap was reached at %d rows of one a group, and reported as: %v", n, err)
+	t.Logf("the cap was reached at %d rows of %d a group, and reported as: %v", n, rows, err)
 }

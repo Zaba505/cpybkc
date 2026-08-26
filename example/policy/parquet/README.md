@@ -667,6 +667,34 @@ Parquet materialises a value or a null for every column of every row.
 That is the price of a table a query engine can skip through, and it is paid once.
 It is worth knowing before you are surprised by it.
 
+### What the ledger conversion's run found about this one's W
+
+[#315](https://github.com/Zaba505/cpybkc/issues/315) ran the same sweep over the
+ledger conversion, whose `W` was derived the same way this one's is —
+`5·(optional columns) + (the record) + 15` — and the sweep put its bottom a factor
+of two off the predicted R\*. Measuring that schema's `W` directly found 128 B a
+row against a derivation of 95, and the missing term is `parquet-go`'s byte-array
+column buffers: they keep an `offsets` and a `lengths` slice per value
+(`column_buffer_byte_array.go:14-18`), and the arithmetic models neither.
+
+**That term is missing from the derivation on this page too**, and this
+conversion gets away with it for a reason worth being explicit about rather than
+lucky in. `recordBytes` is taken at LRECL, which on a `RECFM=FB` dataset is every
+record's length and therefore an over-estimate on every row that carries a shorter
+one — alphanumeric items arrive from the generated reader already trimmed, and a
+record's FILLER is not a column at all. The two errors point opposite ways and
+roughly cancel: the harness reads **1,365 B a row** against the **1,256** derived,
+so the derivation is 8% low here where the ledger's was 26% low, and the sweep at
+4.5 M records still lands on R\* exactly.
+
+Eight percent low is still low, and `rowsPerRowGroup` is `memoryBudget / 2 / W`,
+so the open row group at the default holds about 146 MB rather than the 134 MB
+half-budget the derivation names — inside a 256 MiB budget, but by less than it
+says. Correcting it is a change to a committed default and to every number derived
+from it, which is a story rather than a paragraph; what belongs here is that the
+gap is known, measured, and in the direction that spends budget rather than the
+one that overruns it.
+
 ### Where each of these runs
 
 Two instruments, two costs, and one line drawn between them.

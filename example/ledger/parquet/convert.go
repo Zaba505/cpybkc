@@ -124,12 +124,42 @@ const (
 	// was 1.02.
 	bufferedOverheadPerRow = 15
 
+	// derivableBufferedPerRow is as far as arithmetic gets on W: the definition
+	// levels the optional columns hold, the record's own bytes, and #304's
+	// per-row overhead.
+	//
+	// **It is not W, and the gap is the point.** It comes to 95 bytes and a row
+	// of this schema costs 128, because parquet-go's byte-array column buffers
+	// keep per-value bookkeeping this expression does not model — `offsets` and
+	// `lengths`, both `SliceBuffer[uint32]`
+	// (`column_buffer_byte_array.go:14-18`) — and eight of these fourteen columns
+	// are byte arrays. It is kept as a named constant rather than deleted because
+	// TestWhatARowCostsTheOpenRowGroup holds the measurement above it: a
+	// derivation that came to *more* than the reading would mean one of its three
+	// terms had stopped being what it says.
+	derivableBufferedPerRow = definitionLevelBytes*optionalColumns + postingBytes + bufferedOverheadPerRow
+
 	// bufferedPerRow is W: what one row costs the open row group.
 	//
-	// scale_test.go reads it back off the large-R end of the peak curve and logs
-	// it beside this constant, so a reading that has drifted is visible in a run
-	// rather than in an incident.
-	bufferedPerRow = definitionLevelBytes*optionalColumns + postingBytes + bufferedOverheadPerRow
+	// **It is a measurement and not a derivation**, which is the one place this
+	// conversion's arithmetic differs in kind from the sibling's. 128 bytes, read
+	// as the slope of live heap against rows over thirty-two samples from 512 to
+	// 16,384 rows with one row group held open — the method the sibling's harness
+	// uses, and TestWhatARowCostsTheOpenRowGroup is where it is taken. The chord
+	// over the same range reads 124.
+	//
+	// The sibling derives its W and gets away with it because two of its errors
+	// cancel: it takes the record at LRECL, which is an over-estimate on every
+	// row of a fixed-block dataset, and that covers the same missing byte-array
+	// term. This dataset is RECFM=VB and a posting is exactly fifty bytes, so
+	// there is no over-estimate here to hide behind — the derivation came out
+	// 26% low, which is the direction that sizes the row group too large.
+	//
+	// #315 is where that was found. The sweep over the conversion said so first,
+	// by putting its bottom a factor of two below where the derived constants
+	// predicted, and the direct probe is what turned "one of a and W is wrong"
+	// into a number.
+	bufferedPerRow = 128
 
 	// retainedPerColumnPerRowGroup is a: what one column of one closed row group
 	// holds until Close, in bytes.
@@ -156,6 +186,10 @@ const (
 	// derived rather than chosen: the equal-terms row group at the largest
 	// extract the budget admits, which is memoryBudget/2 bytes of open row group.
 	//
+	// It is inversely proportional to W, so it moved by 26% when W stopped being
+	// derived and started being measured. That sensitivity is the reason
+	// [bufferedPerRow] is a reading.
+	//
 	// **It is the number to copy, and it is not what this command runs at.**
 	// Nothing reads it but README.md and the tests, and that is deliberate: a
 	// worked example whose bound was 1.4 million rows could not show a partial
@@ -174,7 +208,11 @@ const (
 	// handed a dataset that reaches it. That is a fact about this layout and not
 	// a reason not to know the number; the copybook whose count field is six
 	// digits wide, or nine, is the next one an adopter meets.
-	maxRecords = (memoryBudget - bufferedPerRow*rowsPerRowGroup) * rowsPerRowGroup /
+	// It is int64 and not untyped: derivedMaxRecords below is above 2^31, so on a
+	// 32-bit GOARCH an untyped constant reaching an `any` parameter would take
+	// default type int and fail to compile. Both are typed for the same reason,
+	// so the pair reads the same.
+	maxRecords = int64(memoryBudget-bufferedPerRow*rowsPerRowGroup) * rowsPerRowGroup /
 		(retainedPerColumnPerRowGroup * columns)
 
 	// derivedMaxRecords is the same ceiling at [derivedRowsPerRowGroup], which
@@ -184,7 +222,7 @@ const (
 	// as sqrt(N) and the bound is the whole of the difference, which is the
 	// clearest statement this file has of what a row group sized by arithmetic
 	// buys over one sized to make a test legible.
-	derivedMaxRecords = (memoryBudget - bufferedPerRow*derivedRowsPerRowGroup) * derivedRowsPerRowGroup /
+	derivedMaxRecords = int64(memoryBudget-bufferedPerRow*derivedRowsPerRowGroup) * derivedRowsPerRowGroup /
 		(retainedPerColumnPerRowGroup * columns)
 )
 
@@ -572,9 +610,11 @@ func convert(src recordSource, w io.Writer, rows int) error {
 // tooManyRowGroups re-reports parquet-go's row-group cap as the thing an adopter
 // can act on.
 //
-// A Parquet file holds at most MaxRowGroups = math.MaxInt16 = 32767 of them
-// (limits.go:29), so a bound of R records puts a ceiling of 32767*R records on
-// the file. #304 met it at 2,097,088 rows with a 64-row bound — this
+// A Parquet file holds at most [parquet.MaxRowGroups] of them, which is
+// math.MaxInt16 = 32767 (limits.go:29), so a bound of R records puts a ceiling of
+// 32767*R records on the file. The cap is read from the library rather than
+// written down here, so a pin that moved it would move this sentence with it
+// instead of leaving it stating a number that is no longer true. #304 met it at 2,097,088 rows with a 64-row bound — this
 // conversion's bound — and got "the limit of 32767 row groups has been reached"
 // wrapped as "flushing 64 posting rows": a true sentence naming neither the cap
 // nor the thing that moves it.
@@ -596,7 +636,8 @@ func tooManyRowGroups(err error, rows int) error {
 		return err
 	}
 
-	return fmt.Errorf("%w: a Parquet file holds at most 32767 row groups, so a row group bounded at %d rows puts a ceiling of %d records on this file — raise the bound, which lowers peak memory as well as the row-group count, and see README.md for the arithmetic", err, rows, int64(rows)*32767)
+	return fmt.Errorf("%w: a Parquet file holds at most %d row groups, so a row group bounded at %d rows puts a ceiling of %d records on this file — raise the bound, which lowers peak memory as well as the row-group count, and see README.md for the arithmetic",
+		err, parquet.MaxRowGroups, rows, int64(rows)*parquet.MaxRowGroups)
 }
 
 // postingRowOf is the row one posting contributes, under the header in force,

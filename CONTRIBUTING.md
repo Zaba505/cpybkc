@@ -1410,9 +1410,13 @@ and the stage says so by name when the two disagree.
 
 ### The Parquet conversions' memory readings, and the one run CI does not take
 
-Both worked conversions size their row group from a memory model, and every number
-their READMEs quote from it is a measurement. There are two instruments, and only
-one of them is in the pipeline.
+Both worked conversions state their memory in the same model, and its two
+constants — `a` per column per closed row group, `W` per row — are measurements
+rather than assertions. What the two conversions do with it differs, and the
+difference is the point of having two: the wide sparse one **derives** its
+row-group bound from the model, and the ledger one runs at a deliberate test
+number and publishes the derived bound beside it. There are two instruments, and
+only one of them is in the pipeline.
 
 **In `dagger call ci`, on every pull request.**
 [`example/policy/parquet/memory_test.go`](example/policy/parquet/memory_test.go)
