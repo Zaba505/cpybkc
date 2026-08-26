@@ -42,10 +42,16 @@ go.work.sum
 # killed run left behind. See testdata/conformance/README.md.
 /internal/conformance/goadapter/_scratch/
 
-# What `go build ./...` inside example/parquet leaves behind. That module's one
-# package is a `package main` deliberately — a schema design is not a thing to
-# import — so building it writes a binary named after the directory.
-/example/parquet/parquet
+# What `go build ./...` inside a worked conversion leaves behind. Each of those
+# modules is one `package main` deliberately — a schema design is not a thing to
+# import — so building one writes a binary named after its directory.
+#
+# The glob is over the example rather than naming one, for the reason
+# example/README.md gives about everything else here: `example/` holds a tree of
+# examples and adding one is adding a directory. It was `/example/parquet/parquet`
+# while there was one example, and that path has not existed since the tree grew
+# a level.
+/example/*/parquet/parquet
 
 # env file
 .env

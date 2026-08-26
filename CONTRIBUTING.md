@@ -1344,9 +1344,11 @@ stopped working.
 
 ### The Parquet example is checked like any other Go module here
 
-`dagger call example-parquet-ci` runs the standard pipeline over
-[`example/ledger/parquet/`](example/ledger/parquet/), the worked conversion of the
-example ledger into Parquet, and it is in `ci`. It is a fifth call for the reason
+`dagger call example-parquet-ci` runs the standard pipeline over every Go module
+nested under [`example/`](example/) — [`ledger/parquet/`](example/ledger/parquet/),
+the worked conversion of the example ledger, and
+[`policy/parquet/`](example/policy/parquet/), the wide sparse one beside it — and
+it is in `ci`. It is a fifth call for the reason
 [`IrCi`](.dagger/main.go) is a second, [`CompanionCi`](.dagger/companion.go) a
 third and [`PipelineCi`](.dagger/main.go) a fourth: a nested `go.mod` is where
 `go test ./...` stops.
@@ -1356,8 +1358,12 @@ down.** `example/` holds a [tree of examples](example/README.md), each its own
 cpybkc project, and a conversion belonging to a second one should be checked by
 having been written rather than by somebody remembering this stage. A directory
 carrying a `go.mod` is exactly a directory nothing else here reaches, so that is
-what [`exampleModuleDirs`](.dagger/main.go) globs for. The name of the call is the
-one module there is today.
+what [`exampleModuleDirs`](.dagger/main.go) globs for, and the second conversion
+was covered by having been added rather than by an edit here. **The name is kept
+for stability and not because the scope is one module**: `example-parquet-ci` is
+what a required status check on the default branch is configured under, so
+renaming it is a repository-settings change. `ExampleModulesCi` is the honest
+name, and the branch protection rule moves with it when it is taken.
 
 **Why that module has a `go.mod` at all** is
 [`parquet-go`](example/ledger/parquet/README.md#its-own-go-module-and-that-is-the-load-bearing-decision):
@@ -1365,18 +1371,25 @@ it must not reach the root `go.mod`, which is what `go install
 github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds and what a release image is
 made of. `example/ledger/ledger` has no `go.mod` of its own, so a conversion
 written beside it would have put a dozen transitive requires into the CLI's build
-list. `example/ledger/parquet/module_test.go` reads the root `go.mod` and fails if
-it ever does.
+list. A `module_test.go` in each conversion reads the root `go.mod` and fails if
+it ever does — a copy apiece rather than something shared, because a third module
+existing so that two examples can assert three sentences is a worse tree than two
+copies of them.
 
 **And why that stage is not a one-liner** is the one way this module is unlike
-the other four. It is the only one whose `go.mod` points outside its own tree:
-the conversion reads its dataset through `example/ledger/ledger`, a package of the
-*root* module, so it carries `replace github.com/Zaba505/cpybkc => ../../..`. That
-directive is what your own `go test ./...` in that directory resolves through:
+the other four. Those modules are the only ones whose `go.mod` points outside
+their own tree: a conversion reads its dataset through the generated package beside it,
+which is a package of the *root* module, so each carries `replace
+github.com/Zaba505/cpybkc => ../../..`. That directive is what your own `go test
+./...` in that directory resolves through:
 
 ```sh
-cd example/ledger/parquet && go test ./...
+(cd example/ledger/parquet && go test ./...)
+(cd example/policy/parquet && go test ./...)
 ```
+
+Each line is a subshell, because the second `cd` is relative to wherever the
+first one left you and the unparenthesised pair cannot run.
 
 The shared chain mounts what it is handed at one path and runs the go tool
 there, so handing it the module directory alone would put that target outside the
