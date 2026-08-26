@@ -213,8 +213,10 @@ checked here and they are checks and not measurements: that the conversion's
 constants are the ones the rule takes and that the number falls out of them
 (`TestTheRowGroupBoundIsDerivedAndNotChosen`), and that C is the schema's leaves
 and not a number written down (`TestTheColumnCountIsTheSchemaAndNotANumberWrittenDown`).
-The run at millions of records is
-[#315](https://github.com/Zaba505/cpybkc/issues/315).
+The run at millions of records is a *second* instrument beside this one —
+[`scale_test.go`](scale_test.go), which sweeps the real conversion rather than
+probing a writer — and it is not in `dagger call ci`. See
+["Where each of these runs"](#where-each-of-these-runs).
 
 **What CI gates is the shape and never a byte count.** The numbers are a property
 of the machine, the Go version and the parquet-go pin, so `a == 1024` is not
@@ -426,7 +428,18 @@ ceiling of 32767·R records on the file — 3.5 billion here, which is 49× the
 memory ceiling. #304 met that wall first, at 2,097,088 rows with a 64-row bound,
 and got *"the limit of 32767 row groups has been reached"* wrapped as *"flushing
 64 posting rows"* — a true sentence naming neither the cap nor the thing that
-moves it. `convert.go` re-reports it with both. **The ceiling and the linear heap
+moves it. `convert.go` re-reports it with both.
+
+**That wall is now reached rather than argued about**, though not here: 32,767 row
+groups over 197 columns retain about 6.6 GB, which is not a thing to run. The
+ledger conversion is fourteen columns wide, so the same 32,767 row groups cost it
+about 465 MB and a second and a half, and
+[its scale run drives a real writer into the cap](../../ledger/parquet/scale_test.go)
+and holds the diagnostic to naming all three of the cap, the bound in force and
+the record ceiling they imply. What is checked *here*, on every pull request, is
+the wording — `TestTheRowGroupCapIsReportedWithTheFlagThatMovesIt` hands
+[`tooManyRowGroups`](convert.go) an error to wrap. A wording is what rots; a wall
+is what has to be hit once. **The ceiling and the linear heap
 are one mistake with one fix, not two walls with two**: tiny row groups produce
 both, and a row group sized anywhere near R\* produces neither.
 
@@ -464,6 +477,84 @@ Every reading includes the writer's fixed overhead — around 4.8 MB of column
 buffer capacity for 197 columns — which is neither of the model's two terms and is
 why the ratios above are smaller than the arithmetic alone would give. It is left
 in rather than subtracted, because it is memory the process actually holds.
+
+### And observed again at four and a half million, over the conversion itself
+
+The sweep above is the harness's, at sixteen thousand records, and everything it
+shows about the retained term is a rounding error at that N: the accumulated
+footer never reaches a megabyte. [#315](https://github.com/Zaba505/cpybkc/issues/315)
+is the run at a record count where it is the larger half, and it is a different
+instrument — [`scale_test.go`](scale_test.go) sweeps `-rows-per-row-group` over
+**the real conversion**, generating its input a record at a time, and probes the
+live heap from inside the record source at the fullest moment of the open row
+group.
+
+At N = 4,500,002 records — 500,000 policy terms and their details, about 1.1 GB of
+this extract — on the machine this was written on:
+
+```
+R =   3360   peak = 250.4 MB
+R =   6720   peak = 133.7 MB
+R =  13440   peak =  83.4 MB
+R =  26880   peak =  75.0 MB   <- observed minimum
+R =  53760   peak =  95.0 MB
+R = 107520   peak =  99.3 MB
+R = 215040   peak = 110.6 MB
+```
+
+> **The rule's answer is the measured best.** `R* = √(a·C·N/W)` at this N is
+> **26,884** rows, and the sweep's bottom is the point at 26,880 — the same point,
+> at a penalty of **1.000×**.
+
+That is the claim [#304](https://github.com/Zaba505/cpybkc/discussions/304) made
+on a sixteen-column schema and this repository has been quoting ever since,
+confirmed on the 197-column one at a scale where being wrong would show. It is
+also the answer to the obvious objection to the harness next door: that `a` and
+`W` are measured under an arrangement, so the rule they feed might only be right
+about the arrangement. Fitting the retained term back off *this* curve — seven
+readings of a running conversion, nothing held open, nothing probed at a chosen
+row group — gives **a ≈ 971 B** per column per row group, against the 969 the
+harness reads directly and the 1,024 `convert.go` commits. It is a reading and it
+moves a byte or two between runs; what is not a coincidence is which number it
+lands on.
+
+The sweep is centred on R\* rather than halving down from N, and that is not
+tuning. Halving from four and a half million starts at one row group for the whole
+file, which is the several gigabytes this entire section exists to avoid holding.
+
+### The buffered term is linear only up to the page buffer
+
+The run at scale found one thing the harness at its default N cannot see, and it
+is visible in the right-hand half of that table: **peak stops growing like `W·R`
+somewhere around forty thousand rows a group.** 215,040 rows should hold 258 MB of
+open row group and holds 110.6 MB.
+
+The cause is [`parquet-go`](https://github.com/parquet-go/parquet-go)'s page
+buffer. A column's buffer is flushed into a page as soon as it reaches 98% of
+`DefaultPageBufferSize`, which is 256 KB (`config.go:29`, `writer.go:262`), so a
+column never holds more than a quarter of a megabyte of *raw* buffer — past that
+an open row group carries encoded pages instead, and encoded is smaller. The knee
+is where one column's share of a row, `W/C`, has filled that buffer:
+
+```
+knee ≈ 256 KiB · C / W  =  41,116 rows
+```
+
+Two things follow, and the second is why nothing in `convert.go` moved for it.
+
+**The model over-states what a large row group costs, and it over-states it in the
+safe direction.** A bound derived from `W·R` holds *less* than the arithmetic
+promised, never more, so [the default](#the-row-group-derived) — 106,861 rows,
+which is above the knee — sits inside its budget with room the derivation does not
+know about. Re-deriving it against a two-regime model would be replacing a
+conservative number with a tighter one, and this section's whole argument is that
+the conservative direction is the one to be wrong in.
+
+**And it does not move the bottom.** The knee is on the far side of R\* at every N
+either conversion is sized for, because R\* is where the two terms are *equal* and
+the retained term is still worth something there. What it changes is the shape of
+the right-hand shoulder — which is why `scale_test.go` holds the two ends of the
+sweep to different ratios, and says so.
 
 ### It does not have to be hit, but it does have to be computed
 
@@ -575,6 +666,70 @@ Parquet materialises a value or a null for every column of every row.
 
 That is the price of a table a query engine can skip through, and it is paid once.
 It is worth knowing before you are surprised by it.
+
+### What the ledger conversion's run found about this one's W
+
+[#315](https://github.com/Zaba505/cpybkc/issues/315) ran the same sweep over the
+ledger conversion, whose `W` was derived the same way this one's is —
+`5·(optional columns) + (the record) + 15` — and the sweep put its bottom a factor
+of two off the predicted R\*. Measuring that schema's `W` directly found 128 B a
+row against a derivation of 95, and the missing term is `parquet-go`'s byte-array
+column buffers: they keep an `offsets` and a `lengths` slice per value
+(`column_buffer_byte_array.go:14-18`), and the arithmetic models neither.
+
+**That term is missing from the derivation on this page too**, and this
+conversion gets away with it for a reason worth being explicit about rather than
+lucky in. `recordBytes` is taken at LRECL, which on a `RECFM=FB` dataset is every
+record's length and therefore an over-estimate on every row that carries a shorter
+one — alphanumeric items arrive from the generated reader already trimmed, and a
+record's FILLER is not a column at all. The two errors point opposite ways and
+roughly cancel: the harness reads **1,365 B a row** against the **1,256** derived,
+so the derivation is 8% low here where the ledger's was 26% low, and the sweep at
+4.5 M records still lands on R\* exactly.
+
+Eight percent low is still low, and `rowsPerRowGroup` is `memoryBudget / 2 / W`,
+so the open row group at the default holds about 146 MB rather than the 134 MB
+half-budget the derivation names — inside a 256 MiB budget, but by less than it
+says. Correcting it is a change to a committed default and to every number derived
+from it, which is a story rather than a paragraph; what belongs here is that the
+gap is known, measured, and in the direction that spends budget rather than the
+one that overruns it.
+
+### Where each of these runs
+
+Two instruments, two costs, and one line drawn between them.
+
+| | what it measures | how long | run by |
+|---|---|---|---|
+| [`memory_test.go`](memory_test.go) | `a` and `W` directly, by probing a writer at controlled phases, and the shape of the curve at N = 16,384 | about two seconds | **`dagger call ci`**, on every pull request |
+| [`scale_test.go`](scale_test.go) | peak against `-rows-per-row-group` over the real conversion, at millions of records | **about three minutes** at N = 4.5 M, and it is seven whole conversions | a person, with `-scale.records` |
+
+**Nothing in `scale_test.go` runs in CI.** Every test there skips unless
+`-scale.records` is passed, so the pipeline compiles the file and runs none of it,
+and the runtime of an ordinary pull request does not move. That is the decision
+[#315](https://github.com/Zaba505/cpybkc/issues/315) was asked to make, and the
+two things it rules out are worth saying:
+
+- **Not a required check.** The production run this all came from took 23 minutes
+  for one conversion; seven of them is not a gate anybody would keep. A check
+  contributors learn to re-run until it passes is worse than no check.
+- **Not a build tag.** A tagged file is one the compiler and the linter in CI do
+  not see either, and a scale run that has stopped compiling is discovered by the
+  person who least wants to discover it — the one taking a reading before a
+  release. A flag that defaults to zero costs a skip and keeps the compile.
+
+Take the reading before a release, and whenever the `parquet-go` pin, the schema
+or [`rowsPerRowGroup`](convert.go) moves:
+
+```console
+$ go test -run TestPeak -v -scale.records=4500002 -timeout=60m
+```
+
+What CI keeps is everything that fails when the *model* stops being true — the
+shape assertions next door, and the two checks that `C` is the schema's leaf count
+and the row group is arithmetic over it. What it gives up is knowing that the
+numbers in this section are still the numbers, which is a thing to check on a
+schedule and not on a pull request.
 
 ## The type mapping
 

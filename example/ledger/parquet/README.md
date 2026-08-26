@@ -431,40 +431,258 @@ is an amortization, and it was never the bound.
 
 `rowsPerRowGroup` is 64 here, chosen so that 999 postings fill fifteen row groups
 and leave a sixteenth partial one — so a bound nothing enforced, or a last group
-nothing wrote, is visible in a test. **That is not a production
-number.** A real converter sizes a row group in the tens or hundreds of thousands
-of rows, because the row group is the unit a query engine skips and a file of
-tiny ones pays footer metadata and a dictionary reset on every one. Raising it
-raises the memory bound in exactly the same proportion, which is the trade this
-paragraph exists to make visible.
+nothing wrote, is visible in a test. **That is not a production number**, and the
+next section says what one is and how it was arrived at.
 
-### The number 64 is not derived, and the sibling's is
+### The number 64 is not derived, and this is the one that is
 
 This is the one place the two worked conversions differ on a number rather than on
 a decision, and it is worth being plain about which of them you should copy.
 Sixty-four is a *test* number: it exists so that 999 postings do not divide evenly
-into row groups. The wide sparse example's bound is arithmetic —
-`memoryBudget / 2 / bufferedPerRow` — over a memory model whose two constants are
-measurements:
+into row groups. The bound to copy is `derivedRowsPerRowGroup` in `convert.go`,
+which is arithmetic over a memory model:
 
 > **peak(N, R) ≈ a·C·(N/R) + W·R**, so size the row group such that the footer you
 > have accumulated is the same size as the row group you are holding.
 
 `a` is what one column of one closed row group retains until `Close`, and `W` is
-what one row costs the open row group. Both are measured rather than asserted, by
-a harness committed beside that conversion —
-[`example/policy/parquet/memory_test.go`](../../policy/parquet/memory_test.go),
-which runs in `dagger call ci` and asserts the model's *shape* rather than any
-byte count. [Its README's "What it costs to write"](../../policy/parquet/README.md#what-it-costs-to-write)
-is the derivation, and it applies to this schema exactly as much as to that one —
-the numbers change, the rule does not.
+what one row costs the open row group. Minimising over R gives
+`R* = √(a·C·N/W)`, and the value to default to is `R*` at the largest extract the
+budget admits — which is where the two terms are equal and each is half the
+budget:
 
-It is one harness and not two because it is generic over the row type: nothing in
-`a` or `W` depends on what a row *means*, and pointing it at `posting` is one
-instantiation. It lives next door rather than here because a conversion whose bound
-is a test number has nothing to size, and a second copy of a measurement is a
-second measurement to keep in step. If you are sizing a real extract, start there
-and not with the 64 above.
+```
+budget            B  =  256 MiB  =  268,435,456 B
+columns           C  =  14                         the schema, checked against the file
+optional of them     =  6                          PST-DEBIT's three and PST-CREDIT's three
+per row           W  =  128 B                      measured; the arithmetic reaches 95
+retained          a  =  1,024 B                    per column per row group
+
+open row group       =  B / 2   =  134,217,728 B
+derived R            =  B / 2W  =  1,048,576 rows
+```
+
+Two of those inputs are this layout's, one is the model's and one is a reading,
+and the differences matter if you are copying the arithmetic rather than the
+number.
+
+**C and the optional count are the *layout's*, not the copybook's.** `posting.cpy`
+admits six combinations of its two redefined runs; `ledger.sexpr` names two, and
+what makes `pst_debit` and `pst_credit` optional is that a posting is described by
+one and not the other. `pst_tail_ref` is the only description the layout names of
+the second run, so every posting carries it and its two leaves are *required*.
+Six of fourteen leaves optional is why W here is 95 bytes and the wide sparse
+example's is 1,256: there every one of 197 leaves is optional, and a row pays five
+bytes of definition level for each of them whether or not there is a value under
+it.
+
+**And W is measured here rather than derived, which is where this conversion's
+arithmetic differs in kind from the sibling's.** The derivation —
+`5·6 + 50 + 15`, the definition levels plus the record plus #304's per-row
+overhead — reaches 95 bytes, and a row of this schema costs 128. The gap is
+`parquet-go`'s byte-array column buffers, which keep an `offsets` and a `lengths`
+slice per value (`column_buffer_byte_array.go:14-18`); eight of these fourteen
+columns are byte arrays, and the arithmetic models none of it.
+
+The sibling *derives* its W and gets away with it because two of its errors
+cancel. It takes the record at LRECL, which on a `RECFM=FB` dataset is every
+record's length and so an over-estimate on every row that has a shorter one — and
+that over-estimate covers the same missing byte-array term. This dataset is
+`RECFM=VB`, where LRECL 512 is the longest record admitted rather than the length
+of any record in it, so W is taken at the posting's real fifty bytes and there is
+no over-estimate to hide behind. The derivation came out **26% low**, which is
+the direction that sizes the row group too large: `B / 2W` is inversely
+proportional to W.
+
+That is not a difference anybody would have found by reading the arithmetic. It
+was found by running it — see [below](#both-of-those-are-measured-and-here-is-the-run).
+
+### What 64 costs, and why this example can afford it
+
+The retained term is linear in N, so a conversion that fits today has a record
+count at which it stops fitting — and a bound of 64 reaches it early:
+
+```
+maxRecords = (B − W·R) · R / (a·C)
+
+  at R = 64                  1,198,336 postings
+  at R = 1,048,576       9,817,068,105 postings
+```
+
+**About 1.2 million against about 9.8 billion**, from the same schema and the same
+budget, with nothing between them but the bound. That is the whole of what a row
+group sized by arithmetic buys over one sized to make a test legible, stated as a
+number.
+
+The other wall is the format's, and at this bound it arrives second: a Parquet
+file holds at most `MaxRowGroups = math.MaxInt16 = 32767` row groups
+(`limits.go:29`), so 64 rows a group puts a ceiling of **2,097,088** records on
+the file. That is the exact number
+[#304](https://github.com/Zaba505/cpybkc/discussions/304) hit, and what it got was
+*"the limit of 32767 row groups has been reached"* wrapped as *"flushing 64
+posting rows"* — a true sentence naming neither the cap nor the thing that moves
+it. `tooManyRowGroups` in `convert.go` re-reports it with the cap, the bound in
+force and the ceiling they imply.
+
+**The ceiling and the linear heap are one mistake with one fix, not two walls with
+two.** Tiny row groups produce both. A row group sized anywhere near R\* produces
+neither — at the derived bound the cap sits at 34 billion records, three and a
+half times past where the budget gives out.
+
+And this conversion can afford 64 for exactly one reason, which is worth naming
+because it is not a reason that transfers: **`HDR-COUNT` is `PIC 9(3)`.** A ledger
+extract this layout describes carries at most 999 postings, and both walls are
+about **three orders of magnitude** past that — 1,199× to the memory ceiling and
+2,099× to the row-group one. Neither can be reached by a file this example can be
+handed, and the two are only 1.75× apart, which is why they are one wall to think
+about and not two. `TestTheCommittedBoundIsNotADerivedOne` asserts that
+thousandfold in both directions, so this paragraph fails rather than rots. Your
+copybook's count field is the first thing to check against the two numbers above.
+
+### Both of those are measured, and here is the run
+
+Everything above would be arithmetic over two constants somebody wrote down, which
+is the state [#304](https://github.com/Zaba505/cpybkc/discussions/304) left this
+repository in and the state
+[#315](https://github.com/Zaba505/cpybkc/issues/315) was opened to leave. There
+are two measurements and they are taken by two different things.
+
+**W is measured directly, in CI.** `TestWhatARowCostsTheOpenRowGroup` in
+[`convert_test.go`](convert_test.go) holds one row group open — the writer is
+given `math.MaxInt64`, which is `parquet-go`'s own default and is what makes a
+writer handed no option grow one row group for the whole file — and takes the
+slope of live heap against rows over thirty-two samples from 512 to 16,384. The
+sink is checked to have been handed **nothing**, because a row group's column
+chunks reach it when one closes and at no other time, so a byte there would mean
+the reading is a mixture of both terms rather than the buffered one. It reads
+**128 B a row**, 124 as the chord.
+
+Thirty-two samples and not four, because the live heap of an open row group is a
+**staircase**: a column buffer grows by doubling, so a fit over a handful of
+closely spaced points measures whichever doubling it straddled. That is the same
+method and the same reason as the [sibling's
+harness](../../policy/parquet/memory_test.go), and it is the one probe of it this
+module needs — `a` is not a function of the schema's width, so a kilobyte carries
+over, and the sweep below confirms it.
+
+The test asserts shape and logs the byte count, which is the line every
+measurement in these two examples draws: gating on `W == 128` would go red on a
+`parquet-go` bump that changed nothing an adopter cares about. What is gated is
+that a row costs the writer more than the record it came from, and that the
+*derivation* has not risen above the reading — it is a floor, and a floor above
+the reading would mean one of its three terms had stopped being what it says.
+
+**The curve is measured over the conversion, and not in CI.**
+[`scale_test.go`](scale_test.go) sweeps the row group over the real conversion,
+generating its input a posting at a time through the same fixture builders
+`convert_test.go` uses, and probes live heap from inside the record source at the
+fullest moment of the open row group. No dataset is committed and none is written
+to disk.
+
+At N = 2,000,000 postings on the machine this was written on:
+
+```
+R =    1870   peak = 15.1 MB
+R =    3740   peak =  8.5 MB
+R =    7480   peak =  5.8 MB
+R =   14960   peak =  5.1 MB   <- observed minimum
+R =   29920   peak =  6.2 MB
+R =   59840   peak =  8.3 MB
+R =  119680   peak = 12.1 MB
+```
+
+> **The rule's answer is the measured best.** `R* = √(a·C·N/W)` at this N is
+> **14,966** rows, and the sweep's bottom is the point at 14,960 — the same point,
+> at a penalty of **1.000×**.
+
+Fitting the retained term back off that curve gives **a between about 940 and
+990 B** per column per row group across runs, against the 969 the sibling's
+harness reads directly and the 1,024 committed. The spread is what a
+four-point fit against three parameters is worth, and the count is logged with
+the reading so it can be read that way. The committed constant is the conservative end of #304's 943–988 range
+and the reading sits under it, which is the safe direction: `maxRecords` divides
+by `a·C`, so an `a` below the reading would claim room that is not there.
+
+**This is the run that found the W above, and it found it before the probe did.**
+With W derived at 95 the same sweep put its bottom at 8,684 against a predicted
+R\* of 17,372 — a factor of two, which in this model means `a/W` is a factor of
+four out. The fit had already confirmed `a`, so the disagreement had nowhere else
+to go. Measuring W directly moved the committed constant to 128 and the bottom on
+to R\* exactly. That is what a sweep over the real conversion is for, and it is
+not something the arithmetic could have been read into admitting.
+
+`W` itself is not read back off this curve, and the run says so rather than
+reporting a number it distrusts: the staircase above plus the page-buffer knee
+below make a seven-point fit measure whichever doubling it straddled — 90, 98,
+129, 157 and 167 B a row came out of five such fits. The direct probe is the
+instrument for W; this sweep's job is the curve.
+
+### The buffered term is linear only up to the page buffer
+
+The right-hand half of that table rises more slowly than `W·R` says it should,
+and the cause is `parquet-go`'s page buffer. A column's buffer is flushed into a
+page as soon as it reaches 98% of `DefaultPageBufferSize`, which is 256 KB
+(`config.go:29`, `writer.go:262`), so a column never holds more than a quarter of
+a megabyte of *raw* buffer — past that an open row group carries encoded pages
+instead, and encoded is smaller. The knee is where one column's share of a row,
+`W/C`, has filled that buffer, which is about **28,700 rows** here.
+
+It over-states what a large row group costs, and it over-states it in the **safe**
+direction: a bound derived from `W·R` holds less than the arithmetic promised,
+never more. So nothing in `convert.go` moved for it. What it does change is the
+shape of the right-hand shoulder, which is why `scale_test.go` holds the two ends
+of the sweep to different ratios and says so.
+
+### And the 32767 ceiling, reached rather than argued about
+
+The same run drives this conversion into the format's row-group cap for real, at
+one row a group — the smallest bound there is and the fastest way to 32,768 row
+groups. It costs **about 465 MB and a second and a half**, and it is the one place
+in either worked example where the cap is reached instead of simulated: the wide
+sparse conversion would need 6.6 GB to do it, because `a` is per column per row
+group and it is 197 columns wide.
+
+What the diagnostic is held to is the three things #304 needed and did not get —
+the cap, the bound in force, and the record ceiling they imply:
+
+```
+closing the posting table: the limit of 32767 row groups has been reached: a
+Parquet file holds at most 32767 row groups, so a row group bounded at 1 rows puts
+a ceiling of 32767 records on this file — raise the bound, which lowers peak
+memory as well as the row-group count, and see README.md for the arithmetic
+```
+
+The *wording* is checked on every pull request, by
+`TestTheRowGroupCapIsReportedWithTheBoundThatMovesIt`, which hands
+`tooManyRowGroups` an error to wrap. Reaching the wall is not: a wording is what
+rots, and a wall is what has to be hit once.
+
+### Where each of these runs
+
+| | what it measures | how long | run by |
+|---|---|---|---|
+| `convert_test.go` | W directly, and that C and the optional count are the schema's, and that the cap's wording carries the cap | about fifty milliseconds | **`dagger call ci`**, on every pull request |
+| [`memory_test.go`](../../policy/parquet/memory_test.go) | `a` and `W` directly, on the wide sparse row type | about two seconds | **`dagger call ci`** |
+| [`scale_test.go`](scale_test.go) | peak against the row group over this conversion, at millions of postings, and the row-group cap | about nine seconds, and 465 MB for the cap | a person, with `-scale.records` |
+
+**Nothing in `scale_test.go` runs in CI.** Every test there skips unless
+`-scale.records` is passed, so the pipeline compiles the file and runs none of it,
+and the runtime of an ordinary pull request does not move. It is a flag rather
+than a build tag deliberately: a tagged file is one the compiler and the linter in
+CI do not see either, and a scale run that has stopped compiling is discovered by
+the person who least wants to discover it.
+
+Take the reading before a release, and whenever the `parquet-go` pin, the schema
+or the bound moves:
+
+```console
+$ go test -run TestPeak -v -scale.records=2000000 -timeout=30m
+$ go test -run TestTheRowGroupCeiling -v -scale.records=1 -timeout=30m
+```
+
+Nine seconds here against three minutes for the sibling, over the same sweep at a
+comparable N. That factor is the column count, and it is the same factor that
+makes the wide sparse example the one that has to be sized rather than assumed.
 
 ## Not generated
 

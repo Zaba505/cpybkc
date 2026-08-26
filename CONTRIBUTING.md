@@ -1408,6 +1408,51 @@ add, remove or re-point a `replace` there,
 [`exampleModuleReplacements`](.dagger/main.go) is the other half of the change,
 and the stage says so by name when the two disagree.
 
+### The Parquet conversions' memory readings, and the one run CI does not take
+
+Both worked conversions state their memory in the same model, and its two
+constants — `a` per column per closed row group, `W` per row — are measurements
+rather than assertions. What the two conversions do with it differs, and the
+difference is the point of having two: the wide sparse one **derives** its
+row-group bound from the model, and the ledger one runs at a deliberate test
+number and publishes the derived bound beside it. There are two instruments, and
+only one of them is in the pipeline.
+
+**In `dagger call ci`, on every pull request.**
+[`example/policy/parquet/memory_test.go`](example/policy/parquet/memory_test.go)
+measures `a` and `W` directly by probing a writer at controlled phases, and asserts
+the model's *shape* — never a byte count, because the counts are a property of the
+machine, the Go version and the `parquet-go` pin. It takes about two seconds. The
+cheap constant checks beside each conversion — that `C` is the schema's leaf count,
+that the row-group bound is arithmetic over it, that the row-group cap's diagnostic
+still names the cap — go with it.
+
+**Not in CI.** A `scale_test.go` beside each conversion sweeps the row group over
+the *real* conversion at millions of records, generating its input a record at a
+time. It is what settles the numbers in both READMEs' memory sections, and it is
+what drives the ledger conversion into `parquet-go`'s 32,767 row-group cap for
+real. Every test in those files skips unless `-scale.records` is passed:
+
+```console
+$ cd example/ledger/parquet
+$ go test -run TestPeak -v -scale.records=2000000 -timeout=30m
+$ go test -run TestTheRowGroupCeiling -v -scale.records=1 -timeout=30m
+
+$ cd ../../policy/parquet
+$ go test -run TestPeak -v -scale.records=4500002 -timeout=60m
+```
+
+Nine seconds for the ledger sweep and about three minutes for the wide sparse one,
+which is 197 columns against fourteen. **Take them before a release, and whenever
+the `parquet-go` pin, either schema or either row-group bound moves** — those are
+the four things that can move a number in either README without moving a test.
+
+They are gated by a flag rather than a build tag on purpose. A tagged file is one
+the compiler and `golangci-lint` in CI do not see either, so a scale run that had
+stopped compiling would be discovered by the person who least wants to discover
+it. A flag that defaults to zero costs a skipped test and keeps the whole file in
+the build.
+
 ### The default image tag is the moving major tag
 
 `New`'s `version` argument defaults to **`v0`**, the moving major tag, and not
