@@ -122,6 +122,16 @@ const (
 	// both ends are clearly up the sides of the curve.
 	sweepPoints = 7
 
+	// minRecords is the smallest -memory.records the sweep can be drawn at: N
+	// halved sweepPoints times has to stay above one row.
+	//
+	// Refusing below it is a diagnostic and not a limit anyone will meet. A sweep
+	// with fewer points than it was asked for has no interior for a minimum to be
+	// in, so every assertion below would fail for a reason that is about the flag
+	// rather than about the model — and at N below two it would fail by indexing
+	// an empty sweep, which is a panic in place of a sentence.
+	minRecords = 1 << sweepPoints
+
 	// linearityTolerance is how far apart the steepest and shallowest segments of
 	// a fit may be before it stops being a straight line. It is loose because it
 	// is a shape check on a machine nobody here owns: a genuinely linear term
@@ -496,6 +506,14 @@ func poolOf(t *testing.T) []record {
 // model convert.go is sized by — never a byte count. See this file's package
 // comment for why that line is drawn there.
 func TestTheWriterMemoryModelHoldsItsShape(t *testing.T) {
+	// Read first, so a flag the sweep cannot be drawn at is a sentence before any
+	// measuring rather than a failure a second and a half into it.
+	records := *memoryRecords
+	if records < minRecords {
+		t.Fatalf("-memory.records is %d and the curve needs at least %d: the sweep halves R %d times from N, and a sweep that runs out of points before then has no interior for a minimum to be found in",
+			records, minRecords, sweepPoints)
+	}
+
 	pool := poolOf(t)
 	h := harness[record]{
 		columns: columns,
@@ -530,7 +548,6 @@ func TestTheWriterMemoryModelHoldsItsShape(t *testing.T) {
 			w, recordBytes, h.columns)
 	}
 
-	records := *memoryRecords
 	sweep := sweepOf(records)
 	peaks := make([]uint64, len(sweep))
 
