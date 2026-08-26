@@ -1,0 +1,103 @@
+;; A daily policy administration extract on a fixed-block dataset: a file
+;; header, a run of policies each followed by its own detail records, and a
+;; file trailer.
+;;
+;; What this example is for, and what it teaches that `ledger/` cannot, is in
+;; README.md beside this file. In short: it is *wide* and it is *sparse*.
+;; Eleven record types resolve to 197 fields, and no record carries more than
+;; twenty of them, so a table merging every record type is nine tenths empty on
+;; every row.
+;;
+;; Everything below is the plain spelling of each layer. That is deliberate.
+;; `ledger/` is where the hard shapes live -- REDEFINES resolved into record
+;; types, discrimination at two offsets, a counted repetition, retained slack --
+;; and repeating them here would put two variables in one example. What varies
+;; here is the *width*.
+
+;; The encoding profile. All four axes, always, with no default for any.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; The dataset. FB rather than VB, which is the other half of the framing
+;; layer from `ledger/`: there is no record descriptor word, a record's extent
+;; *is* its width, and the record behind it begins at the byte after. That is
+;; also why every 01-level in `pxtract.cpy` ends in a FILLER -- under FB every
+;; record type has to account for all of LRECL, and the ones whose fields stop
+;; short carry the rest.
+;;
+;; The block size is a real one: 27904 is the half-track block a 3390 takes,
+;; and it is 109 records of 256 bytes. `resolve` checks that it divides LRECL
+;; and then drops it, because a stream that has arrived on a filesystem carries
+;; no blocks.
+(framing
+  (recfm FB)
+  (lrecl 256)
+  (blksize 27904))
+
+;; The record types: eleven 01-levels in one copybook member, which is the
+;; ordinary arrangement a shop keeps a file's record types in. Each `record`
+;; form names its own 01-level, so there is no `alternative` child anywhere in
+;; this layout and no `rename` either -- both of those exist to say which
+;; description of shared storage a record type is, and nothing here shares any.
+(record PX-FILE-HEADER  (copybook "pxtract.cpy" PX-FILE-HEADER))
+(record PX-POLICY       (copybook "pxtract.cpy" PX-POLICY))
+(record PX-INSURED      (copybook "pxtract.cpy" PX-INSURED))
+(record PX-LOCATION     (copybook "pxtract.cpy" PX-LOCATION))
+(record PX-VEHICLE      (copybook "pxtract.cpy" PX-VEHICLE))
+(record PX-DRIVER       (copybook "pxtract.cpy" PX-DRIVER))
+(record PX-COVERAGE     (copybook "pxtract.cpy" PX-COVERAGE))
+(record PX-PREMIUM      (copybook "pxtract.cpy" PX-PREMIUM))
+(record PX-CLAIM        (copybook "pxtract.cpy" PX-CLAIM))
+(record PX-ENDORSEMENT  (copybook "pxtract.cpy" PX-ENDORSEMENT))
+(record PX-FILE-TRAILER (copybook "pxtract.cpy" PX-FILE-TRAILER))
+
+;; How to tell them apart. Every record type carries its three-byte code in the
+;; first three bytes, so this is `equals` on an item reference eleven times at
+;; one offset -- against `ledger/`, which discriminates at two.
+;;
+;; A file whose record types are separate 01-levels is the shape that puts the
+;; code at a single offset: the code is the first field each 01-level declares,
+;; and there is no shared prefix in front of it that a later field could sit
+;; behind. `ledger/` gets its second offset from the opposite arrangement, one
+;; 01-level whose alternatives all begin with the key they share.
+(discriminate PX-FILE-HEADER  (equals (item PX-FILE-HEADER  FHD-RECORD-TYPE) "000"))
+(discriminate PX-POLICY       (equals (item PX-POLICY       PLC-RECORD-TYPE) "PLC"))
+(discriminate PX-INSURED      (equals (item PX-INSURED      INS-RECORD-TYPE) "INS"))
+(discriminate PX-LOCATION     (equals (item PX-LOCATION     LOC-RECORD-TYPE) "LOC"))
+(discriminate PX-VEHICLE      (equals (item PX-VEHICLE      VEH-RECORD-TYPE) "VEH"))
+(discriminate PX-DRIVER       (equals (item PX-DRIVER       DRV-RECORD-TYPE) "DRV"))
+(discriminate PX-COVERAGE     (equals (item PX-COVERAGE     COV-RECORD-TYPE) "COV"))
+(discriminate PX-PREMIUM      (equals (item PX-PREMIUM      PRM-RECORD-TYPE) "PRM"))
+(discriminate PX-CLAIM        (equals (item PX-CLAIM        CLM-RECORD-TYPE) "CLM"))
+(discriminate PX-ENDORSEMENT  (equals (item PX-ENDORSEMENT  ENR-RECORD-TYPE) "ENR"))
+(discriminate PX-FILE-TRAILER (equals (item PX-FILE-TRAILER FTR-RECORD-TYPE) "999"))
+
+;; The order they may appear in: three grains, and no register.
+;;
+;; A header, then any number of policies, then a trailer; and behind each
+;; policy any number of its own detail records in any order. The unload writes
+;; them grouped by policy and sorted within it, but the sort key is not in the
+;; file and nothing here can say what it was, so the inner repetition is an
+;; `alt` of the eight detail types rather than a sequence of them.
+;;
+;; Both repetitions are `*` rather than `times`: no record in this file counts
+;; the ones that follow it. The trailer's counts are the receiving system's
+;; balance and are read after the fact -- a count that governs the automaton
+;; has to be read strictly *earlier* than what it governs, and a trailer never
+;; is. `ledger/` is the file whose header counts its postings, and that is what
+;; `times` is for.
+(sequence
+  (seq PX-FILE-HEADER
+       (* (seq PX-POLICY
+               (* (alt PX-INSURED
+                       PX-LOCATION
+                       PX-VEHICLE
+                       PX-DRIVER
+                       PX-COVERAGE
+                       PX-PREMIUM
+                       PX-CLAIM
+                       PX-ENDORSEMENT))))
+       PX-FILE-TRAILER))

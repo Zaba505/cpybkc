@@ -1,0 +1,22 @@
+{
+  "layout": "policy.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "policy",
+      "options": {
+        "package_name": "policy",
+        "receiver": "p",
+        "import_path": "github.com/Zaba505/cpybkc/example/policy/policy"
+      }
+    },
+    {
+      "name": "graph",
+      "out": "graph",
+      "options": {
+        "format": "mermaid",
+        "records": "all"
+      }
+    }
+  ]
+}

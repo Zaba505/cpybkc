@@ -191,20 +191,29 @@ byte for byte, so the path an adopter takes — write a layout, generate, look a
 the graph, read a file — is one this repository runs on every pull request rather
 than one it describes.
 
-[`example/ledger/`](example/ledger/) is the one to read first, and it is the one
-project here that runs **two** generators, `go` and `graph` — which is what makes
-it the place the plugin contract's central equality can be tested rather than
+Both projects here run **two** generators, `go` and `graph` — which is what makes
+them the place the plugin contract's central equality can be tested rather than
 only stated: every generator in a run, and `--emit-ir`, is handed the same
 descriptor bytes. With one generator there is no second set of bytes for that to
 hold between.
 
-Its layout is deliberately a hard one, because a worked example is what an
-adopter reads to find out whether their own file is describable: six record
-types resolved out of one `01`-level by three redefines over two independent
-runs, a type code
-that sits at two different offsets depending on the record, and a redefine
-shorter than the run it describes.
+They are hard in two different directions, because a worked example is what an
+adopter reads to find out whether their own file is describable.
+
+[`example/ledger/`](example/ledger/) is the one to read first, and it is **deep**:
+six record types resolved out of one `01`-level by three redefines over two
+independent runs, a type code that sits at two different offsets depending on the
+record, a header that counts the records following it, and a redefine shorter
+than the run it describes.
 [`example/ledger/README.md`](example/ledger/README.md) is what to read first.
+
+[`example/policy/`](example/policy/) is **wide**: eleven record types as eleven
+`01`-levels of one copybook member on a fixed-block dataset, resolving to 197
+fields of which no record carries more than twenty. It is the shape a real
+extract has when it is merged into one table — mostly empty, and wider than the
+fields it holds, because a key repeated per record type cannot be collapsed.
+[`example/policy/README.md`](example/policy/README.md) says what it teaches that
+the ledger cannot.
 
 ## The companion Dagger module
 
