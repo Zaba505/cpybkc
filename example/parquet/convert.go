@@ -376,10 +376,17 @@ func convert(src recordSource, w io.Writer) error {
 		}
 
 		// written counts rows the writer took and never rows handed over. A
-		// Write that returns 0 and reports no error therefore leaves this
-		// count short, and the TRL-COUNT reconciliation below is what fails on
-		// that — so the short write is still caught, against the number the
-		// file itself states rather than against a literal 1 here.
+		// Write that returned 0 without an error would leave it short, and the
+		// TRL-COUNT reconciliation below is what fails on that — reported as a
+		// trailer disagreement rather than as a short write, and not reported
+		// at all on a file carrying no trailer, which fails just below for that
+		// reason instead.
+		//
+		// The per-row check that used to say it plainly is gone because
+		// parquet-go cannot produce the case: the write function
+		// GenericWriter.Write builds returns len(rows) or an error
+		// (writer.go:227), so n is 1 here whenever err is nil, and a check
+		// against a literal 1 is a check against a constant.
 		written += int64(n)
 		net += amount
 	}
@@ -421,14 +428,17 @@ func convert(src recordSource, w io.Writer) error {
 // optional column, and a pointer is how a row spells the absence: nil is the
 // null, and there is no other value that says "this posting has no debit body".
 //
-// Taking the address of a fresh composite literal rather than of the record's
-// own group is what keeps the row from aliasing a record the reader is free to
-// reuse behind it. That claim is smaller than it was when a batch held the row
-// for up to sixty-four records: the writer retains nothing of it. Every column
-// buffer copies during Write and before it returns — a string column copies the
-// bytes rather than keeping the header (column_buffer_byte_array.go:142) — so
-// what the copy here survives is the next call to [ledger.Reader.Next] and not
-// a buffer of this function's own, which no longer exists.
+// The composite literal is **not** a defence against aliasing, and this says so
+// because the comment that claimed it was has now been read rather than carried
+// over. Neither end of that claim holds. [ledger.Reader.Next] allocates a fresh
+// record per call and its strings own their bytes, which is what convert is
+// relying on when it keeps one *ledger.LedgerHeader and reads it on every
+// posting for the rest of the file; and the writer retains nothing of a row past
+// Write, because the column buffers copy out of the slice before it returns.
+//
+// So the copy is here for the ordinary reason: debitBody is a different type
+// from the group ledger generated, a conversion's schema is not its source's,
+// and a copy is what crossing that boundary is.
 //
 // The amount comes back beside the row rather than being read off it, so that
 // there is exactly one place that decides what a record of each type contributes
