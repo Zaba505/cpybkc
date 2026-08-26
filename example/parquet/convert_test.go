@@ -6,9 +6,10 @@
 // The assertions over the worked conversion.
 //
 // What they are for is stated in #272 and in README.md: the nine-line sample
-// that story proposed was wrong in ten ways on this very layout — no flush, no
-// terminal flush so the last partial batch went out with every well-formed file,
-// an ordinal never incremented, and a mapping error discarded into a zero row.
+// that story proposed was wrong in ten ways on this very layout — an unbounded
+// row group, a writer never closed so the last partial group went out with every
+// well-formed file, an ordinal never incremented, and a mapping error discarded
+// into a zero row.
 // Prose samples rot and nothing catches them, so this one is compiled and each
 // of those properties is a test.
 package main
@@ -502,27 +503,29 @@ func TestTheOnlyDescriptionOfATailIsARequiredColumn(t *testing.T) {
 	}
 }
 
-// TestEveryPostingReadIsAPostingWritten is the terminal flush, and it is run
-// over a file whose posting count is not a multiple of the batch size because
-// that is the only kind of file a missing one loses rows from.
+// TestEveryPostingReadIsAPostingWritten is the last partial row group, and it is
+// run over a file whose posting count is not a multiple of the bound because
+// that is the only kind of file an unwritten one loses rows from.
 //
-// It is also where the memory bound stops being a claim. The row group is closed
-// with every batch, so a file of 999 postings comes back as sixteen row groups
-// of at most sixty-four rows — and a conversion that buffered the file would
-// come back as one.
+// It is also where the memory bound stops being a claim. The bound is the
+// writer's — parquet.MaxRowsPerRowGroup, closed inside GenericWriter.Write and
+// finished by Close — so a file of 999 postings comes back as sixteen row groups
+// of at most sixty-four rows. A conversion that passed no option would come back
+// as one, because parquet-go's default is math.MaxInt64 rather than a bound, and
+// that is what this reads the written file to rule out rather than trust.
 func TestEveryPostingReadIsAPostingWritten(t *testing.T) {
 	// The most this layout can describe: HDR-COUNT is PIC 9(3).
 	const postings = 999
 
-	if postings%batchSize == 0 {
-		t.Fatalf("this fixture has %d postings and the batch is %d: a whole number of batches is the one file a missing terminal flush does not lose rows from", postings, batchSize)
+	if postings%rowsPerRowGroup == 0 {
+		t.Fatalf("this fixture has %d postings and the row group holds %d: a whole number of row groups is the one file an unwritten last one does not lose rows from", postings, rowsPerRowGroup)
 	}
 
 	posting := postingTable(t, postings)
 
 	rows := rowsOf[postingRow](t, posting)
 	if len(rows) != postings {
-		t.Errorf("%d posting rows were written and %d were read: the last partial batch is what a conversion without a terminal flush drops, on every well-formed file", len(rows), postings)
+		t.Errorf("%d posting rows were written and %d were read: the last partial row group is what a conversion that never closed the writer drops, on every well-formed file", len(rows), postings)
 	}
 
 	f, err := parquet.OpenFile(bytes.NewReader(posting), int64(len(posting)))
@@ -531,13 +534,13 @@ func TestEveryPostingReadIsAPostingWritten(t *testing.T) {
 	}
 
 	for i, group := range f.RowGroups() {
-		if group.NumRows() > batchSize {
-			t.Errorf("row group %d holds %d rows and the batch is %d: peak memory is the batch plus the open row group, and a row group that outgrows the batch is a bound nothing enforces", i, group.NumRows(), batchSize)
+		if group.NumRows() > rowsPerRowGroup {
+			t.Errorf("row group %d holds %d rows and the bound is %d: peak memory is the open row group, and a row group that outgrows the bound is a parquet.MaxRowsPerRowGroup nothing passed", i, group.NumRows(), rowsPerRowGroup)
 		}
 	}
 
-	if want := (postings + batchSize - 1) / batchSize; len(f.RowGroups()) != want {
-		t.Errorf("the posting table holds %d row groups, want %d: one per batch is what an explicit flush per batch produces", len(f.RowGroups()), want)
+	if want := (postings + rowsPerRowGroup - 1) / rowsPerRowGroup; len(f.RowGroups()) != want {
+		t.Errorf("the posting table holds %d row groups, want %d: one per %d rows is what parquet.MaxRowsPerRowGroup produces, and one row group is what the default bound of math.MaxInt64 produces", len(f.RowGroups()), want, rowsPerRowGroup)
 	}
 }
 

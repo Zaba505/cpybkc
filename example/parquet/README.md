@@ -376,32 +376,48 @@ it violated is a test:
 
 | property | what goes wrong without it | test |
 |---|---|---|
-| a **bounded batch** with an explicit flush | the row group grows for the whole file, and "streaming" is a comment | `TestEveryPostingReadIsAPostingWritten` |
-| a **terminal flush** | the last partial batch is dropped, on every well-formed file | same |
+| the row group **bounded**, by `parquet.MaxRowsPerRowGroup` | `parquet-go` defaults the bound to `math.MaxInt64`, so one row group grows for the whole file and "streaming" is a comment | `TestEveryPostingReadIsAPostingWritten` |
+| the writer **closed** | the last, partial row group is never written, on every file whose posting count is not a multiple of the bound | same |
 | the **ordinal counted by the caller** | the diagnostic cannot say which record failed; `Reader`'s own is unexported | `TestAMappingErrorFailsTheConversion` |
 | a **mapping error that fails the conversion** | a discarded error appends a zero row: empty account, zero amount, indistinguishable from data | same |
 | `TRL-COUNT` **reconciled** | the file, the layout or the conversion is wrong and nothing says so | `TestTheTrailerCountIsReconciled` |
 | `TRL-NET` **reconciled** | a count that agrees over amounts that do not; the accumulator is the only part of this that costs anything | `TestTheTrailerNetIsReconciled` |
 | the **failed output removed** | a footerless file sits where a good one used to, and the next reader finds out | `TestAFailedRunLeavesNoFileBehind` |
 
-The terminal-flush test runs over **999 postings** — the most `HDR-COUNT`'s
-`PIC 9(3)` can describe — because 999 is not a multiple of the batch size, and a
-file of a whole number of batches is the one file a missing terminal flush does
-not lose rows from.
+Both of those are the library's to hold and neither is the library's to decide.
+The bound is enforced inside `GenericWriter.Write` — the row-group writer returns
+`ErrTooManyRowGroups` at the cap, `Write` catches it and rotates the group — and
+`Close` writes the last one. What does not come for free is the *number*: the
+option has to be passed, because the default is not a bound.
+
+The row-group test runs over **999 postings** — the most `HDR-COUNT`'s
+`PIC 9(3)` can describe — because 999 is not a multiple of the bound, and a file
+of a whole number of row groups is the one file an unwritten last group does not
+lose rows from.
 
 ## Memory
 
-Peak memory is **the batch plus the open row group**, and not "constant". The
-file is never held: what the conversion carries at any moment is the header, the
-batch of rows in hand, and whatever `parquet-go` is buffering for the row group
-behind it. Closing the row group with every batch is what keeps the second term
-bounded by the first, and `TestEveryPostingReadIsAPostingWritten` asserts it by
-opening the written file and requiring one row group per batch, none larger than
-the batch.
+Peak memory is **the open row group**, and not "constant". The file is never
+held: what the conversion carries at any moment is the header, the one row it has
+just mapped, and whatever `parquet-go` is buffering for the row group behind it.
+There is no second buffer — a mapped row goes to the writer as it is produced —
+and `TestEveryPostingReadIsAPostingWritten` asserts the term that is left by
+opening the written file and requiring one row group per `rowsPerRowGroup` rows,
+none larger.
 
-`batchSize` is 64 here, chosen so that 999 postings fill fifteen batches and
-leave a sixteenth partial one — so a missing flush of either kind is visible in a
-test. **That is not a production
+The properties that used to be the caller's are the library's now. Bounding the
+row group is `parquet.MaxRowsPerRowGroup`, closed inside `GenericWriter.Write`;
+writing the last, partial one is `Close`. A caller-side batch with a flush of its
+own held the same two properties and held them a second time, which is why they
+are gone rather than kept alongside. What did **not** move is the decision: the
+default is `DefaultMaxRowsPerRowGroup`, which is `math.MaxInt64`, so a writer
+handed no option grows one row group for the whole file. That is what makes a
+conversion buffer the file it claims to stream, and it is a line of code away in
+either direction.
+
+`rowsPerRowGroup` is 64 here, chosen so that 999 postings fill fifteen row groups
+and leave a sixteenth partial one — so a bound nothing enforced, or a last group
+nothing wrote, is visible in a test. **That is not a production
 number.** A real converter sizes a row group in the tens or hundreds of thousands
 of rows, because the row group is the unit a query engine skips and a file of
 tiny ones pays footer metadata and a dictionary reset on every one. Raising it

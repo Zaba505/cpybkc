@@ -32,18 +32,24 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-// batchSize is how many posting rows are held before they are written and the
-// row group behind them is closed.
+// rowsPerRowGroup is how many posting rows a row group holds before parquet-go
+// closes it and opens the next.
 //
 // It is the whole of what bounds this conversion's memory, and it is small
 // deliberately: a real converter would size a row group in the tens or hundreds
 // of thousands of rows, because a row group is the unit a query engine skips and
 // a file of tiny ones costs footer metadata and dictionary resets on every one.
 // Sixty-four is chosen so that the ledger this example carries — which
-// HDR-COUNT's PIC 9(3) bounds at 999 postings — fills fifteen batches and leaves
-// a sixteenth partial one, so that a missing flush of either kind is visible in
-// a test rather than theoretical.
-const batchSize = 64
+// HDR-COUNT's PIC 9(3) bounds at 999 postings — fills fifteen row groups and
+// leaves a sixteenth partial one, so that a bound nothing enforced, or a last
+// group nothing wrote, is visible in a test rather than theoretical.
+//
+// It has to be said out loud, because parquet-go's default is not a bound at
+// all: DefaultMaxRowsPerRowGroup is math.MaxInt64 (config.go:37), so a writer
+// given no option grows one row group for the whole file. That — and not a
+// caller holding no slice of its own — is what makes a conversion buffer the
+// file it claims to stream.
+const rowsPerRowGroup = 64
 
 // postingRow is the `posting` table, and it is the only table: one row per
 // posting.
@@ -273,11 +279,18 @@ func remove(path string) error {
 // convert reads every record of src once and writes the posting table.
 //
 // One pass, and the file is never held: what this carries at any moment is the
-// header, the batch of posting rows in hand, the row group parquet-go is
-// buffering behind it, and two running totals. That is the whole of its
-// footprint, and README.md states it that way rather than as "constant".
+// header, the one row it has just mapped, the row group parquet-go is buffering
+// behind it, and two running totals. That is the whole of its footprint, and
+// README.md states it that way rather than as "constant".
 func convert(src recordSource, w io.Writer) error {
-	postings := parquet.NewGenericWriter[postingRow](w)
+	// The bound is the writer's rather than this loop's, and stating it is the
+	// whole of what keeps the row group finite. parquet.MaxRowsPerRowGroup is
+	// enforced inside GenericWriter.Write: the row-group writer returns
+	// ErrTooManyRowGroups once it is at the cap (writer.go:1036), Write catches
+	// exactly that error, closes the group and carries on with the rows it has
+	// left (writer.go:273-277), and Close writes the last partial one. So a row
+	// goes over as it is produced and there is nothing here to flush.
+	postings := parquet.NewGenericWriter[postingRow](w, parquet.MaxRowsPerRowGroup(rowsPerRowGroup))
 
 	var hdr *ledger.LedgerHeader
 	var trl *ledger.LedgerTrailer
@@ -288,8 +301,14 @@ func convert(src recordSource, w io.Writer) error {
 	// is a diagnostic and never a column. See README.md, "No key is minted".
 	ordinal := 0
 
-	// batch is reused between flushes. Its capacity is the bound.
-	batch := make([]postingRow, 0, batchSize)
+	// row is the one-row slice a mapped posting is handed over in, reused
+	// across records. It is the argument to a call and not a batch: what is in
+	// it has been written before the next record is read, and Write copies what
+	// it takes before it returns — see postingRowOf.
+	row := make([]postingRow, 1)
+
+	// written is how many rows the writer took, and it is reconciled against
+	// TRL-COUNT below.
 	written := int64(0)
 
 	// net accumulates the posting amounts, to be reconciled against TRL-NET
@@ -312,37 +331,6 @@ func convert(src recordSource, w io.Writer) error {
 	// 9.2e18. A layout with a wider count, or wider amounts, is one where that
 	// has to be checked rather than argued.
 	net := int64(0)
-
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-
-		n, err := postings.Write(batch)
-		if err != nil {
-			return fmt.Errorf("writing %d posting rows: %w", len(batch), err)
-		}
-
-		// written means "rows the writer took", not "rows handed over". A short
-		// write reported without an error would otherwise leave the count below
-		// agreeing with TRL-COUNT over a file missing exactly the rows nobody
-		// noticed, which is the failure this whole function is written against.
-		if n != len(batch) {
-			return fmt.Errorf("the writer took %d of %d posting rows and reported no error", n, len(batch))
-		}
-
-		// Explicit, because Write only buffers. Without this the row group
-		// grows for the whole file and the bound above is a comment rather
-		// than a fact.
-		if err := postings.Flush(); err != nil {
-			return fmt.Errorf("flushing %d posting rows: %w", len(batch), err)
-		}
-
-		written += int64(n)
-		batch = batch[:0]
-
-		return nil
-	}
 
 	for {
 		rec, err := src.Next()
@@ -371,30 +359,29 @@ func convert(src recordSource, w io.Writer) error {
 			return fmt.Errorf("record %d is a posting and no LEDGER-HEADER has been read: the header's fields are denormalized onto every posting row and there is nothing to denormalize", ordinal)
 		}
 
-		row, amount, err := postingRowOf(hdr, rec)
+		mapped, amount, err := postingRowOf(hdr, rec)
 		if err != nil {
-			// The row is not appended. #272's sample discarded this error and
-			// appended the zero value, which writes a posting whose account is
+			// Nothing is written. #272's sample discarded this error and
+			// wrote the zero value, which writes a posting whose account is
 			// the empty string and whose amount is zero — a row that reads as
 			// data rather than as the failure it is.
 			return fmt.Errorf("record %d: %w", ordinal, err)
 		}
 
-		batch = append(batch, row)
-		net += amount
+		row[0] = mapped
 
-		if len(batch) == batchSize {
-			if err := flush(); err != nil {
-				return err
-			}
+		n, err := postings.Write(row)
+		if err != nil {
+			return fmt.Errorf("record %d: writing the posting row: %w", ordinal, err)
 		}
-	}
 
-	// The terminal flush. Without it every file whose posting count is not a
-	// multiple of batchSize silently loses its last partial batch, which is a
-	// defect that never shows up on a test file of a round number of rows.
-	if err := flush(); err != nil {
-		return err
+		// written counts rows the writer took and never rows handed over. A
+		// Write that returns 0 and reports no error therefore leaves this
+		// count short, and the TRL-COUNT reconciliation below is what fails on
+		// that — so the short write is still caught, against the number the
+		// file itself states rather than against a literal 1 here.
+		written += int64(n)
+		net += amount
 	}
 
 	if hdr == nil {
@@ -417,6 +404,9 @@ func convert(src recordSource, w io.Writer) error {
 		return fmt.Errorf("TRL-NET is %d and the posting amounts sum to %d, both unscaled at scale 2: the trailer totals the rows of this extract, so the two disagreeing means the file is wrong or this conversion's sign convention is — it adds every amount with the sign the record stores it under, and a layout whose credits are stored positive and are meant to subtract disagrees here first", trl.TrlNet, net)
 	}
 
+	// Close is what writes the last row group, which on any file whose posting
+	// count is not a multiple of rowsPerRowGroup is a partial one — so it is
+	// the other half of the bound above rather than only the footer.
 	if err := postings.Close(); err != nil {
 		return fmt.Errorf("closing the posting table: %w", err)
 	}
@@ -428,10 +418,17 @@ func convert(src recordSource, w io.Writer) error {
 // and the amount it contributes to the net.
 //
 // An item present in one alternative and absent in the other becomes an
-// optional column, and taking the address of a fresh composite literal is what
-// points at one: it allocates and copies, so the row does not alias a record the
-// reader is free to reuse behind it — a batch is held until it is flushed, which
-// is up to sixty-four records later.
+// optional column, and a pointer is how a row spells the absence: nil is the
+// null, and there is no other value that says "this posting has no debit body".
+//
+// Taking the address of a fresh composite literal rather than of the record's
+// own group is what keeps the row from aliasing a record the reader is free to
+// reuse behind it. That claim is smaller than it was when a batch held the row
+// for up to sixty-four records: the writer retains nothing of it. Every column
+// buffer copies during Write and before it returns — a string column copies the
+// bytes rather than keeping the header (column_buffer_byte_array.go:142) — so
+// what the copy here survives is the next call to [ledger.Reader.Next] and not
+// a buffer of this function's own, which no longer exists.
 //
 // The amount comes back beside the row rather than being read off it, so that
 // there is exactly one place that decides what a record of each type contributes
