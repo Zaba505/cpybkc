@@ -36,13 +36,18 @@ import (
 // closes it and opens the next.
 //
 // It is the whole of what bounds this conversion's memory, and it is small
-// deliberately: a real converter would size a row group in the tens or hundreds
-// of thousands of rows, because a row group is the unit a query engine skips and
-// a file of tiny ones costs footer metadata and dictionary resets on every one.
-// Sixty-four is chosen so that the ledger this example carries — which
-// HDR-COUNT's PIC 9(3) bounds at 999 postings — fills fifteen row groups and
-// leaves a sixteenth partial one, so that a bound nothing enforced, or a last
-// group nothing wrote, is visible in a test rather than theoretical.
+// deliberately: sixty-four is chosen so that the ledger this example carries —
+// which HDR-COUNT's PIC 9(3) bounds at 999 postings — fills fifteen row groups
+// and leaves a sixteenth partial one, so that a bound nothing enforced, or a
+// last group nothing wrote, is visible in a test rather than theoretical.
+//
+// **It is a test number and not a size**, and the number to copy is
+// [derivedRowsPerRowGroup] below, which is arithmetic over the same model the
+// sibling conversion is sized by. What sixty-four costs is in the constants
+// under it: at this bound the conversion stops fitting [memoryBudget] at
+// [maxRecords] postings, which is five orders of magnitude below where the
+// derived bound stops fitting. It is affordable here for exactly one reason —
+// this layout cannot describe an extract long enough to care.
 //
 // It has to be said out loud, because parquet-go's default is not a bound at
 // all: DefaultMaxRowsPerRowGroup is math.MaxInt64 (config.go:37), so a writer
@@ -50,6 +55,138 @@ import (
 // caller holding no slice of its own — is what makes a conversion buffer the
 // file it claims to stream.
 const rowsPerRowGroup = 64
+
+// The memory model this schema is measured against, and the numbers README.md's
+// "Memory" quotes. Every one of them is either a property of the layout or a
+// measurement, and scale_test.go is the run that takes the measurements over
+// this conversion at a record count where the retained term is not a rounding
+// error.
+//
+// The model is the sibling conversion's, unchanged, and its README is the
+// derivation:
+//
+//	peak(N, R) ~= a*C*(N/R) + W*R
+//
+// The first term is footer already accumulated — a ColumnChunk, a ColumnIndex
+// and an OffsetIndex per column per closed row group, none of it writable until
+// Close. The second is the row group still being held. They pull opposite ways,
+// so there is a bottom, and R* = sqrt(a*C*N/W) is where it is.
+const (
+	// columns is C: the leaves of [postingRow]'s schema. The two optional groups
+	// and the required one are structure and get no column of their own.
+	//
+	// It is written down rather than counted because it is an input to constant
+	// arithmetic. TestTheColumnCountIsTheSchemaAndNotANumberWrittenDown opens a
+	// converted file and holds this against the leaves it finds, so a column
+	// added to the row and not to this constant fails there rather than leaving
+	// the arithmetic sized for a table that no longer exists.
+	columns = 14
+
+	// optionalColumns is how many of those fourteen sit under an optional group:
+	// the three leaves of PST-DEBIT and the three of PST-CREDIT.
+	//
+	// It is a property of the *layout* and not of the copybook. `posting.cpy`
+	// admits six combinations of its two redefined runs; `ledger.sexpr` names
+	// two, and what makes PST-DEBIT and PST-CREDIT optional is that a posting is
+	// described by one of them and not the other. PST-TAIL-REF is the only
+	// description the layout names of the second run, so every posting carries
+	// it and its two leaves are required.
+	//
+	// **This is where a wide sparse table differs from this one.** The sibling
+	// schema's 197 leaves are optional to a leaf, so a row there pays a
+	// definition level for every column it has; a posting pays for six of
+	// fourteen. That single ratio is most of why W below is 95 bytes and the
+	// sibling's is 1,256.
+	optionalColumns = 6
+
+	// definitionLevelBytes is the five bytes an open row group holds per row per
+	// *optional* column, whether or not there is a value under it: parquet-go's
+	// optionalColumnBuffer keeps `rows []int32` and `definitionLevels []byte`
+	// (column_buffer_optional.go:22).
+	definitionLevelBytes = 5
+
+	// postingBytes is what a posting record is: PST-ACCOUNT through PST-TAIL,
+	// fifty bytes.
+	//
+	// It is the record and not LRECL, which is the one place this differs from
+	// the sibling's arithmetic. `ledger.sexpr` frames this dataset RECFM=VB at
+	// LRECL 512, and 512 is the longest record the dataset admits rather than
+	// the length of any record in it — a fixed-block dataset's LRECL is every
+	// record's length and a variable-block one's is a ceiling. Taking the
+	// ceiling here would over-estimate W by a factor of ten, which sizes the row
+	// group ten times too small and puts the default a factor of ten off the
+	// bottom of the curve.
+	postingBytes = 50
+
+	// bufferedOverheadPerRow is what a row costs an open row group beyond its
+	// values and its definition levels — #304's "about 15 bytes a record for the
+	// buffered form", measured as the intercept of a padding sweep whose slope
+	// was 1.02.
+	bufferedOverheadPerRow = 15
+
+	// bufferedPerRow is W: what one row costs the open row group.
+	//
+	// scale_test.go reads it back off the large-R end of the peak curve and logs
+	// it beside this constant, so a reading that has drifted is visible in a run
+	// rather than in an incident.
+	bufferedPerRow = definitionLevelBytes*optionalColumns + postingBytes + bufferedOverheadPerRow
+
+	// retainedPerColumnPerRowGroup is a: what one column of one closed row group
+	// holds until Close, in bytes.
+	//
+	// #304 measured 975, 988 and 943 across schemas of 4, 16 and 32 columns —
+	// flat to 5% over an eight-fold range — and the sibling conversion's harness
+	// reads 969 on a 197-column one. It is not a function of the schema's width,
+	// which is what lets a kilobyte stand for it here without a harness of this
+	// module's own; it *is* a function of how wide the values are, and no item
+	// in `posting.cpy` is wider than fifteen bytes.
+	retainedPerColumnPerRowGroup = 1024
+
+	// memoryBudget is what the arithmetic below is against, and it is the only
+	// input here that is a choice rather than a reading. 256 MiB is an ordinary
+	// container limit for a batch job, and it is the same number the sibling
+	// conversion uses so the two are comparable.
+	//
+	// It is a budget and not a bound: nothing here enforces it, and the Go
+	// runtime will not infer it from a cgroup. See the sibling README's
+	// "GOMEMLIMIT".
+	memoryBudget = 256 << 20
+
+	// derivedRowsPerRowGroup is what this conversion's bound would be if it were
+	// derived rather than chosen: the equal-terms row group at the largest
+	// extract the budget admits, which is memoryBudget/2 bytes of open row group.
+	//
+	// **It is the number to copy, and it is not what this command runs at.**
+	// Nothing reads it but README.md and the tests, and that is deliberate: a
+	// worked example whose bound was 1.4 million rows could not show a partial
+	// last row group over a 999-posting dataset, which is the property #272 got
+	// wrong and the property [rowsPerRowGroup] exists to keep visible.
+	derivedRowsPerRowGroup = memoryBudget / 2 / bufferedPerRow
+
+	// maxRecords is the record count at which this conversion stops fitting
+	// memoryBudget **at the bound it actually runs**: the budget less the open
+	// row group, divided by what each closed row group retains.
+	//
+	// The retained term is linear in N, so this number exists for every budget
+	// and every schema, and a conversion that fits today has a record count at
+	// which it stops. Ours is about 1.2 million postings — and HDR-COUNT's
+	// PIC 9(3) stops a real ledger extract at 999, so this conversion cannot be
+	// handed a dataset that reaches it. That is a fact about this layout and not
+	// a reason not to know the number; the copybook whose count field is six
+	// digits wide, or nine, is the next one an adopter meets.
+	maxRecords = (memoryBudget - bufferedPerRow*rowsPerRowGroup) * rowsPerRowGroup /
+		(retainedPerColumnPerRowGroup * columns)
+
+	// derivedMaxRecords is the same ceiling at [derivedRowsPerRowGroup], which
+	// is where the two terms are equal and each is half the budget.
+	//
+	// About 13 billion postings, against 1.2 million at sixty-four. Peak grows
+	// as sqrt(N) and the bound is the whole of the difference, which is the
+	// clearest statement this file has of what a row group sized by arithmetic
+	// buys over one sized to make a test legible.
+	derivedMaxRecords = (memoryBudget - bufferedPerRow*derivedRowsPerRowGroup) * derivedRowsPerRowGroup /
+		(retainedPerColumnPerRowGroup * columns)
+)
 
 // postingRow is the `posting` table, and it is the only table: one row per
 // posting.
@@ -221,7 +358,7 @@ func run(args []string, stderr io.Writer) error {
 	// Both paths, because what write reports can be a fact about either of
 	// them, and a wrapper naming only the input reads as a bad input file
 	// whatever actually went wrong.
-	if err := write(r, *out); err != nil {
+	if err := write(r, *out, rowsPerRowGroup); err != nil {
 		return fmt.Errorf("converting %s into %s: %w", *in, *out, err)
 	}
 
@@ -248,13 +385,13 @@ var errAlreadyReported = errors.New("")
 // The file is closed whatever happens, and a failure to close is joined to
 // whatever the conversion reported rather than replacing it: a full disk shows
 // up here and nowhere else.
-func write(src recordSource, path string) error {
+func write(src recordSource, path string, rows int) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 
-	err = errors.Join(convert(src, f), f.Close())
+	err = errors.Join(convert(src, f, rows), f.Close())
 	if err == nil {
 		return nil
 	}
@@ -276,13 +413,24 @@ func remove(path string) error {
 	return nil
 }
 
-// convert reads every record of src once and writes the posting table.
+// convert reads every record of src once and writes the posting table, bounding
+// the row group at rows records.
 //
 // One pass, and the file is never held: what this carries at any moment is the
 // header, the one row it has just mapped, the row group parquet-go is buffering
 // behind it, and two running totals. That is the whole of its footprint, and
 // README.md states it that way rather than as "constant".
-func convert(src recordSource, w io.Writer) error {
+//
+// **rows is a parameter and not the constant, and there is no flag behind it.**
+// [rowsPerRowGroup] is what [run] passes and is the only value this command ever
+// converts at; the sibling conversion's `-rows-per-row-group` is a flag because
+// its default is derived and an adopter re-derives it, and this one's is a test
+// number nobody should be encouraged to tune. What the parameter buys is that
+// peak memory can be *measured* against it — the curve in README.md's "Memory"
+// is a sweep of this argument over the real conversion, taken by scale_test.go
+// — and the precedent is [recordSource] two types up: a parameter exists here so
+// that a test can drive the conversion, rather than so that a caller can.
+func convert(src recordSource, w io.Writer, rows int) error {
 	// The bound is the writer's rather than this loop's, and stating it is the
 	// whole of what keeps the row group finite. parquet.MaxRowsPerRowGroup is
 	// enforced inside GenericWriter.Write: the row-group writer returns
@@ -290,7 +438,7 @@ func convert(src recordSource, w io.Writer) error {
 	// exactly that error, closes the group and carries on with the rows it has
 	// left (writer.go:273-277), and Close writes the last partial one. So a row
 	// goes over as it is produced and there is nothing here to flush.
-	postings := parquet.NewGenericWriter[postingRow](w, parquet.MaxRowsPerRowGroup(rowsPerRowGroup))
+	postings := parquet.NewGenericWriter[postingRow](w, parquet.MaxRowsPerRowGroup(int64(rows)))
 
 	var hdr *ledger.LedgerHeader
 	var trl *ledger.LedgerTrailer
@@ -372,7 +520,7 @@ func convert(src recordSource, w io.Writer) error {
 
 		n, err := postings.Write(row)
 		if err != nil {
-			return fmt.Errorf("record %d: writing the posting row: %w", ordinal, err)
+			return fmt.Errorf("record %d: writing the posting row: %w", ordinal, tooManyRowGroups(err, rows))
 		}
 
 		// written counts rows the writer took and never rows handed over. A
@@ -415,10 +563,40 @@ func convert(src recordSource, w io.Writer) error {
 	// count is not a multiple of rowsPerRowGroup is a partial one — so it is
 	// the other half of the bound above rather than only the footer.
 	if err := postings.Close(); err != nil {
-		return fmt.Errorf("closing the posting table: %w", err)
+		return fmt.Errorf("closing the posting table: %w", tooManyRowGroups(err, rows))
 	}
 
 	return nil
+}
+
+// tooManyRowGroups re-reports parquet-go's row-group cap as the thing an adopter
+// can act on.
+//
+// A Parquet file holds at most MaxRowGroups = math.MaxInt16 = 32767 of them
+// (limits.go:29), so a bound of R records puts a ceiling of 32767*R records on
+// the file. #304 met it at 2,097,088 rows with a 64-row bound — this
+// conversion's bound — and got "the limit of 32767 row groups has been reached"
+// wrapped as "flushing 64 posting rows": a true sentence naming neither the cap
+// nor the thing that moves it.
+//
+// It is not a wall this conversion's own dataset can reach. HDR-COUNT is
+// PIC 9(3), so a ledger extract carries at most 999 postings and fills sixteen
+// row groups; the ceiling is 2,097,088 records away and the memory budget
+// README.md sizes against gives out first, at about 1.2 million. Both are
+// arithmetic until somebody runs them, which is what
+// TestTheRowGroupCeilingIsReachedAndSaysWhichLimitItWas does — it is the one
+// test here that reaches a real cap in a real writer rather than handing this
+// function an error to wrap.
+//
+// **The ceiling and the linear heap are one mistake with one fix, not two walls
+// with two**: tiny row groups produce both, and a row group sized anywhere near
+// R* produces neither.
+func tooManyRowGroups(err error, rows int) error {
+	if !errors.Is(err, parquet.ErrTooManyRowGroups) {
+		return err
+	}
+
+	return fmt.Errorf("%w: a Parquet file holds at most 32767 row groups, so a row group bounded at %d rows puts a ceiling of %d records on this file — raise the bound, which lowers peak memory as well as the row-group count, and see README.md for the arithmetic", err, rows, int64(rows)*32767)
 }
 
 // postingRowOf is the row one posting contributes, under the header in force,

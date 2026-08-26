@@ -187,7 +187,7 @@ func converted(t *testing.T, n int32, trlCount int32, trlNet int64) ([]byte, err
 
 	var posting bytes.Buffer
 
-	err := convert(r, &posting)
+	err := convert(r, &posting, rowsPerRowGroup)
 
 	return posting.Bytes(), err
 }
@@ -710,7 +710,7 @@ func TestTheNetTakesEachAmountWithTheSignTheRecordStoresIt(t *testing.T) {
 
 	var posting bytes.Buffer
 
-	err := convert(src, &posting)
+	err := convert(src, &posting, rowsPerRowGroup)
 	if err == nil {
 		t.Fatal("an extract whose credits are stored positive and meant to subtract reconciled against a net this conversion did not compute")
 	}
@@ -759,7 +759,7 @@ func TestAMappingErrorFailsTheConversion(t *testing.T) {
 
 	var posting bytes.Buffer
 
-	err := convert(src, &posting)
+	err := convert(src, &posting, rowsPerRowGroup)
 	if err == nil {
 		t.Fatal("a record neither of the two posting types describes converted without complaint")
 	}
@@ -778,7 +778,7 @@ func TestAPostingBeforeItsHeaderIsReported(t *testing.T) {
 
 	var written bytes.Buffer
 
-	err := convert(src, &written)
+	err := convert(src, &written, rowsPerRowGroup)
 	if err == nil {
 		t.Fatal("a posting ahead of its header converted without complaint")
 	}
@@ -796,5 +796,210 @@ func assertUnopenable(t *testing.T, file []byte, name string) {
 
 	if _, err := parquet.OpenFile(bytes.NewReader(file), int64(len(file))); err == nil {
 		t.Errorf("the %s table opened after a failed conversion: a half-converted file that reads as a table is one somebody queries", name)
+	}
+}
+
+// TestTheColumnCountIsTheSchemaAndNotANumberWrittenDown holds [columns] against
+// the file the conversion actually produced.
+//
+// C is an *input* to the memory model — peak is a·C·(N/R) + W·R — so a C that has
+// drifted from the schema derives a row group for a table that does not exist.
+// It cannot be computed from the schema in the constant expression that needs it,
+// which is why it is written down, and this is what stops it being merely
+// written down.
+//
+// Add a column to [postingRow] and this fails. That is the point: the number in
+// convert.go and the numbers README.md's "Memory" quotes both have to move, and
+// [derivedRowsPerRowGroup] has to be re-derived from the new one.
+func TestTheColumnCountIsTheSchemaAndNotANumberWrittenDown(t *testing.T) {
+	posting := postingTable(t, postingTypes)
+
+	f, err := parquet.OpenFile(bytes.NewReader(posting), int64(len(posting)))
+	if err != nil {
+		t.Fatalf("opening the posting table: %v", err)
+	}
+
+	if got := leavesOf(f.Schema()); got != columns {
+		t.Errorf("the written schema has %d columns and the memory model is derived from %d: peak is a·C·(N/R) + W·R and C is this number, so a row group sized from the wrong one is sized for a table that is not there", got, columns)
+	}
+
+	// And how many of them are optional, which is the other half of W. A leaf
+	// that stopped being optional would stop paying parquet-go's five bytes of
+	// definition level a row, silently and in the cheap direction; one that
+	// started would cost them without the arithmetic knowing.
+	optional := 0
+
+	for _, field := range f.Schema().Fields() {
+		optional += optionalLeavesOf(field)
+	}
+
+	if optional != optionalColumns {
+		t.Errorf("%d of the written schema's leaves are optional and the memory model is derived from %d: W is 5 bytes a row for each of them plus the record, so this drifting moves the row group without moving the arithmetic", optional, optionalColumns)
+	}
+}
+
+// leavesOf is how many columns a node contributes, which is how many leaves it
+// has.
+func leavesOf(node parquet.Node) int {
+	if node.Leaf() {
+		return 1
+	}
+
+	n := 0
+	for _, field := range node.Fields() {
+		n += leavesOf(field)
+	}
+
+	return n
+}
+
+// optionalLeavesOf is how many of a node's leaves are optional columns.
+//
+// A leaf under an optional group is an optional column even where the leaf
+// itself is not marked so — the null is the group's — which is why this carries
+// the group's optionality down rather than reading each leaf on its own.
+func optionalLeavesOf(node parquet.Node) int {
+	if node.Leaf() {
+		if node.Optional() {
+			return 1
+		}
+
+		return 0
+	}
+
+	n := 0
+
+	for _, field := range node.Fields() {
+		if node.Optional() {
+			n += leavesOf(field)
+
+			continue
+		}
+
+		n += optionalLeavesOf(field)
+	}
+
+	return n
+}
+
+// TestTheRowGroupCapIsReportedWithTheBoundThatMovesIt is [tooManyRowGroups] as a
+// function: the wording of the diagnostic, checked on every pull request.
+//
+// The other half — that the cap is *reachable*, and that parquet-go still hands
+// this conversion a parquet.ErrTooManyRowGroups when it is reached — is
+// TestTheRowGroupCeilingIsReachedAndSaysWhichLimitItWas in scale_test.go, which
+// writes 32,768 row groups and holds about 465 MB while it does. That one is
+// behind `-scale.records`; this one is not, because a wording is what rots and it
+// costs nothing to check.
+//
+// What both are held to is what #304 needed and did not get: the cap, the bound
+// in force, and the record ceiling the two imply. It got "the limit of 32767 row
+// groups has been reached" wrapped as "flushing 64 posting rows" — a true
+// sentence naming neither the cap nor the thing that moves it.
+func TestTheRowGroupCapIsReportedWithTheBoundThatMovesIt(t *testing.T) {
+	err := tooManyRowGroups(fmt.Errorf("writing rows: %w", parquet.ErrTooManyRowGroups), rowsPerRowGroup)
+
+	if !errors.Is(err, parquet.ErrTooManyRowGroups) {
+		t.Fatalf("the wrapped error no longer is parquet.ErrTooManyRowGroups: %v", err)
+	}
+
+	for _, want := range []string{
+		"32767",
+		fmt.Sprintf("bounded at %d rows", rowsPerRowGroup),
+		// 32767 × 64, which is the ceiling this bound puts on the file and the
+		// number #304 hit.
+		"2097088",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the report is %q, and it does not carry %q", err, want)
+		}
+	}
+}
+
+// TestAnErrorThatIsNotTheCapIsPassedThrough is the other half of the wrapping,
+// and it is what stops it being advice glued onto every failure: a full disk is
+// not a row-group cap and must not be reported as one.
+func TestAnErrorThatIsNotTheCapIsPassedThrough(t *testing.T) {
+	want := errors.New("no space left on device")
+
+	if got := tooManyRowGroups(want, rowsPerRowGroup); got != want {
+		t.Errorf("an unrelated failure came back as %q, want it untouched: advice about a row-group cap on a disk that is full sends somebody to the wrong place", got)
+	}
+}
+
+// TestTheDerivedBoundIsTheOneThatIsDerived holds [derivedRowsPerRowGroup] to the
+// rule it claims to come from, and holds the two ceilings to the arithmetic
+// README.md quotes them from.
+//
+// R* is where the two terms of peak(N, R) = a·C·(N/R) + W·R are equal: size the
+// row group so that the footer you have accumulated is the same size as the row
+// group you are holding. At [derivedMaxRecords] that is what this asserts, to
+// within the integer division that produced the constant.
+//
+// It is not a tautology dressed as a test. The constants are stated
+// independently — a, C, W and the budget — and this is the only place that says
+// the number derived from them is at the bottom of the curve rather than
+// somewhere on it. Substituting this conversion's own 64 is the other half of
+// the point, and it is [TestTheCommittedBoundIsNotADerivedOne] below.
+func TestTheDerivedBoundIsTheOneThatIsDerived(t *testing.T) {
+	retained := int64(retainedPerColumnPerRowGroup) * columns * (derivedMaxRecords / derivedRowsPerRowGroup)
+	buffered := int64(bufferedPerRow) * derivedRowsPerRowGroup
+
+	if diff := retained - buffered; diff > buffered/100 || -diff > buffered/100 {
+		t.Errorf("at %d postings the footer retains %d bytes and the open row group holds %d: R* is where those two are equal, so a bound that is not is one somebody chose", derivedMaxRecords, retained, buffered)
+	}
+
+	if peak := retained + buffered; peak > memoryBudget {
+		t.Errorf("peak at %d postings is %d bytes against a budget of %d: derivedMaxRecords is defined as the count at which the budget is reached, so exceeding it means the arithmetic that produced one of them is wrong", derivedMaxRecords, peak, memoryBudget)
+	}
+
+	// The other wall, and the one #304 hit first: a Parquet file holds at most
+	// 32767 row groups, so the bound has to clear N/32767 as well as sit at R*.
+	// At the derived bound it does, by a factor of three — the ceiling and the
+	// linear heap are one mistake with one fix rather than two walls with two.
+	if floor := int64(derivedMaxRecords)/32767 + 1; derivedRowsPerRowGroup < floor {
+		t.Errorf("the derived bound is %d and %d postings need at least %d rows a group to stay inside 32767 of them", derivedRowsPerRowGroup, derivedMaxRecords, floor)
+	}
+}
+
+// TestTheCommittedBoundIsNotADerivedOne is the claim README.md makes about 64
+// stated as a number rather than as a sentence, and it is what stops "that is
+// not a production number" from being something this example merely says.
+//
+// Three things are asserted, and each is a different way of being the wrong
+// size. The two terms are wildly unequal at the bound's own ceiling, so it is
+// not at the bottom of any curve. That ceiling is five orders of magnitude below
+// the derived bound's. And it arrives *before* the format's row-group cap, which
+// is the ordering that makes "tiny row groups are one mistake, not two" true
+// here rather than merely quoted from #304.
+//
+// What makes 64 affordable anyway is the last check: HDR-COUNT is PIC 9(3), so
+// no extract this layout describes can reach either wall. That is a property of
+// the layout and it is the only reason a test number is safe to commit — which
+// is why it is asserted here and not left to the prose.
+func TestTheCommittedBoundIsNotADerivedOne(t *testing.T) {
+	retained := int64(retainedPerColumnPerRowGroup) * columns * (maxRecords / rowsPerRowGroup)
+	buffered := int64(bufferedPerRow) * rowsPerRowGroup
+
+	if retained < buffered*100 {
+		t.Errorf("at %d postings the footer retains %d bytes and the open row group holds %d, and the two are within a factor of a hundred: 64 is meant to be conspicuously not R*, and a bound that has drifted into being one makes README.md's contrast false", maxRecords, retained, buffered)
+	}
+
+	if maxRecords >= derivedMaxRecords {
+		t.Errorf("the committed bound stops fitting at %d postings and the derived one at %d: the whole of what arithmetic buys over a test number is that ordering", maxRecords, derivedMaxRecords)
+	}
+
+	// The heap wall before the format's, which is the ordering at this bound and
+	// is reversed at the derived one.
+	if ceiling := int64(rowsPerRowGroup) * 32767; maxRecords >= ceiling {
+		t.Errorf("at %d rows a group the budget gives out at %d postings and the 32767 row-group cap at %d: README.md says the heap wall arrives first at this bound, and it is the order that makes them one mistake", rowsPerRowGroup, maxRecords, ceiling)
+	}
+
+	// And the layout's own wall, which arrives before both of them by five
+	// orders of magnitude. hdrCountMax is what PIC 9(3) can describe.
+	const hdrCountMax = 999
+
+	if hdrCountMax*1000 > maxRecords {
+		t.Errorf("HDR-COUNT bounds this layout at %d postings and the budget gives out at %d: 64 is affordable because those are orders of magnitude apart, so a copybook with a wider count field is one this bound is wrong for", hdrCountMax, maxRecords)
 	}
 }
