@@ -48,16 +48,8 @@ var (
 	_ codec.Marshaler   = (*LedgerTrailer)(nil)
 	_ codec.Unmarshaler = (*DebitPosting)(nil)
 	_ codec.Marshaler   = (*DebitPosting)(nil)
-	_ codec.Unmarshaler = (*DebitPostingRef)(nil)
-	_ codec.Marshaler   = (*DebitPostingRef)(nil)
 	_ codec.Unmarshaler = (*CreditPosting)(nil)
 	_ codec.Marshaler   = (*CreditPosting)(nil)
-	_ codec.Unmarshaler = (*CreditPostingRef)(nil)
-	_ codec.Marshaler   = (*CreditPostingRef)(nil)
-	_ codec.Unmarshaler = (*MemoPosting)(nil)
-	_ codec.Marshaler   = (*MemoPosting)(nil)
-	_ codec.Unmarshaler = (*MemoPostingRef)(nil)
-	_ codec.Marshaler   = (*MemoPostingRef)(nil)
 )
 
 // zeroFill is what a writer emits for a run of bytes a record its caller built
@@ -256,91 +248,6 @@ func (p *DebitPosting) UnmarshalCOBOL(r *codec.Reader) error {
 		return fmt.Errorf("POSTING-RECORD: reading PDB-MEMO: %w", err)
 	}
 
-	if p.PstTail, err = r.ReadAlphanumeric(8); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TAIL: %w", err)
-	}
-
-	return nil
-}
-
-// MarshalCOBOL writes this POSTING-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node and
-// every unnamed item it carries, and zero bytes for one it does not.
-//
-// It is codec's Marshaler. Two values are the descriptor's rather than the
-// caller's and are supplied rather than taken from the record: an OCCURS
-// DEPENDING ON count is emitted as the number of occurrences written, and
-// slack — and the bytes of an item the copybook gives no data-name — is
-// emitted as what was retained for it. Everything else is the caller's,
-// including the value a discriminator tests — a writer evaluates a predicate
-// and never inverts one.
-func (p *DebitPosting) MarshalCOBOL(w *codec.Writer) error {
-	var err error
-
-	if err = w.WriteAlphanumeric(p.PstAccount, 10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-ACCOUNT: %w", err)
-	}
-
-	if err = w.WriteZonedInt32(p.PstSequence, 2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-SEQUENCE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstType, 2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TYPE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstDebit.PdbCostCentre, 6); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PDB-COST-CENTRE: %w", err)
-	}
-
-	if err = w.WritePackedInt64(p.PstDebit.PdbAmount, 13, codec.Signed); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PDB-AMOUNT: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstDebit.PdbMemo, 15); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PDB-MEMO: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstTail, 8); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TAIL: %w", err)
-	}
-
-	return nil
-}
-
-// UnmarshalCOBOL reads one POSTING-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries and
-// of every item the copybook gives no data-name.
-//
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
-// of the file in hand, and Encoding is what this descriptor resolved.
-func (p *DebitPostingRef) UnmarshalCOBOL(r *codec.Reader) error {
-	var err error
-
-	if p.PstAccount, err = r.ReadAlphanumeric(10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-ACCOUNT: %w", err)
-	}
-
-	if p.PstSequence, err = r.ReadZonedInt32(2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-SEQUENCE: %w", err)
-	}
-
-	if p.PstType, err = r.ReadAlphanumeric(2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TYPE: %w", err)
-	}
-
-	if p.PstDebit.PdbCostCentre, err = r.ReadAlphanumeric(6); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PDB-COST-CENTRE: %w", err)
-	}
-
-	if p.PstDebit.PdbAmount, err = r.ReadPackedInt64(13); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PDB-AMOUNT: %w", err)
-	}
-
-	if p.PstDebit.PdbMemo, err = r.ReadAlphanumeric(15); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PDB-MEMO: %w", err)
-	}
-
 	if p.PstTailRef.PtrBatch, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("POSTING-RECORD: reading PTR-BATCH: %w", err)
 	}
@@ -363,7 +270,7 @@ func (p *DebitPostingRef) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
-func (p *DebitPostingRef) MarshalCOBOL(w *codec.Writer) error {
+func (p *DebitPosting) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
 	if err = w.WriteAlphanumeric(p.PstAccount, 10); err != nil {
@@ -438,8 +345,12 @@ func (p *CreditPosting) UnmarshalCOBOL(r *codec.Reader) error {
 		return fmt.Errorf("POSTING-RECORD: reading the 4 bytes no item of it covers: %w", err)
 	}
 
-	if p.PstTail, err = r.ReadAlphanumeric(8); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TAIL: %w", err)
+	if p.PstTailRef.PtrBatch, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
+		return fmt.Errorf("POSTING-RECORD: reading PTR-BATCH: %w", err)
+	}
+
+	if p.PstTailRef.PtrLine, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
+		return fmt.Errorf("POSTING-RECORD: reading PTR-LINE: %w", err)
 	}
 
 	return nil
@@ -494,258 +405,6 @@ func (p *CreditPosting) MarshalCOBOL(w *codec.Writer) error {
 		if err = w.WriteBytes(p.slack[0]); err != nil {
 			return fmt.Errorf("POSTING-RECORD: writing the 4 bytes no item of it covers: %w", err)
 		}
-	}
-
-	if err = w.WriteAlphanumeric(p.PstTail, 8); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TAIL: %w", err)
-	}
-
-	return nil
-}
-
-// UnmarshalCOBOL reads one POSTING-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries and
-// of every item the copybook gives no data-name.
-//
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
-// of the file in hand, and Encoding is what this descriptor resolved.
-func (p *CreditPostingRef) UnmarshalCOBOL(r *codec.Reader) error {
-	var err error
-
-	if p.PstAccount, err = r.ReadAlphanumeric(10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-ACCOUNT: %w", err)
-	}
-
-	if p.PstSequence, err = r.ReadZonedInt32(2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-SEQUENCE: %w", err)
-	}
-
-	if p.PstType, err = r.ReadAlphanumeric(2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TYPE: %w", err)
-	}
-
-	if p.PstCredit.PcrSource, err = r.ReadAlphanumeric(4); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PCR-SOURCE: %w", err)
-	}
-
-	if p.PstCredit.PcrAmount, err = r.ReadPackedInt64(11); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PCR-AMOUNT: %w", err)
-	}
-
-	if p.PstCredit.PcrReference, err = r.ReadAlphanumeric(14); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PCR-REFERENCE: %w", err)
-	}
-
-	if p.slack[0], err = r.ReadBytes(4); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading the 4 bytes no item of it covers: %w", err)
-	}
-
-	if p.PstTailRef.PtrBatch, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PTR-BATCH: %w", err)
-	}
-
-	if p.PstTailRef.PtrLine, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PTR-LINE: %w", err)
-	}
-
-	return nil
-}
-
-// MarshalCOBOL writes this POSTING-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node and
-// every unnamed item it carries, and zero bytes for one it does not.
-//
-// It is codec's Marshaler. Two values are the descriptor's rather than the
-// caller's and are supplied rather than taken from the record: an OCCURS
-// DEPENDING ON count is emitted as the number of occurrences written, and
-// slack — and the bytes of an item the copybook gives no data-name — is
-// emitted as what was retained for it. Everything else is the caller's,
-// including the value a discriminator tests — a writer evaluates a predicate
-// and never inverts one.
-func (p *CreditPostingRef) MarshalCOBOL(w *codec.Writer) error {
-	var err error
-
-	if err = w.WriteAlphanumeric(p.PstAccount, 10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-ACCOUNT: %w", err)
-	}
-
-	if err = w.WriteZonedInt32(p.PstSequence, 2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-SEQUENCE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstType, 2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TYPE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstCredit.PcrSource, 4); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PCR-SOURCE: %w", err)
-	}
-
-	if err = w.WritePackedInt64(p.PstCredit.PcrAmount, 11, codec.Signed); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PCR-AMOUNT: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstCredit.PcrReference, 14); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PCR-REFERENCE: %w", err)
-	}
-
-	switch {
-	case p.slack[0] == nil:
-		if err = w.WriteBytes(zeroFill[:4]); err != nil {
-			return fmt.Errorf("POSTING-RECORD: writing 4 zero bytes for slack this record carries none for: %w", err)
-		}
-	case len(p.slack[0]) != 4:
-		return fmt.Errorf("POSTING-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 4 bytes is %d", len(p.slack[0]))
-	default:
-		if err = w.WriteBytes(p.slack[0]); err != nil {
-			return fmt.Errorf("POSTING-RECORD: writing the 4 bytes no item of it covers: %w", err)
-		}
-	}
-
-	if err = w.WriteZonedInt32(p.PstTailRef.PtrBatch, 4, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PTR-BATCH: %w", err)
-	}
-
-	if err = w.WriteZonedInt32(p.PstTailRef.PtrLine, 4, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PTR-LINE: %w", err)
-	}
-
-	return nil
-}
-
-// UnmarshalCOBOL reads one POSTING-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries and
-// of every item the copybook gives no data-name.
-//
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
-// of the file in hand, and Encoding is what this descriptor resolved.
-func (p *MemoPosting) UnmarshalCOBOL(r *codec.Reader) error {
-	var err error
-
-	if p.PstAccount, err = r.ReadAlphanumeric(10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-ACCOUNT: %w", err)
-	}
-
-	if p.PstSequence, err = r.ReadZonedInt32(2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-SEQUENCE: %w", err)
-	}
-
-	if p.PstType, err = r.ReadAlphanumeric(2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TYPE: %w", err)
-	}
-
-	if p.PstBody, err = r.ReadAlphanumeric(28); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-BODY: %w", err)
-	}
-
-	if p.PstTail, err = r.ReadAlphanumeric(8); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TAIL: %w", err)
-	}
-
-	return nil
-}
-
-// MarshalCOBOL writes this POSTING-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node and
-// every unnamed item it carries, and zero bytes for one it does not.
-//
-// It is codec's Marshaler. Two values are the descriptor's rather than the
-// caller's and are supplied rather than taken from the record: an OCCURS
-// DEPENDING ON count is emitted as the number of occurrences written, and
-// slack — and the bytes of an item the copybook gives no data-name — is
-// emitted as what was retained for it. Everything else is the caller's,
-// including the value a discriminator tests — a writer evaluates a predicate
-// and never inverts one.
-func (p *MemoPosting) MarshalCOBOL(w *codec.Writer) error {
-	var err error
-
-	if err = w.WriteAlphanumeric(p.PstAccount, 10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-ACCOUNT: %w", err)
-	}
-
-	if err = w.WriteZonedInt32(p.PstSequence, 2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-SEQUENCE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstType, 2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TYPE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstBody, 28); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-BODY: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstTail, 8); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TAIL: %w", err)
-	}
-
-	return nil
-}
-
-// UnmarshalCOBOL reads one POSTING-RECORD out of r, in the order docs/ir/SPEC.md
-// resolved its items, and retains the bytes of every slack node it carries and
-// of every item the copybook gives no data-name.
-//
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
-// of the file in hand, and Encoding is what this descriptor resolved.
-func (p *MemoPostingRef) UnmarshalCOBOL(r *codec.Reader) error {
-	var err error
-
-	if p.PstAccount, err = r.ReadAlphanumeric(10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-ACCOUNT: %w", err)
-	}
-
-	if p.PstSequence, err = r.ReadZonedInt32(2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-SEQUENCE: %w", err)
-	}
-
-	if p.PstType, err = r.ReadAlphanumeric(2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-TYPE: %w", err)
-	}
-
-	if p.PstBody, err = r.ReadAlphanumeric(28); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PST-BODY: %w", err)
-	}
-
-	if p.PstTailRef.PtrBatch, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PTR-BATCH: %w", err)
-	}
-
-	if p.PstTailRef.PtrLine, err = r.ReadZonedInt32(4, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: reading PTR-LINE: %w", err)
-	}
-
-	return nil
-}
-
-// MarshalCOBOL writes this POSTING-RECORD into w, in the order docs/ir/SPEC.md
-// resolved its items, emitting the bytes retained for every slack node and
-// every unnamed item it carries, and zero bytes for one it does not.
-//
-// It is codec's Marshaler. Two values are the descriptor's rather than the
-// caller's and are supplied rather than taken from the record: an OCCURS
-// DEPENDING ON count is emitted as the number of occurrences written, and
-// slack — and the bytes of an item the copybook gives no data-name — is
-// emitted as what was retained for it. Everything else is the caller's,
-// including the value a discriminator tests — a writer evaluates a predicate
-// and never inverts one.
-func (p *MemoPostingRef) MarshalCOBOL(w *codec.Writer) error {
-	var err error
-
-	if err = w.WriteAlphanumeric(p.PstAccount, 10); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-ACCOUNT: %w", err)
-	}
-
-	if err = w.WriteZonedInt32(p.PstSequence, 2, codec.SignUnsigned); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-SEQUENCE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstType, 2); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-TYPE: %w", err)
-	}
-
-	if err = w.WriteAlphanumeric(p.PstBody, 28); err != nil {
-		return fmt.Errorf("POSTING-RECORD: writing PST-BODY: %w", err)
 	}
 
 	if err = w.WriteZonedInt32(p.PstTailRef.PtrBatch, 4, codec.SignUnsigned); err != nil {

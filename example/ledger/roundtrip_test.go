@@ -118,9 +118,10 @@ func key(w *codec.Writer, account string, sequence int32, code string) error {
 	return w.WriteAlphanumeric(code, 2)
 }
 
-// debitBytes is one posting whose body is PST-DEBIT, with code selecting which
-// description of PST-TAIL goes behind it.
-func debitBytes(t *testing.T, enc codec.Encoding, code string, tail func(*codec.Writer) error) []byte {
+// debitBytes is one posting whose body is PST-DEBIT and whose tail is
+// PST-TAIL-REF, which is the only tail this layout names. code is a parameter
+// so that a caller can write one the layout does not describe.
+func debitBytes(t *testing.T, enc codec.Encoding, code string) []byte {
 	t.Helper()
 
 	return laidOut(t, enc, func(w *codec.Writer) error {
@@ -140,14 +141,14 @@ func debitBytes(t *testing.T, enc codec.Encoding, code string, tail func(*codec.
 			return err
 		}
 
-		return tail(w)
+		return refTail(w)
 	})
 }
 
 // creditBytes is one posting whose body is PST-CREDIT — four bytes shorter than
 // the run it redefines, so the four behind it are slack, and they are written
 // here as bytes no item of the record describes.
-func creditBytes(t *testing.T, enc codec.Encoding, code string, tail func(*codec.Writer) error) []byte {
+func creditBytes(t *testing.T, enc codec.Encoding, code string) []byte {
 	t.Helper()
 
 	return laidOut(t, enc, func(w *codec.Writer) error {
@@ -174,33 +175,13 @@ func creditBytes(t *testing.T, enc codec.Encoding, code string, tail func(*codec
 			return err
 		}
 
-		return tail(w)
+		return refTail(w)
 	})
 }
 
-// memoBytes is one posting described by the base PST-BODY.
-func memoBytes(t *testing.T, enc codec.Encoding, code string, tail func(*codec.Writer) error) []byte {
-	t.Helper()
-
-	return laidOut(t, enc, func(w *codec.Writer) error {
-		if err := key(w, "4001200000", 3, code); err != nil {
-			return err
-		}
-
-		if err := w.WriteAlphanumeric("MEMO ONLY, NO POSTING", 28); err != nil {
-			return err
-		}
-
-		return tail(w)
-	})
-}
-
-// plainTail is PST-TAIL, the base description of the second redefined run.
-func plainTail(w *codec.Writer) error {
-	return w.WriteAlphanumeric("TAIL0001", 8)
-}
-
-// refTail is PST-TAIL-REF, the other one.
+// refTail is PST-TAIL-REF, the description of the second redefined run this
+// extract carries. PST-TAIL itself is the base description that gives it its
+// storage, and no record of this layout is described by it.
 func refTail(w *codec.Writer) error {
 	if err := w.WriteZonedInt32(7, 4, codec.SignUnsigned); err != nil {
 		return err
@@ -209,8 +190,12 @@ func refTail(w *codec.Writer) error {
 	return w.WriteZonedInt32(42, 4, codec.SignUnsigned)
 }
 
-// fileBytes is a whole ledger extract: the header, one posting of every one of
-// the six record types the two redefined runs multiply out to, and the trailer.
+// fileBytes is a whole ledger extract: the header, one posting of each of the
+// two record types this layout names, and the trailer.
+//
+// Two rather than the six `posting.cpy` admits, because the other four are
+// described by PST-BODY or PST-TAIL — the base descriptions of the two
+// redefined runs — and an extract a mainframe produced does not carry them.
 func fileBytes(t *testing.T) []byte {
 	t.Helper()
 
@@ -219,14 +204,10 @@ func fileBytes(t *testing.T) []byte {
 	var b bytes.Buffer
 
 	for _, raw := range [][]byte{
-		headerBytes(t, enc, 6),
-		debitBytes(t, enc, "DA", plainTail),
-		debitBytes(t, enc, "DB", refTail),
-		creditBytes(t, enc, "CA", plainTail),
-		creditBytes(t, enc, "CB", refTail),
-		memoBytes(t, enc, "MA", plainTail),
-		memoBytes(t, enc, "MB", refTail),
-		trailerBytes(t, enc, 6),
+		headerBytes(t, enc, 2),
+		debitBytes(t, enc, "DR"),
+		creditBytes(t, enc, "CR"),
+		trailerBytes(t, enc, 2),
 	} {
 		b.Write(framed(raw))
 	}
@@ -292,16 +273,8 @@ func recordType(v any) string {
 		return "LedgerTrailer"
 	case *DebitPosting:
 		return "DebitPosting"
-	case *DebitPostingRef:
-		return "DebitPostingRef"
 	case *CreditPosting:
 		return "CreditPosting"
-	case *CreditPostingRef:
-		return "CreditPostingRef"
-	case *MemoPosting:
-		return "MemoPosting"
-	case *MemoPostingRef:
-		return "MemoPostingRef"
 	default:
 		return "something else"
 	}
@@ -321,18 +294,17 @@ func TestAMultiRecordFileReadsBackAsTheFileItWas(t *testing.T) {
 	want := fileBytes(t)
 
 	records := read(t, Encoding(), want)
-	if len(records) != 8 {
-		t.Fatalf("the file holds eight records and the reader produced %d", len(records))
+	if len(records) != 4 {
+		t.Fatalf("the file holds four records and the reader produced %d", len(records))
 	}
 
-	// Every one of the six record types the two redefined runs multiply out
-	// to, between the header and the trailer, and each one selected by the
-	// type code twelve bytes into the record rather than by its position.
+	// Both of the record types this layout names, between the header and the
+	// trailer, and each one selected by the type code twelve bytes into the
+	// record rather than by its position.
 	for i, kind := range []any{
 		(*LedgerHeader)(nil),
-		(*DebitPosting)(nil), (*DebitPostingRef)(nil),
-		(*CreditPosting)(nil), (*CreditPostingRef)(nil),
-		(*MemoPosting)(nil), (*MemoPostingRef)(nil),
+		(*DebitPosting)(nil),
+		(*CreditPosting)(nil),
 		(*LedgerTrailer)(nil),
 	} {
 		if got, want := recordType(records[i]), recordType(kind); got != want {
@@ -354,13 +326,13 @@ func TestTheBytesACreditPostingDoesNotDescribeSurviveARead(t *testing.T) {
 	t.Parallel()
 
 	records := read(t, Encoding(), fileBytes(t))
-	if len(records) != 8 {
-		t.Fatalf("the file holds eight records and the reader produced %d", len(records))
+	if len(records) != 4 {
+		t.Fatalf("the file holds four records and the reader produced %d", len(records))
 	}
 
-	credit, ok := records[3].(*CreditPosting)
+	credit, ok := records[2].(*CreditPosting)
 	if !ok {
-		t.Fatalf("record 4 is a %s, want a CreditPosting", recordType(records[3]))
+		t.Fatalf("record 3 is a %s, want a CreditPosting", recordType(records[2]))
 	}
 
 	// The run is retained rather than merely declared. The field is an array
@@ -395,7 +367,7 @@ func TestAFileHoldingFewerPostingsThanItsHeaderCountsIsTruncated(t *testing.T) {
 	b.Write(framed(headerBytes(t, enc, 6)))
 
 	for range 5 {
-		b.Write(framed(debitBytes(t, enc, "DA", plainTail)))
+		b.Write(framed(debitBytes(t, enc, "DR")))
 	}
 
 	r, err := NewReader(bytes.NewReader(b.Bytes()), enc)
@@ -447,13 +419,16 @@ func TestAWriterClosedAPostingShortOfTheCountIsReported(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	posting := &MemoPosting{
+	posting := &DebitPosting{
 		PstAccount:  "4001200000",
 		PstSequence: 1,
-		PstType:     "MA",
-		PstBody:     "MEMO ONLY, NO POSTING",
-		PstTail:     "TAIL0001",
+		PstType:     "DR",
 	}
+	posting.PstDebit.PdbCostCentre = "CC1000"
+	posting.PstDebit.PdbAmount = 1234567
+	posting.PstDebit.PdbMemo = "OFFICE SUPPLIES"
+	posting.PstTailRef.PtrBatch = 7
+	posting.PstTailRef.PtrLine = 42
 
 	if err := w.Write(posting); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -470,9 +445,9 @@ func TestAWriterClosedAPostingShortOfTheCountIsReported(t *testing.T) {
 }
 
 // TestARecordMatchingNoAlternativeIsReportedAgainstItsOrdinal is the negative
-// half. Six type codes select six record types and a seventh selects none, and
-// a reader that admitted one anyway would decode a run of bytes as whichever
-// record type happened to be first.
+// half. Two type codes select the two record types this layout names and a
+// third selects none, and a reader that admitted one anyway would decode a run
+// of bytes as whichever record type happened to be first.
 //
 // The ordinal is the assertion. A file is read one record at a time and nothing
 // else in the report says where in the file the trouble is, so a diagnostic
@@ -487,8 +462,8 @@ func TestARecordMatchingNoAlternativeIsReportedAgainstItsOrdinal(t *testing.T) {
 	// The header, one posting the layout describes, and then one carrying a
 	// type code no `discriminate` form in the layout names.
 	b.Write(framed(headerBytes(t, enc, 6)))
-	b.Write(framed(debitBytes(t, enc, "DA", plainTail)))
-	b.Write(framed(debitBytes(t, enc, "ZZ", plainTail)))
+	b.Write(framed(debitBytes(t, enc, "DR")))
+	b.Write(framed(debitBytes(t, enc, "ZZ")))
 
 	r, err := NewReader(bytes.NewReader(b.Bytes()), enc)
 	if err != nil {

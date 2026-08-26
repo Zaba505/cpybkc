@@ -117,7 +117,7 @@ func TestALedgerHeaderThenALedgerTrailer(t *testing.T) {
 // below, the records they read back as, and the same bytes written back.
 //
 // The discriminators it walks: HDR-TYPE holding "\xf0\xf1", PST-TYPE holding
-// "\xc4\xc1" and TRL-TYPE holding "\xf9\xf9".
+// "\xc4\xd9" and TRL-TYPE holding "\xf9\xf9".
 func TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer(t *testing.T) {
 	t.Parallel()
 
@@ -133,22 +133,24 @@ func TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer(t *testing.T) {
 		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 2: PST-ACCOUNT @0 X(10)
 		0xc1, 0xc1, //
 		0xf1, 0xf1, // record 2: PST-SEQUENCE @10 9(2)
-		0xc4, 0xc1, // record 2: PST-TYPE @12 X(2)
+		0xc4, 0xd9, // record 2: PST-TYPE @12 X(2)
 		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 2: PST-DEBIT.PDB-COST-CENTRE @14 X(6)
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x1d, // record 2: PST-DEBIT.PDB-AMOUNT @20 S9(11)V9(2) PACKED-DECIMAL
 		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // record 2: PST-DEBIT.PDB-MEMO @27 X(15)
 		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, //
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // record 2: PST-TAIL @42 X(8)
+		0xf0, 0xf0, 0xf4, 0xf3, // record 2: PST-TAIL-REF.PTR-BATCH @42 9(4)
+		0xf0, 0xf0, 0xf4, 0xf7, // record 2: PST-TAIL-REF.PTR-LINE @46 9(4)
 		0x00, 0x36, 0x00, 0x00, // record 3: the record descriptor word — 54 bytes, itself included
 		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 3: PST-ACCOUNT @0 X(10)
 		0xc1, 0xc1, //
 		0xf1, 0xf1, // record 3: PST-SEQUENCE @10 9(2)
-		0xc4, 0xc1, // record 3: PST-TYPE @12 X(2)
+		0xc4, 0xd9, // record 3: PST-TYPE @12 X(2)
 		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 3: PST-DEBIT.PDB-COST-CENTRE @14 X(6)
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x1d, // record 3: PST-DEBIT.PDB-AMOUNT @20 S9(11)V9(2) PACKED-DECIMAL
 		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // record 3: PST-DEBIT.PDB-MEMO @27 X(15)
 		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, //
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // record 3: PST-TAIL @42 X(8)
+		0xf0, 0xf0, 0xf4, 0xf3, // record 3: PST-TAIL-REF.PTR-BATCH @42 9(4)
+		0xf0, 0xf0, 0xf4, 0xf7, // record 3: PST-TAIL-REF.PTR-LINE @46 9(4)
 		0x00, 0x1c, 0x00, 0x00, // record 4: the record descriptor word — 28 bytes, itself included
 		0xf9, 0xf9, // record 4: TRL-TYPE @0 X(2)
 		0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf3, // record 4: TRL-COUNT @2 9(6)
@@ -194,8 +196,8 @@ func TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer(t *testing.T) {
 		t.Fatalf("record 2 is POSTING-RECORD and came back as a %T, want a *ledger.DebitPosting", records[1])
 	}
 
-	if record2.PstType != "DA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "DA")
+	if record2.PstType != "DR" {
+		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "DR")
 	}
 
 	record3, ok := records[2].(*ledger.DebitPosting)
@@ -203,136 +205,8 @@ func TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer(t *testing.T) {
 		t.Fatalf("record 3 is POSTING-RECORD and came back as a %T, want a *ledger.DebitPosting", records[2])
 	}
 
-	if record3.PstType != "DA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "DA")
-	}
-
-	record4, ok := records[3].(*ledger.LedgerTrailer)
-	if !ok {
-		t.Fatalf("record 4 is LEDGER-TRAILER and came back as a %T, want a *ledger.LedgerTrailer", records[3])
-	}
-
-	if record4.TrlType != "99" {
-		t.Errorf("TRL-TYPE: got %q, want %q", record4.TrlType, "99")
-	}
-
-	var out bytes.Buffer
-
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
-
-	for _, rec := range records {
-		if err := w.Write(rec); err != nil {
-			t.Fatalf("Write: %v", err)
-		}
-	}
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestALedgerHeaderThenTwoDebitPostingRefsThenALedgerTrailer is a file of
-// LEDGER-HEADER, two POSTING-RECORD records and LEDGER-TRAILER: the bytes
-// below, the records they read back as, and the same bytes written back.
-//
-// The discriminators it walks: HDR-TYPE holding "\xf0\xf1", PST-TYPE holding
-// "\xc4\xc2" and TRL-TYPE holding "\xf9\xf9".
-func TestALedgerHeaderThenTwoDebitPostingRefsThenALedgerTrailer(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0x00, 0x1c, 0x00, 0x00, // record 1: the record descriptor word — 28 bytes, itself included
-		0xf0, 0xf1, // record 1: HDR-TYPE @0 X(2)
-		0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, // record 1: HDR-LEDGER-ID @2 X(10)
-		0xc3, 0xc3, //
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf1, 0xf3, // record 1: HDR-PERIOD @12 9(6)
-		0xe2, 0xe2, 0xe2, // record 1: HDR-CURRENCY @18 X(3)
-		0xf0, 0xf0, 0xf2, // record 1: HDR-COUNT @21 9(3)
-		0x00, 0x36, 0x00, 0x00, // record 2: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 2: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 2: PST-SEQUENCE @10 9(2)
-		0xc4, 0xc2, // record 2: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 2: PST-DEBIT.PDB-COST-CENTRE @14 X(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x1d, // record 2: PST-DEBIT.PDB-AMOUNT @20 S9(11)V9(2) PACKED-DECIMAL
-		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // record 2: PST-DEBIT.PDB-MEMO @27 X(15)
-		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, //
-		0xf0, 0xf0, 0xf4, 0xf3, // record 2: PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // record 2: PST-TAIL-REF.PTR-LINE @46 9(4)
-		0x00, 0x36, 0x00, 0x00, // record 3: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 3: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 3: PST-SEQUENCE @10 9(2)
-		0xc4, 0xc2, // record 3: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 3: PST-DEBIT.PDB-COST-CENTRE @14 X(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x1d, // record 3: PST-DEBIT.PDB-AMOUNT @20 S9(11)V9(2) PACKED-DECIMAL
-		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // record 3: PST-DEBIT.PDB-MEMO @27 X(15)
-		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, //
-		0xf0, 0xf0, 0xf4, 0xf3, // record 3: PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // record 3: PST-TAIL-REF.PTR-LINE @46 9(4)
-		0x00, 0x1c, 0x00, 0x00, // record 4: the record descriptor word — 28 bytes, itself included
-		0xf9, 0xf9, // record 4: TRL-TYPE @0 X(2)
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf3, // record 4: TRL-COUNT @2 9(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9d, // record 4: TRL-NET @8 S9(13)V9(2) PACKED-DECIMAL
-		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 4: FILLER @16 X(8)
-	}
-
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewReader: %v", err)
-	}
-
-	var records []ledger.Record
-
-	for {
-		rec, err := r.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-
-		records = append(records, rec)
-	}
-
-	if len(records) != 4 {
-		t.Fatalf("the file holds 4 records and the reader produced %d", len(records))
-	}
-
-	record1, ok := records[0].(*ledger.LedgerHeader)
-	if !ok {
-		t.Fatalf("record 1 is LEDGER-HEADER and came back as a %T, want a *ledger.LedgerHeader", records[0])
-	}
-
-	if record1.HdrType != "01" {
-		t.Errorf("HDR-TYPE: got %q, want %q", record1.HdrType, "01")
-	}
-
-	record2, ok := records[1].(*ledger.DebitPostingRef)
-	if !ok {
-		t.Fatalf("record 2 is POSTING-RECORD and came back as a %T, want a *ledger.DebitPostingRef", records[1])
-	}
-
-	if record2.PstType != "DB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "DB")
-	}
-
-	record3, ok := records[2].(*ledger.DebitPostingRef)
-	if !ok {
-		t.Fatalf("record 3 is POSTING-RECORD and came back as a %T, want a *ledger.DebitPostingRef", records[2])
-	}
-
-	if record3.PstType != "DB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "DB")
+	if record3.PstType != "DR" {
+		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "DR")
 	}
 
 	record4, ok := records[3].(*ledger.LedgerTrailer)
@@ -371,7 +245,7 @@ func TestALedgerHeaderThenTwoDebitPostingRefsThenALedgerTrailer(t *testing.T) {
 // below, the records they read back as, and the same bytes written back.
 //
 // The discriminators it walks: HDR-TYPE holding "\xf0\xf1", PST-TYPE holding
-// "\xc3\xc1" and TRL-TYPE holding "\xf9\xf9".
+// "\xc3\xd9" and TRL-TYPE holding "\xf9\xf9".
 func TestALedgerHeaderThenTwoCreditPostingsThenALedgerTrailer(t *testing.T) {
 	t.Parallel()
 
@@ -387,24 +261,26 @@ func TestALedgerHeaderThenTwoCreditPostingsThenALedgerTrailer(t *testing.T) {
 		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 2: PST-ACCOUNT @0 X(10)
 		0xc1, 0xc1, //
 		0xf1, 0xf1, // record 2: PST-SEQUENCE @10 9(2)
-		0xc3, 0xc1, // record 2: PST-TYPE @12 X(2)
+		0xc3, 0xd9, // record 2: PST-TYPE @12 X(2)
 		0xd6, 0xd6, 0xd6, 0xd6, // record 2: PST-CREDIT.PCR-SOURCE @14 X(4)
 		0x00, 0x00, 0x00, 0x00, 0x01, 0x9d, // record 2: PST-CREDIT.PCR-AMOUNT @18 S9(9)V9(2) PACKED-DECIMAL
 		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, // record 2: PST-CREDIT.PCR-REFERENCE @24 X(14)
 		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, //
 		0xc6, 0xc7, 0xc8, 0xc9, // record 2: (slack) @38 4 bytes no item covers
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // record 2: PST-TAIL @42 X(8)
+		0xf0, 0xf0, 0xf4, 0xf3, // record 2: PST-TAIL-REF.PTR-BATCH @42 9(4)
+		0xf0, 0xf0, 0xf4, 0xf7, // record 2: PST-TAIL-REF.PTR-LINE @46 9(4)
 		0x00, 0x36, 0x00, 0x00, // record 3: the record descriptor word — 54 bytes, itself included
 		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 3: PST-ACCOUNT @0 X(10)
 		0xc1, 0xc1, //
 		0xf1, 0xf1, // record 3: PST-SEQUENCE @10 9(2)
-		0xc3, 0xc1, // record 3: PST-TYPE @12 X(2)
+		0xc3, 0xd9, // record 3: PST-TYPE @12 X(2)
 		0xd6, 0xd6, 0xd6, 0xd6, // record 3: PST-CREDIT.PCR-SOURCE @14 X(4)
 		0x00, 0x00, 0x00, 0x00, 0x01, 0x9d, // record 3: PST-CREDIT.PCR-AMOUNT @18 S9(9)V9(2) PACKED-DECIMAL
 		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, // record 3: PST-CREDIT.PCR-REFERENCE @24 X(14)
 		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, //
 		0xc6, 0xc7, 0xc8, 0xc9, // record 3: (slack) @38 4 bytes no item covers
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // record 3: PST-TAIL @42 X(8)
+		0xf0, 0xf0, 0xf4, 0xf3, // record 3: PST-TAIL-REF.PTR-BATCH @42 9(4)
+		0xf0, 0xf0, 0xf4, 0xf7, // record 3: PST-TAIL-REF.PTR-LINE @46 9(4)
 		0x00, 0x1c, 0x00, 0x00, // record 4: the record descriptor word — 28 bytes, itself included
 		0xf9, 0xf9, // record 4: TRL-TYPE @0 X(2)
 		0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf3, // record 4: TRL-COUNT @2 9(6)
@@ -450,8 +326,8 @@ func TestALedgerHeaderThenTwoCreditPostingsThenALedgerTrailer(t *testing.T) {
 		t.Fatalf("record 2 is POSTING-RECORD and came back as a %T, want a *ledger.CreditPosting", records[1])
 	}
 
-	if record2.PstType != "CA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "CA")
+	if record2.PstType != "CR" {
+		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "CR")
 	}
 
 	record3, ok := records[2].(*ledger.CreditPosting)
@@ -459,392 +335,8 @@ func TestALedgerHeaderThenTwoCreditPostingsThenALedgerTrailer(t *testing.T) {
 		t.Fatalf("record 3 is POSTING-RECORD and came back as a %T, want a *ledger.CreditPosting", records[2])
 	}
 
-	if record3.PstType != "CA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "CA")
-	}
-
-	record4, ok := records[3].(*ledger.LedgerTrailer)
-	if !ok {
-		t.Fatalf("record 4 is LEDGER-TRAILER and came back as a %T, want a *ledger.LedgerTrailer", records[3])
-	}
-
-	if record4.TrlType != "99" {
-		t.Errorf("TRL-TYPE: got %q, want %q", record4.TrlType, "99")
-	}
-
-	var out bytes.Buffer
-
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
-
-	for _, rec := range records {
-		if err := w.Write(rec); err != nil {
-			t.Fatalf("Write: %v", err)
-		}
-	}
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestALedgerHeaderThenTwoCreditPostingRefsThenALedgerTrailer is a file of
-// LEDGER-HEADER, two POSTING-RECORD records and LEDGER-TRAILER: the bytes
-// below, the records they read back as, and the same bytes written back.
-//
-// The discriminators it walks: HDR-TYPE holding "\xf0\xf1", PST-TYPE holding
-// "\xc3\xc2" and TRL-TYPE holding "\xf9\xf9".
-func TestALedgerHeaderThenTwoCreditPostingRefsThenALedgerTrailer(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0x00, 0x1c, 0x00, 0x00, // record 1: the record descriptor word — 28 bytes, itself included
-		0xf0, 0xf1, // record 1: HDR-TYPE @0 X(2)
-		0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, // record 1: HDR-LEDGER-ID @2 X(10)
-		0xc3, 0xc3, //
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf1, 0xf3, // record 1: HDR-PERIOD @12 9(6)
-		0xe2, 0xe2, 0xe2, // record 1: HDR-CURRENCY @18 X(3)
-		0xf0, 0xf0, 0xf2, // record 1: HDR-COUNT @21 9(3)
-		0x00, 0x36, 0x00, 0x00, // record 2: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 2: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 2: PST-SEQUENCE @10 9(2)
-		0xc3, 0xc2, // record 2: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, // record 2: PST-CREDIT.PCR-SOURCE @14 X(4)
-		0x00, 0x00, 0x00, 0x00, 0x01, 0x9d, // record 2: PST-CREDIT.PCR-AMOUNT @18 S9(9)V9(2) PACKED-DECIMAL
-		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, // record 2: PST-CREDIT.PCR-REFERENCE @24 X(14)
-		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, //
-		0xc6, 0xc7, 0xc8, 0xc9, // record 2: (slack) @38 4 bytes no item covers
-		0xf0, 0xf0, 0xf4, 0xf3, // record 2: PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // record 2: PST-TAIL-REF.PTR-LINE @46 9(4)
-		0x00, 0x36, 0x00, 0x00, // record 3: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 3: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 3: PST-SEQUENCE @10 9(2)
-		0xc3, 0xc2, // record 3: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, // record 3: PST-CREDIT.PCR-SOURCE @14 X(4)
-		0x00, 0x00, 0x00, 0x00, 0x01, 0x9d, // record 3: PST-CREDIT.PCR-AMOUNT @18 S9(9)V9(2) PACKED-DECIMAL
-		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, // record 3: PST-CREDIT.PCR-REFERENCE @24 X(14)
-		0xe8, 0xe8, 0xe8, 0xe8, 0xe8, 0xe8, //
-		0xc6, 0xc7, 0xc8, 0xc9, // record 3: (slack) @38 4 bytes no item covers
-		0xf0, 0xf0, 0xf4, 0xf3, // record 3: PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // record 3: PST-TAIL-REF.PTR-LINE @46 9(4)
-		0x00, 0x1c, 0x00, 0x00, // record 4: the record descriptor word — 28 bytes, itself included
-		0xf9, 0xf9, // record 4: TRL-TYPE @0 X(2)
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf3, // record 4: TRL-COUNT @2 9(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9d, // record 4: TRL-NET @8 S9(13)V9(2) PACKED-DECIMAL
-		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 4: FILLER @16 X(8)
-	}
-
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewReader: %v", err)
-	}
-
-	var records []ledger.Record
-
-	for {
-		rec, err := r.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-
-		records = append(records, rec)
-	}
-
-	if len(records) != 4 {
-		t.Fatalf("the file holds 4 records and the reader produced %d", len(records))
-	}
-
-	record1, ok := records[0].(*ledger.LedgerHeader)
-	if !ok {
-		t.Fatalf("record 1 is LEDGER-HEADER and came back as a %T, want a *ledger.LedgerHeader", records[0])
-	}
-
-	if record1.HdrType != "01" {
-		t.Errorf("HDR-TYPE: got %q, want %q", record1.HdrType, "01")
-	}
-
-	record2, ok := records[1].(*ledger.CreditPostingRef)
-	if !ok {
-		t.Fatalf("record 2 is POSTING-RECORD and came back as a %T, want a *ledger.CreditPostingRef", records[1])
-	}
-
-	if record2.PstType != "CB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "CB")
-	}
-
-	record3, ok := records[2].(*ledger.CreditPostingRef)
-	if !ok {
-		t.Fatalf("record 3 is POSTING-RECORD and came back as a %T, want a *ledger.CreditPostingRef", records[2])
-	}
-
-	if record3.PstType != "CB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "CB")
-	}
-
-	record4, ok := records[3].(*ledger.LedgerTrailer)
-	if !ok {
-		t.Fatalf("record 4 is LEDGER-TRAILER and came back as a %T, want a *ledger.LedgerTrailer", records[3])
-	}
-
-	if record4.TrlType != "99" {
-		t.Errorf("TRL-TYPE: got %q, want %q", record4.TrlType, "99")
-	}
-
-	var out bytes.Buffer
-
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
-
-	for _, rec := range records {
-		if err := w.Write(rec); err != nil {
-			t.Fatalf("Write: %v", err)
-		}
-	}
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestALedgerHeaderThenTwoMemoPostingsThenALedgerTrailer is a file of
-// LEDGER-HEADER, two POSTING-RECORD records and LEDGER-TRAILER: the bytes
-// below, the records they read back as, and the same bytes written back.
-//
-// The discriminators it walks: HDR-TYPE holding "\xf0\xf1", PST-TYPE holding
-// "\xd4\xc1" and TRL-TYPE holding "\xf9\xf9".
-func TestALedgerHeaderThenTwoMemoPostingsThenALedgerTrailer(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0x00, 0x1c, 0x00, 0x00, // record 1: the record descriptor word — 28 bytes, itself included
-		0xf0, 0xf1, // record 1: HDR-TYPE @0 X(2)
-		0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, // record 1: HDR-LEDGER-ID @2 X(10)
-		0xc3, 0xc3, //
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf1, 0xf3, // record 1: HDR-PERIOD @12 9(6)
-		0xe2, 0xe2, 0xe2, // record 1: HDR-CURRENCY @18 X(3)
-		0xf0, 0xf0, 0xf2, // record 1: HDR-COUNT @21 9(3)
-		0x00, 0x36, 0x00, 0x00, // record 2: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 2: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 2: PST-SEQUENCE @10 9(2)
-		0xd4, 0xc1, // record 2: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 2: PST-BODY @14 X(28)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // record 2: PST-TAIL @42 X(8)
-		0x00, 0x36, 0x00, 0x00, // record 3: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 3: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 3: PST-SEQUENCE @10 9(2)
-		0xd4, 0xc1, // record 3: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 3: PST-BODY @14 X(28)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, // record 3: PST-TAIL @42 X(8)
-		0x00, 0x1c, 0x00, 0x00, // record 4: the record descriptor word — 28 bytes, itself included
-		0xf9, 0xf9, // record 4: TRL-TYPE @0 X(2)
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf3, // record 4: TRL-COUNT @2 9(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9d, // record 4: TRL-NET @8 S9(13)V9(2) PACKED-DECIMAL
-		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 4: FILLER @16 X(8)
-	}
-
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewReader: %v", err)
-	}
-
-	var records []ledger.Record
-
-	for {
-		rec, err := r.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-
-		records = append(records, rec)
-	}
-
-	if len(records) != 4 {
-		t.Fatalf("the file holds 4 records and the reader produced %d", len(records))
-	}
-
-	record1, ok := records[0].(*ledger.LedgerHeader)
-	if !ok {
-		t.Fatalf("record 1 is LEDGER-HEADER and came back as a %T, want a *ledger.LedgerHeader", records[0])
-	}
-
-	if record1.HdrType != "01" {
-		t.Errorf("HDR-TYPE: got %q, want %q", record1.HdrType, "01")
-	}
-
-	record2, ok := records[1].(*ledger.MemoPosting)
-	if !ok {
-		t.Fatalf("record 2 is POSTING-RECORD and came back as a %T, want a *ledger.MemoPosting", records[1])
-	}
-
-	if record2.PstType != "MA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "MA")
-	}
-
-	record3, ok := records[2].(*ledger.MemoPosting)
-	if !ok {
-		t.Fatalf("record 3 is POSTING-RECORD and came back as a %T, want a *ledger.MemoPosting", records[2])
-	}
-
-	if record3.PstType != "MA" {
-		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "MA")
-	}
-
-	record4, ok := records[3].(*ledger.LedgerTrailer)
-	if !ok {
-		t.Fatalf("record 4 is LEDGER-TRAILER and came back as a %T, want a *ledger.LedgerTrailer", records[3])
-	}
-
-	if record4.TrlType != "99" {
-		t.Errorf("TRL-TYPE: got %q, want %q", record4.TrlType, "99")
-	}
-
-	var out bytes.Buffer
-
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
-
-	for _, rec := range records {
-		if err := w.Write(rec); err != nil {
-			t.Fatalf("Write: %v", err)
-		}
-	}
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if !bytes.Equal(out.Bytes(), in) {
-		t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
-	}
-}
-
-// TestALedgerHeaderThenTwoMemoPostingRefsThenALedgerTrailer is a file of
-// LEDGER-HEADER, two POSTING-RECORD records and LEDGER-TRAILER: the bytes
-// below, the records they read back as, and the same bytes written back.
-//
-// The discriminators it walks: HDR-TYPE holding "\xf0\xf1", PST-TYPE holding
-// "\xd4\xc2" and TRL-TYPE holding "\xf9\xf9".
-func TestALedgerHeaderThenTwoMemoPostingRefsThenALedgerTrailer(t *testing.T) {
-	t.Parallel()
-
-	in := []byte{
-		0x00, 0x1c, 0x00, 0x00, // record 1: the record descriptor word — 28 bytes, itself included
-		0xf0, 0xf1, // record 1: HDR-TYPE @0 X(2)
-		0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, 0xc3, // record 1: HDR-LEDGER-ID @2 X(10)
-		0xc3, 0xc3, //
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf1, 0xf3, // record 1: HDR-PERIOD @12 9(6)
-		0xe2, 0xe2, 0xe2, // record 1: HDR-CURRENCY @18 X(3)
-		0xf0, 0xf0, 0xf2, // record 1: HDR-COUNT @21 9(3)
-		0x00, 0x36, 0x00, 0x00, // record 2: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 2: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 2: PST-SEQUENCE @10 9(2)
-		0xd4, 0xc2, // record 2: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 2: PST-BODY @14 X(28)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, //
-		0xf0, 0xf0, 0xf4, 0xf3, // record 2: PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // record 2: PST-TAIL-REF.PTR-LINE @46 9(4)
-		0x00, 0x36, 0x00, 0x00, // record 3: the record descriptor word — 54 bytes, itself included
-		0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, // record 3: PST-ACCOUNT @0 X(10)
-		0xc1, 0xc1, //
-		0xf1, 0xf1, // record 3: PST-SEQUENCE @10 9(2)
-		0xd4, 0xc2, // record 3: PST-TYPE @12 X(2)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, // record 3: PST-BODY @14 X(28)
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, 0xd6, //
-		0xd6, 0xd6, 0xd6, 0xd6, //
-		0xf0, 0xf0, 0xf4, 0xf3, // record 3: PST-TAIL-REF.PTR-BATCH @42 9(4)
-		0xf0, 0xf0, 0xf4, 0xf7, // record 3: PST-TAIL-REF.PTR-LINE @46 9(4)
-		0x00, 0x1c, 0x00, 0x00, // record 4: the record descriptor word — 28 bytes, itself included
-		0xf9, 0xf9, // record 4: TRL-TYPE @0 X(2)
-		0xf0, 0xf0, 0xf0, 0xf0, 0xf0, 0xf3, // record 4: TRL-COUNT @2 9(6)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9d, // record 4: TRL-NET @8 S9(13)V9(2) PACKED-DECIMAL
-		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 4: FILLER @16 X(8)
-	}
-
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
-	if err != nil {
-		t.Fatalf("NewReader: %v", err)
-	}
-
-	var records []ledger.Record
-
-	for {
-		rec, err := r.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-
-		records = append(records, rec)
-	}
-
-	if len(records) != 4 {
-		t.Fatalf("the file holds 4 records and the reader produced %d", len(records))
-	}
-
-	record1, ok := records[0].(*ledger.LedgerHeader)
-	if !ok {
-		t.Fatalf("record 1 is LEDGER-HEADER and came back as a %T, want a *ledger.LedgerHeader", records[0])
-	}
-
-	if record1.HdrType != "01" {
-		t.Errorf("HDR-TYPE: got %q, want %q", record1.HdrType, "01")
-	}
-
-	record2, ok := records[1].(*ledger.MemoPostingRef)
-	if !ok {
-		t.Fatalf("record 2 is POSTING-RECORD and came back as a %T, want a *ledger.MemoPostingRef", records[1])
-	}
-
-	if record2.PstType != "MB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record2.PstType, "MB")
-	}
-
-	record3, ok := records[2].(*ledger.MemoPostingRef)
-	if !ok {
-		t.Fatalf("record 3 is POSTING-RECORD and came back as a %T, want a *ledger.MemoPostingRef", records[2])
-	}
-
-	if record3.PstType != "MB" {
-		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "MB")
+	if record3.PstType != "CR" {
+		t.Errorf("PST-TYPE: got %q, want %q", record3.PstType, "CR")
 	}
 
 	record4, ok := records[3].(*ledger.LedgerTrailer)

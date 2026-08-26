@@ -6,58 +6,18 @@
 
 ```mermaid
 stateDiagram-v2
-    [*] --> s77
-    s77 --> s78: LEDGER-HEADER, when HDR-TYPE = 0xF0 0xF1, then r76 = HDR-COUNT
-    s78 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s78 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s78 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s78 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s78 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s78 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s78 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s79 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s79 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s79 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s79 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s79 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s79 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s79 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s80 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s80 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s80 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s80 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s80 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s80 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s80 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s81 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s81 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s81 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s81 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s81 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s81 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s81 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s82 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s82 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s82 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s82 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s82 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s82 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s82 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s83 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s83 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s83 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s83 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s83 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s83 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s83 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s84 --> s79: DEBIT-POSTING, when PST-TYPE = 0xC4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s84 --> s80: DEBIT-POSTING-REF, when PST-TYPE = 0xC4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s84 --> s81: CREDIT-POSTING, when PST-TYPE = 0xC3 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s84 --> s82: CREDIT-POSTING-REF, when PST-TYPE = 0xC3 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s84 --> s83: MEMO-POSTING, when PST-TYPE = 0xD4 0xC1, if r76 greater than zero, then r76 = r76 - 1
-    s84 --> s84: MEMO-POSTING-REF, when PST-TYPE = 0xD4 0xC2, if r76 greater than zero, then r76 = r76 - 1
-    s84 --> s85: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r76 = 0
-    s85 --> [*]
+    [*] --> s40
+    s40 --> s41: LEDGER-HEADER, when HDR-TYPE = 0xF0 0xF1, then r39 = HDR-COUNT
+    s41 --> s42: DEBIT-POSTING, when PST-TYPE = 0xC4 0xD9, if r39 greater than zero, then r39 = r39 - 1
+    s41 --> s43: CREDIT-POSTING, when PST-TYPE = 0xC3 0xD9, if r39 greater than zero, then r39 = r39 - 1
+    s41 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
+    s42 --> s42: DEBIT-POSTING, when PST-TYPE = 0xC4 0xD9, if r39 greater than zero, then r39 = r39 - 1
+    s42 --> s43: CREDIT-POSTING, when PST-TYPE = 0xC3 0xD9, if r39 greater than zero, then r39 = r39 - 1
+    s42 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
+    s43 --> s42: DEBIT-POSTING, when PST-TYPE = 0xC4 0xD9, if r39 greater than zero, then r39 = r39 - 1
+    s43 --> s43: CREDIT-POSTING, when PST-TYPE = 0xC3 0xD9, if r39 greater than zero, then r39 = r39 - 1
+    s43 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
+    s44 --> [*]
 ```
 
 ## Registers
@@ -66,7 +26,7 @@ A register is what the automaton remembers between records: a binding on a trans
 
 | Register | Holds | Bound by |
 | --- | --- | --- |
-| r76 | an integer | `s77 --> s78` (LEDGER-HEADER), `s78 --> s79` (DEBIT-POSTING), `s78 --> s80` (DEBIT-POSTING-REF), `s78 --> s81` (CREDIT-POSTING), `s78 --> s82` (CREDIT-POSTING-REF), `s78 --> s83` (MEMO-POSTING), `s78 --> s84` (MEMO-POSTING-REF), `s79 --> s79` (DEBIT-POSTING), `s79 --> s80` (DEBIT-POSTING-REF), `s79 --> s81` (CREDIT-POSTING), `s79 --> s82` (CREDIT-POSTING-REF), `s79 --> s83` (MEMO-POSTING), `s79 --> s84` (MEMO-POSTING-REF), `s80 --> s79` (DEBIT-POSTING), `s80 --> s80` (DEBIT-POSTING-REF), `s80 --> s81` (CREDIT-POSTING), `s80 --> s82` (CREDIT-POSTING-REF), `s80 --> s83` (MEMO-POSTING), `s80 --> s84` (MEMO-POSTING-REF), `s81 --> s79` (DEBIT-POSTING), `s81 --> s80` (DEBIT-POSTING-REF), `s81 --> s81` (CREDIT-POSTING), `s81 --> s82` (CREDIT-POSTING-REF), `s81 --> s83` (MEMO-POSTING), `s81 --> s84` (MEMO-POSTING-REF), `s82 --> s79` (DEBIT-POSTING), `s82 --> s80` (DEBIT-POSTING-REF), `s82 --> s81` (CREDIT-POSTING), `s82 --> s82` (CREDIT-POSTING-REF), `s82 --> s83` (MEMO-POSTING), `s82 --> s84` (MEMO-POSTING-REF), `s83 --> s79` (DEBIT-POSTING), `s83 --> s80` (DEBIT-POSTING-REF), `s83 --> s81` (CREDIT-POSTING), `s83 --> s82` (CREDIT-POSTING-REF), `s83 --> s83` (MEMO-POSTING), `s83 --> s84` (MEMO-POSTING-REF), `s84 --> s79` (DEBIT-POSTING), `s84 --> s80` (DEBIT-POSTING-REF), `s84 --> s81` (CREDIT-POSTING), `s84 --> s82` (CREDIT-POSTING-REF), `s84 --> s83` (MEMO-POSTING), `s84 --> s84` (MEMO-POSTING-REF) |
+| r39 | an integer | `s40 --> s41` (LEDGER-HEADER), `s41 --> s42` (DEBIT-POSTING), `s41 --> s43` (CREDIT-POSTING), `s42 --> s42` (DEBIT-POSTING), `s42 --> s43` (CREDIT-POSTING), `s43 --> s42` (DEBIT-POSTING), `s43 --> s43` (CREDIT-POSTING) |
 
 ## Records
 
@@ -97,19 +57,6 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 14 | 6 | PST-DEBIT.PDB-COST-CENTRE | DISPLAY | X(6) | always |
 | 20 | 7 | PST-DEBIT.PDB-AMOUNT | PACKED-DECIMAL | S9(11)V9(2) | always |
 | 27 | 15 | PST-DEBIT.PDB-MEMO | DISPLAY | X(15) | always |
-| 42 | 8 | PST-TAIL | DISPLAY | X(8) | always |
-
-### DEBIT-POSTING-REF
-
-| Offset | Width | Item | Usage | Picture | Present |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 10 | PST-ACCOUNT | DISPLAY | X(10) | always |
-| 10 | 2 | PST-SEQUENCE | DISPLAY | 9(2) | always |
-| 12 | 2 | PST-TYPE | DISPLAY | X(2) | always |
-| 14 | 28 | PST-DEBIT | — | — | always |
-| 14 | 6 | PST-DEBIT.PDB-COST-CENTRE | DISPLAY | X(6) | always |
-| 20 | 7 | PST-DEBIT.PDB-AMOUNT | PACKED-DECIMAL | S9(11)V9(2) | always |
-| 27 | 15 | PST-DEBIT.PDB-MEMO | DISPLAY | X(15) | always |
 | 42 | 8 | PST-TAIL-REF | — | — | always |
 | 42 | 4 | PST-TAIL-REF.PTR-BATCH | DISPLAY | 9(4) | always |
 | 46 | 4 | PST-TAIL-REF.PTR-LINE | DISPLAY | 9(4) | always |
@@ -126,42 +73,6 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 18 | 6 | PST-CREDIT.PCR-AMOUNT | PACKED-DECIMAL | S9(9)V9(2) | always |
 | 24 | 14 | PST-CREDIT.PCR-REFERENCE | DISPLAY | X(14) | always |
 | 38 | 4 | *slack* | — | — | always |
-| 42 | 8 | PST-TAIL | DISPLAY | X(8) | always |
-
-### CREDIT-POSTING-REF
-
-| Offset | Width | Item | Usage | Picture | Present |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 10 | PST-ACCOUNT | DISPLAY | X(10) | always |
-| 10 | 2 | PST-SEQUENCE | DISPLAY | 9(2) | always |
-| 12 | 2 | PST-TYPE | DISPLAY | X(2) | always |
-| 14 | 24 | PST-CREDIT | — | — | always |
-| 14 | 4 | PST-CREDIT.PCR-SOURCE | DISPLAY | X(4) | always |
-| 18 | 6 | PST-CREDIT.PCR-AMOUNT | PACKED-DECIMAL | S9(9)V9(2) | always |
-| 24 | 14 | PST-CREDIT.PCR-REFERENCE | DISPLAY | X(14) | always |
-| 38 | 4 | *slack* | — | — | always |
-| 42 | 8 | PST-TAIL-REF | — | — | always |
-| 42 | 4 | PST-TAIL-REF.PTR-BATCH | DISPLAY | 9(4) | always |
-| 46 | 4 | PST-TAIL-REF.PTR-LINE | DISPLAY | 9(4) | always |
-
-### MEMO-POSTING
-
-| Offset | Width | Item | Usage | Picture | Present |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 10 | PST-ACCOUNT | DISPLAY | X(10) | always |
-| 10 | 2 | PST-SEQUENCE | DISPLAY | 9(2) | always |
-| 12 | 2 | PST-TYPE | DISPLAY | X(2) | always |
-| 14 | 28 | PST-BODY | DISPLAY | X(28) | always |
-| 42 | 8 | PST-TAIL | DISPLAY | X(8) | always |
-
-### MEMO-POSTING-REF
-
-| Offset | Width | Item | Usage | Picture | Present |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 10 | PST-ACCOUNT | DISPLAY | X(10) | always |
-| 10 | 2 | PST-SEQUENCE | DISPLAY | 9(2) | always |
-| 12 | 2 | PST-TYPE | DISPLAY | X(2) | always |
-| 14 | 28 | PST-BODY | DISPLAY | X(28) | always |
 | 42 | 8 | PST-TAIL-REF | — | — | always |
 | 42 | 4 | PST-TAIL-REF.PTR-BATCH | DISPLAY | 9(4) | always |
 | 46 | 4 | PST-TAIL-REF.PTR-LINE | DISPLAY | 9(4) | always |

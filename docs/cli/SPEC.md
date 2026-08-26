@@ -523,14 +523,25 @@ have no default for any; [`framing`](../layout/SPEC.md#physical-framing), with
 [`discriminate`](../layout/SPEC.md#discrimination); and
 [`sequence`](../layout/SPEC.md#sequencing).
 
-`example/ledger.sexpr` is the measure. Its postings alone are six `record` forms
-and twelve `alternative` children — thirty-odd lines, every one of them
-recoverable from `posting.cpy` — against the eight `discriminate` forms its
-eight record types need and the one `sequence`, which are the file's actual
-description. Its six `rename`s sit between the two: which records need one is
-recoverable, and the six substitutes are a reading of what the file *means*, so
-`init` writes the question and not the answer. What it claims is that first
-column and nothing beyond it.
+`example/posting.cpy` is the measure, and the arithmetic is `init`'s output for
+it. That one copybook scaffolds six `record` forms and twelve `alternative`
+children — thirty-odd lines, every one of them recoverable from the copybook and
+none of them a thing the adopter has to know — against the `discriminate` form
+each of those six record types needs and the one `sequence`, which are the file's
+actual description and are recoverable from nothing. The six commented `rename`s
+sit between the two: which records need one is recoverable, and the substitutes
+are a reading of what the file *means*, so `init` writes the question and not the
+answer. What `init` claims is that first column and nothing beyond it.
+
+The measure is stated against the copybook rather than against
+`example/ledger.sexpr`, because the layout beside it names **two** of those six
+combinations — the two whose `alternative`s name a `REDEFINES` rather than a base
+description, which are the two a mainframe-produced extract carries. That is not
+`init` having derived too much. A copybook cannot say which combinations occur in
+a file, so `init` **MUST** emit all six and is right to; which of them the data
+holds is the adopter's knowledge, and narrowing to it is the layout's job. See
+[the worked example](../../example/README.md) for the same point from the layout
+end.
 
 ### The vector `init` takes
 
@@ -800,8 +811,10 @@ and in a file no layout is stored beside. A marked placeholder the adopter must
 replace has the same defect and adds a second reason the file does not read.
 
 And cpybkc **MUST NOT** name a record after the data. `example/ledger.sexpr`
-calls its six `DEBIT-POSTING`, `CREDIT-POSTING` and `MEMO-POSTING` crossed with
-`-REF`; that is a reading of what the file *means*, and no copybook holds it.
+calls the two combinations it names `DEBIT-POSTING` and `CREDIT-POSTING`; that is
+a reading of what the file *means*, and no copybook holds it — neither the names
+nor the fact that those two of the six `posting.cpy` admits are the ones its
+extracts carry.
 
 **No `rename` is emitted**, only a commented one. A rename on a record
 substitutes the name the IR carries — the name a generator turns into an

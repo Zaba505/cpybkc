@@ -98,8 +98,8 @@ type Reader struct {
 	// nothing has written is a malformed descriptor rather than a zero: a consumer
 	// MUST NOT supply a zero, an empty byte string or the value of any other
 	// register. See docs/ir/SPEC.md, "The automaton remembers, in registers".
-	register76      int64
-	register76Bound bool
+	register39      int64
+	register39Bound bool
 }
 
 // NewReader reads the records of r under enc.
@@ -181,20 +181,20 @@ func (r *Reader) Next() (Record, error) {
 	}
 
 	switch r.state {
-	case 0: // the state the descriptor carries as node 77
+	case 0: // the state the descriptor carries as node 40
 		expected := make([]string, 0, 1)
 
 		// Transition 1, which admits LEDGER-HEADER.
 		expected = append(expected, "LEDGER-HEADER")
-		if matches77At0(r.look) {
+		if matches40At0(r.look) {
 			rec := new(LedgerHeader)
 
 			if err := r.admit(rec); err != nil {
 				return nil, err
 			}
 
-			r.register76 = int64(rec.HdrCount)
-			r.register76Bound = true
+			r.register39 = int64(rec.HdrCount)
+			r.register39Bound = true
 
 			r.state = 1
 
@@ -202,1547 +202,283 @@ func (r *Reader) Next() (Record, error) {
 		}
 
 		return nil, r.undescribed(expected, "")
-	case 1: // the state the descriptor carries as node 78
-		expected := make([]string, 0, 7)
+	case 1: // the state the descriptor carries as node 41
+		expected := make([]string, 0, 3)
 
 		var excluded string
 
 		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
+		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches78At0(r.look) {
+			if matches41At0(r.look) {
 				rec := new(DebitPosting)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				if !r.register76Bound {
-					return nil, r.unbound(76)
+				if !r.register39Bound {
+					return nil, r.unbound(39)
 				}
 
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
+				if r.register39 <= 0 {
+					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
 				}
 
-				r.register76--
+				r.register39--
 
 				r.state = 2
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches78At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches41At0(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
 		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
+		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches78At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 3
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches78At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches78At2(r.look) {
+			if matches41At1(r.look) {
 				rec := new(CreditPosting)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				if !r.register76Bound {
-					return nil, r.unbound(76)
+				if !r.register39Bound {
+					return nil, r.unbound(39)
 				}
 
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
+				if r.register39 <= 0 {
+					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
 				}
 
-				r.register76--
+				r.register39--
 
-				r.state = 4
+				r.state = 3
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches78At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches41At1(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		// Transition 3, which admits LEDGER-TRAILER.
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches78At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches78At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches78At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches78At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches78At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches78At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
+		if r.register39 == 0 {
 			expected = append(expected, "LEDGER-TRAILER")
-			if matches78At6(r.look) {
+			if matches41At2(r.look) {
 				rec := new(LedgerTrailer)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				r.state = 8
+				r.state = 4
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches78At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches41At2(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", r.register39)
 		}
 
 		return nil, r.undescribed(expected, excluded)
-	case 2: // the state the descriptor carries as node 79
-		expected := make([]string, 0, 7)
+	case 2: // the state the descriptor carries as node 42
+		expected := make([]string, 0, 3)
 
 		var excluded string
 
 		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
+		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches79At0(r.look) {
+			if matches42At0(r.look) {
 				rec := new(DebitPosting)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				if !r.register76Bound {
-					return nil, r.unbound(76)
+				if !r.register39Bound {
+					return nil, r.unbound(39)
 				}
 
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
+				if r.register39 <= 0 {
+					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
 				}
 
-				r.register76--
+				r.register39--
 
 				r.state = 2
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches79At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches42At0(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
 		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
+		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches79At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 3
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches79At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches79At2(r.look) {
+			if matches42At1(r.look) {
 				rec := new(CreditPosting)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				if !r.register76Bound {
-					return nil, r.unbound(76)
+				if !r.register39Bound {
+					return nil, r.unbound(39)
 				}
 
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
+				if r.register39 <= 0 {
+					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
 				}
 
-				r.register76--
+				r.register39--
 
-				r.state = 4
+				r.state = 3
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches79At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches42At1(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		// Transition 3, which admits LEDGER-TRAILER.
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches79At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches79At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches79At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches79At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches79At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches79At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
+		if r.register39 == 0 {
 			expected = append(expected, "LEDGER-TRAILER")
-			if matches79At6(r.look) {
+			if matches42At2(r.look) {
 				rec := new(LedgerTrailer)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				r.state = 8
+				r.state = 4
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches79At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches42At2(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", r.register39)
 		}
 
 		return nil, r.undescribed(expected, excluded)
-	case 3: // the state the descriptor carries as node 80
-		expected := make([]string, 0, 7)
+	case 3: // the state the descriptor carries as node 43
+		expected := make([]string, 0, 3)
 
 		var excluded string
 
 		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
+		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches80At0(r.look) {
+			if matches43At0(r.look) {
 				rec := new(DebitPosting)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				if !r.register76Bound {
-					return nil, r.unbound(76)
+				if !r.register39Bound {
+					return nil, r.unbound(39)
 				}
 
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
+				if r.register39 <= 0 {
+					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
 				}
 
-				r.register76--
+				r.register39--
 
 				r.state = 2
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches80At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches43At0(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
 		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
+		if r.register39 > 0 {
 			expected = append(expected, "POSTING-RECORD")
-			if matches80At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 3
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches80At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches80At2(r.look) {
+			if matches43At1(r.look) {
 				rec := new(CreditPosting)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				if !r.register76Bound {
-					return nil, r.unbound(76)
+				if !r.register39Bound {
+					return nil, r.unbound(39)
 				}
 
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
+				if r.register39 <= 0 {
+					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
 				}
 
-				r.register76--
-
-				r.state = 4
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches80At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches80At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches80At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches80At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches80At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches80At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches80At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
-			expected = append(expected, "LEDGER-TRAILER")
-			if matches80At6(r.look) {
-				rec := new(LedgerTrailer)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				r.state = 8
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches80At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
-		}
-
-		return nil, r.undescribed(expected, excluded)
-	case 4: // the state the descriptor carries as node 81
-		expected := make([]string, 0, 7)
-
-		var excluded string
-
-		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches81At0(r.look) {
-				rec := new(DebitPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 2
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches81At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches81At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
+				r.register39--
 
 				r.state = 3
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches81At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches43At1(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", r.register39)
 		}
 
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
+		// Transition 3, which admits LEDGER-TRAILER.
+		if !r.register39Bound {
+			return nil, r.unbound(39)
 		}
 
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches81At2(r.look) {
-				rec := new(CreditPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 4
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches81At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches81At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches81At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches81At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches81At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches81At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches81At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
+		if r.register39 == 0 {
 			expected = append(expected, "LEDGER-TRAILER")
-			if matches81At6(r.look) {
+			if matches43At2(r.look) {
 				rec := new(LedgerTrailer)
 
 				if err := r.admit(rec); err != nil {
 					return nil, err
 				}
 
-				r.state = 8
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches81At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
-		}
-
-		return nil, r.undescribed(expected, excluded)
-	case 5: // the state the descriptor carries as node 82
-		expected := make([]string, 0, 7)
-
-		var excluded string
-
-		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches82At0(r.look) {
-				rec := new(DebitPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 2
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches82At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches82At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 3
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches82At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches82At2(r.look) {
-				rec := new(CreditPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
 				r.state = 4
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches82At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches82At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches82At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches82At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches82At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches82At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches82At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
-			expected = append(expected, "LEDGER-TRAILER")
-			if matches82At6(r.look) {
-				rec := new(LedgerTrailer)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				r.state = 8
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches82At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
+		} else if excluded == "" && matches43At2(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", r.register39)
 		}
 
 		return nil, r.undescribed(expected, excluded)
-	case 6: // the state the descriptor carries as node 83
-		expected := make([]string, 0, 7)
-
-		var excluded string
-
-		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches83At0(r.look) {
-				rec := new(DebitPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 2
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches83At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 3
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches83At2(r.look) {
-				rec := new(CreditPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 4
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches83At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches83At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches83At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
-			expected = append(expected, "LEDGER-TRAILER")
-			if matches83At6(r.look) {
-				rec := new(LedgerTrailer)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				r.state = 8
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches83At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
-		}
-
-		return nil, r.undescribed(expected, excluded)
-	case 7: // the state the descriptor carries as node 84
-		expected := make([]string, 0, 7)
-
-		var excluded string
-
-		// Transition 1, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches84At0(r.look) {
-				rec := new(DebitPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 2
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 2, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches84At1(r.look) {
-				rec := new(DebitPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 3
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At1(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 3, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches84At2(r.look) {
-				rec := new(CreditPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 4
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At2(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 4, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches84At3(r.look) {
-				rec := new(CreditPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 5
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At3(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 5, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches84At4(r.look) {
-				rec := new(MemoPosting)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 6
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At4(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 6, which admits POSTING-RECORD.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 > 0 {
-			expected = append(expected, "POSTING-RECORD")
-			if matches84At5(r.look) {
-				rec := new(MemoPostingRef)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				if !r.register76Bound {
-					return nil, r.unbound(76)
-				}
-
-				if r.register76 <= 0 {
-					return nil, fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", r.ordinal)
-				}
-
-				r.register76--
-
-				r.state = 7
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At5(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted POSTING-RECORD, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", r.register76)
-		}
-
-		// Transition 7, which admits LEDGER-TRAILER.
-		if !r.register76Bound {
-			return nil, r.unbound(76)
-		}
-
-		if r.register76 == 0 {
-			expected = append(expected, "LEDGER-TRAILER")
-			if matches84At6(r.look) {
-				rec := new(LedgerTrailer)
-
-				if err := r.admit(rec); err != nil {
-					return nil, err
-				}
-
-				r.state = 8
-
-				return rec, nil
-			}
-		} else if excluded == "" && matches84At6(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted LEDGER-TRAILER, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", r.register76)
-		}
-
-		return nil, r.undescribed(expected, excluded)
-	case 8: // the state the descriptor carries as node 85
+	case 4: // the state the descriptor carries as node 44
 		return nil, r.undescribed(nil, "")
 	default:
 		return nil, fmt.Errorf("record %d: the automaton is in a state this file does not carry", r.ordinal)
@@ -1758,7 +494,7 @@ func (r *Reader) Next() (Record, error) {
 // of what its own header promised.
 func (r *Reader) accepts() error {
 	switch r.state {
-	case 8:
+	case 4:
 		return nil
 	default:
 		return fmt.Errorf("the file ends after %d records and the layout describes a record to come", r.ordinal)
@@ -1878,14 +614,14 @@ func (r *Reader) fill(n int) error {
 	return err
 }
 
-// matches77At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 77: it admits LEDGER-HEADER.
+// matches40At0 is the predicate selecting transition 1 of the state the descriptor
+// carries as node 40: it admits LEDGER-HEADER.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches77At0(b []byte) bool {
+func matches40At0(b []byte) bool {
 	if len(b) < 2 {
 		return false
 	}
@@ -1893,104 +629,44 @@ func matches77At0(b []byte) bool {
 	return bytes.Equal(b[0:2], []byte("\xf0\xf1"))
 }
 
-// matches78At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 78: it admits POSTING-RECORD.
+// matches41At0 is the predicate selecting transition 1 of the state the descriptor
+// carries as node 41: it admits POSTING-RECORD.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches78At0(b []byte) bool {
+func matches41At0(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
 
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
+	return bytes.Equal(b[12:14], []byte("\xc4\xd9"))
 }
 
-// matches78At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 78: it admits POSTING-RECORD.
+// matches41At1 is the predicate selecting transition 2 of the state the descriptor
+// carries as node 41: it admits POSTING-RECORD.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches78At1(b []byte) bool {
+func matches41At1(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
 
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
+	return bytes.Equal(b[12:14], []byte("\xc3\xd9"))
 }
 
-// matches78At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 78: it admits POSTING-RECORD.
+// matches41At2 is the predicate selecting transition 3 of the state the descriptor
+// carries as node 41: it admits LEDGER-TRAILER.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches78At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches78At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 78: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches78At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches78At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 78: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches78At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches78At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 78: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches78At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches78At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 78: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches78At6(b []byte) bool {
+func matches41At2(b []byte) bool {
 	if len(b) < 2 {
 		return false
 	}
@@ -1998,104 +674,44 @@ func matches78At6(b []byte) bool {
 	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
 }
 
-// matches79At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 79: it admits POSTING-RECORD.
+// matches42At0 is the predicate selecting transition 1 of the state the descriptor
+// carries as node 42: it admits POSTING-RECORD.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches79At0(b []byte) bool {
+func matches42At0(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
 
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
+	return bytes.Equal(b[12:14], []byte("\xc4\xd9"))
 }
 
-// matches79At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 79: it admits POSTING-RECORD.
+// matches42At1 is the predicate selecting transition 2 of the state the descriptor
+// carries as node 42: it admits POSTING-RECORD.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches79At1(b []byte) bool {
+func matches42At1(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
 
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
+	return bytes.Equal(b[12:14], []byte("\xc3\xd9"))
 }
 
-// matches79At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 79: it admits POSTING-RECORD.
+// matches42At2 is the predicate selecting transition 3 of the state the descriptor
+// carries as node 42: it admits LEDGER-TRAILER.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches79At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches79At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 79: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches79At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches79At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 79: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches79At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches79At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 79: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches79At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches79At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 79: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches79At6(b []byte) bool {
+func matches42At2(b []byte) bool {
 	if len(b) < 2 {
 		return false
 	}
@@ -2103,524 +719,44 @@ func matches79At6(b []byte) bool {
 	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
 }
 
-// matches80At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 80: it admits POSTING-RECORD.
+// matches43At0 is the predicate selecting transition 1 of the state the descriptor
+// carries as node 43: it admits POSTING-RECORD.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches80At0(b []byte) bool {
+func matches43At0(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
 
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
+	return bytes.Equal(b[12:14], []byte("\xc4\xd9"))
 }
 
-// matches80At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 80: it admits POSTING-RECORD.
+// matches43At1 is the predicate selecting transition 2 of the state the descriptor
+// carries as node 43: it admits POSTING-RECORD.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches80At1(b []byte) bool {
+func matches43At1(b []byte) bool {
 	if len(b) < 14 {
 		return false
 	}
 
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
+	return bytes.Equal(b[12:14], []byte("\xc3\xd9"))
 }
 
-// matches80At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 80: it admits POSTING-RECORD.
+// matches43At2 is the predicate selecting transition 3 of the state the descriptor
+// carries as node 43: it admits LEDGER-TRAILER.
 //
 // A target that is not wholly inside the bytes it is handed does not match. A
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches80At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches80At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 80: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches80At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches80At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 80: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches80At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches80At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 80: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches80At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches80At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 80: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches80At6(b []byte) bool {
-	if len(b) < 2 {
-		return false
-	}
-
-	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
-}
-
-// matches81At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 81: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At0(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
-}
-
-// matches81At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 81: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At1(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
-}
-
-// matches81At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 81: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches81At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 81: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches81At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 81: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches81At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 81: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches81At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 81: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches81At6(b []byte) bool {
-	if len(b) < 2 {
-		return false
-	}
-
-	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
-}
-
-// matches82At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 82: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At0(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
-}
-
-// matches82At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 82: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At1(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
-}
-
-// matches82At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 82: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches82At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 82: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches82At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 82: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches82At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 82: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches82At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 82: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches82At6(b []byte) bool {
-	if len(b) < 2 {
-		return false
-	}
-
-	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
-}
-
-// matches83At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 83: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At0(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
-}
-
-// matches83At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 83: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At1(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
-}
-
-// matches83At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 83: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches83At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 83: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches83At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 83: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches83At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 83: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches83At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 83: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches83At6(b []byte) bool {
-	if len(b) < 2 {
-		return false
-	}
-
-	return bytes.Equal(b[0:2], []byte("\xf9\xf9"))
-}
-
-// matches84At0 is the predicate selecting transition 1 of the state the descriptor
-// carries as node 84: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At0(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc1"))
-}
-
-// matches84At1 is the predicate selecting transition 2 of the state the descriptor
-// carries as node 84: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At1(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc4\xc2"))
-}
-
-// matches84At2 is the predicate selecting transition 3 of the state the descriptor
-// carries as node 84: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At2(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc1"))
-}
-
-// matches84At3 is the predicate selecting transition 4 of the state the descriptor
-// carries as node 84: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At3(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xc3\xc2"))
-}
-
-// matches84At4 is the predicate selecting transition 5 of the state the descriptor
-// carries as node 84: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At4(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc1"))
-}
-
-// matches84At5 is the predicate selecting transition 6 of the state the descriptor
-// carries as node 84: it admits POSTING-RECORD.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At5(b []byte) bool {
-	if len(b) < 14 {
-		return false
-	}
-
-	return bytes.Equal(b[12:14], []byte("\xd4\xc2"))
-}
-
-// matches84At6 is the predicate selecting transition 7 of the state the descriptor
-// carries as node 84: it admits LEDGER-TRAILER.
-//
-// A target that is not wholly inside the bytes it is handed does not match. A
-// reader hands it the record the framing bounds, or as much of the input as it
-// can see where the framing bounds nothing; a writer hands it the whole of the
-// record it is about to emit.
-func matches84At6(b []byte) bool {
+func matches43At2(b []byte) bool {
 	if len(b) < 2 {
 		return false
 	}
@@ -2675,8 +811,8 @@ type Writer struct {
 	// nothing has written is a malformed descriptor rather than a zero: a consumer
 	// MUST NOT supply a zero, an empty byte string or the value of any other
 	// register. See docs/ir/SPEC.md, "The automaton remembers, in registers".
-	register76      int64
-	register76Bound bool
+	register39      int64
+	register39Bound bool
 }
 
 // NewWriter writes records into w under enc.
@@ -2713,22 +849,14 @@ func (w *Writer) Write(rec Record) error {
 	switch v := rec.(type) {
 	case *CreditPosting:
 		return w.writeCreditPosting(v)
-	case *CreditPostingRef:
-		return w.writeCreditPostingRef(v)
 	case *DebitPosting:
 		return w.writeDebitPosting(v)
-	case *DebitPostingRef:
-		return w.writeDebitPostingRef(v)
 	case *LedgerHeader:
 		return w.writeLedgerHeader(v)
 	case *LedgerTrailer:
 		return w.writeLedgerTrailer(v)
-	case *MemoPosting:
-		return w.writeMemoPosting(v)
-	case *MemoPostingRef:
-		return w.writeMemoPostingRef(v)
 	default:
-		return fmt.Errorf("record %d: this file's records are POSTING-RECORD, POSTING-RECORD, POSTING-RECORD, POSTING-RECORD, LEDGER-HEADER, LEDGER-TRAILER, POSTING-RECORD and POSTING-RECORD, and a %T is none of them", w.ordinal+1, rec)
+		return fmt.Errorf("record %d: this file's records are POSTING-RECORD, POSTING-RECORD, LEDGER-HEADER and LEDGER-TRAILER, and a %T is none of them", w.ordinal+1, rec)
 	}
 }
 
@@ -2742,7 +870,7 @@ func (w *Writer) Write(rec Record) error {
 // It does not close the io.Writer it was handed, which belongs to the caller.
 func (w *Writer) Close() error {
 	switch w.state {
-	case 8:
+	case 4:
 		return nil
 	default:
 		return fmt.Errorf("the file is closed after %d records and the layout describes a record to come", w.ordinal)
@@ -2774,455 +902,95 @@ func (w *Writer) writeCreditPosting(rec *CreditPosting) error {
 	var excluded string
 
 	switch w.state {
-	case 1: // the state the descriptor carries as node 78
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+	case 1: // the state the descriptor carries as node 41
+		// Transition 2 of that state.
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 > 0 {
-			if matches78At2(raw) {
+		if w.register39 > 0 {
+			if matches41At1(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				if !w.register76Bound {
-					return w.unbound(76)
+				if !w.register39Bound {
+					return w.unbound(39)
 				}
 
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
+				if w.register39 <= 0 {
+					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
 				}
 
-				w.register76--
+				w.register39--
 
-				w.state = 4
+				w.state = 3
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches78At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches41At1(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
-	case 2: // the state the descriptor carries as node 79
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+	case 2: // the state the descriptor carries as node 42
+		// Transition 2 of that state.
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 > 0 {
-			if matches79At2(raw) {
+		if w.register39 > 0 {
+			if matches42At1(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				if !w.register76Bound {
-					return w.unbound(76)
+				if !w.register39Bound {
+					return w.unbound(39)
 				}
 
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
+				if w.register39 <= 0 {
+					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
 				}
 
-				w.register76--
+				w.register39--
 
-				w.state = 4
+				w.state = 3
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches79At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches42At1(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
-	case 3: // the state the descriptor carries as node 80
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+	case 3: // the state the descriptor carries as node 43
+		// Transition 2 of that state.
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 > 0 {
-			if matches80At2(raw) {
+		if w.register39 > 0 {
+			if matches43At1(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				if !w.register76Bound {
-					return w.unbound(76)
+				if !w.register39Bound {
+					return w.unbound(39)
 				}
 
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
+				if w.register39 <= 0 {
+					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
 				}
 
-				w.register76--
+				w.register39--
 
-				w.state = 4
+				w.state = 3
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches80At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches81At2(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 4
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches82At2(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 4
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches83At2(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 4
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 3 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches84At2(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 4
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At2(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	}
-
-	return w.refuse("POSTING-RECORD", excluded)
-}
-
-// writeCreditPostingRef emits one POSTING-RECORD.
-//
-// The record is laid out first and the transition is chosen against those
-// bytes, because what a predicate tests is what is about to be emitted.
-func (w *Writer) writeCreditPostingRef(rec *CreditPostingRef) error {
-	// The encoder is rewound onto the buffer it filled for the record before
-	// this one rather than built over a fresh one. A rewind keeps everything
-	// the encoding derives and the capacity that buffer reached, and it puts
-	// the offset back to zero, so every offset codec reports is counted from
-	// the start of this record rather than from the start of the file.
-	w.cw.Reset(w.cw.Bytes())
-
-	if err := rec.MarshalCOBOL(w.cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	// The record's bytes, which are the encoder's own buffer and are valid
-	// until the rewind above happens again. Nothing below holds them past
-	// that: a predicate reads them, the framing writes them out, and a
-	// binding taking a register's bytes out of them copies.
-	raw := w.cw.Bytes()
-
-	var excluded string
-
-	switch w.state {
-	case 1: // the state the descriptor carries as node 78
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches78At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches78At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 2: // the state the descriptor carries as node 79
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches79At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches79At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 3: // the state the descriptor carries as node 80
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches80At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches80At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches81At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches82At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches83At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 4 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches84At3(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 5
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At3(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches43At1(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	}
 
@@ -3254,455 +1022,95 @@ func (w *Writer) writeDebitPosting(rec *DebitPosting) error {
 	var excluded string
 
 	switch w.state {
-	case 1: // the state the descriptor carries as node 78
+	case 1: // the state the descriptor carries as node 41
 		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 > 0 {
-			if matches78At0(raw) {
+		if w.register39 > 0 {
+			if matches41At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				if !w.register76Bound {
-					return w.unbound(76)
+				if !w.register39Bound {
+					return w.unbound(39)
 				}
 
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
+				if w.register39 <= 0 {
+					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
 				}
 
-				w.register76--
+				w.register39--
 
 				w.state = 2
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches78At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches41At0(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
-	case 2: // the state the descriptor carries as node 79
+	case 2: // the state the descriptor carries as node 42
 		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 > 0 {
-			if matches79At0(raw) {
+		if w.register39 > 0 {
+			if matches42At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				if !w.register76Bound {
-					return w.unbound(76)
+				if !w.register39Bound {
+					return w.unbound(39)
 				}
 
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
+				if w.register39 <= 0 {
+					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
 				}
 
-				w.register76--
+				w.register39--
 
 				w.state = 2
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches79At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches42At0(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
-	case 3: // the state the descriptor carries as node 80
+	case 3: // the state the descriptor carries as node 43
 		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 > 0 {
-			if matches80At0(raw) {
+		if w.register39 > 0 {
+			if matches43At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				if !w.register76Bound {
-					return w.unbound(76)
+				if !w.register39Bound {
+					return w.unbound(39)
 				}
 
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
+				if w.register39 <= 0 {
+					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 39, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
 				}
 
-				w.register76--
+				w.register39--
 
 				w.state = 2
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches80At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches81At0(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 2
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches82At0(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 2
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches83At0(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 2
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 1 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches84At0(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 2
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	}
-
-	return w.refuse("POSTING-RECORD", excluded)
-}
-
-// writeDebitPostingRef emits one POSTING-RECORD.
-//
-// The record is laid out first and the transition is chosen against those
-// bytes, because what a predicate tests is what is about to be emitted.
-func (w *Writer) writeDebitPostingRef(rec *DebitPostingRef) error {
-	// The encoder is rewound onto the buffer it filled for the record before
-	// this one rather than built over a fresh one. A rewind keeps everything
-	// the encoding derives and the capacity that buffer reached, and it puts
-	// the offset back to zero, so every offset codec reports is counted from
-	// the start of this record rather than from the start of the file.
-	w.cw.Reset(w.cw.Bytes())
-
-	if err := rec.MarshalCOBOL(w.cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	// The record's bytes, which are the encoder's own buffer and are valid
-	// until the rewind above happens again. Nothing below holds them past
-	// that: a predicate reads them, the framing writes them out, and a
-	// binding taking a register's bytes out of them copies.
-	raw := w.cw.Bytes()
-
-	var excluded string
-
-	switch w.state {
-	case 1: // the state the descriptor carries as node 78
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches78At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches78At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 2: // the state the descriptor carries as node 79
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches79At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches79At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 3: // the state the descriptor carries as node 80
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches80At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches80At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches81At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches82At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches83At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 2 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches84At1(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 3
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At1(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches43At0(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is greater than zero; node 39 holds %d", w.register39)
 		}
 	}
 
@@ -3732,15 +1140,15 @@ func (w *Writer) writeLedgerHeader(rec *LedgerHeader) error {
 	raw := w.cw.Bytes()
 
 	switch w.state {
-	case 0: // the state the descriptor carries as node 77
+	case 0: // the state the descriptor carries as node 40
 		// Transition 1 of that state.
-		if matches77At0(raw) {
+		if matches40At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
 
-			w.register76 = int64(rec.HdrCount)
-			w.register76Bound = true
+			w.register39 = int64(rec.HdrCount)
+			w.register39Bound = true
 
 			w.state = 1
 			w.ordinal++
@@ -3777,629 +1185,69 @@ func (w *Writer) writeLedgerTrailer(rec *LedgerTrailer) error {
 	var excluded string
 
 	switch w.state {
-	case 1: // the state the descriptor carries as node 78
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+	case 1: // the state the descriptor carries as node 41
+		// Transition 3 of that state.
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 == 0 {
-			if matches78At6(raw) {
+		if w.register39 == 0 {
+			if matches41At2(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				w.state = 8
+				w.state = 4
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches78At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches41At2(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", w.register39)
 		}
-	case 2: // the state the descriptor carries as node 79
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+	case 2: // the state the descriptor carries as node 42
+		// Transition 3 of that state.
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 == 0 {
-			if matches79At6(raw) {
+		if w.register39 == 0 {
+			if matches42At2(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				w.state = 8
+				w.state = 4
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches79At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches42At2(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", w.register39)
 		}
-	case 3: // the state the descriptor carries as node 80
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
+	case 3: // the state the descriptor carries as node 43
+		// Transition 3 of that state.
+		if !w.register39Bound {
+			return w.unbound(39)
 		}
 
-		if w.register76 == 0 {
-			if matches80At6(raw) {
+		if w.register39 == 0 {
+			if matches43At2(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
 
-				w.state = 8
+				w.state = 4
 				w.ordinal++
 
 				return nil
 			}
-		} else if excluded == "" && matches80At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 == 0 {
-			if matches81At6(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				w.state = 8
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 == 0 {
-			if matches82At6(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				w.state = 8
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 == 0 {
-			if matches83At6(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				w.state = 8
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 7 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 == 0 {
-			if matches84At6(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				w.state = 8
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At6(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is 0; node 76 holds %d", w.register76)
+		} else if excluded == "" && matches43At2(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 39 is 0; node 39 holds %d", w.register39)
 		}
 	}
 
 	return w.refuse("LEDGER-TRAILER", excluded)
-}
-
-// writeMemoPosting emits one POSTING-RECORD.
-//
-// The record is laid out first and the transition is chosen against those
-// bytes, because what a predicate tests is what is about to be emitted.
-func (w *Writer) writeMemoPosting(rec *MemoPosting) error {
-	// The encoder is rewound onto the buffer it filled for the record before
-	// this one rather than built over a fresh one. A rewind keeps everything
-	// the encoding derives and the capacity that buffer reached, and it puts
-	// the offset back to zero, so every offset codec reports is counted from
-	// the start of this record rather than from the start of the file.
-	w.cw.Reset(w.cw.Bytes())
-
-	if err := rec.MarshalCOBOL(w.cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	// The record's bytes, which are the encoder's own buffer and are valid
-	// until the rewind above happens again. Nothing below holds them past
-	// that: a predicate reads them, the framing writes them out, and a
-	// binding taking a register's bytes out of them copies.
-	raw := w.cw.Bytes()
-
-	var excluded string
-
-	switch w.state {
-	case 1: // the state the descriptor carries as node 78
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches78At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches78At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 2: // the state the descriptor carries as node 79
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches79At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches79At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 3: // the state the descriptor carries as node 80
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches80At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches80At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches81At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches82At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches83At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 5 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches84At4(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 6
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At4(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	}
-
-	return w.refuse("POSTING-RECORD", excluded)
-}
-
-// writeMemoPostingRef emits one POSTING-RECORD.
-//
-// The record is laid out first and the transition is chosen against those
-// bytes, because what a predicate tests is what is about to be emitted.
-func (w *Writer) writeMemoPostingRef(rec *MemoPostingRef) error {
-	// The encoder is rewound onto the buffer it filled for the record before
-	// this one rather than built over a fresh one. A rewind keeps everything
-	// the encoding derives and the capacity that buffer reached, and it puts
-	// the offset back to zero, so every offset codec reports is counted from
-	// the start of this record rather than from the start of the file.
-	w.cw.Reset(w.cw.Bytes())
-
-	if err := rec.MarshalCOBOL(w.cw); err != nil {
-		return fmt.Errorf("writing record %d: %w", w.ordinal+1, err)
-	}
-
-	// The record's bytes, which are the encoder's own buffer and are valid
-	// until the rewind above happens again. Nothing below holds them past
-	// that: a predicate reads them, the framing writes them out, and a
-	// binding taking a register's bytes out of them copies.
-	raw := w.cw.Bytes()
-
-	var excluded string
-
-	switch w.state {
-	case 1: // the state the descriptor carries as node 78
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches78At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches78At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 2: // the state the descriptor carries as node 79
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches79At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches79At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 3: // the state the descriptor carries as node 80
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches80At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches80At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 4: // the state the descriptor carries as node 81
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches81At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches81At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 5: // the state the descriptor carries as node 82
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches82At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches82At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 6: // the state the descriptor carries as node 83
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches83At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches83At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	case 7: // the state the descriptor carries as node 84
-		// Transition 6 of that state.
-		if !w.register76Bound {
-			return w.unbound(76)
-		}
-
-		if w.register76 > 0 {
-			if matches84At5(raw) {
-				if err := w.emit(raw); err != nil {
-					return err
-				}
-
-				if !w.register76Bound {
-					return w.unbound(76)
-				}
-
-				if w.register76 <= 0 {
-					return fmt.Errorf("record %d takes one off the register the descriptor carries as node 76, which is already at zero: a counter that would run below zero is a bug in whatever produced this descriptor", w.ordinal)
-				}
-
-				w.register76--
-
-				w.state = 7
-				w.ordinal++
-
-				return nil
-			}
-		} else if excluded == "" && matches84At5(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 76 is greater than zero; node 76 holds %d", w.register76)
-		}
-	}
-
-	return w.refuse("POSTING-RECORD", excluded)
 }
 
 // refuse is what a writer says when no transition leaving the state it is in

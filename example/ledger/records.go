@@ -72,35 +72,6 @@ type DebitPosting struct {
 		PdbMemo string
 	}
 
-	// PstTail is PST-TAIL — alphanumeric, DISPLAY, 8 bytes.
-	PstTail string
-}
-
-// DebitPostingRef is the POSTING-RECORD record, as docs/ir/SPEC.md resolved it.
-// The layout renames it to DEBIT-POSTING-REF.
-type DebitPostingRef struct {
-	// PstAccount is PST-ACCOUNT — alphanumeric, DISPLAY, 10 bytes.
-	PstAccount string
-
-	// PstSequence is PST-SEQUENCE — numeric, DISPLAY, 2 digits, unsigned, 2 bytes.
-	PstSequence int32
-
-	// PstType is PST-TYPE — alphanumeric, DISPLAY, 2 bytes.
-	PstType string
-
-	// PstDebit is PST-DEBIT — a group of 3 members.
-	PstDebit struct {
-		// PdbCostCentre is PDB-COST-CENTRE — alphanumeric, DISPLAY, 6 bytes.
-		PdbCostCentre string
-
-		// PdbAmount is PDB-AMOUNT — numeric, PACKED-DECIMAL, 13 digits, signed, 7 bytes.
-		// The value is unscaled: the item's value is this field times 10^-2.
-		PdbAmount int64
-
-		// PdbMemo is PDB-MEMO — alphanumeric, DISPLAY, 15 bytes.
-		PdbMemo string
-	}
-
 	// PstTailRef is PST-TAIL-REF — a group of 2 members.
 	PstTailRef struct {
 		// PtrBatch is PTR-BATCH — numeric, DISPLAY, 4 digits, unsigned, 4 bytes.
@@ -136,45 +107,6 @@ type CreditPosting struct {
 		PcrReference string
 	}
 
-	// PstTail is PST-TAIL — alphanumeric, DISPLAY, 8 bytes.
-	PstTail string
-
-	// slack is the bytes retained for the slack nodes among this item's
-	// members, in the order those nodes occupy the record: one run each, as
-	// they stood when the record was read, and one set of them per occurrence
-	// of this struct. A nil run is one the record does not carry; an empty run
-	// is a run of no bytes, and the two are not the same.
-	//
-	// They travel with the record and there is nothing here for a caller to do.
-	// See docs/ir/SPEC.md, "Slack survives a read".
-	slack [1][]byte
-}
-
-// CreditPostingRef is the POSTING-RECORD record, as docs/ir/SPEC.md resolved it.
-// The layout renames it to CREDIT-POSTING-REF.
-type CreditPostingRef struct {
-	// PstAccount is PST-ACCOUNT — alphanumeric, DISPLAY, 10 bytes.
-	PstAccount string
-
-	// PstSequence is PST-SEQUENCE — numeric, DISPLAY, 2 digits, unsigned, 2 bytes.
-	PstSequence int32
-
-	// PstType is PST-TYPE — alphanumeric, DISPLAY, 2 bytes.
-	PstType string
-
-	// PstCredit is PST-CREDIT — a group of 3 members.
-	PstCredit struct {
-		// PcrSource is PCR-SOURCE — alphanumeric, DISPLAY, 4 bytes.
-		PcrSource string
-
-		// PcrAmount is PCR-AMOUNT — numeric, PACKED-DECIMAL, 11 digits, signed, 6 bytes.
-		// The value is unscaled: the item's value is this field times 10^-2.
-		PcrAmount int64
-
-		// PcrReference is PCR-REFERENCE — alphanumeric, DISPLAY, 14 bytes.
-		PcrReference string
-	}
-
 	// PstTailRef is PST-TAIL-REF — a group of 2 members.
 	PstTailRef struct {
 		// PtrBatch is PTR-BATCH — numeric, DISPLAY, 4 digits, unsigned, 4 bytes.
@@ -193,48 +125,4 @@ type CreditPostingRef struct {
 	// They travel with the record and there is nothing here for a caller to do.
 	// See docs/ir/SPEC.md, "Slack survives a read".
 	slack [1][]byte
-}
-
-// MemoPosting is the POSTING-RECORD record, as docs/ir/SPEC.md resolved it.
-// The layout renames it to MEMO-POSTING.
-type MemoPosting struct {
-	// PstAccount is PST-ACCOUNT — alphanumeric, DISPLAY, 10 bytes.
-	PstAccount string
-
-	// PstSequence is PST-SEQUENCE — numeric, DISPLAY, 2 digits, unsigned, 2 bytes.
-	PstSequence int32
-
-	// PstType is PST-TYPE — alphanumeric, DISPLAY, 2 bytes.
-	PstType string
-
-	// PstBody is PST-BODY — alphanumeric, DISPLAY, 28 bytes.
-	PstBody string
-
-	// PstTail is PST-TAIL — alphanumeric, DISPLAY, 8 bytes.
-	PstTail string
-}
-
-// MemoPostingRef is the POSTING-RECORD record, as docs/ir/SPEC.md resolved it.
-// The layout renames it to MEMO-POSTING-REF.
-type MemoPostingRef struct {
-	// PstAccount is PST-ACCOUNT — alphanumeric, DISPLAY, 10 bytes.
-	PstAccount string
-
-	// PstSequence is PST-SEQUENCE — numeric, DISPLAY, 2 digits, unsigned, 2 bytes.
-	PstSequence int32
-
-	// PstType is PST-TYPE — alphanumeric, DISPLAY, 2 bytes.
-	PstType string
-
-	// PstBody is PST-BODY — alphanumeric, DISPLAY, 28 bytes.
-	PstBody string
-
-	// PstTailRef is PST-TAIL-REF — a group of 2 members.
-	PstTailRef struct {
-		// PtrBatch is PTR-BATCH — numeric, DISPLAY, 4 digits, unsigned, 4 bytes.
-		PtrBatch int32
-
-		// PtrLine is PTR-LINE — numeric, DISPLAY, 4 digits, unsigned, 4 bytes.
-		PtrLine int32
-	}
 }
