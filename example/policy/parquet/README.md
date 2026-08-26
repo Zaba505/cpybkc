@@ -240,6 +240,15 @@ plausible number rather than an error, which is what makes them worth naming:
   which "m row groups closed, and one row or R−1 rows in the open one" is true
   whichever write parquet-go closes a full row group on.
 
+There is a third thing both probes rest on and neither could see: that row groups
+are closing at all under the `a` probe, and that none is closing under the W one.
+With the bytes merely discarded, "m row groups closed and their footers retained"
+and "nothing ever flushed and the open group is still growing" produce the same
+straight line, and the second reports an `a` that is really a fraction of W·R. A
+row group's column chunks reach the sink when it closes and at no other time, so
+the harness counts them: the count has to move at every sample of the `a` probe
+and to stay at zero through the whole of the W one.
+
 ### The rule
 
 For **N** records at **R** records per row group over a schema of **C** columns
@@ -325,7 +334,7 @@ The harness measures W by writing one row group and never letting it close — t
 bound is `math.MaxInt64`, which is parquet-go's own default and is exactly the
 thing that makes an unbounded writer buffer the file it claims to stream. With
 nothing flushed there are no closed row groups, the retained term is zero, and the
-slope is all W. It reads **1,365 B a row** as a least-squares fit and **1,063** as
+slope is all W. It reads **1,365 B a row** as a least-squares fit and **1,066** as
 the chord across the same range, against the 1,256 the arithmetic uses.
 
 **That spread is the reading and not an error bar.** What an open row group holds

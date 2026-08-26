@@ -55,7 +55,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"math"
 	"runtime"
 	"testing"
@@ -73,6 +72,14 @@ import (
 // the sweep is drawn to show. It is a flag because the reading an adopter wants
 // is at their N and not at ours, and because #315 is this same harness with a
 // bigger number.
+//
+// The `memory.` prefix is deliberate and is the only defence available. A test
+// file cannot register on a FlagSet of its own — `go test` parses the global one —
+// so this shares a namespace with anything the command under test declares at
+// package scope, and a collision is a panic during the test binary's init naming
+// `flag.Var` rather than either definition. convert.go's flags live on a
+// [flag.FlagSet] of its own and cannot collide; a future package-scope flag here
+// would have to avoid this prefix.
 var memoryRecords = flag.Int("memory.records", 16384,
 	"records written at each point of the peak curve; raise it to take a reading rather than to check the shape")
 
@@ -121,6 +128,11 @@ const (
 	// halving from N down. Seven spans a factor of 64, which is wide enough that
 	// both ends are clearly up the sides of the curve.
 	sweepPoints = 7
+
+	// poolPolicies is how many policy terms [poolOf] builds its ring from, each
+	// with one detail record of every type behind it. See there for why this
+	// number is what it is.
+	poolPolicies = 64
 
 	// minRecords is the smallest -memory.records the sweep can be drawn at: N
 	// halved sweepPoints times has to stay above one row.
@@ -233,15 +245,39 @@ func peakOf(m, r int) int {
 	return m*r + r - 1
 }
 
-// writer is a writer of T bounded at rowsPerRowGroup rows, writing its pages
-// nowhere.
+// sink is where the written file goes, and it keeps only how many bytes it was
+// given.
 //
-// io.Discard is what makes the reading the *retained* bytes and not the file:
-// pages leave the heap when a row group closes, and what stays is the footer
+// Discarding the bytes is what makes the reading the *retained* heap and not the
+// file: pages leave the heap when a row group closes, and what stays is the footer
 // metadata that cannot be written until Close. That is precisely the term the
 // model's first half describes.
-func (h harness[T]) writer(rowsPerRowGroup int64) *parquet.GenericWriter[T] {
-	return parquet.NewGenericWriter[T](io.Discard, parquet.MaxRowsPerRowGroup(rowsPerRowGroup))
+//
+// Counting them is what makes the two probes checkable, and that is worth the type
+// over an io.Discard. Both probes rest on a claim about row groups closing — the
+// `a` probe that m of them have, the W probe that none has — and with the bytes
+// merely discarded there is nothing to tell "m row groups closed and their footers
+// are retained" from "nothing ever flushed and the open group is still growing".
+// The second fits a straight line too, and would report a plausible `a` that was
+// really a fraction of W·R. A row group's chunks reach the sink when it closes and
+// at no other time, so a byte count is exactly the observation that separates
+// them.
+type sink struct {
+	n int64
+}
+
+func (s *sink) Write(p []byte) (int, error) {
+	s.n += int64(len(p))
+
+	return len(p), nil
+}
+
+// writer is a writer of T bounded at rowsPerRowGroup rows, and the sink counting
+// what it has handed over.
+func (h harness[T]) writer(rowsPerRowGroup int64) (*parquet.GenericWriter[T], *sink) {
+	out := &sink{}
+
+	return parquet.NewGenericWriter[T](out, parquet.MaxRowsPerRowGroup(rowsPerRowGroup)), out
 }
 
 // writeThrough hands w rows until it has been given exactly total of them, and
@@ -281,10 +317,10 @@ type reading struct {
 func (h harness[T]) retained(t *testing.T, groups []int) []reading {
 	t.Helper()
 
-	w := h.writer(retainedRowGroup)
+	w, out := h.writer(retainedRowGroup)
 	buf := make([]T, writeChunk)
 	readings := make([]reading, 0, len(groups))
-	written := 0
+	written, flushed := 0, int64(0)
 
 	for _, m := range groups {
 		var err error
@@ -293,6 +329,18 @@ func (h harness[T]) retained(t *testing.T, groups []int) []reading {
 		if err != nil {
 			t.Fatalf("filling %d row groups of %d: %v", m, retainedRowGroup, err)
 		}
+
+		// The claim this whole probe rests on, and the sink is what makes it an
+		// observation rather than an assumption: row groups have been closing. A
+		// bound that stopped being enforced would leave one row group growing for
+		// the whole probe, the fit would still be straight, and `a` would come back
+		// a plausible fraction of W·R with nothing to have said so.
+		if out.n <= flushed {
+			t.Fatalf("at %d row groups of %d rows the writer has handed the sink %d bytes and it had %d before: a closed row group writes its column chunks, so a count that has not moved is a bound that is not being enforced and a slope that is not the footer",
+				m, retainedRowGroup, out.n, flushed)
+		}
+
+		flushed = out.n
 
 		readings = append(readings, reading{x: float64(m), y: float64(liveHeap(w))})
 	}
@@ -323,7 +371,7 @@ func (h harness[T]) retained(t *testing.T, groups []int) []reading {
 func (h harness[T]) buffered(t *testing.T, rows []int) []reading {
 	t.Helper()
 
-	w := h.writer(math.MaxInt64)
+	w, out := h.writer(math.MaxInt64)
 	buf := make([]T, writeChunk)
 	readings := make([]reading, 0, len(rows))
 	written := 0
@@ -334,6 +382,17 @@ func (h harness[T]) buffered(t *testing.T, rows []int) []reading {
 		written, err = h.writeThrough(w, written, r, buf)
 		if err != nil {
 			t.Fatalf("buffering %d rows: %v", r, err)
+		}
+
+		// The mirror of the check in [harness.retained], and the claim this probe
+		// rests on: *nothing* has been released. A row group's chunks reach the sink
+		// when it closes and at no other time — a page that spills inside one goes
+		// into the chunk buffer and stays on the heap — so a sink that has taken a
+		// byte is a row group that closed, and the slope would be missing whatever
+		// it took with it.
+		if out.n != 0 {
+			t.Fatalf("at %d buffered rows the writer has handed the sink %d bytes: nothing is meant to have been flushed under a bound of math.MaxInt64, so this slope is not W",
+				r, out.n)
 		}
 
 		readings = append(readings, reading{x: float64(r), y: float64(liveHeap(w))})
@@ -350,12 +409,16 @@ func (h harness[T]) buffered(t *testing.T, rows []int) []reading {
 //
 // m is one short of records/rowsPerRowGroup so that the phase lands inside the
 // run: peakOf(m, r) is (records/r)*r - 1, which is at most records-1 whatever r
-// is. Every point of the sweep therefore writes the same N to within one row,
-// which is what makes them comparable at all.
+// is. That is what makes the points of a sweep comparable — they are all runs of
+// about the same N — and "about" is exact: the shortfall is records mod r + 1,
+// which is one row when r divides records and at most r rows when it does not.
+// The default sweep halves from N, so every r divides N and the shortfall is one
+// row everywhere; an odd -memory.records gives up a little of that at the
+// large-R end, where the retained term is smallest and least sensitive to it.
 func (h harness[T]) peak(t *testing.T, rowsPerRowGroup, records int) uint64 {
 	t.Helper()
 
-	w := h.writer(int64(rowsPerRowGroup))
+	w, _ := h.writer(int64(rowsPerRowGroup))
 	buf := make([]T, writeChunk)
 
 	m := max(records/rowsPerRowGroup-1, 0)
@@ -386,6 +449,16 @@ func slopeOf(rs []reading) float64 {
 		den += (r.x - mx) * (r.x - mx)
 	}
 
+	// A single sample, or several taken at the same x, has no slope. Returning
+	// num/den here would be NaN, and **NaN passes every gate below**: every
+	// comparison against it is false, so a fit that does not exist would read as
+	// linear, as positive, and as agreeing with the curve. That is the same shape
+	// of failure as the two traps this file is written around — a plausible answer
+	// rather than an error — so it is refused here, at the one place it can be.
+	if den == 0 {
+		panic("slopeOf: every sample is at the same x, so there is no slope to fit — a fit through one point is a probe that was never given a range")
+	}
+
 	return num / den
 }
 
@@ -401,7 +474,8 @@ func chordOf(rs []reading) float64 {
 }
 
 // halvesOf fits the lower and upper half of the samples separately, sharing the
-// middle one so that neither half is a fit through fewer points than the other.
+// middle one so that the two halves cover the whole range between them with no
+// gap at the join. On an even count the lower half carries the extra point.
 func halvesOf(rs []reading) (lower, upper float64) {
 	mid := len(rs) / 2
 
@@ -421,6 +495,12 @@ func halvesOf(rs []reading) (lower, upper float64) {
 // is read off the log, between the least-squares slope and the chord.
 func assertGrows(t *testing.T, what string, rs []reading) bool {
 	t.Helper()
+
+	if len(rs) < 2 {
+		t.Errorf("%s: %d samples, and a term's shape is not visible in fewer than two", what, len(rs))
+
+		return false
+	}
 
 	first, last := rs[0], rs[len(rs)-1]
 	if last.y <= first.y {
@@ -450,6 +530,12 @@ func assertLinear(t *testing.T, what string, rs []reading) {
 	}
 
 	lower, upper := halvesOf(rs)
+	if math.IsNaN(lower) || math.IsNaN(upper) {
+		t.Errorf("%s: a half of the fit came back NaN, which every check below would read as agreement", what)
+
+		return
+	}
+
 	if lower <= 0 || upper <= 0 {
 		t.Errorf("%s: the halves of the fit slope %.0f and %.0f bytes, and a linear term does not change sign", what, lower, upper)
 
@@ -475,18 +561,26 @@ func stepsOf(step, n int) []int {
 	return out
 }
 
-// poolOf is a short ring of rows covering all eleven record types.
+// poolOf is a ring of rows covering all eleven record types, which the probes
+// draw from by index.
 //
-// Rows are drawn from it by index rather than built per call, for the reason
-// [harness.rowAt] gives: a generator allocating a row per call would leave its
-// garbage on the heap the probe is about to read, and the slope would be
-// measuring the generator rather than the writer. A ring also keeps the values
-// varied — a column of one repeated value retains a narrower ColumnIndex than a
-// real extract does, which is a way of measuring `a` too small.
+// By index rather than built per call, for the reason [harness.rowAt] gives: a
+// generator allocating a row per call would leave its garbage on the heap the
+// probe is about to read, and the slope would be measuring the generator rather
+// than the writer.
+//
+// **A ring repeats, and a repeated value is a way of measuring `a` too small** —
+// a column holding ten distinct values dictionary-encodes better than a real
+// extract's and retains a narrower ColumnIndex, since the minimum and maximum are
+// what the index keeps. That is the obvious objection to a harness built this way,
+// so it was measured rather than argued: over rings of 74, 578, 2,306 and 9,218
+// rows, `a` reads 970, 966, 964 and 964 bytes and W does not move at all. Sixty-four
+// policy terms is chosen from the flat part of that, and the answer to "does the
+// ring bias the reading" is a number rather than a hope.
 func poolOf(t *testing.T) []record {
 	t.Helper()
 
-	recs := extract(8, 8)
+	recs := extract(poolPolicies, detailTypes)
 	rows := make([]record, 0, len(recs))
 
 	for i, rec := range recs {
@@ -496,6 +590,10 @@ func poolOf(t *testing.T) []record {
 		}
 
 		rows = append(rows, row)
+	}
+
+	if len(rows) == 0 {
+		t.Fatal("the row pool is empty: every probe below indexes it modulo its length, so an empty one is a divide by zero from inside the writer rather than a failure here")
 	}
 
 	return rows
@@ -526,23 +624,31 @@ func TestTheWriterMemoryModelHoldsItsShape(t *testing.T) {
 	a := slopeOf(retained) / float64(h.columns)
 
 	buffered := h.buffered(t, stepsOf(bufferedRowStep, bufferedSamples))
-	assertGrows(t, "what an open row group holds", buffered)
+	if !assertGrows(t, "what an open row group holds", buffered) {
+		return
+	}
 
 	w := slopeOf(buffered)
 
 	t.Logf("a = %.0f B per column per row group over %d..%d closed row groups of %d rows (convert.go commits %d)",
 		a, retainedGroupStep, retainedGroupStep*retainedGroups, retainedRowGroup, retainedPerColumnPerRowGroup)
-	t.Logf("W = %.0f B per row over %d columns, %.0f taken as the chord (convert.go commits %d = 5*C + %d + %d)",
-		w, h.columns, chordOf(buffered), bufferedPerRow, recordBytes, bufferedOverheadPerRow)
+	t.Logf("W = %.0f B per row over %d columns, %.0f taken as the chord — %.1fx the %d-byte record (convert.go commits %d = 5*C + %d + %d)",
+		w, h.columns, chordOf(buffered), w/float64(recordBytes), recordBytes, bufferedPerRow, recordBytes, bufferedOverheadPerRow)
 
-	// The wide sparse claim, and the only one of these that names a number from
-	// the copybook. Every leaf of this schema is an optional column, so a row pays
-	// five bytes for each of the 197 whether or not there is a value under it —
-	// which is what makes a row cost the writer more than the record it was read
-	// from. It is a shape and not a byte count: what it asserts is that structure
-	// dominates data on this table, and it would fail on the day definition levels
-	// stopped being held per row per column, which is the day the arithmetic in
-	// convert.go stops being right.
+	// The wide sparse claim, and the only one of these that puts a measurement
+	// beside a number. That number is LRECL — a property of the copybook, not of
+	// this machine — and the claim is an ordering rather than a size: every leaf of
+	// this schema is an optional column, so a row pays five bytes for each of the
+	// 197 whether or not there is a value under it, and a row therefore costs the
+	// writer more than the record it was read from. It would fail on the day
+	// definition levels stopped being held per row per column, which is the day the
+	// arithmetic in convert.go stops being right.
+	//
+	// The gate is the bare ordering and not a margin, though the margin is wide —
+	// 5.3x on the machine this was written on, and the ratio is logged above so a
+	// reading creeping toward the record is visible long before it crosses. A
+	// margin here would be picking a number to hold a machine to, which is the
+	// thing this file does not do.
 	if w <= float64(recordBytes) {
 		t.Errorf("W measured %.0f B a row against a %d-byte record: this table is wide and sparse, so a row is meant to cost the writer more than the record it came from — %d optional columns of definition levels do not vanish because a row has no value under them",
 			w, recordBytes, h.columns)
@@ -592,6 +698,15 @@ func TestTheWriterMemoryModelHoldsItsShape(t *testing.T) {
 	// run measured, not from the constants convert.go commits, so the check is
 	// that the model predicts its own measurements rather than that this machine
 	// agrees with the one #304 ran on.
+	// Refused rather than computed, because math.Sqrt of a negative is NaN and NaN
+	// compares false against everything — so the one check that ties the two
+	// measurements to the curve would report nothing exactly when the measurements
+	// were broken.
+	if a <= 0 || w <= 0 {
+		t.Fatalf("a is %.0f and W is %.0f, and R* = sqrt(a*C*N/W) is not a number for either: the check that the rule predicts its own measurements cannot be made, and a NaN would pass it silently",
+			a, w)
+	}
+
 	star := math.Sqrt(a * float64(h.columns) * float64(records) / w)
 	off := math.Max(float64(sweep[at])/star, star/float64(sweep[at]))
 
