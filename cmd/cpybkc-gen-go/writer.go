@@ -337,10 +337,21 @@ func (f *filer) emitWriterTransition(b *strings.Builder, t transition, at int) e
 		line(b, "if %s {", test)
 	}
 
+	// Resolved once, for the reason [filer.emitState] resolves it
+	// once: the two branches below emit the same call.
+	matches := ""
+
+	if t.match != "" {
+		matches, err = f.matcherOf(t)
+		if err != nil {
+			return err
+		}
+	}
+
 	closing := ""
 
 	if t.match != "" {
-		line(b, "if %s(raw) {", f.matcherOf(t))
+		line(b, "if %s(raw) {", matches)
 
 		closing = "}"
 	}
@@ -368,7 +379,7 @@ func (f *filer) emitWriterTransition(b *strings.Builder, t transition, at int) e
 	}
 
 	if t.match != "" {
-		line(b, "} else if excluded == \"\" && %s(raw) {", f.matcherOf(t))
+		line(b, "} else if excluded == \"\" && %s(raw) {", matches)
 		line(b, "excluded = fmt.Sprintf(%q%s)",
 			fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where %s%s",
 				escaped(phrase), f.holding(registers)),

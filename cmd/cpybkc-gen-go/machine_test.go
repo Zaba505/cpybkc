@@ -13,6 +13,7 @@ import (
 	"go/token"
 	"io"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1133,16 +1134,21 @@ func TestStatesTestingOnePredicateNameOneFunction(t *testing.T) {
 	tested := 0
 
 	for _, node := range d.GetNodes() {
-		if t := node.GetTransition(); t != nil && t.PredicateId != nil {
+		if edge := node.GetTransition(); edge != nil && edge.PredicateId != nil {
 			tested++
 		}
 	}
 
 	functions := predicateFunctions(t, generatedMachine(t, d, "counted", "internal/counted"))
 
-	if len(functions) >= tested {
-		t.Errorf("%d transitions test a predicate and %d functions were emitted, and the three predicate nodes between them are what the count follows",
-			tested, len(functions))
+	// The number, not merely fewer than the transitions. "Fewer" passes on a
+	// partial fold — four functions where three are right — and it also passes
+	// on the dangerous direction, all five folded onto one: that file compiles,
+	// and it admits the wrong record. The transition count stays because it is
+	// what the answer must *not* follow.
+	if len(functions) != 3 {
+		t.Errorf("%d transitions test a predicate, three predicate nodes between them, and %d functions were emitted: %v",
+			tested, len(functions), slices.Sorted(maps.Keys(functions)))
 	}
 }
 
@@ -1179,11 +1185,15 @@ func predicateFunctions(t *testing.T, source string) map[string]string {
 
 	out := make(map[string]string)
 
+	declared := 0
+
 	for _, node := range file.Decls {
 		decl, ok := node.(*ast.FuncDecl)
 		if !ok || decl.Recv != nil || !strings.HasPrefix(decl.Name.Name, "matches") {
 			continue
 		}
+
+		declared++
 
 		var last ast.Expr
 
@@ -1209,5 +1219,109 @@ func predicateFunctions(t *testing.T, source string) map[string]string {
 		out[decl.Name.Name] = b.String()
 	}
 
+	// Keyed by name, so two declarations sharing one name would collapse into
+	// a single entry and every assertion over this map would go green on a
+	// file that does not compile. The parser type-checks nothing, so counting
+	// is the only place that collision can be caught here.
+	if len(out) != declared {
+		t.Fatalf("%d predicate functions are declared and %d names are distinct, and a name emitted twice is a file that does not build\n%s",
+			declared, len(out), source)
+	}
+
 	return out
+}
+
+// TestEveryTransitionNamesTheFunctionThatIsItsOwnTest is the other direction of
+// #318, and the dangerous one.
+//
+// [TestNoTwoPredicateFunctionsAreTheSameTest] catches a fold that did not
+// happen. It cannot catch one that went too far: a key coarser than the
+// predicate — the offset alone, say, which is exactly where a discriminator puts
+// several predicates — folds two different tests onto one function, and the file
+// that comes out has no duplicate bodies, compiles, and admits the wrong record
+// on the right bytes. Nothing about it looks wrong in a diff.
+//
+// So this walks it back. Every transition carrying a predicate is asked what
+// function it names, and that function's body has to be that transition's own
+// expression rather than some other transition's.
+func TestEveryTransitionNamesTheFunctionThatIsItsOwnTest(t *testing.T) {
+	t.Parallel()
+
+	for dir, descriptor := range machineGoldens {
+		t.Run(dir, func(t *testing.T) {
+			t.Parallel()
+
+			f, walks := gathered(t, descriptor())
+
+			by := make(map[string]predicateFunc, len(f.predicates))
+			for _, p := range f.predicates {
+				by[p.name] = p
+			}
+
+			tested := 0
+
+			for _, walk := range walks {
+				for _, edge := range walk {
+					if edge.match == "" {
+						continue
+					}
+
+					tested++
+
+					name, err := f.matcherOf(edge)
+					if err != nil {
+						t.Errorf("a transition admitting %s tests %s and names no function: %v",
+							edge.record.GetNames().GetOriginal(), edge.match, err)
+
+						continue
+					}
+
+					if got := by[name].match; got != edge.match {
+						t.Errorf("a transition admitting %s tests %s and names %s, which tests %s",
+							edge.record.GetNames().GetOriginal(), edge.match, name, got)
+					}
+				}
+			}
+
+			if tested == 0 {
+				t.Skip("this descriptor's automaton tests no predicate")
+			}
+		})
+	}
+}
+
+// gathered is a filer that has resolved a descriptor's walks and gathered the
+// predicates of them, which is the state [filer.matcherOf] answers from.
+//
+// It is the first half of [filer.emit] rather than the whole of it: what is
+// being asserted is the mapping from a transition to the function it names, and
+// that mapping is settled before a byte is emitted.
+func gathered(t *testing.T, d *irpb.Descriptor) (*filer, [][]transition) {
+	t.Helper()
+
+	e, err := newEmitter(d)
+	if err != nil {
+		t.Fatalf("newEmitter: %v", err)
+	}
+
+	f := &filer{emitter: e, opts: options{packageName: goldenPackage}, index: make(map[uint64]int)}
+
+	if err := f.collect(d); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	walks := make([][]transition, len(f.states))
+
+	for i, state := range f.states {
+		out, err := f.transitionsOf(state.GetState())
+		if err != nil {
+			t.Fatalf("resolving the transitions of state %d: %v", state.GetId(), err)
+		}
+
+		walks[i] = out
+	}
+
+	f.gather(walks)
+
+	return f, walks
 }

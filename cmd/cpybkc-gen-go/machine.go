@@ -57,7 +57,7 @@ func (f *filer) emit() (string, []string, error) {
 		return "", nil, err
 	}
 
-	if err := f.emitPredicates(&b, walks); err != nil {
+	if err := f.emitPredicates(&b); err != nil {
 		return "", nil, err
 	}
 
@@ -326,8 +326,10 @@ func (f *filer) readAhead() int {
 // against a window of the bytes in front of it, the writer against the bytes it
 // is about to emit — and two spellings of one test are two things to get wrong.
 //
-// One per predicate rather than one per transition testing it: see [filer.gather].
-func (f *filer) emitPredicates(b *strings.Builder, _ [][]transition) error {
+// One per predicate rather than one per transition testing it: see [filer.gather],
+// which is also where the state this reads comes from — the walks are gathered
+// once, before anything is emitted, so this takes no walk of its own.
+func (f *filer) emitPredicates(b *strings.Builder) error {
 	for _, p := range f.predicates {
 		line(b, "")
 		line(b, "// %s is the predicate over bytes %d:%d of a record: the transitions it", p.name, p.at, p.reads)
@@ -381,8 +383,9 @@ type predicateFunc struct {
 // per transition that tests it states a dependence on the state reaching it
 // which does not exist, and it is the one part of this output whose size grows
 // with the automaton's fan-out rather than with the number of things being
-// tested: example/policy carried 93 functions with 11 distinct bodies, nine and
-// ten copies of each, for around 2,000 lines of a 12,394-line tree.
+// tested: example/policy carried 93 functions with 11 distinct bodies — eight of
+// them emitted nine times, two of them ten and one once — for 1,175 lines of a
+// 12,394-line tree.
 //
 // The expression is the key because it already carries the whole triple and
 // carries nothing else: the window is written into it as b[offset:offset+width]
@@ -395,8 +398,16 @@ type predicateFunc struct {
 // The order is the order the automaton reaches them, so the names are a function
 // of the descriptor and the numbering does not move when an unrelated state is
 // added behind them.
+// The slice and the index into it are built as locals and assigned together at
+// the end, because they are one data structure: a gather that reset the index
+// and appended to a slice it had not reset would emit every predicate twice,
+// the second copy numbered from the end of the first and named by every call
+// site. Nothing calls this twice today, which is exactly why the asymmetry
+// would be the bug rather than the symptom.
 func (f *filer) gather(walks [][]transition) {
-	f.predicateOf = make(map[string]int)
+	var predicates []predicateFunc
+
+	predicateOf := make(map[string]int)
 
 	for _, walk := range walks {
 		for _, t := range walk {
@@ -404,11 +415,11 @@ func (f *filer) gather(walks [][]transition) {
 				continue
 			}
 
-			i, ok := f.predicateOf[t.match]
+			i, ok := predicateOf[t.match]
 			if !ok {
-				i = len(f.predicates)
-				f.predicateOf[t.match] = i
-				f.predicates = append(f.predicates, predicateFunc{
+				i = len(predicates)
+				predicateOf[t.match] = i
+				predicates = append(predicates, predicateFunc{
 					name:  matcher(i+1, t.at),
 					match: t.match,
 					at:    t.at,
@@ -417,17 +428,33 @@ func (f *filer) gather(walks [][]transition) {
 			}
 
 			original := t.record.GetNames().GetOriginal()
-			if !slices.Contains(f.predicates[i].admits, original) {
-				f.predicates[i].admits = append(f.predicates[i].admits, original)
+			if !slices.Contains(predicates[i].admits, original) {
+				predicates[i].admits = append(predicates[i].admits, original)
 			}
 		}
 	}
+
+	f.predicates, f.predicateOf = predicates, predicateOf
 }
 
 // matcherOf is what the predicate of one transition is called, which is the
 // name of the one function every transition testing that predicate calls.
-func (f *filer) matcherOf(t transition) string {
-	return f.predicates[f.predicateOf[t.match]].name
+//
+// It refuses a predicate [filer.gather] did not see rather than answering, and
+// that is the whole reason it is not a map read at the call site. A miss reads
+// back as position zero, so the answer would be the *first* predicate of the
+// file: a generated reader that compiles, admits the wrong record and reads the
+// wrong window, with nothing anywhere saying so. The invariant it rests on —
+// that emit gathers the same walks it then emits — is held by two adjacent
+// lines and by nothing else.
+func (f *filer) matcherOf(t transition) (string, error) {
+	i, ok := f.predicateOf[t.match]
+	if !ok {
+		return "", malformed("a transition tests a predicate that was not gathered before the file was emitted",
+			"every predicate of every walk is gathered first, so that one function serves every state testing it")
+	}
+
+	return f.predicates[i].name, nil
 }
 
 // matcher is what the nth distinct predicate of a file, reading at byte offset
