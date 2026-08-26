@@ -552,7 +552,7 @@ so being a factor of two out costs 7.8% of peak and the two points either side o
 the minimum are within noise of each other. The rule picks a neighbourhood, and
 this is the measurement that says so on this schema rather than on the sibling's.
 
-Fitting the retained term back off that curve gives **a = 894 B** per column per
+Fitting the retained term back off that curve gives **a ≈ 894 B** per column per
 row group, against the 1,024 committed — the committed constant is the
 conservative end of #304's 943–988 range and the reading sits under it, which is
 the safe direction. `maxRecords` divides by `a·C`, so an `a` below the reading

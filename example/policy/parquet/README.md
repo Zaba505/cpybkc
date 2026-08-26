@@ -513,8 +513,10 @@ also the answer to the obvious objection to the harness next door: that `a` and
 `W` are measured under an arrangement, so the rule they feed might only be right
 about the arrangement. Fitting the retained term back off *this* curve — seven
 readings of a running conversion, nothing held open, nothing probed at a chosen
-row group — gives **a = 972 B** per column per row group, against the 969 the
-harness reads directly and the 1,024 `convert.go` commits.
+row group — gives **a ≈ 971 B** per column per row group, against the 969 the
+harness reads directly and the 1,024 `convert.go` commits. It is a reading and it
+moves a byte or two between runs; what is not a coincidence is which number it
+lands on.
 
 The sweep is centred on R\* rather than halving down from N, and that is not
 tuning. Halving from four and a half million starts at one row group for the whole

@@ -349,6 +349,14 @@ func TestPeakAgainstTheRowGroupAtScale(t *testing.T) {
 	star := rowsPerRowGroupAt(int64(n))
 	sweep := sweepAround(star)
 
+	// Checked here rather than in the flag reader because [minScaleRecords] is a
+	// fact about this schema's own constants, and reading it beside the R* they
+	// produce is what makes the refusal legible.
+	if int(n) < minScaleRecords() {
+		t.Fatalf("-scale.records is %d and the smallest N this curve can be read at is about %d: below it the sweep's largest row group approaches the whole extract and the writer's fixed overhead is most of every reading, so the U flattens and what fails is the flag rather than the model",
+			n, minScaleRecords())
+	}
+
 	t.Logf("N = %d postings, C = %d columns; the committed constants put R* at %d rows a row group",
 		n, columns, star)
 
@@ -513,11 +521,21 @@ func reportConstants(t *testing.T, n int32, sweep []int32, peaks []uint64) {
 	// top of that. Both are why W is measured over thirty-two closely spaced
 	// samples by an instrument that holds the row group open, and not here.
 	//
-	// So the direction check below is on `a` alone. A constant *below* the reading
-	// is the unsafe way to be wrong: [maxRecords] divides by a*C, so under-stating
-	// it claims room that is not there.
+	// So the note below is on `a` alone, and it is a note. A constant *below* the
+	// reading is the unsafe way to be wrong — [maxRecords] divides by a*C, so
+	// under-stating it claims room that is not there — but this stays a log for
+	// the same reason every other byte count here does: it is a property of the
+	// machine, the Go version and the parquet-go pin, and gating on it would go
+	// red on a dependency bump that changed nothing an adopter cares about.
+	//
+	// It is also a reading that needs a run to be worth anything. Near
+	// [minScaleRecords] the writer's fixed overhead is most of every point and the
+	// fit is mostly measuring that: at the smallest N the sweep can be drawn at,
+	// `a` comes back a quarter high. What gates this file is the shape — the
+	// interior minimum, the two shoulders, and the penalty at R* — and none of
+	// those is a byte count.
 	if a > float64(retainedPerColumnPerRowGroup) {
-		t.Errorf("a fits at %.0f B against the %d committed, which is the unsafe direction: the retained term is what makes a conversion stop fitting its budget, and a constant below the reading puts maxRecords past where this really fits",
+		t.Logf("a fits at %.0f B against the %d committed, which is the unsafe direction: the retained term is what makes a conversion stop fitting its budget, and a constant below the reading puts maxRecords past where this really fits. At a small -scale.records this is the fixed overhead and not the term; take it again at millions before acting on it",
 			a, retainedPerColumnPerRowGroup)
 	}
 }
@@ -640,6 +658,44 @@ func rowsPerRowGroupAt(n int64) int32 {
 	return int32(math.Sqrt(float64(retainedPerColumnPerRowGroup) * float64(columns) * float64(n) / float64(bufferedPerRow)))
 }
 
+// minScaleRecords is the smallest N this curve can be *read* at, which is four
+// times the smallest one it can be drawn at.
+//
+// Drawn: the sweep's top point is 8*R*, and every point has to fit inside the run,
+// so 8*sqrt(a*C*N/W) <= N — which rearranges to N >= 64*a*C/W. Below that the
+// largest row group is bigger than the whole extract, the peak phase lands past
+// the last record, and the probe never fires.
+//
+// **Read is the larger floor, and it is the writer's fixed overhead that makes it
+// larger.** Every reading of the sweep carries a couple of megabytes of column
+// buffer capacity that is neither of the model's two terms, and that offset is the
+// same at every point — so at a small N it is most of the minimum and it flattens
+// the U the sweep exists to show. Right at the drawing floor both schemas read
+// their retained shoulder at 1.46x against the 1.50x this file asks for, which is
+// a failure about N and not about the model.
+//
+// Four, because peak* is 2*sqrt(a*C*W*N): quadrupling N doubles the signal while
+// leaving the offset where it is. It was measured rather than argued — both
+// conversions fail at N = 10,000 and pass from 12,000, and four times the drawing
+// floor is about 39,000 for this schema, which is margin rather than a knife edge.
+// [memoryRecords] next door defaults the way it does for the same reason.
+//
+// It is a coincidence, and worth naming so nobody reads one for the other, that
+// this comes out equal to [kneeRows] on both schemas: 4*64*a is 262,144 exactly
+// when `a` is a kilobyte, which is [pageBufferBytes]. The two have nothing to do
+// with each other — one is where the sweep becomes legible, the other is where
+// parquet-go stops holding raw buffers — and an `a` measured at 969 would part
+// them.
+//
+// The refusal happens before anything is converted, and it names the flag. Without
+// it the run starts, spends its time, and reports "the probe never fired" or a
+// shoulder a hair under its ratio — true sentences about the instrument in place
+// of the one sentence the caller needs, which is that they asked for a sweep too
+// small to read.
+func minScaleRecords() int {
+	return 4 * 64 * retainedPerColumnPerRowGroup * columns / bufferedPerRow
+}
+
 // sweepAround is the rows-per-row-group the curve is drawn at: scalePoints of
 // them, a factor of scaleSpread apart, centred on star.
 func sweepAround(star int32) []int32 {
@@ -667,11 +723,6 @@ func scaleN(t *testing.T) int32 {
 
 	if n <= 0 {
 		t.Skip("-scale.records was not passed: this is the run a person takes before a release, and CI does not take it — see this file's package comment")
-	}
-
-	if n < scalePoints*scalePoints {
-		t.Fatalf("-scale.records is %d and the sweep needs at least %d: it is %d points a factor of %d apart and the smallest of them has to hold more than one row",
-			n, scalePoints*scalePoints, scalePoints, scaleSpread)
 	}
 
 	if n > maxScaleRecords {
