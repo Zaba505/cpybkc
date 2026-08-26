@@ -108,7 +108,7 @@
 // This repository holds five Go modules: the CLI at the root, the published IR
 // module at irpb/, the companion Dagger module at daggerverse/cpybkc/, this
 // pipeline itself at .dagger/, and the worked Parquet conversion at
-// example/parquet/. A nested go.mod is where `go test ./...` stops, so the
+// example/ledger/parquet/. A nested go.mod is where `go test ./...` stops, so the
 // source directory that reaches one of them reaches none of the others, and
 // IrCi, CompanionCi, PipelineCi and ExampleParquetCi are the four further
 // invocations that cover the four further modules. Each is the standard again
@@ -120,7 +120,9 @@
 //
 // ExampleParquetCi is the one whose *source directory* is composed rather than
 // taken whole, and exampleParquetSource says why: it is the only module here
-// whose go.mod points outside its own tree.
+// whose go.mod points outside its own tree. It is also the one that is not a
+// path written down — example/ holds a tree of examples, and every nested module
+// under it is discovered and run.
 //
 // ProtoGen is the odd one out: it is not a check at all but the generator that
 // produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
@@ -575,11 +577,11 @@ func (m *Cpybkc) PipelineCi(ctx context.Context) error {
 	return m.goChain(m.Source.Directory(pipelineModuleDir)).Ci(ctx)
 }
 
-// exampleParquetModuleDir is the worked Parquet conversion's own Go module. It
-// is a module rather than a package of the repository so that parquet-go stays
-// out of the root go.mod — the one `go install …/cmd/cpybkc@version` builds, and
-// the one a signed, attested, distroless release image is made of.
-const exampleParquetModuleDir = "example/parquet"
+// exampleDir is the tree of worked examples. It is the one path here that this
+// stage names, and it is the one that does not move: each example is a directory
+// under it, and the module a conversion lives in is discovered rather than
+// written down.
+const exampleDir = "example"
 
 // exampleParquetNestDir is where exampleParquetSource puts the repository inside
 // the tree it hands the chain. The leading underscore is load bearing: the go
@@ -588,30 +590,75 @@ const exampleParquetModuleDir = "example/parquet"
 // never a second set of packages to check.
 const exampleParquetNestDir = "_cpybkc"
 
-// exampleParquetReplacements are the replace directives example/parquet's
+// exampleModuleDirs is every nested Go module under [exampleDir], by repository
+// path and in a stable order.
+//
+// Discovered rather than written down, and that is the whole of what makes this
+// stage survive an example moving. `example/` used to hold one worked example, so
+// a constant naming `example/parquet` was the same statement as "the conversion";
+// it holds a tree of them now, and a constant would have to be edited for a
+// rename that the go tool would otherwise never notice — a stage pointed at a
+// directory that is not there fails, and a stage pointed at one that is there and
+// is not a module is worse.
+//
+// A go.mod is the whole of what makes one: `go test ./...` stops at a nested
+// module, so a directory carrying one is exactly a directory nothing else here
+// checks. A second example bringing its own conversion is covered by having been
+// added.
+func (m *Cpybkc) exampleModuleDirs(ctx context.Context) ([]string, error) {
+	found, err := m.Source.Directory(exampleDir).Glob(ctx, "**/go.mod")
+	if err != nil {
+		return nil, fmt.Errorf("looking for nested modules under %s: %w", exampleDir, err)
+	}
+
+	dirs := make([]string, 0, len(found))
+
+	for _, mod := range found {
+		dirs = append(dirs, exampleDir+"/"+strings.TrimSuffix(strings.TrimSuffix(mod, "go.mod"), "/"))
+	}
+
+	slices.Sort(dirs)
+
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("no directory under %s carries a go.mod: this stage is the only thing that reaches a nested module, so an empty result is a check that stopped happening rather than a tree with nothing to check", exampleDir)
+	}
+
+	return dirs, nil
+}
+
+// exampleModuleReplacements are the replace directives a nested example module's
 // committed go.mod has to carry, as `<module> => <dir>` — the form a go.mod
 // writes them in, whether they stand on their own lines or inside a
 // parenthesised block.
 //
-// They are checked before they are re-pointed, which is the whole reason they
-// are written down here. `go mod edit -replace` *adds* a directive that is
-// absent, so a stage that only re-pointed would go green over a committed
-// go.mod that had lost one — while `cd example/parquet && go test ./...`, the
-// invocation CONTRIBUTING.md documents, failed to resolve the CLI module. It
-// would also disarm example/parquet/module_test.go's own check that the replace
-// exists, because in the container the replace would be one this stage had just
-// inserted.
+// The target is arithmetic on the module's depth rather than a literal, for the
+// reason the discovery above is a glob: an example moved a level deeper changes
+// both directives, and a literal would have to be found by whoever moved it.
+// gomod.RelativeRoot is where that arithmetic is pinned by a test.
+//
+// They are checked before they are re-pointed, which is the whole reason they are
+// stated at all. `go mod edit -replace` *adds* a directive that is absent, so a
+// stage that only re-pointed would go green over a committed go.mod that had lost
+// one — while `cd <module> && go test ./...`, the invocation CONTRIBUTING.md
+// documents, failed to resolve the CLI module. It would also disarm the module's
+// own check that the replace exists, because in the container the replace would
+// be one this stage had just inserted.
 //
 // The check is gomod.HasReplacement and not strings.Contains, which is what it
 // was first and is the hole that package's tests exist for: `../..` is a prefix
 // of `../../wrong`, so a directive quietly re-pointed at the wrong directory
 // read as present.
-var exampleParquetReplacements = []string{
-	"github.com/Zaba505/cpybkc => ../..",
-	"github.com/Zaba505/cpybkc/irpb => ../../irpb",
+func exampleModuleReplacements(dir string) []string {
+	root := gomod.RelativeRoot(dir)
+
+	return []string{
+		"github.com/Zaba505/cpybkc => " + root,
+		"github.com/Zaba505/cpybkc/irpb => " + root + "/irpb",
+	}
 }
 
-// ExampleParquetCi runs the standard Go pipeline over example/parquet.
+// ExampleParquetCi runs the standard Go pipeline over every Go module nested
+// under example/.
 //
 // It is a fifth call for the reason IrCi is a second, CompanionCi a third and
 // PipelineCi a fourth: a nested go.mod is where `go test ./...` stops. Without
@@ -619,58 +666,84 @@ var exampleParquetReplacements = []string{
 // prose sample was wrong in ten ways — would be the one Go module here that
 // nothing compiles.
 //
-// It is handed the same .golangci.yml, so all five Go modules are linted against
+// It is handed the same .golangci.yml, so every Go module here is linted against
 // one configuration rather than one each.
+//
+// The name is the one module there is today, the ledger example's Parquet
+// conversion, and it is what CONTRIBUTING.md documents a contributor running.
+// What it walks is every one of them, because example/ holds a tree of examples
+// rather than one and a second conversion should be checked by having been
+// written rather than by somebody remembering this stage.
+//
+// Every module is run rather than stopping at the first failure. A conversion
+// that does not compile and a second one whose go.mod lost a replace are two
+// facts, and reporting one of them is a second `dagger call` to find the other.
 //
 // +check
 // +cache="session"
 func (m *Cpybkc) ExampleParquetCi(ctx context.Context) error {
-	source, err := m.exampleParquetSource(ctx)
+	dirs, err := m.exampleModuleDirs(ctx)
 	if err != nil {
 		return err
 	}
 
-	return m.goChain(source).Ci(ctx)
+	var errs []error
+
+	for _, dir := range dirs {
+		source, err := m.exampleParquetSource(ctx, dir)
+		if err != nil {
+			errs = append(errs, err)
+
+			continue
+		}
+
+		if err := m.goChain(source).Ci(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", dir, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
-// exampleParquetSource is the tree ExampleParquetCi hands the shared chain.
+// exampleParquetSource is the tree ExampleParquetCi hands the shared chain, for
+// one nested example module.
 //
 // It is the one stage here that does not hand over a plain sub-directory of the
 // source, and that is a property of the module rather than a preference. irpb,
-// .dagger and daggerverse/cpybkc resolve entirely from their own directories;
-// example/parquet does not, because it reads its dataset through example/ledger,
-// which is a package of the *root* module. So its go.mod carries
-// `replace github.com/Zaba505/cpybkc => ../..`, which is what a contributor's
-// `go test ./...` in that directory resolves through.
+// .dagger and daggerverse/cpybkc resolve entirely from their own directories; a
+// conversion under example/ does not, because it reads its dataset through the
+// generated package beside it, which is a package of the *root* module. So its
+// go.mod carries `replace github.com/Zaba505/cpybkc => ../../..`, which is what a
+// contributor's `go test ./...` in that directory resolves through.
 //
 // The chain mounts what it is handed at one path and runs the go tool there, so
-// handing it example/parquet alone would put `../..` outside the mount and every
-// stage would fail on a module it cannot resolve. What is handed over instead is
-// that directory with the repository nested inside it, and the two replacements
-// re-pointed at the nest.
+// handing it the module directory alone would put that target outside the mount
+// and every stage would fail on a module it cannot resolve. What is handed over
+// instead is that directory with the repository nested inside it, and the two
+// replacements re-pointed at the nest.
 //
 // Re-pointing is `go mod edit` rather than a second committed go.mod, because two
 // go.mod files for one module are two dependency lists to keep in step and only
 // one of them would ever be the one a contributor reads. The committed
 // directives are read and required *first*, for the reason
-// exampleParquetReplacements gives: an edit that only rewrites is an edit that
+// exampleModuleReplacements gives: an edit that only rewrites is an edit that
 // hides a committed go.mod nobody can build.
-func (m *Cpybkc) exampleParquetSource(ctx context.Context) (*dagger.Directory, error) {
-	path := exampleParquetModuleDir + "/go.mod"
+func (m *Cpybkc) exampleParquetSource(ctx context.Context, dir string) (*dagger.Directory, error) {
+	path := dir + "/go.mod"
 
 	mod, err := m.Source.File(path).Contents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	for _, want := range exampleParquetReplacements {
+	for _, want := range exampleModuleReplacements(dir) {
 		if !gomod.HasReplacement(mod, want) {
 			return nil, fmt.Errorf("%s does not carry `replace %s`: that directive is what `cd %s && go test ./...` resolves the CLI module through, and this stage re-points it at a nested copy — so a stage that did not check would pass over a go.mod no contributor can build",
-				path, want, exampleParquetModuleDir)
+				path, want, dir)
 		}
 	}
 
-	nested := m.Source.Directory(exampleParquetModuleDir).
+	nested := m.Source.Directory(dir).
 		WithDirectory(exampleParquetNestDir, m.Source)
 
 	return dag.Go().

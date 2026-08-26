@@ -17,7 +17,7 @@ package ledger_test
 import (
 	"bytes"
 	"github.com/Zaba505/cobol-go/codec"
-	"github.com/Zaba505/cpybkc/example/ledger"
+	"github.com/Zaba505/cpybkc/example/ledger/ledger"
 	"testing"
 )
 

@@ -142,8 +142,8 @@ attested the same way.
 
 The same argument is what added the second generator to that release (#230).
 `cpybkc-gen-graph` stood exactly where `cpybkc-gen-go` had: a peer in this
-project's own README, one of the two generators the [worked
-example](../../example/README.md) runs, and reachable only through a Go toolchain
+project's own README, one of the two generators the [ledger
+example](../../example/ledger/README.md) runs, and reachable only through a Go toolchain
 and a source checkout — while `with-generator graph` derived a reference nothing
 was ever pushed to. A rule that publishes one of two generators is a rule with an
 exception nobody documented.

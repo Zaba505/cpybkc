@@ -216,8 +216,8 @@ const (
 	generatorExecutable = generatorPrefix + ownGenerator
 	generatorPackage    = "./cmd/" + generatorExecutable
 
-	// graphGenerator is the diagram generator, by the name example/cpybkc.json
-	// asks for it by, and graphGeneratorExecutable and graphGeneratorPackage are
+	// graphGenerator is the diagram generator, by the name the worked example's
+	// cpybkc.json asks for it by, and graphGeneratorExecutable and graphGeneratorPackage are
 	// what the CLI's PATH discovery looks for and what builds it.
 	//
 	// They are here rather than beside the companion checks for the reason the

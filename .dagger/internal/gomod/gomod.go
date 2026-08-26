@@ -1,5 +1,6 @@
-// Package gomod answers one question about a go.mod: does it carry this replace
-// directive, exactly?
+// Package gomod answers the two questions the pipeline asks about a local
+// replace directive: does a go.mod carry this one exactly, and how far back up
+// does a nested module have to point to reach the tree it sits in?
 //
 // It is a package of its own for the reason [surface] is: the pipeline's own
 // package main imports the generated Dagger client, whose init panics without a
@@ -8,16 +9,44 @@
 // every rule below is pinned by a test.
 //
 // That matters here for the same reason it matters there, and it is not
-// hypothetical. What is built on this is a guard over
-// example/parquet/go.mod, and the first version of that guard was a
-// `strings.Contains` — which reported a directive re-pointed from `../..` to
-// `../../wrong` as present, because the one is a prefix of the other. A guard
-// with a hole fails by staying green.
+// hypothetical. What is built on this is a guard over an example's nested
+// go.mod, and the first version of that guard was a `strings.Contains` — which
+// reported a directive re-pointed from `../..` to `../../wrong` as present,
+// because the one is a prefix of the other. A guard with a hole fails by staying
+// green.
 //
 // [surface]: https://github.com/Zaba505/cpybkc/tree/main/.dagger/internal/surface
 package gomod
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
+
+// RelativeRoot is the path from a directory back to the tree it sits in, written
+// the way a go.mod replace directive writes one: a `..` per element of dir, and
+// `.` for a directory that is the tree.
+//
+// It is here rather than beside its caller for the reason [HasReplacement] is,
+// and it is the same class of mistake being guarded. A nested module moved one
+// level deeper needs one more `..`, and a directive left a level short does not
+// fail loudly — it names a directory that exists and is not the repository root,
+// and `go mod edit -replace` would then write that one over the committed
+// directive rather than refuse it. Path arithmetic nothing can test is how a
+// pipeline ends up re-pointing a module at the wrong tree.
+//
+// dir is a slash-separated path, which is what a Dagger [Directory] hands back
+// and what a go.mod writes whatever the host is.
+//
+// [Directory]: https://docs.dagger.io/api/reference/
+func RelativeRoot(dir string) string {
+	clean := strings.Trim(path.Clean(strings.TrimSpace(dir)), "/")
+	if clean == "" || clean == "." {
+		return "."
+	}
+
+	return strings.TrimSuffix(strings.Repeat("../", len(strings.Split(clean, "/"))), "/")
+}
 
 // HasReplacement reports whether contents carries the replacement spec, which is
 // written the way a go.mod writes it: `<module> => <target>`, or

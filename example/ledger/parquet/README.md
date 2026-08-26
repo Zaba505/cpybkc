@@ -63,20 +63,20 @@ this against.
 `go install github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds; each of its
 direct requires carries a paragraph beside it saying why the CLI needs it, and a
 converter's dependency has no business in a signed, attested, distroless release
-image. [`example/ledger`](../ledger) has no `go.mod` of its own, so anything
-importing `parquet-go` from inside `example/` would land in the root module.
+image. [`example/ledger/ledger`](../ledger) has no `go.mod` of its own, so anything
+importing `parquet-go` from inside the example would land in the root module.
 
-The precedent is [`irpb`](../../irpb), and it is precedent for exactly this
+The precedent is [`irpb`](../../../irpb), and it is precedent for exactly this
 reason. `module_test.go` here is `irpb/module_test.go`'s argument applied to a
 different constraint: nothing in the Go toolchain would fail if an import under
-`example/` quietly added a require to the root `go.mod`, so a test reads that
+the example quietly added a require to the root `go.mod`, so a test reads that
 file and says so. It finds it by following this module's own `replace` — the same
 pointer the compiler follows — rather than by a relative path written down in the
 test, so the assertion holds wherever the two modules sit relative to each other.
 
 It is checked like every other Go module here, by a pipeline function of its
 own: `dagger call example-parquet-ci`, beside `ir-ci`, `pipeline-ci` and
-`companion-ci`. See [CONTRIBUTING.md](../../CONTRIBUTING.md#the-parquet-example-is-checked-like-any-other-go-module-here)
+`companion-ci`. See [CONTRIBUTING.md](../../../CONTRIBUTING.md#the-parquet-example-is-checked-like-any-other-go-module-here)
 for what that stage has to do that the other four do not.
 
 ## Two grains, one table
@@ -318,7 +318,7 @@ all**:
 | `TRL-NET` | `PIC S9(13)V99 COMP-3` | `int64`, unscaled | *no column — reconciled* |
 
 `cpybkc-gen-go` writes a scaled item as [the unscaled integer with the scale in
-the doc comment](../../cmd/cpybkc-gen-go/README.md), which is precisely what
+the doc comment](../../../cmd/cpybkc-gen-go/README.md), which is precisely what
 `DECIMAL(p,s)` is. Nothing in `convert.go` divides by a hundred, and
 `TestTheTwoAmountColumnsRoundTripThroughDecimal` reads the written file back,
 checks the unscaled values against what the reader produced, and checks the
@@ -342,7 +342,7 @@ quietly rather than loudly if you extend the table by eye.
 - **`PIC 9(4) COMP-5` holds 65535.** A binary item is bounded by its *storage*
   and not by its PICTURE, so `DECIMAL(4,0)` overflows on a value the file is
   entitled to hold. `cmd/cpybkc-gen-go`'s README records this as [the defect the
-  unsigned rows were added to fix](../../cmd/cpybkc-gen-go/README.md) — the old
+  unsigned rows were added to fix](../../../cmd/cpybkc-gen-go/README.md) — the old
   types read that value back as `-1`. Size the decimal from the storage, or use
   an integer column.
 - **A picture ending in a run of `P` has a *negative* scale.** `PIC 9(3)PPP` is
@@ -352,16 +352,16 @@ quietly rather than loudly if you extend the table by eye.
   writer will accept. Multiply it out into an integer, or carry the scale beside
   the column.
 - **Numeric-edited items carry digits and scale too.** The IR's field node
-  carries [category, digits, scale and sign](../../docs/ir/SPEC.md) for every
+  carries [category, digits, scale and sign](../../../docs/ir/SPEC.md) for every
   elementary item, so reading those attributes "straight out of the field node"
   gets you a plausible-looking `DECIMAL`. What the generated struct actually
-  holds is [the edited text as it stands in the record](../../cmd/cpybkc-gen-go/README.md)
+  holds is [the edited text as it stands in the record](../../../cmd/cpybkc-gen-go/README.md)
   — an edited item is a `string` — so that column receives `" 1,234.50"`. The IR
   says outright that such an item [carries a width and no value a generator can
-  use](../../docs/ir/SPEC.md).
+  use](../../../docs/ir/SPEC.md).
 - **`COMP-1` and `COMP-2` are not ordinary numbers.** This project has already
   reversed a decision that treated them as one:
-  [`testdata/conformance/README.md`](../../testdata/conformance/README.md)
+  [`testdata/conformance/README.md`](../../../testdata/conformance/README.md)
   records the corpus moving its float entries to hexadecimal significand notation
   "exactly so that a NaN, an infinity and a negative zero can be written at all".
   Parquet has `FLOAT` and `DOUBLE` and they are the right targets — but a
@@ -440,9 +440,9 @@ paragraph exists to make visible.
 ## Not generated
 
 Nothing here is written by cpybkc. This directory is not named in
-[`example/cpybkc.json`](../cpybkc.json), it is not recorded in
-[`example/cpybkc.gen.json`](../cpybkc.gen.json), and
-[`example/regenerate_test.go`](../regenerate_test.go) does not touch it. The two
-halves of `example/` are told apart by the `// Code generated … DO NOT EDIT.`
+[`example/ledger/cpybkc.json`](../cpybkc.json), it is not recorded in
+[`example/ledger/cpybkc.gen.json`](../cpybkc.gen.json), and
+[`example/regenerate_test.go`](../../regenerate_test.go) does not touch it. The two
+halves of an example are told apart by the `// Code generated … DO NOT EDIT.`
 header, and `TestNothingHereIsMarkedGenerated` fails if a file here ever grows
 one.

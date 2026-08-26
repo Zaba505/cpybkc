@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Zaba505/cpybkc/example/ledger"
+	"github.com/Zaba505/cpybkc/example/ledger/ledger"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/format"
 )

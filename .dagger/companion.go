@@ -535,7 +535,15 @@ const (
 	// a module that composed an image which generated the wrong thing; what is
 	// worth asserting is that the module reproduced the committed example byte
 	// for byte, and this repository already has that tree.
-	companionExampleDir = "example"
+	//
+	// It names **one** of the examples rather than the tree of them (#311), and
+	// that is deliberate rather than pending. Every assertion below is over one
+	// mounted project — the module's Run takes a directory holding a manifest —
+	// and the ledger example is the one that exercises two generators, a
+	// discriminated union and a redefine. A second example would be a second
+	// composition of the same module calls for a question this check has already
+	// answered, and it would double the slowest stage here to do it.
+	companionExampleDir = "example/ledger"
 
 	// neverPulledRepository is the registry repository this check hands the
 	// module, and it is deliberately one that cannot exist: `.invalid` is
@@ -588,7 +596,7 @@ const (
 	// The name is one no worked example could plausibly want, and that is the
 	// point of spelling it this way rather than reusing [descriptorName]. This is
 	// the one destination in this check that nothing empties first, so a day when
-	// example/ gains a file of the same name is a day this comparison quietly
+	// the example gains a file of the same name is a day this comparison quietly
 	// changes what it is comparing. It also keeps the two sides' project trees as
 	// close to identical as they can be: resolution strictly precedes the write —
 	// an emission writes what it resolved — and a layout names its copybooks
@@ -675,8 +683,8 @@ const (
 // and the probe as its only generator.
 //
 // The example's own layout rather than one written here, because the point of
-// running against example/ is that the inputs are real — three copybooks, a
-// discriminated union and a redefine — and a manifest naming a layout of this
+// running against a real example is that the inputs are real — three copybooks,
+// a discriminated union and a redefine — and a manifest naming a layout of this
 // check's own would be a smaller project that happened to run a generator. The
 // probe reports the environment whatever it was handed, so what this run
 // resolves is not what is being asserted; that it is a real resolution is what
@@ -714,8 +722,8 @@ const envProbeManifestBody = `{
 // than widen silently.
 var exampleCopybooks = []string{"header.cpy", "posting.cpy", "trailer.cpy"}
 
-// exampleLayout is the layout example/cpybkc.json names, and the one
-// [envProbeManifestBody] names beside it.
+// exampleLayout is the layout [companionExampleDir]'s cpybkc.json names, and
+// the one [envProbeManifestBody] names beside it.
 //
 // It is a constant rather than a literal inside that manifest for
 // [exampleCopybooks]'s reason: it is a path that has to agree with a directory
@@ -955,7 +963,7 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 	// The two entries are the same constants the compositions above were built
 	// from, so a constant changed to a wrong spelling moves both together and this
 	// would not notice; what it does notice is a generator arriving or leaving. A
-	// third entry in example/cpybkc.json, or a third generator in
+	// third entry in that example's cpybkc.json, or a third generator in
 	// [publishedGenerators], has to be added here too, and fails this check loudly
 	// rather than going uncovered if it is not.
 	//

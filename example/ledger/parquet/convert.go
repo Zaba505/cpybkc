@@ -28,7 +28,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Zaba505/cpybkc/example/ledger"
+	"github.com/Zaba505/cpybkc/example/ledger/ledger"
 	"github.com/parquet-go/parquet-go"
 )
 

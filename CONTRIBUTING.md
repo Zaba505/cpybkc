@@ -39,7 +39,7 @@ dagger call lint          # golangci-lint over ./... against .golangci.yml
 dagger call test          # go test -race ./...
 dagger call proto-lint    # buf lint over proto/ against buf.yaml
 dagger call ir-ci         # the whole standard again, over the irpb/ module
-dagger call example-parquet-ci  # and again, over the example/parquet/ module
+dagger call example-parquet-ci  # and again, over every module nested under example/
 dagger call build         # builds cpybkc CGO-free and runs it in an empty image
 dagger call ir-artifacts  # builds the two IR artifacts a release attaches
 dagger call layout-artifact  # builds the layout schema a release attaches
@@ -1261,8 +1261,8 @@ worth designing against: it would look exactly like a green run while checking
 the last release instead of the change.
 
 **The assertion is the committed example, byte for byte.** The module composes a
-generator, runs `generate` over [`example/`](example/) and has to reproduce that
-tree exactly — the same golden tree
+generator, runs `generate` over [`example/ledger/`](example/ledger/) and has to
+reproduce that tree exactly — the same golden tree
 [`example/regenerate_test.go`](example/regenerate_test.go) holds the CLI to. A
 smoke test saying the calls *ran* would pass on a module that composed an image
 which generated the wrong thing.
@@ -1281,7 +1281,7 @@ covered by nothing.
 **`init` is checked against the escape hatch, not against a second expectation.**
 The curated scaffolding function has to hand back the scaffold
 `run --args=init,…,--out,-` writes over the same three copybooks in
-[`example/`](example/), byte for byte (#228). That is cheap, it needs no second
+[`example/ledger/`](example/ledger/), byte for byte (#228). That is cheap, it needs no second
 reading of what a scaffold should contain — `internal/scaffold`'s tests own that
 — and it is the property `init`'s escape-hatch entry stood in for while there was
 no function: a caller who reached for `run` before it existed gets the same file
@@ -1294,7 +1294,8 @@ no generator, which is also the state an adopter is in when they run it.
 
 **`emit-ir` is checked the same way, in every encoding** (#251). The curated
 function has to hand back the descriptor `run --args=--emit-ir,…` writes over
-[`example/`](example/), byte for byte, once naming no format — which is what
+[`example/ledger/`](example/ledger/), byte for byte, once naming no format —
+which is what
 says the module left the default encoding to the CLI rather than spelling one
 out here — and once for each of `binary` and `json`. Equality is not incidental
 to this flag the way it is to `init`: the plugin contract rests reproducibility
@@ -1345,44 +1346,55 @@ stopped working.
 ### The Parquet example is checked like any other Go module here
 
 `dagger call example-parquet-ci` runs the standard pipeline over
-[`example/parquet/`](example/parquet/), the worked conversion of the example
-ledger into Parquet, and it is in `ci`. It is a fifth call for the reason
+[`example/ledger/parquet/`](example/ledger/parquet/), the worked conversion of the
+example ledger into Parquet, and it is in `ci`. It is a fifth call for the reason
 [`IrCi`](.dagger/main.go) is a second, [`CompanionCi`](.dagger/companion.go) a
 third and [`PipelineCi`](.dagger/main.go) a fourth: a nested `go.mod` is where
 `go test ./...` stops.
 
+**It walks every module nested under `example/` rather than one path written
+down.** `example/` holds a [tree of examples](example/README.md), each its own
+cpybkc project, and a conversion belonging to a second one should be checked by
+having been written rather than by somebody remembering this stage. A directory
+carrying a `go.mod` is exactly a directory nothing else here reaches, so that is
+what [`exampleModuleDirs`](.dagger/main.go) globs for. The name of the call is the
+one module there is today.
+
 **Why that module has a `go.mod` at all** is
-[`parquet-go`](example/parquet/README.md#its-own-go-module-and-that-is-the-load-bearing-decision):
+[`parquet-go`](example/ledger/parquet/README.md#its-own-go-module-and-that-is-the-load-bearing-decision):
 it must not reach the root `go.mod`, which is what `go install
 github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds and what a release image is
-made of. `example/ledger` has no `go.mod` of its own, so a conversion written
-beside it would have put a dozen transitive requires into the CLI's build list.
-`example/parquet/module_test.go` reads the root `go.mod` and fails if it ever
-does.
+made of. `example/ledger/ledger` has no `go.mod` of its own, so a conversion
+written beside it would have put a dozen transitive requires into the CLI's build
+list. `example/ledger/parquet/module_test.go` reads the root `go.mod` and fails if
+it ever does.
 
 **And why that stage is not a one-liner** is the one way this module is unlike
 the other four. It is the only one whose `go.mod` points outside its own tree:
-the conversion reads its dataset through `example/ledger`, a package of the
-*root* module, so it carries `replace github.com/Zaba505/cpybkc => ../..`. That
+the conversion reads its dataset through `example/ledger/ledger`, a package of the
+*root* module, so it carries `replace github.com/Zaba505/cpybkc => ../../..`. That
 directive is what your own `go test ./...` in that directory resolves through:
 
 ```sh
-cd example/parquet && go test ./...
+cd example/ledger/parquet && go test ./...
 ```
 
 The shared chain mounts what it is handed at one path and runs the go tool
-there, so handing it `example/parquet` alone would put `../..` outside the mount.
-[`exampleParquetSource`](.dagger/main.go) hands over that directory with the
-repository nested inside it under a `_`-prefixed name — which is what keeps the
-go tool and golangci-lint from expanding `./...` into it — and re-points both
+there, so handing it the module directory alone would put that target outside the
+mount. [`exampleParquetSource`](.dagger/main.go) hands over that directory with
+the repository nested inside it under a `_`-prefixed name — which is what keeps
+the go tool and golangci-lint from expanding `./...` into it — and re-points both
 replace directives at the nest with `go mod edit`.
 
 It **requires the committed directives before it rewrites them**, and that is not
 belt and braces: `go mod edit -replace` *adds* a directive that is absent, so a
-stage that only rewrote would go green over an `example/parquet/go.mod` that had
-lost one, while the `go test ./...` above failed for everybody. If you add,
-remove or re-point a `replace` there, `exampleParquetReplacements` is the other
-half of the change, and the stage says so by name when the two disagree.
+stage that only rewrote would go green over a `go.mod` that had lost one, while
+the `go test ./...` above failed for everybody. The target it requires is
+arithmetic on the module's depth — [`gomod.RelativeRoot`](.dagger/internal/gomod/gomod.go),
+pinned by a test — so an example moved a level deeper needs no edit here. If you
+add, remove or re-point a `replace` there,
+[`exampleModuleReplacements`](.dagger/main.go) is the other half of the change,
+and the stage says so by name when the two disagree.
 
 ### The default image tag is the moving major tag
 

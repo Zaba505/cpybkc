@@ -832,7 +832,8 @@ which is the artifact, and the reason these files exist.
 
 Everything else covering this generator's output covers it *in this repository*:
 the golden packages under [`internal/`](internal/), the hand-written round-trip
-assertions inside them, [`example/regenerate_test.go`](../../example/regenerate_test.go), and the
+assertions inside them,
+[`example/regenerate_test.go`](../../example/regenerate_test.go), and the
 adapter driving the generator through the plugin contract. None of it reaches
 the directory you generate into, and the question it leaves unanswered is not
 *is the generated code correct*. It is **is the layout I wrote the file I
@@ -1210,7 +1211,7 @@ once per edge.
 
 This has to be decided rather than assumed, because it is the difference between
 a readable file and an unreadable one.
-[`example/graph/graph.md`](../../example/graph/graph.md) draws five states and
+[`example/ledger/graph/graph.md`](../../example/ledger/graph/graph.md) draws five states and
 ten transitions for one ordinary ledger — every posting state offers both posting
 types and the trailer — so a full edge cover would be ten cases for the worked
 example alone, over three.
@@ -1269,10 +1270,10 @@ run could set is a literal an adopter cannot predict from their own layout.
 
 A transition may bind an integer register out of a field of the record it just
 admitted, and a later transition may guard on that register and take one off it.
-`example/ledger.sexpr` is exactly that shape: the header states how many postings
-follow, the header's edge binds `HDR-COUNT` into a register, each posting edge is
-guarded *greater than zero* and decrements it, and the trailer's edge is guarded
-on zero.
+`example/ledger/ledger.sexpr` is exactly that shape: the header states how many
+postings follow, the header's edge binds `HDR-COUNT` into a register, each
+posting edge is guarded *greater than zero* and decrements it, and the trailer's
+edge is guarded on zero.
 
 Nothing downstream fixes such a field up — `ir/SPEC.md`'s *"A writer evaluates a
 guard, it never back-fills a count"* — so the number has to be **chosen first and

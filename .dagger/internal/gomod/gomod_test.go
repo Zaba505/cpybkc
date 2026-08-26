@@ -103,3 +103,33 @@ func TestAnEmptySpecMatchesNothing(t *testing.T) {
 		t.Error("an empty spec was reported as present")
 	}
 }
+
+// TestRelativeRoot pins the arithmetic a nested module's replace directive is
+// written with. A level too few names a directory that exists and is not the
+// root, which is the failure that would not announce itself.
+func TestRelativeRoot(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		dir  string
+		want string
+	}{
+		"the tree itself":     {dir: ".", want: "."},
+		"empty":               {dir: "", want: "."},
+		"one level":           {dir: "irpb", want: ".."},
+		"two levels":          {dir: "example/parquet", want: "../.."},
+		"three levels":        {dir: "example/ledger/parquet", want: "../../.."},
+		"a trailing slash":    {dir: "example/ledger/parquet/", want: "../../.."},
+		"an unclean path":     {dir: "./example//ledger/parquet", want: "../../.."},
+		"surrounding spaces":  {dir: "  example/ledger/parquet  ", want: "../../.."},
+		"a dot-dot in a path": {dir: "example/ledger/../parquet", want: "../.."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := gomod.RelativeRoot(testCase.dir); got != testCase.want {
+				t.Errorf("RelativeRoot(%q) = %q, want %q", testCase.dir, got, testCase.want)
+			}
+		})
+	}
+}
