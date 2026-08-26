@@ -1295,9 +1295,8 @@ no generator, which is also the state an adopter is in when they run it.
 **`emit-ir` is checked the same way, in every encoding** (#251). The curated
 function has to hand back the descriptor `run --args=--emit-ir,…` writes over
 [`example/ledger/`](example/ledger/), byte for byte, once naming no format —
-which is what
-says the module left the default encoding to the CLI rather than spelling one
-out here — and once for each of `binary` and `json`. Equality is not incidental
+which is what says the module left the default encoding to the CLI rather than
+spelling one out here — and once for each of `binary` and `json`. Equality is not incidental
 to this flag the way it is to `init`: the plugin contract rests reproducibility
 on the bytes `--emit-ir` writes being the bytes a generator was handed, and it
 holds that by there being **one encoder** rather than by two agreeing. A curated

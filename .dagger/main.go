@@ -103,26 +103,31 @@
 // is the gate a contributor runs, and a check CI performs that the gate does
 // not is an arrangement of local commands that passes while CI fails.
 //
-// # Why the standard is invoked five times
+// # Why the standard is invoked more than once
 //
-// This repository holds five Go modules: the CLI at the root, the published IR
-// module at irpb/, the companion Dagger module at daggerverse/cpybkc/, this
-// pipeline itself at .dagger/, and the worked Parquet conversion at
-// example/ledger/parquet/. A nested go.mod is where `go test ./...` stops, so the
-// source directory that reaches one of them reaches none of the others, and
-// IrCi, CompanionCi, PipelineCi and ExampleParquetCi are the four further
-// invocations that cover the four further modules. Each is the standard again
-// and not a variation on it — same archetype, same lint configuration — because
-// the module third-party generators import, the module strangers call, the
-// pipeline that judges everything else, and a worked example whose whole point
-// is that it compiles are the last four places this repository should be
-// checking something bespoke.
+// A nested go.mod is where `go test ./...` stops, so the source directory that
+// reaches one module reaches none of the others. This repository's modules are
+// the CLI at the root, the published IR module at irpb/, the companion Dagger
+// module at daggerverse/cpybkc/, this pipeline itself at .dagger/, and one per
+// nested module under example/ — the worked conversions an example ships. Ci
+// invokes the standard over the root; IrCi, CompanionCi, PipelineCi and
+// ExampleParquetCi cover the rest, the last of them over however many of that
+// final group there are.
+//
+// The group rather than a tally, deliberately: a count written down here is a
+// count somebody has to remember to edit for a change the go tool never
+// notices, and example/ holds a tree of examples that is meant to grow (#311).
+//
+// Each is the standard again and not a variation on it — same archetype, same
+// lint configuration — because the module third-party generators import, the
+// module strangers call, the pipeline that judges everything else, and a worked
+// example whose whole point is that it compiles are the last places this
+// repository should be checking something bespoke.
 //
 // ExampleParquetCi is the one whose *source directory* is composed rather than
 // taken whole, and exampleParquetSource says why: it is the only module here
 // whose go.mod points outside its own tree. It is also the one that is not a
-// path written down — example/ holds a tree of examples, and every nested module
-// under it is discovered and run.
+// path written down — every nested module under example/ is discovered and run.
 //
 // ProtoGen is the odd one out: it is not a check at all but the generator that
 // produces irpb/ir.pb.go, kept here because a generation recipe living anywhere
@@ -614,7 +619,12 @@ func (m *Cpybkc) exampleModuleDirs(ctx context.Context) ([]string, error) {
 	dirs := make([]string, 0, len(found))
 
 	for _, mod := range found {
-		dirs = append(dirs, exampleDir+"/"+strings.TrimSuffix(strings.TrimSuffix(mod, "go.mod"), "/"))
+		dir, err := gomod.ModuleDir(exampleDir, mod)
+		if err != nil {
+			return nil, fmt.Errorf("taking a module directory out of the glob under %s: %w", exampleDir, err)
+		}
+
+		dirs = append(dirs, dir)
 	}
 
 	slices.Sort(dirs)
@@ -634,7 +644,9 @@ func (m *Cpybkc) exampleModuleDirs(ctx context.Context) ([]string, error) {
 // The target is arithmetic on the module's depth rather than a literal, for the
 // reason the discovery above is a glob: an example moved a level deeper changes
 // both directives, and a literal would have to be found by whoever moved it.
-// gomod.RelativeRoot is where that arithmetic is pinned by a test.
+// gomod.RelativeRoot is where that arithmetic is pinned by a test, and it
+// refuses a directory that is not inside the tree rather than handing back a
+// plausible number of `..` for one that cannot have a root.
 //
 // They are checked before they are re-pointed, which is the whole reason they are
 // stated at all. `go mod edit -replace` *adds* a directive that is absent, so a
@@ -648,13 +660,16 @@ func (m *Cpybkc) exampleModuleDirs(ctx context.Context) ([]string, error) {
 // was first and is the hole that package's tests exist for: `../..` is a prefix
 // of `../../wrong`, so a directive quietly re-pointed at the wrong directory
 // read as present.
-func exampleModuleReplacements(dir string) []string {
-	root := gomod.RelativeRoot(dir)
+func exampleModuleReplacements(dir string) ([]string, error) {
+	root, err := gomod.RelativeRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("working out what %s replaces the repository through: %w", dir, err)
+	}
 
 	return []string{
 		"github.com/Zaba505/cpybkc => " + root,
 		"github.com/Zaba505/cpybkc/irpb => " + root + "/irpb",
-	}
+	}, nil
 }
 
 // ExampleParquetCi runs the standard Go pipeline over every Go module nested
@@ -669,11 +684,16 @@ func exampleModuleReplacements(dir string) []string {
 // It is handed the same .golangci.yml, so every Go module here is linted against
 // one configuration rather than one each.
 //
-// The name is the one module there is today, the ledger example's Parquet
-// conversion, and it is what CONTRIBUTING.md documents a contributor running.
-// What it walks is every one of them, because example/ holds a tree of examples
-// rather than one and a second conversion should be checked by having been
-// written rather than by somebody remembering this stage.
+// **The name is kept for stability, not because the scope is Parquet.** What it
+// walks is every nested module under example/, whatever a conversion there
+// happens to be written against — a second example should be checked by having
+// been written rather than by somebody remembering this stage. `example-parquet-ci`
+// is the name a `+check` publishes, which is the name a required status check on
+// the default branch is configured under and the name CONTRIBUTING.md documents,
+// so renaming it is a repository-settings change rather than a rename and does
+// not belong in the story that made the scope plural (#311). When it is renamed —
+// `ExampleModulesCi` is the honest name — the branch protection rule moves with
+// it.
 //
 // Every module is run rather than stopping at the first failure. A conversion
 // that does not compile and a second one whose go.mod lost a replace are two
@@ -736,7 +756,12 @@ func (m *Cpybkc) exampleParquetSource(ctx context.Context, dir string) (*dagger.
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	for _, want := range exampleModuleReplacements(dir) {
+	wants, err := exampleModuleReplacements(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, want := range wants {
 		if !gomod.HasReplacement(mod, want) {
 			return nil, fmt.Errorf("%s does not carry `replace %s`: that directive is what `cd %s && go test ./...` resolves the CLI module through, and this stage re-points it at a nested copy — so a stage that did not check would pass over a go.mod no contributor can build",
 				path, want, dir)

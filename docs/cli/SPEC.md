@@ -523,10 +523,11 @@ have no default for any; [`framing`](../layout/SPEC.md#physical-framing), with
 [`discriminate`](../layout/SPEC.md#discrimination); and
 [`sequence`](../layout/SPEC.md#sequencing).
 
-`example/ledger/posting.cpy` is the measure, and the arithmetic is `init`'s output for
-it. That one copybook scaffolds six `record` forms and twelve `alternative`
-children — thirty-odd lines, every one of them recoverable from the copybook and
-none of them a thing the adopter has to know — against the `discriminate` form
+`example/ledger/posting.cpy` is the measure, and the arithmetic is `init`'s
+output for it. That one copybook scaffolds six `record` forms and twelve
+`alternative` children — thirty-odd lines, every one of them recoverable from
+the copybook and none of them a thing the adopter has to know — against the
+`discriminate` form
 each of those six record types needs and the one `sequence`, which are the file's
 actual description and are recoverable from nothing. The six commented `rename`s
 sit between the two: which records need one is recoverable, and the substitutes

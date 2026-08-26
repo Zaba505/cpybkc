@@ -63,8 +63,9 @@ this against.
 `go install github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds; each of its
 direct requires carries a paragraph beside it saying why the CLI needs it, and a
 converter's dependency has no business in a signed, attested, distroless release
-image. [`example/ledger/ledger`](../ledger) has no `go.mod` of its own, so anything
-importing `parquet-go` from inside the example would land in the root module.
+image. [`example/ledger/ledger`](../ledger) has no `go.mod` of its own, so
+anything importing `parquet-go` from inside the example would land in the root
+module.
 
 The precedent is [`irpb`](../../../irpb), and it is precedent for exactly this
 reason. `module_test.go` here is `irpb/module_test.go`'s argument applied to a

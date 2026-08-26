@@ -1211,8 +1211,8 @@ once per edge.
 
 This has to be decided rather than assumed, because it is the difference between
 a readable file and an unreadable one.
-[`example/ledger/graph/graph.md`](../../example/ledger/graph/graph.md) draws five states and
-ten transitions for one ordinary ledger — every posting state offers both posting
+[`example/ledger/graph/graph.md`](../../example/ledger/graph/graph.md) draws
+five states and ten transitions for one ordinary ledger — every posting state offers both posting
 types and the trailer — so a full edge cover would be ten cases for the worked
 example alone, over three.
 

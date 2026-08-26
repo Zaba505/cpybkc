@@ -11,6 +11,7 @@
 package gomod_test
 
 import (
+	"strings"
 	"testing"
 
 	"dagger/cpybkc/internal/gomod"
@@ -127,8 +128,102 @@ func TestRelativeRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := gomod.RelativeRoot(testCase.dir); got != testCase.want {
+			got, err := gomod.RelativeRoot(testCase.dir)
+			if err != nil {
+				t.Fatalf("RelativeRoot(%q): %v", testCase.dir, err)
+			}
+
+			if got != testCase.want {
 				t.Errorf("RelativeRoot(%q) = %q, want %q", testCase.dir, got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestRelativeRootRefusesAPathThatIsNotInsideTheTree is the other half, and it
+// is the half worth having: for each of these there is no number of `..` that
+// reaches a root, and every one of them has a plausible-looking answer a
+// silently-total function would hand back.
+func TestRelativeRootRefusesAPathThatIsNotInsideTheTree(t *testing.T) {
+	t.Parallel()
+
+	for name, dir := range map[string]string{
+		"the parent":            "..",
+		"a sibling of the tree": "../parquet",
+		"cleaning outside":      "example/../../parquet",
+		"absolute":              "/example/ledger/parquet",
+		"absolute at the root":  "/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := gomod.RelativeRoot(dir)
+			if err == nil {
+				t.Fatalf("RelativeRoot(%q) = %q, want an error: a path outside the tree has no root to point back to", dir, got)
+			}
+
+			if !strings.Contains(err.Error(), dir) {
+				t.Errorf("RelativeRoot(%q) refused without naming the path: %v", dir, err)
+			}
+		})
+	}
+}
+
+// TestModuleDir pins the other half of the path arithmetic: what a `**/go.mod`
+// glob result names.
+//
+// The `at the root` row is the one this exists for. A go.mod directly under the
+// globbed directory comes back as a bare `go.mod`, and trimming the suffix off
+// it leaves an empty string that composes into a trailing slash and then a
+// doubled separator — not a failure, and not the path anybody meant.
+func TestModuleDir(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		root  string
+		match string
+		want  string
+	}{
+		"nested twice":    {root: "example", match: "ledger/parquet/go.mod", want: "example/ledger/parquet"},
+		"nested once":     {root: "example", match: "parquet/go.mod", want: "example/parquet"},
+		"at the root":     {root: "example", match: "go.mod", want: "example"},
+		"a leading slash": {root: "example", match: "/ledger/parquet/go.mod", want: "example/ledger/parquet"},
+		"an unclean root": {root: "example/", match: "ledger/parquet/go.mod", want: "example/ledger/parquet"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := gomod.ModuleDir(testCase.root, testCase.match)
+			if err != nil {
+				t.Fatalf("ModuleDir(%q, %q): %v", testCase.root, testCase.match, err)
+			}
+
+			if got != testCase.want {
+				t.Errorf("ModuleDir(%q, %q) = %q, want %q", testCase.root, testCase.match, got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestModuleDirRefusesAMatchThatIsNotAGoMod: the caller passes a glob result, so
+// a match that is not a go.mod means the pattern and this function disagree
+// about what was being looked for — which is a bug to report rather than a
+// directory to take.
+func TestModuleDirRefusesAMatchThatIsNotAGoMod(t *testing.T) {
+	t.Parallel()
+
+	for name, match := range map[string]string{
+		"a directory":        "ledger/parquet",
+		"another file":       "ledger/parquet/go.sum",
+		"a prefix":           "ledger/parquet/go.mod.bak",
+		"empty":              "",
+		"a suffix elsewhere": "ledger/go.mod/inner.txt",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got, err := gomod.ModuleDir("example", match); err == nil {
+				t.Errorf("ModuleDir(%q, %q) = %q, want an error", "example", match, got)
 			}
 		})
 	}

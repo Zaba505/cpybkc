@@ -19,13 +19,37 @@
 package gomod
 
 import (
+	"fmt"
 	"path"
 	"strings"
 )
 
+// ModuleDir is the directory a `**/go.mod` glob result names, as a path under
+// root.
+//
+// Dagger globs a Directory and hands back paths relative to it, so finding the
+// nested modules under `example/` yields `ledger/parquet/go.mod` and the caller
+// wants `example/ledger/parquet`. That is two lines of string surgery, and two
+// lines of string surgery over a path is what this package exists to keep out of
+// a file no test can reach: a `go.mod` sitting directly under root globs as
+// `go.mod`, and trimming the suffix off it leaves an empty string that composes
+// into `root/` and then `root//go.mod` — which is neither a failure nor the path
+// anybody meant, and would be printed back at whoever had to debug it.
+//
+// A match that does not name a go.mod is refused rather than guessed at. The
+// caller passes a glob result, so a match that is not one means the pattern and
+// this function disagree about what was being looked for.
+func ModuleDir(root, match string) (string, error) {
+	if path.Base(match) != "go.mod" {
+		return "", fmt.Errorf("%q does not name a go.mod, so there is no module directory to take from it", match)
+	}
+
+	return path.Join(root, path.Dir(match)), nil
+}
+
 // RelativeRoot is the path from a directory back to the tree it sits in, written
 // the way a go.mod replace directive writes one: a `..` per element of dir, and
-// `.` for a directory that is the tree.
+// `.` for a directory that is the tree itself.
 //
 // It is here rather than beside its caller for the reason [HasReplacement] is,
 // and it is the same class of mistake being guarded. A nested module moved one
@@ -36,16 +60,31 @@ import (
 // pipeline ends up re-pointing a module at the wrong tree.
 //
 // dir is a slash-separated path, which is what a Dagger [Directory] hands back
-// and what a go.mod writes whatever the host is.
+// and what a go.mod writes whatever the host is. It **must** be a relative path
+// that stays inside the tree, and one that is not is an error rather than an
+// answer — an absolute path, or one that climbs out with `..`, has no number of
+// `..` that reaches the root, and returning a plausible one is precisely the
+// silent wrong answer this package was split out to stop. Today's caller feeds
+// it a glob result so none of them can occur; a guard with a hole fails by
+// staying green, which is why the hole is closed anyway.
 //
 // [Directory]: https://docs.dagger.io/api/reference/
-func RelativeRoot(dir string) string {
-	clean := strings.Trim(path.Clean(strings.TrimSpace(dir)), "/")
-	if clean == "" || clean == "." {
-		return "."
+func RelativeRoot(dir string) (string, error) {
+	trimmed := strings.TrimSpace(dir)
+	if path.IsAbs(trimmed) {
+		return "", fmt.Errorf("%q is absolute: a replace directive's target is relative to the go.mod that states it, so an absolute path has no root to point back to", dir)
 	}
 
-	return strings.TrimSuffix(strings.Repeat("../", len(strings.Split(clean, "/"))), "/")
+	clean := strings.Trim(path.Clean(trimmed), "/")
+	if clean == "" || clean == "." {
+		return ".", nil
+	}
+
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("%q climbs out of the tree it is being measured against, so no number of `..` reaches its root", dir)
+	}
+
+	return strings.TrimSuffix(strings.Repeat("../", len(strings.Split(clean, "/"))), "/"), nil
 }
 
 // HasReplacement reports whether contents carries the replacement spec, which is
