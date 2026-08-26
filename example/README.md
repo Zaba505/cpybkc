@@ -9,7 +9,7 @@ Each example is a directory. Read the one whose file looks like yours.
 | Example | The file it describes | What it is here to show |
 |---|---|---|
 | [`ledger/`](ledger) | a general-ledger extract on a variable-length dataset (`recfm VB`) | six record types out of one `01`-level and the two a real file carries, discrimination at two different offsets, a counted repetition, `REDEFINES` slack surviving a round trip, and a worked Parquet conversion of the result |
-| [`policy/`](policy) | a daily policy administration extract on a fixed-block dataset (`recfm FB`) | eleven record types as eleven `01`-levels in one copybook member, a type code at one offset, three grains of nesting with no register, and the width and sparsity a real extract has — 197 fields, 70 of them a field some other record type also declares under its own prefix, and no record carrying more than twenty |
+| [`policy/`](policy) | a daily policy administration extract on a fixed-block dataset (`recfm FB`) | eleven record types as eleven `01`-levels in one copybook member, a type code at one offset, three grains of nesting with no register, the width and sparsity a real extract has — 197 fields, 70 of them a field some other record type also declares under its own prefix, and no record carrying more than twenty — and a worked Parquet conversion arguing what one wide sparse table costs to write |
 
 Adding one is adding a directory: everything below reads the tree rather than a
 list, so a new example is covered by having been written.
@@ -64,9 +64,9 @@ exist as `cmd/cpybkc-gen-<name>`, and [`.dagger/companion.go`](../.dagger/compan
 composes the generators into an image by hand because *how* a generator is
 installed is not in a manifest.
 
-A conversion written beside an example — `ledger/parquet/` is the one there is —
-is a Go module of its own, so that its dependencies never reach the root
-`go.mod`. `go test ./example/...` does not run it and neither does the
+A conversion written beside an example — `ledger/parquet/` and
+`policy/parquet/` are the ones there are — is a Go module of its own, so that its
+dependencies never reach the root `go.mod`. `go test ./example/...` does not run it and neither does the
 regeneration above; `dagger call example-parquet-ci` is what does, over every
 nested module under this directory.
 

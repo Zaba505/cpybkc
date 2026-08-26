@@ -1,0 +1,244 @@
+// Copyright (c) 2026 Richard Carson Derr
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+// The module boundary, asserted.
+//
+// It is very nearly the ledger conversion's `module_test.go`, and it is a copy
+// rather than something shared. Sharing it would need a package, a package would
+// need a module both conversions could require, and a third module existing so
+// that two examples can assert the same three sentences is a worse tree than two
+// copies of them. Each module owns the assertion about its own `go.mod`, which is
+// the file it is about.
+package main
+
+import (
+	"bytes"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+const (
+	// parquetModulePath is the dependency this whole module boundary exists to
+	// keep out of the root go.mod.
+	parquetModulePath = "github.com/parquet-go/parquet-go"
+
+	// cliModulePath is the module `go install …/cmd/cpybkc@version` builds. Its
+	// build list is what a release image is made of.
+	cliModulePath = "github.com/Zaba505/cpybkc"
+
+	// thisModulePath is where this conversion lives, and it is a constant so
+	// that moving it fails a test that names it.
+	thisModulePath = "github.com/Zaba505/cpybkc/example/policy/parquet"
+)
+
+// TestParquetGoDoesNotReachTheRootModule asserts the property this module
+// boundary was drawn for.
+//
+// example/policy/policy has no go.mod of its own, so a conversion written
+// beside it would have put parquet-go — and its dozen transitive requires — into
+// the module `go install github.com/Zaba505/cpybkc/cmd/cpybkc@version` builds,
+// and from there into a signed, attested, distroless release image. Nothing in
+// the Go toolchain enforces that it does not: an import added to a file under
+// example/ would add a require to the root go.mod and no build would fail. So it
+// is enforced here, over the one artifact that decides it.
+//
+// The root go.mod is found by following this module's own replace rather than by
+// a relative path written down here, which is the same pointer the compiler
+// follows and holds wherever the two are put relative to each other. A relative
+// path would tie the assertion to one layout and go quiet — passing on a file it
+// could not find — in any other.
+//
+// Reading go.mod as text rather than with golang.org/x/mod is irpb's reasoning
+// applied to a different constraint. There the point was keeping the require
+// list at one entry; here it is that a test dependency is a dependency, and this
+// module is meant to read as "parquet-go, the tree beside it, and nothing
+// invented for the test".
+func TestParquetGoDoesNotReachTheRootModule(t *testing.T) {
+	dir, ok := parseGoMod(t, "go.mod").replaces[cliModulePath]
+	if !ok {
+		t.Fatalf("go.mod carries no replace for %s, so there is no root module to check: the conversion is held against the generated package as it stands, not against a published version of it", cliModulePath)
+	}
+
+	path := filepath.Join(dir, "go.mod")
+
+	root := parseGoMod(t, path)
+	if root.module != cliModulePath {
+		t.Fatalf("%s declares module %q, want %q: the replace points somewhere that is not the CLI module", path, root.module, cliModulePath)
+	}
+
+	if _, ok := root.requires[parquetModulePath]; ok {
+		t.Errorf("%s requires %s: a converter's dependency has no business in the module a release image is built from, which is the whole reason this conversion has a go.mod of its own", path, parquetModulePath)
+	}
+
+	if _, ok := root.requires[thisModulePath]; ok {
+		t.Errorf("%s requires %s: the arrow points this way — the example consumes the generated package, and the CLI knows nothing about the example", path, thisModulePath)
+	}
+}
+
+// TestThisModuleIsWhereParquetGoLives is the other half, and it is not
+// tautological: the assertion above passes just as well if this module stopped
+// requiring parquet-go, which would mean the conversion had moved somewhere the
+// first test does not look.
+func TestThisModuleIsWhereParquetGoLives(t *testing.T) {
+	mod := parseGoMod(t, "go.mod")
+
+	if mod.module != thisModulePath {
+		t.Errorf("module path is %q, want %q", mod.module, thisModulePath)
+	}
+
+	if _, ok := mod.requires[parquetModulePath]; !ok {
+		t.Errorf("go.mod does not require %s, and this module exists to be where it lives", parquetModulePath)
+	}
+
+	if _, ok := mod.requires[cliModulePath]; !ok {
+		t.Errorf("go.mod does not require %s: the conversion reads its dataset through the generated example/policy/policy, held against the tree as it stands", cliModulePath)
+	}
+}
+
+// TestNothingHereIsMarkedGenerated is the line between the two halves of the
+// example this conversion sits in.
+//
+// This directory is neither generated nor named by that example's cpybkc.json,
+// and a hand-written file under it that carried the header would read as output
+// — which would put it in front of the regeneration test as a file to be
+// reproduced, and it cannot be.
+//
+// It walks every file rather than the .go files beside it, because that test's
+// notion of "generated" is not restricted to Go: a README, a manifest or a
+// fixture added here later carries the same claim. Two things are skipped, and
+// both are absences rather than exemptions — a `_`- or `.`-prefixed directory,
+// which is where the pipeline nests the repository this module replaces and is
+// not this module's tree at all, and a file carrying a NUL byte, which is what
+// `go build` leaves in a contributor's checkout and never a file anyone wrote.
+func TestNothingHereIsMarkedGenerated(t *testing.T) {
+	// Split so that this file does not carry the header it is looking for.
+	const marker = "Code " + "generated by"
+
+	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		name := entry.Name()
+
+		if entry.IsDir() {
+			if path != "." && (strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+
+		b, err := os.ReadFile(filepath.Clean(path))
+		if err != nil {
+			return err
+		}
+
+		if bytes.IndexByte(b, 0) >= 0 {
+			return nil
+		}
+
+		if strings.Contains(string(b), marker) {
+			t.Errorf("%s carries a %q header and nothing here is generated: the two halves of an example are told apart by that line", path, marker)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking this directory: %v", err)
+	}
+}
+
+// goMod is as much of a go.mod as asserting a dependency boundary needs: what
+// the module is called, what it requires, and where it points for the module it
+// replaces.
+type goMod struct {
+	module   string
+	requires map[string]string
+	replaces map[string]string
+}
+
+// parseGoMod reads the module path and the require list out of a go.mod.
+//
+// go.mod's grammar is line-oriented with one comment form, so this handles the
+// whole of it that matters here: a directive on its own line, or a parenthesised
+// block of arguments under one. Anything it does not recognise it ignores, which
+// is the right failure mode for a test whose subject is the require list.
+func parseGoMod(t *testing.T, path string) goMod {
+	t.Helper()
+
+	b, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	mod := goMod{requires: make(map[string]string), replaces: make(map[string]string)}
+
+	block := ""
+
+	for raw := range strings.SplitSeq(string(b), "\n") {
+		line := raw
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if block != "" {
+			if line == ")" {
+				block = ""
+
+				continue
+			}
+
+			mod.add(block, strings.Fields(line))
+
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[len(fields)-1] == "(" {
+			block = fields[0]
+
+			continue
+		}
+
+		mod.add(fields[0], fields[1:])
+	}
+
+	return mod
+}
+
+// add records one directive's arguments.
+func (m *goMod) add(directive string, args []string) {
+	switch directive {
+	case "module":
+		if len(args) > 0 {
+			m.module = args[0]
+		}
+	case "require":
+		if len(args) > 1 {
+			m.requires[args[0]] = args[1]
+		}
+	case "replace":
+		// `replace old => new` and `replace old vN => new vM` both put the
+		// replacement last, and only a local one — the kind this module uses —
+		// is a directory the test can read a go.mod out of.
+		if i := slices.Index(args, "=>"); i >= 0 && i+1 < len(args) {
+			m.replaces[args[0]] = args[i+1]
+		}
+	}
+}
