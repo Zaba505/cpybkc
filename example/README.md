@@ -154,8 +154,12 @@ written in the layout and not inferred from anything.
 
 So the alternatives no longer multiply *in this layout*, and that is a property
 of `ledger.sexpr` rather than of `posting.cpy`. cpybkc's own coverage of the
-cross product is unaffected: `internal/resolve/shape_test.go` and
-`internal/scaffold/derive_test.go` carry inline fixtures enumerating all six.
+cross product does not go with them: `internal/resolve/shape_test.go` enumerates
+all six over a fixture written inline, and `internal/scaffold/derive_test.go`
+derives them from `posting.cpy` itself. That second one used to check the six by
+requiring *this layout* to enumerate them, and now pins the six it expects
+outright — so the coverage no longer depends on what a layout happens to name,
+which is the change this narrowing forced and an improvement on what was there.
 
 The pairing is stated and never inferred — cpybkc will not decide which bytes a
 record type describes by looking at which alternative its discriminator happens
@@ -188,7 +192,7 @@ reference: one strategy, two offsets.
 Two records that may be admitted at the *same* point in a file cannot be
 selected at two different offsets. A discriminator is evaluated before the
 record in front of a consumer has been identified, so nothing rules out a record
-carrying `99` in its first two bytes *and* `DA` in bytes twelve and thirteen —
+carrying `99` in its first two bytes *and* `DR` in bytes twelve and thirteen —
 and a state offering two transitions that can both apply is a layout `resolve`
 rejects before a consumer ever sees it.
 
@@ -253,8 +257,9 @@ the point of it being here is that you should:
   own, and a posting may be followed by a posting of either type, so those three
   states each carry the same three transitions and the picture is the complete
   graph over them. That density is the layout's, not the drawing's: a layout
-  naming all six combinations would draw seven states and fifty edges for the
-  same file format.
+  naming all six combinations would draw nine states and fifty edges for the
+  same file format, which is what this example drew until it narrowed to the two
+  the file carries.
 - **`HDR-COUNT` in the register table.** The header's edge carries
   `then r39 = HDR-COUNT`; every posting edge carries `if r39 greater than zero,
   then r39 = r39 - 1`; the trailer's carries `if r39 = 0`. The **Registers**
@@ -277,7 +282,7 @@ the point of it being here is that you should:
 - **The literals are bytes.** `when PST-TYPE = 0xC4 0xD9` is `"DR"` in cp037,
   which is the charset `(encoding (charset cp037) …)` declares. A diagram that
   printed `"DR"` would be printing ASCII for a field that is not in it.
-- **`*slack*` in the credit tables.** Four bytes at offset 38 that no credit
+- **`*slack*` in the credit table.** Four bytes at offset 38 that no credit
   posting describes — `PST-CREDIT` being shorter than the run it redefines —
   drawn as a row of its own rather than as a gap between two offsets.
 
@@ -286,16 +291,22 @@ those tables is the generator's own arithmetic; the document says so itself. Tha
 is why the tables are worth checking against a copybook rather than being taken
 as a restatement of it.
 
-`format=mermaid` is the manifest's choice and it is a judgment call: this
-automaton is small — five states and ten transitions — and
+`format=mermaid` is the manifest's choice, and it used to be a close one. While
+this layout named all six combinations the automaton was nine states and fifty
+transitions, and
 [`cpybkc-gen-graph`'s README](../cmd/cpybkc-gen-graph/README.md#which-rendering-to-reach-for)
-reaches for `dot` at that density. Mermaid is what the example commits anyway,
-because a worked example is read where it is checked in: a `.md` renders the
-diagram on the forge, and its registers and item tables are Markdown tables a
-reader can check by eye in the diff, where Graphviz's are HTML markup inside a
-file that renders nowhere on its own. Changing `"format": "mermaid"` to `"dot"`
-in [`cpybkc.json`](cpybkc.json) and regenerating is what it takes to see the
-other one.
+reaches for `dot` at that density. Naming the two record types the file carries
+took it to five states and ten transitions, which Mermaid draws comfortably — so
+the call is no longer close, and that is worth noticing on its own: which
+rendering a layout wants is decided by what the layout names, not by what its
+copybooks admit.
+
+Mermaid is what this example would commit either way, because a worked example is
+read where it is checked in: a `.md` renders the diagram on the forge, and its
+registers and item tables are Markdown tables a reader can check by eye in the
+diff, where Graphviz's are HTML markup inside a file that renders nowhere on its
+own. Changing `"format": "mermaid"` to `"dot"` in [`cpybkc.json`](cpybkc.json)
+and regenerating is what it takes to see the other one.
 
 ## One descriptor, two generators
 

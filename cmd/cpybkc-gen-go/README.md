@@ -1210,12 +1210,20 @@ once per edge.
 
 This has to be decided rather than assumed, because it is the difference between
 a readable file and an unreadable one.
-[`example/graph/graph.md`](../../example/graph/graph.md) draws nine states and
-fifty transitions for one ordinary ledger — every posting state offers all six
-posting types — so a full edge cover would be fifty cases for the worked example
-alone, over seven. What an adopter is checking is *this record type is selected
-on these bytes*, which is a property of the **predicate**; the guards that make
-two edges carrying one predicate distinct are the automaton's business, and
+[`example/graph/graph.md`](../../example/graph/graph.md) draws five states and
+ten transitions for one ordinary ledger — every posting state offers both posting
+types and the trailer — so a full edge cover would be ten cases for the worked
+example alone, over three.
+
+That example's layout names two of the six record types its copybook admits, and
+the gap widens with the ones that do not: naming all six draws **nine** states
+and **fifty** transitions over the same file format, which is fifty cases against
+seven. The rule is decided on the shape rather than on either number, because
+which of them a repository's layouts look like is not this generator's to assume.
+
+What an adopter is checking is *this record type is selected on these bytes*,
+which is a property of the **predicate**; the guards that make two edges carrying
+one predicate distinct are the automaton's business, and
 [`cpybkc-gen-graph`](../cpybkc-gen-graph/) has already drawn them.
 
 So it is a bound on what these cases prove, and it is stated here for that

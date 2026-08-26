@@ -468,6 +468,32 @@ func TestEveryFaultIsReportedRatherThanTheFirst(t *testing.T) {
 	}
 }
 
+// exampleCrossProduct is every combination `example/posting.cpy` admits, sorted:
+// PST-BODY described three ways crossed with PST-TAIL described two, which is
+// the six record types docs/cli/SPEC.md's `init` arithmetic counts.
+//
+// Written down rather than derived a second way. The point of pinning it is that
+// a derivation which lost or duplicated a combination is caught, and a `want`
+// computed by the code under test would agree with such a change.
+var exampleCrossProduct = []string{
+	"PST-BODY+PST-TAIL",
+	"PST-BODY+PST-TAIL-REF",
+	"PST-CREDIT+PST-TAIL",
+	"PST-CREDIT+PST-TAIL-REF",
+	"PST-DEBIT+PST-TAIL",
+	"PST-DEBIT+PST-TAIL-REF",
+}
+
+// exampleBaseDescriptions are the two items in `example/posting.cpy` that a
+// REDEFINES is written *over*: PST-BODY, which PST-DEBIT and PST-CREDIT redefine,
+// and PST-TAIL, which PST-TAIL-REF does.
+//
+// They are ordinary COBOL declarations and `init` derives combinations naming
+// them, correctly — a copybook cannot say which of its descriptions a file
+// carries. What a mainframe-produced file holds is the redefinitions, which is
+// why the worked example's layout names neither of these.
+var exampleBaseDescriptions = []string{"PST-BODY", "PST-TAIL"}
+
 // The measure docs/cli/SPEC.md sets: `example/posting.cpy` is six record types
 // over one 01-level with twelve `alternative` children, and every one of them is
 // recoverable from the copybook alone.
@@ -475,11 +501,17 @@ func TestEveryFaultIsReportedRatherThanTheFirst(t *testing.T) {
 // The worked example's layout names **two** of those six — the two whose every
 // alternative is a REDEFINES rather than a base description, which are the two a
 // mainframe-produced extract carries. So the two sides are not equal and must not
-// be asserted to be: what holds is that the derivation is the whole cross product
-// and that everything the layout names is in it. A layout combination the scaffold
-// did not derive would be a combination `init` cannot offer, which is the failure
-// this test is for; a derived combination the layout does not name is the adopter
-// having chosen, which is what a layout is for.
+// be asserted to be. What is asserted instead is both halves of that, and neither
+// is weaker than the equality this replaced:
+//
+//   - the derivation is exactly [exampleCrossProduct], so a combination lost,
+//     duplicated or renamed is still caught — it used to be caught by the layout
+//     enumerating all six, and pinning the list is what carries that over;
+//   - every combination the layout names is one the derivation offers. A layout
+//     combination the scaffold did not derive is a combination `init` cannot
+//     offer, which is the failure this test is for; a derived combination the
+//     layout does not name is the adopter having chosen, which is what a layout
+//     is for.
 //
 // What the layout also has that the scaffold does not is the names — a reading of
 // what the file means — and the forms the scaffold leaves commented.
@@ -494,35 +526,6 @@ func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 	// The path as `example/ledger.sexpr` spells it, which is what makes the
 	// two comparable.
 	derived := deriveOf(t, book("posting.cpy", string(source)))
-
-	file, err := layout.ParseFile(filepath.Join("..", "..", "example", "ledger.sexpr"))
-	if err != nil {
-		t.Fatalf("parsing the worked example's layout: %v", err)
-	}
-
-	written, err := layoutmodel.ReadRecords(file)
-	if err != nil {
-		t.Fatalf("reading the worked example's records: %v", err)
-	}
-
-	var want []string
-
-	for _, record := range written {
-		if record.Path != "posting.cpy" {
-			continue
-		}
-
-		chosen := make([]string, 0, len(record.Alternatives))
-		for _, alternative := range record.Alternatives {
-			// The whole containment path rather than the leaf name. A
-			// reference into the wrong group has the same leaf, so comparing
-			// leaves would let this test pass over a scaffold naming bytes
-			// nobody meant.
-			chosen = append(chosen, strings.Join(alternative.Path, " "))
-		}
-
-		want = append(want, strings.Join(chosen, "+"))
-	}
 
 	var got []string
 
@@ -539,22 +542,87 @@ func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 		got = append(got, strings.Join(chosen, "+"))
 	}
 
-	if len(got) != 6 {
-		t.Fatalf("derived %d record types from posting.cpy, want the six the two independent runs multiply out to", len(got))
+	// Compared as a set. Which combination is written first is the derivation's
+	// own order and is not a statement about the copybook; which alternatives
+	// are chosen is.
+	slices.Sort(got)
+
+	if !slices.Equal(got, exampleCrossProduct) {
+		t.Fatalf("derived the combinations\n%v\nand posting.cpy admits\n%v", got, exampleCrossProduct)
 	}
+
+	want := workedExampleCombinations(t)
 
 	if len(want) != 2 {
 		t.Fatalf("the layout names %d combinations of posting.cpy, want the two whose alternatives are all REDEFINES", len(want))
 	}
 
-	// Compared as sets. Which combination is written first is the layout
-	// author's and the derivation's own order, and neither is a statement
-	// about the copybook; which alternatives are chosen is.
-	slices.Sort(got)
-
 	for _, combination := range want {
 		if !slices.Contains(got, combination) {
-			t.Errorf("the layout names the combination\n%s\nand the scaffold derived only\n%v", combination, got)
+			t.Errorf("the layout names the combination\n%s\nwhich the scaffold does not derive; it derives\n%v", combination, got)
 		}
 	}
+}
+
+// TestTheWorkedExampleLayoutNamesNoBaseDescription is the property the worked
+// example exists to demonstrate, asserted rather than reviewed by eye.
+//
+// A base description is the declaration a REDEFINES is written over. It is real
+// COBOL and `init` scaffolds combinations naming it, but a file a mainframe
+// produced carries the redefinitions and never the declaration underneath them —
+// so a layout that names one describes bytes no extract holds.
+//
+// Without this, a combination naming PST-BODY or PST-TAIL could be added back to
+// `example/ledger.sexpr` and every other test in this repository would still
+// pass: the derivation offers all six, `resolve` raises no diagnostic on the
+// four, and the generated tree would simply regenerate around it.
+func TestTheWorkedExampleLayoutNamesNoBaseDescription(t *testing.T) {
+	t.Parallel()
+
+	for _, combination := range workedExampleCombinations(t) {
+		for chosen := range strings.SplitSeq(combination, "+") {
+			if slices.Contains(exampleBaseDescriptions, chosen) {
+				t.Errorf("the layout's combination %s names %s, which is the base description of a redefined run: a mainframe-produced extract carries the REDEFINES and not the declaration they are written over",
+					combination, chosen)
+			}
+		}
+	}
+}
+
+// workedExampleCombinations is which description of each redefined run every
+// `record` form in `example/ledger.sexpr` over `posting.cpy` means, in the
+// layout's own order.
+//
+// The whole containment path rather than the leaf name: a reference into the
+// wrong group has the same leaf, so comparing leaves would let a caller pass
+// over a layout naming bytes nobody meant.
+func workedExampleCombinations(t *testing.T) []string {
+	t.Helper()
+
+	file, err := layout.ParseFile(filepath.Join("..", "..", "example", "ledger.sexpr"))
+	if err != nil {
+		t.Fatalf("parsing the worked example's layout: %v", err)
+	}
+
+	written, err := layoutmodel.ReadRecords(file)
+	if err != nil {
+		t.Fatalf("reading the worked example's records: %v", err)
+	}
+
+	var combinations []string
+
+	for _, record := range written {
+		if record.Path != "posting.cpy" {
+			continue
+		}
+
+		chosen := make([]string, 0, len(record.Alternatives))
+		for _, alternative := range record.Alternatives {
+			chosen = append(chosen, strings.Join(alternative.Path, " "))
+		}
+
+		combinations = append(combinations, strings.Join(chosen, "+"))
+	}
+
+	return combinations
 }
