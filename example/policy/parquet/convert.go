@@ -127,14 +127,24 @@ const (
 	// runtime will not infer it. See README.md, "GOMEMLIMIT".
 	memoryBudget = 256 << 20
 
-	// rowsPerRowGroup is `R*`, the equal-terms row group, and it is the default
-	// for -rows-per-row-group rather than a bound this conversion holds anyone
-	// to.
+	// rowsPerRowGroup is the default for -rows-per-row-group, and it is the
+	// equal-terms row group **at [maxRecords]** rather than at whatever N you
+	// have. That distinction is load bearing and the flag is why it can be:
+	// R* = √(a·C·N/W) has N in it, so no constant is the optimum for every
+	// extract, and the one to pin as a default is the one that keeps the budget
+	// at the largest extract the budget admits.
 	//
-	// At the peak the two terms are equal and each is half the budget, so the
-	// open row group is memoryBudget/2 bytes and R* is that many rows of W.
-	// **This is arithmetic and not a choice**, which is the whole difference
-	// between this number and the ledger conversion's 64.
+	// At that N the two terms are equal and each is half the budget, so the open
+	// row group is memoryBudget/2 bytes and this is that many rows of W. **It is
+	// arithmetic and not a choice**, which is the whole difference between this
+	// number and the ledger conversion's 64.
+	//
+	// What it costs on a smaller extract is real and README.md works it: at a
+	// million records the true R* is 12,672 and this default holds 134 MB of
+	// open row group to amortize a footer that never reaches 2 MB. It stays
+	// inside the budget, so the default is safe everywhere and optimal only at
+	// the top — which is the trade a single default has to make, and the flag is
+	// how you take the other side of it.
 	//
 	// It is not rounded, and that is deliberate: a round number reads as one
 	// somebody liked. The curve does not care either way — it is symmetric in
@@ -460,7 +470,10 @@ type fileTrailer struct {
 	FtrPaidLoss         int64  `parquet:"ftr_paid_loss,decimal(2:15)"`
 	FtrHashPolicyNumber int64  `parquet:"ftr_hash_policy_number"`
 	FtrRunNumber        int32  `parquet:"ftr_run_number"`
-} // grain is which of this file's three grains a record belongs to.
+}
+
+// grain is which of this file's three grains a record belongs to.
+//
 // The file has three and the table has one row per record, so the grain is not
 // a table and not a column — it is what the two record counts in the trailer are
 // counts of. `policy.sexpr` is where it is written down: a header, then any
@@ -673,9 +686,16 @@ func convert(src recordSource, w io.Writer, rows int) error {
 	// is a diagnostic and never a column.
 	ordinal := 0
 
-	// The two grains the trailer counts. Both are counts of records read rather
-	// than of rows written; a Write that took fewer rows than it was handed
-	// would be an error, which returns.
+	// The two grains the trailer counts, counted as records are read.
+	//
+	// There is no separate count of rows *written*, and no per-row short-write
+	// check, because parquet-go cannot produce one: the write function
+	// GenericWriter.Write builds returns len(rows) or an error (writer.go:227),
+	// and rows is one row here — so n is 1 whenever err is nil, and a check
+	// against it is a check against a literal. The ledger conversion deleted the
+	// same check for the same reason. What would catch it if that ever changed
+	// is TestEveryRecordReadIsARowWritten, which counts the rows a written file
+	// actually holds.
 	policies, details := int64(0), int64(0)
 
 	var hdr *fileHeader
@@ -765,7 +785,8 @@ func convert(src recordSource, w io.Writer, rows int) error {
 // The ceiling and the linear heap are one mistake with one fix rather than two
 // walls with two: tiny row groups produce both, and a row group sized anywhere
 // near R* produces neither. At the default this conversion clears the cap by a
-// factor of about 48 at maxRecords.
+// factor of 49 at maxRecords: 32767 row groups of 106,861 rows is 3.5 billion
+// records, against a memory ceiling of 71 million.
 func tooManyRowGroups(err error, rows int) error {
 	if !errors.Is(err, parquet.ErrTooManyRowGroups) {
 		return err

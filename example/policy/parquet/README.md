@@ -288,8 +288,10 @@ sparsity: they are the same number.
 
 ### The row group, derived
 
-Fix a budget and the rest is arithmetic. At R\* the two terms are equal, so each
-is half the budget:
+`R* = √(a·C·N/W)` has **N** in it, so no single number is the optimum for every
+extract. What a default can be is the optimum at the largest extract the budget
+admits — where the two terms are equal *and* each is half the budget, so it is
+the point at which the budget is exactly spent:
 
 ```
 budget            B  =  256 MiB  =  268,435,456 B
@@ -298,12 +300,19 @@ per row           W  =  1,256 B                    5·C + 256 + 15
 retained          a  =  1,024 B                    per column per row group
 
 open row group       =  B / 2   =  134,217,728 B
-R*                   =  B / 2W  =  106,861 rows
+default R            =  B / 2W  =  106,861 rows    = R* at maxRecords, below
 ```
 
 `rowsPerRowGroup` in `convert.go` is written as that expression and not as its
 value, so the arithmetic is in the code rather than beside it. **It is not
 rounded**, deliberately: a round number reads as one somebody liked.
+
+**It is the optimum at the ceiling and not at your N**, which is a real cost on a
+smaller extract and is worked
+[below](#it-does-not-have-to-be-hit-but-it-does-have-to-be-computed): at a
+million records it holds 4.3× the memory the rule would. It stays inside the
+budget everywhere, which is what a default owes; `-rows-per-row-group` is how you
+take the other side of that trade.
 
 256 MiB is an ordinary container limit for a batch job, and it is the only input
 here that is a choice rather than a reading. Change it and everything below moves
@@ -342,15 +351,50 @@ The curve is symmetric in log R. Being off by a factor of k multiplies peak by
 neighbourhood rather than a number, and 106,861 could be 100,000 for nothing.
 
 What it does not tolerate is being read as **√N**, which is the misreading its
-shape invites and which throws away C and W entirely. On the production file that
-is 6,782 against an R\* of 105,000 — a factor of 15 — and it measures as the
-symmetry says it must: 110 MB retained and 217 MB peak, against 18 MB and 56 MB
-at R\*.
+shape invites and which throws away C and W entirely. #304 measured that on its
+own sixteen-column schema — not on the 429-column production file — at 46 M
+records:
+
+| | rows per row group | retained | peak |
+|---|---:|---:|---:|
+| R\* = √(a·C·N/W) | 105,000 | 18 MB | 56 MB |
+| read as √N | 6,782 | 110 MB | 217 MB |
+
+A factor of 15 the wrong way costs **6× on retained heap**. The model predicts
+7.8× — `(k + 1/k)/2` at k = 15.5 — so it is the right order and not the right
+number, which is what an `a` quoted as "1–3 KB" and a W taken at the record
+length should be expected to give. The rule is a sizing rule and not a
+simulation.
+
+Two things do not carry over to this schema, and the arithmetic says why. C is
+sixteen there and 197 here, and peak is linear in C — so **the same record count
+over this file's columns wants gigabytes where that one wanted megabytes**. That
+is exactly where splitting by record type, or rolling files, stops being
+optional, and it is the reason a wide sparse table is the case that has to be
+sized rather than assumed.
 
 R\* is a function of the *extract*, not of the schema alone: N is one of the
 rule's three inputs. So the number is a flag, `-rows-per-row-group`, whose default
-is the design point above. An adopter with a different budget or a different
-extract re-derives it from this section and passes it.
+is `R*` **at [`maxRecords`](#the-record-count-at-which-this-stops-fitting)** and
+not at whatever N you have — the point that keeps the budget at the largest
+extract the budget admits.
+
+That is safe everywhere and optimal only at the top, and the gap is worth seeing
+before you meet it. At a million records:
+
+```
+true R*  = √(a·C·N/W)  =   12,673 rows      peak ≈  32 MB
+the default            =  106,861 rows      peak ≈ 136 MB
+
+  of which  retained  =  a·C·(N/R)  =    1.9 MB
+            buffered  =  W·R        =  134.2 MB
+```
+
+**4.3× the optimum, and all of it open row group** — 134 MB of buffers held to
+amortize a footer that never reaches 2 MB. It fits the budget, which is what the
+default is for. An adopter converting an extract far below the ceiling should
+re-derive from this section and pass `-rows-per-row-group`; that is the whole
+reason it is a flag.
 
 ### `GOMEMLIMIT`: the runtime will not infer it
 

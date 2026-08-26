@@ -1377,16 +1377,19 @@ existing so that two examples can assert three sentences is a worse tree than tw
 copies of them.
 
 **And why that stage is not a one-liner** is the one way this module is unlike
-the other four. Those modules are the only ones whose `go.mod` points outside its
-own tree: a conversion reads its dataset through the generated package beside it,
+the other four. Those modules are the only ones whose `go.mod` points outside
+their own tree: a conversion reads its dataset through the generated package beside it,
 which is a package of the *root* module, so each carries `replace
 github.com/Zaba505/cpybkc => ../../..`. That directive is what your own `go test
 ./...` in that directory resolves through:
 
 ```sh
-cd example/ledger/parquet && go test ./...
-cd example/policy/parquet && go test ./...
+(cd example/ledger/parquet && go test ./...)
+(cd example/policy/parquet && go test ./...)
 ```
+
+Each line is a subshell, because the second `cd` is relative to wherever the
+first one left you and the unparenthesised pair cannot run.
 
 The shared chain mounts what it is handed at one path and runs the go tool
 there, so handing it the module directory alone would put that target outside the

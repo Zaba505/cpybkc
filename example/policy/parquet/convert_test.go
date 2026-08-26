@@ -17,7 +17,6 @@ package main
 import (
 	"bytes"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -481,8 +480,10 @@ func TestTheColumnCountIsTheSchemaAndNotANumberWrittenDown(t *testing.T) {
 // It is not a tautology dressed as a test. The constants are stated
 // independently — a, C, W and the budget — and this is the only place that says
 // the number derived from them is at the bottom of the curve rather than
-// somewhere on it. The ledger conversion's 64 would fail it by five orders of
-// magnitude, which is what "not a production number" means when it is checked.
+// somewhere on it. Substituting the ledger conversion's 64 gives a footer of
+// 268,298,240 bytes against an open row group of 80,384 — the two terms out by a
+// factor of 3,338, which is what "not a production number" means when it is
+// checked rather than said.
 func TestTheRowGroupBoundIsDerivedAndNotChosen(t *testing.T) {
 	retained := int64(retainedPerColumnPerRowGroup) * columns * (maxRecords / rowsPerRowGroup)
 	buffered := int64(bufferedPerRow) * rowsPerRowGroup
@@ -590,40 +591,62 @@ func groupNameOf(rec policy.Record) string {
 }
 
 // TestNoRowFillsMoreThanATenthOfTheTable is the sparsity this example is for,
-// asserted against the file rather than argued in a README.
+// asserted against the written file rather than argued in a README.
 //
-// The widest record type populates 20 of 197 columns and the file header
-// populates 9, so no row of any extract fills more than 10.2% of the table it
-// merges into. That is what makes the writer's peak a function of the schema
-// rather than of the data, and it is the whole reason the row-group bound has to
-// be derived rather than guessed.
+// The widest record type populates 20 of 197 columns, so no row of any extract
+// fills more than 10.2% of the table it merges into. That is what makes the
+// writer's peak a function of the schema rather than of the data, and it is the
+// whole reason the row-group bound has to be derived rather than guessed.
 //
-// It reads the *file's* column chunks rather than the Go row, because "how many
-// values does this row have" is a question about the written columns.
+// It counts **the file's own nulls** — the `NullCount` every `ColumnIndex`
+// carries per page, which is the same retained metadata the memory model's `a`
+// is mostly made of — rather than counting non-nil pointers on the Go rows. The
+// distinction matters: the claim is about what Parquet materialised, and a row
+// that arrived as one non-nil group would satisfy a Go-side count even if the
+// writer had emitted values for columns the record does not have.
 func TestNoRowFillsMoreThanATenthOfTheTable(t *testing.T) {
-	f := opened(t, table(t, 3, detailTypes, 64))
+	written := table(t, 3, detailTypes, 64)
+	f := opened(t, written)
 
+	// No record type declares more than the widest one, so no row can fill more
+	// than that many columns however the values fall.
 	for _, group := range f.Schema().Fields() {
 		if n := leavesOf(group); n > widestRecord {
 			t.Errorf("%s carries %d columns and the widest record type of this file declares %d", group.Name(), n, widestRecord)
 		}
 	}
 
-	for i, row := range rowsOf(t, table(t, 3, detailTypes, 64)) {
-		got := groupsOf(row)
-		if len(got) != 1 {
-			continue // TestARowIsOneRecordAndCarriesItsTypeWithIt is where that is reported.
-		}
+	rows, values := int64(0), int64(0)
 
-		for _, group := range f.Schema().Fields() {
-			if group.Name() != got[0] {
-				continue
+	for _, group := range f.RowGroups() {
+		rows += group.NumRows()
+
+		for _, chunk := range group.ColumnChunks() {
+			index, err := chunk.ColumnIndex()
+			if err != nil {
+				t.Fatalf("reading the column index of column %d: %v", chunk.Column(), err)
 			}
 
-			if n := leavesOf(group); n*100 > columns*11 {
-				t.Errorf("row %d is a %s and fills %d of %d columns, which is more than a ninth of the table: this example's claim is that a merged wide table is nine tenths empty on every row", i, got[0], n, columns)
+			nulls := int64(0)
+			for page := range index.NumPages() {
+				nulls += index.NullCount(page)
 			}
+
+			values += group.NumRows() - nulls
 		}
+	}
+
+	// What the extract actually carries: one header at 9 columns, one trailer at
+	// 8, and three policies each with one of every detail type at 20 apiece.
+	want := int64(9 + 8 + 3*(1+detailTypes)*widestRecord)
+
+	if values != want {
+		t.Errorf("the file materialised %d non-null values over %d rows, want %d: a row carries the columns of its own record type and nothing else", values, rows, want)
+	}
+
+	// The claim, stated as the ratio the sibling README makes it: 10.2%.
+	if cells := rows * columns; values*1000 > cells*102 {
+		t.Errorf("%d of %d cells are non-null, which is %.1f%% of the table: this example's claim is that a merged wide table is nine tenths empty on every row", values, cells, 100*float64(values)/float64(cells))
 	}
 }
 
@@ -639,9 +662,16 @@ func TestNoRowFillsMoreThanATenthOfTheTable(t *testing.T) {
 // that is what this reads the written file to rule out rather than trust.
 //
 // Sixty-four is a test's bound and not this conversion's: the default is
-// [rowsPerRowGroup], which is five orders of magnitude larger and which a
-// fixture cannot afford to fill. That the two are different is exactly why the
-// bound is an argument rather than a constant read from inside [convert].
+// [rowsPerRowGroup], which is 1,670 times larger and which a fixture cannot
+// afford to fill. That the two are different is exactly why the bound is an
+// argument rather than a constant read from inside [convert].
+//
+// What it does **not** rule out is the trap README.md is about: a caller-side
+// batch flushed every 64 rows produces this same file, byte for byte, because
+// the flush and the option close the row group at the same point. The absence of
+// a batch is structural — there is one row in the slice [convert] hands Write —
+// and no assertion over the output can see it. Said here so that it is not
+// mistaken for something this test covers.
 func TestEveryRecordReadIsARowWritten(t *testing.T) {
 	// One policy carrying 996 details, plus the header and the trailer.
 	const policies, details, rows = 1, 996, 64
@@ -678,25 +708,40 @@ func TestEveryRecordReadIsARowWritten(t *testing.T) {
 // to something else, and no test that converts a fixture can notice: at any size
 // a fixture can afford, every bound above it produces one row group and they all
 // look alike.
+//
+// So it reads the default out of [run]'s **own** flag set rather than out of a
+// copy. That is the whole difficulty here, and the first version of this test
+// got it wrong: it rebuilt the flag set locally with rowsPerRowGroup as the
+// default and then asserted that default was rowsPerRowGroup, which is an
+// identity that holds however run is written. `flag.PrintDefaults` is the way
+// in — it renders `(default N)` for a non-zero int, and the usage run writes is
+// run's flag set describing itself.
 func TestTheDefaultRowGroupIsTheDerivedOne(t *testing.T) {
-	flags := flagsOf(t)
+	usage := usageOf(t)
 
-	got := flags.Lookup("rows-per-row-group")
-	if got == nil {
-		t.Fatal("there is no -rows-per-row-group flag, and R* is a function of the extract's size rather than of the schema alone")
-	}
-
-	if want := fmt.Sprint(rowsPerRowGroup); got.DefValue != want {
-		t.Errorf("-rows-per-row-group defaults to %s, want %s: the default is the design point README.md derives, and a default that is not it is a memory model nothing runs under", got.DefValue, want)
+	if want := fmt.Sprintf("(default %d)", rowsPerRowGroup); !strings.Contains(usage, want) {
+		t.Errorf("run's usage does not carry %q, so -rows-per-row-group defaults to something other than the derived number and the memory model is one nothing runs under:\n%s", want, usage)
 	}
 }
 
-// flagsOf is [run]'s flag set, obtained by asking it for its own usage.
+// TestTheCommandDeclaresTheThreeFlagsDocumented is the other half: a default
+// asserted on a flag nobody declares would pass against an empty usage.
+func TestTheCommandDeclaresTheThreeFlagsDocumented(t *testing.T) {
+	usage := usageOf(t)
+
+	for _, name := range []string{"-in", "-out", "-rows-per-row-group"} {
+		if !strings.Contains(usage, name) {
+			t.Errorf("run's usage does not mention %s, which README.md documents:\n%s", name, usage)
+		}
+	}
+}
+
+// usageOf is what [run] writes when it is asked to describe itself.
 //
 // -h is a request that succeeded, so run returns nil and the flag set has
-// written the usage to the writer it was handed. Parsing that back is what makes
-// this a test of the flags run actually declares rather than of a copy of them.
-func flagsOf(t *testing.T) *flag.FlagSet {
+// written the usage to the writer it was handed — which is run's own flag set
+// rendering its own defaults, and the only thing here that is not a copy.
+func usageOf(t *testing.T) string {
 	t.Helper()
 
 	var usage bytes.Buffer
@@ -705,19 +750,44 @@ func flagsOf(t *testing.T) *flag.FlagSet {
 		t.Fatalf("run -h: %v", err)
 	}
 
-	flags := flag.NewFlagSet("parquet", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	flags.String("in", "", "")
-	flags.String("out", "pxtract.parquet", "")
-	flags.Int("rows-per-row-group", rowsPerRowGroup, "")
-
-	for _, name := range []string{"-in", "-out", "-rows-per-row-group"} {
-		if !strings.Contains(usage.String(), name) {
-			t.Fatalf("run's usage does not mention %s, so this test is checking flags run does not declare:\n%s", name, usage.String())
-		}
+	if usage.Len() == 0 {
+		t.Fatal("run -h wrote no usage, so there is nothing here to assert against")
 	}
 
-	return flags
+	return usage.String()
+}
+
+// TestAMissingInputIsRefusedByName is the other flag path a first run meets.
+func TestAMissingInputIsRefusedByName(t *testing.T) {
+	err := run(nil, io.Discard)
+	if err == nil {
+		t.Fatal("run with no -in converted something")
+	}
+
+	if !strings.Contains(err.Error(), "-in") {
+		t.Errorf("the failure is %q, and it does not name the flag that is missing", err)
+	}
+}
+
+// TestAFlagTheFlagSetHasAlreadyReportedIsNotReportedTwice is what
+// [errAlreadyReported] is for: the flag set writes its own message and the
+// usage, so an error carrying a second copy of it would have main print the
+// same thing twice.
+func TestAFlagTheFlagSetHasAlreadyReportedIsNotReportedTwice(t *testing.T) {
+	var reported bytes.Buffer
+
+	err := run([]string{"-not-a-flag"}, &reported)
+	if err == nil {
+		t.Fatal("an unknown flag was accepted")
+	}
+
+	if !strings.Contains(reported.String(), "-not-a-flag") {
+		t.Errorf("the flag set did not report the unknown flag itself:\n%s", reported.String())
+	}
+
+	if err.Error() != "" {
+		t.Errorf("the error carries %q, and main prints whatever it carries: the flag set has already written that message", err)
+	}
 }
 
 // TestANonPositiveRowGroupIsRefused is the one way the flag can be set to
@@ -873,6 +943,11 @@ func headerOf(t *testing.T, recs []policy.Record) *policy.PxFileHeader {
 //
 // That ordering is the whole trick: a Parquet file is its footer, so "fail
 // before the footer" and "leave nothing queryable" are the same sentence.
+//
+// The fixture is [failingFixture] rather than the small one the other tests use,
+// and that is what makes [assertUnopenable] mean something here: a conversion
+// that fails before any row group has been flushed leaves an empty buffer, and
+// "an empty buffer is not a Parquet file" is true of nothing in particular.
 func TestTheTrailerCountsAreReconciled(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -885,10 +960,10 @@ func TestTheTrailerCountsAreReconciled(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			recs := extract(2, detailTypes)
+			recs, rows := failingFixture()
 			c.damage(trailerOf(t, recs))
 
-			written, err := converted(t, recs, 64)
+			written, err := converted(t, recs, rows)
 			if err == nil {
 				t.Fatalf("a file whose %s disagrees with its own body converted without complaint", c.names)
 			}
@@ -918,10 +993,10 @@ func TestTheHeaderAndTrailerMustAgreeOnTheRun(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			recs := extract(2, detailTypes)
+			recs, rows := failingFixture()
 			c.damage(headerOf(t, recs))
 
-			written, err := converted(t, recs, 64)
+			written, err := converted(t, recs, rows)
 			if err == nil {
 				t.Fatalf("a file whose header and trailer disagree about the %s converted without complaint", c.name)
 			}
@@ -1039,20 +1114,23 @@ func TestAFileWithNoTrailerIsReported(t *testing.T) {
 // empty on every row it is not, which is why this one is an error rather than a
 // row.
 func TestAMappingErrorFailsTheConversion(t *testing.T) {
-	src := &oneOff{records: []policy.Record{
-		extract(0, 0)[0],
-		unmappable{},
-	}}
+	// The bad record goes near the end, so that several row groups have been
+	// flushed before the conversion gives up — which is what makes the
+	// unopenability below a statement about bytes that were written.
+	good, rows := failingFixture()
+	ordinal := len(good) - 1
+
+	src := &oneOff{records: append(append([]policy.Record{}, good[:ordinal]...), unmappable{})}
 
 	var written bytes.Buffer
 
-	err := convert(src, &written, 64)
+	err := convert(src, &written, rows)
 	if err == nil {
 		t.Fatal("a record none of the eleven types describes converted without complaint")
 	}
 
-	if !strings.Contains(err.Error(), "record 2") {
-		t.Errorf("the mapping failure is %q, and it does not say which record it was", err)
+	if want := fmt.Sprintf("record %d", ordinal+1); !strings.Contains(err.Error(), want) {
+		t.Errorf("the mapping failure is %q, and it does not say which record it was — %q", err, want)
 	}
 
 	assertUnopenable(t, written.Bytes())
@@ -1082,11 +1160,42 @@ func (s *oneOff) Next() (policy.Record, error) {
 	return rec, nil
 }
 
+// failingFixture is a run of records and a row-group bound chosen so that
+// several row groups have been written by the time a reconciliation at the end
+// of the file fails.
+//
+// 103 records at 32 rows a group is three full groups and a partial one. Every
+// test that ends in [assertUnopenable] uses it, because the assertion is about
+// *bytes that were written* being unreadable without a footer — and a fixture
+// that never reaches the bound leaves no bytes at all, which passes for the
+// wrong reason.
+func failingFixture() (recs []policy.Record, rows int) {
+	const details, bound = 100, 32
+
+	recs = extract(1, details)
+
+	if len(recs) <= bound {
+		panic(fmt.Sprintf("the fixture is %d records at a bound of %d: nothing is flushed before the failure and assertUnopenable asserts nothing", len(recs), bound))
+	}
+
+	return recs, bound
+}
+
 // assertUnopenable requires that a failed conversion left nothing a reader will
 // accept. A Parquet file is its footer, and a conversion that returns an error
 // before writing one leaves bytes no engine will read as a table.
+//
+// It refuses an empty buffer rather than passing on one. Nothing written is a
+// true answer to a different question — see [failingFixture] — and letting it
+// through is how this assertion goes quiet.
 func assertUnopenable(t *testing.T, file []byte) {
 	t.Helper()
+
+	if len(file) == 0 {
+		t.Error("the failed conversion wrote no bytes at all, so this asserts nothing: use failingFixture, whose row groups are flushed before the failure")
+
+		return
+	}
 
 	if _, err := parquet.OpenFile(bytes.NewReader(file), int64(len(file))); err == nil {
 		t.Error("the table opened after a failed conversion: a half-converted file that reads as a table is one somebody queries")
@@ -1255,5 +1364,101 @@ func TestAlphanumericItemsArriveTrimmed(t *testing.T) {
 		if got := row.Policy.PlcState; got != "GA" {
 			t.Errorf("PLC-STATE came back as %q, want %q", got, "GA")
 		}
+	}
+}
+
+// TestTheRowGroupCapIsReportedWithTheFlagThatMovesIt is [tooManyRowGroups],
+// which is the one diagnostic here no fixture can provoke.
+//
+// Reaching the cap needs 32767 row groups, and 32767 of them over 197 columns
+// retains about 6.6 GB — a is a kilobyte per column per row group, and that is
+// the whole point of the section this error belongs to. So the wrapping is
+// tested as a function rather than through a run, and what it is held to is what
+// #304 says a converter needs and did not get: the cap named, and the flag that
+// moves it named beside it.
+func TestTheRowGroupCapIsReportedWithTheFlagThatMovesIt(t *testing.T) {
+	const rows = 64
+
+	err := tooManyRowGroups(fmt.Errorf("writing rows: %w", parquet.ErrTooManyRowGroups), rows)
+
+	if !errors.Is(err, parquet.ErrTooManyRowGroups) {
+		t.Fatalf("the wrapped error no longer is parquet.ErrTooManyRowGroups: %v", err)
+	}
+
+	for _, want := range []string{
+		"32767",
+		"-rows-per-row-group 64",
+		// 32767 × 64, which is the ceiling this bound puts on the file and the
+		// number #304 hit — reported there only as "the limit of 32767 row
+		// groups has been reached", wrapped as "flushing 64 posting rows".
+		"2097088",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the report is %q, and it does not carry %q", err, want)
+		}
+	}
+}
+
+// TestAnErrorThatIsNotTheCapIsPassedThrough is the other half, and it is what
+// stops the wrapping above from being advice glued onto every failure: a full
+// disk is not a row-group cap and must not be reported as one.
+func TestAnErrorThatIsNotTheCapIsPassedThrough(t *testing.T) {
+	want := errors.New("no space left on device")
+
+	if got := tooManyRowGroups(want, 64); got != want {
+		t.Errorf("an unrelated failure came back as %q, want it untouched: advice about a row-group cap on a disk that is full sends somebody to the wrong place", got)
+	}
+}
+
+// TestAFileWithNoHeaderIsReported is the trailer check's twin. Nothing in the
+// conversion needs the header to *map* a record — this table denormalizes
+// nothing — so it is needed only to hold FHD-CYCLE-DATE and FHD-RUN-NUMBER
+// against the trailer's, and a file without one has a reconciliation that cannot
+// run rather than one that passes.
+func TestAFileWithNoHeaderIsReported(t *testing.T) {
+	recs := extract(1, detailTypes)
+
+	var written bytes.Buffer
+
+	err := convert(&oneOff{records: recs[1:]}, &written, 64)
+	if err == nil {
+		t.Fatal("an extract with no header converted without complaint, and half of the run it is balanced against was missing")
+	}
+
+	if !strings.Contains(err.Error(), "PX-FILE-HEADER") {
+		t.Errorf("the failure is %q, and it does not say what was missing", err)
+	}
+}
+
+// TestAFailedRunDestroysAnEarlierGoodOutput is the documented behaviour that is
+// least likely to be believed until it happens, so it is asserted rather than
+// only written down.
+//
+// `os.Create` truncates and a failed conversion removes what it truncated. That
+// is deliberate — a Parquet file with no footer reads as corruption rather than
+// as a run somebody has to repeat — but it means a second run over a bad extract
+// destroys the output of a first run over a good one. With the default -out
+// being a bare pxtract.parquet in the working directory, that is easy to meet.
+func TestAFailedRunDestroysAnEarlierGoodOutput(t *testing.T) {
+	dir, out := outputPath(t)
+
+	good := extractOnDisk(t, extract(2, detailTypes))
+	if err := run([]string{"-in", good, "-out", out}, io.Discard); err != nil {
+		t.Fatalf("the first run: %v", err)
+	}
+
+	if names := entryNames(t, dir); len(names) != 1 {
+		t.Fatalf("the first run left %v, want one file to destroy", names)
+	}
+
+	broken := extract(2, detailTypes)
+	trailerOf(t, broken).FtrDetailCount = 0
+
+	if err := run([]string{"-in", extractOnDisk(t, broken), "-out", out}, io.Discard); err == nil {
+		t.Fatal("the second run converted a file whose FTR-DETAIL-COUNT is zero")
+	}
+
+	if names := entryNames(t, dir); len(names) != 0 {
+		t.Errorf("the failed run left %v at a path an earlier good run had written, want nothing: -out is clobbered whether or not the run succeeds, and README.md says so because this is how you find out", names)
 	}
 }
