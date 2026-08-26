@@ -7,7 +7,7 @@ tested.
 
 **It is a reference and not a recommendation.** Every one of the decisions below
 is one you have to make for yourself on your own layout; this makes one honest
-reading of them, says why, and marks the four where another adopter would
+reading of them, says why, and marks each place where another adopter would
 reasonably choose differently. An adopter who reads it and does something else
 has used it correctly.
 
@@ -25,10 +25,32 @@ are written down here, next to code that compiles.
 because there is nothing here that would be right to reuse.
 
 ```console
-$ go run . -in ledger.dat -out /tmp/ledger
+$ go run . -in ledger.dat -out /tmp/ledger/posting.parquet
 ```
 
-`-out` is created if it is not there. `ledger.dat` is *a dataset of these
+`-out` names **the file**, not a directory, and the directory it sits in is
+created if it is not there. It named a directory when there were two tables,
+because the conversion was choosing both filenames; with one table there is no
+name left for it to choose, and a flag that still named a directory would be
+inventing `posting.parquet` inside it for you to go and find. It defaults to
+`posting.parquet` in the working directory.
+
+Two consequences of that change, both of which an adopter meets on the first run
+after it:
+
+- **A `-out` that is an existing directory is refused, by name.** Left alone it
+  would surface as `is a directory` from `os.Create`, wrapped in a sentence about
+  the *input* file — which sends you to read your extract over a mistake in a
+  flag. `TestOutNamingADirectoryIsReportedAgainstTheRightFlag` asserts the
+  message names `-out` and does not name `-in`.
+- **`-out` is clobbered whether or not the run succeeds.** `os.Create` truncates,
+  and a failed conversion then removes what it truncated, so a run over a bad
+  extract destroys an earlier good output at the same path. That is the price of
+  "a failed run leaves nothing a reader will open", and with the default being a
+  bare `posting.parquet` in the working directory it is easy to meet. Write to a
+  fresh path if the previous one matters.
+
+`ledger.dat` is *a dataset of these
 records*, and this repository does not commit one — a ledger extract is bytes in
 cp037 behind DFSMS record descriptor words, which is not a thing to read in a
 diff. `convert_test.go`'s `ledgerBytes` makes its fixtures through
@@ -57,23 +79,43 @@ own: `dagger call example-parquet-ci`, beside `ir-ci`, `pipeline-ci` and
 `companion-ci`. See [CONTRIBUTING.md](../../CONTRIBUTING.md#the-parquet-example-is-checked-like-any-other-go-module-here)
 for what that stage has to do that the other four do not.
 
-## Two grains, so two files
+## Two grains, one table
 
-A Parquet file carries exactly one schema. This extract has **two grains** — the
-header and trailer are one row per file, the postings are one row each — so the
-output is two files and the conversion is across both:
+A Parquet file carries exactly one schema, and this extract has **two grains** —
+the header and trailer are one row per file, the postings are one row each. That
+is real and it is the first thing to check on your own layout: count the grains,
+not the record types. It does **not** follow that you write a file per grain.
 
-| table | grain | what it carries |
-|---|---|---|
-| `extract.parquet` | one row per file | `LEDGER-HEADER` × `LEDGER-TRAILER` |
-| `posting.parquet` | one row per posting | the posting, with header context denormalized onto it |
+The output is one table, `posting.parquet`, at the posting grain. The file-level
+grain is spent rather than stored, and each of its fields goes somewhere:
 
-An adopter who has not met this assumes one file and finds out late. It is the
-first thing to check on your own layout: count the grains, not the record types.
+| item | where it goes |
+|---|---|
+| `HDR-LEDGER-ID`, `HDR-PERIOD`, `HDR-CURRENCY` | denormalized onto every posting row |
+| `HDR-COUNT` | nowhere — `ledger.Reader` already holds the body to it |
+| `TRL-COUNT`, `TRL-NET` | reconciled against the rows written, then discarded |
+
+The reason is that a file-level table needs a **key**, and this converter will
+not mint one. A row of a file-level table with no key is a row that can only be
+joined to its postings by having been read out of the same file — which is a join
+a query engine cannot express, so in practice that table is either read on its own
+or joined on the denormalized `hdr_ledger_id` and `hdr_period` that are *already
+on every posting row*. The second table earns nothing the first does not already
+carry, and it costs a second file, a second schema, and a second thing to keep in
+step. See [No key is minted](#no-key-is-minted-and-here-is-why-one-is-not-needed)
+— it is the same argument, arriving at a table instead of at a column.
+
+So the rule this example ended up with, and the one to try first on your own
+layout: **one table per data record type, with the parent's identifying fields
+denormalized onto it, and the parent's summaries checked rather than kept.** A
+file-level grain becomes a second table when it carries something that is neither
+identifying nor a summary — a run date, a source system, an operator's comment,
+anything a posting row would want and cannot be checked against the body. This
+header carries no such field. Yours may.
 
 ## The decisions
 
-### Grains stay separate; header *fields* do not
+### The header's *fields* travel, even though its grain gets no table
 
 `hdr_ledger_id`, `hdr_period` and `hdr_currency` are copied onto **every**
 posting row.
@@ -81,12 +123,13 @@ posting row.
 That is not the waste it looks like. In a columnar store a column that is
 constant across a row group is one dictionary entry and an RLE run — a few bytes
 — and it earns min/max statistics, so a query filtering on the period skips row
-groups instead of joining. This is the whole of what makes `posting` usable on
-its own.
+groups instead of joining. This is the whole of what makes the posting table usable
+on its own — and, with no second table to fall back on, the whole of what keeps
+the header readable at all.
 
-### Trailer fields do not promote
+### Trailer fields do not promote — they are checked and dropped
 
-`TRL-COUNT` and `TRL-NET` stay in `extract`.
+`TRL-COUNT` and `TRL-NET` are not columns anywhere.
 
 They are *summaries of* the posting rows, so denormalizing them means
 `SUM(trl_net)` silently returns the total times the row count — a wrong answer
@@ -94,11 +137,30 @@ that looks like a right one. `TestTrailerFieldsDoNotPromote` asserts the posting
 schema carries no `trl_` column, because this is the decision that is cheapest to
 undo by accident.
 
-`extract` is also where the reconciliation belongs, and the conversion makes it:
-`TRL-COUNT` against the rows actually written, and a mismatch is an error. It
-runs **before either footer is written**, so a conversion that does not reconcile
-leaves two files no reader will open rather than two a query would happily return
-wrong answers from.
+What a summary is *for* is checking, and the conversion makes both checks:
+
+- `TRL-COUNT` against the rows actually written.
+- `TRL-NET` against the posting amounts, accumulated as they are read.
+
+Either mismatch is an error, and both run **before the footer is written**, so a
+conversion that does not reconcile leaves a file no reader will open rather than
+one a query would happily return wrong answers from. That ordering is the whole
+trick: a Parquet file is its footer, so "fail before the footer" and "leave
+nothing queryable" are the same sentence. On disk it goes one step further and
+leaves no file at all — `write` removes the path it created, which
+`TestAFailedRunLeavesNoFileBehind` asserts by reading the output directory back
+rather than by inspecting a buffer.
+
+`TRL-COUNT` is nearly free — the conversion is already counting rows. `TRL-NET`
+costs an `int64` and one addition per posting, and it is worth it: a count agrees
+on a file whose amounts are all wrong.
+
+`HDR-COUNT` is a summary too, and this conversion does nothing with it at all.
+`ledger.sexpr` reads it into a register — `(times … (item LEDGER-HEADER
+HDR-COUNT))` — so a file whose body disagrees with its own header is reported by
+`ledger.Reader` before a row ever reaches here. A converter checking it again
+would be re-implementing the layout, and a column for it would be a number that
+cannot disagree with `COUNT(*)`.
 
 ### No key is minted, and here is why one is not needed
 
@@ -118,6 +180,38 @@ The conversion does count an ordinal — `ledger.Reader` keeps one for its own
 diagnostics and does not export it — but it is a *diagnostic* and never a column.
 `TestAMappingErrorFailsTheConversion` asserts the failure says which record it
 was.
+
+### The sign the net assumes
+
+**This conversion adds every posting amount with the sign the record stores it
+under.** `PDB-AMOUNT` and `PCR-AMOUNT` are both `PIC S9(n)V99`; a debit arrives
+positive and a credit negative, and `TRL-NET` is their plain sum.
+
+That is an assumption, and the copybook does not make it. `posting.cpy` says the
+amounts are signed and says nothing whatever about what a debit or a credit does
+to a total. A layout that stores both as **magnitudes** and means the credit to
+subtract is just as ordinary, and on such a file this conversion computes a net
+that is wrong by twice the credits — and reports the mismatch rather than
+accepting it, which is the outcome an adopter needs.
+`TestTheNetTakesEachAmountWithTheSignTheRecordStoresIt` is that file, asserted.
+
+If yours is the other kind, negate the credit arm of `postingRowOf` and say so
+there. What you must not do is delete the reconciliation to make it pass.
+
+### The scale is not a coincidence, and one day it will not hold
+
+`TRL-NET` is `PIC S9(13)V99`, `PDB-AMOUNT` is `PIC S9(11)V99`, `PCR-AMOUNT` is
+`PIC S9(9)V99`. All three carry **scale 2**, so the unscaled integers
+`cpybkc-gen-go` produces are already in the same units and the accumulator is
+plain `int64` addition. Nothing multiplies or divides by a hundred.
+
+That is a property of this layout and not of decimals. A trailer keeping whole
+currency units over postings keeping cents needs one side scaled here, and a
+conversion that forgot would fail the reconciliation on every file — or pass it
+on the one file whose net is zero. The precision has a bound of its own worth
+noticing: `HDR-COUNT` is `PIC 9(3)`, so at most 999 amounts of at most thirteen
+digits are summed, and `int64` holds nineteen. A layout with a wider count, or
+wider amounts, is one where that has to be checked rather than argued.
 
 ### The postings: one table
 
@@ -190,24 +284,51 @@ trimmed of their `DISPLAY` padding, so `hdr_ledger_id` is `"GL-MAIN"` and not
 mentioned because a downstream join against a system that kept the padding will
 not match.
 
+#### Where the line actually is, since the net crosses it
+
+The sign convention above is a semantic the copybook does not carry, and this
+conversion assumes one anyway. That looks like the opposite of this section, so
+here is the line it is drawn on:
+
+- **A semantic that changes what is stored is out.** `HDR-PERIOD` stays an
+  integer. Nothing here writes a date, a currency-scaled amount, or a debit
+  re-signed to somebody's convention. What lands in the file is what the reader
+  produced, re-annotated.
+- **A semantic that only *checks* what is stored can be in — stated, and
+  falsifiable.** `TRL-NET` exists to be reconciled; a converter that reads it and
+  says nothing has ignored the one thing the trailer is for. You cannot check it
+  without assuming an arithmetic, so the assumption is written down here, written
+  down at `postingRowOf`, and named in the error the check produces — and when it
+  is wrong for your file, the run fails loudly on the first extract instead of
+  being wrong quietly forever.
+
+The distinction that matters is not "did the converter assume something" but
+"what does the assumption do when it is wrong". A guessed date silently
+mis-stores every row. A guessed sign fails a check on the first file.
+
 ## The type mapping, on the items this example carries
 
-The three amounts are the interesting case, and they need **no conversion at
+The two amount columns are the interesting case, and they need **no conversion at
 all**:
 
 | item | PICTURE | Go, as generated | Parquet |
 |---|---|---|---|
-| `TRL-NET` | `PIC S9(13)V99 COMP-3` | `int64`, unscaled | `DECIMAL(15,2)` |
 | `PDB-AMOUNT` | `PIC S9(11)V99 COMP-3` | `int64`, unscaled | `DECIMAL(13,2)` |
 | `PCR-AMOUNT` | `PIC S9(9)V99 COMP-3` | `int64`, unscaled | `DECIMAL(11,2)` |
+| `TRL-NET` | `PIC S9(13)V99 COMP-3` | `int64`, unscaled | *no column — reconciled* |
 
 `cpybkc-gen-go` writes a scaled item as [the unscaled integer with the scale in
 the doc comment](../../cmd/cpybkc-gen-go/README.md), which is precisely what
 `DECIMAL(p,s)` is. Nothing in `convert.go` divides by a hundred, and
-`TestTheThreeAmountsRoundTripThroughDecimal` reads the written files back, checks
-the unscaled values against what the reader produced, and checks the annotation
-in the file's own schema — which is what a query engine reads, rather than the Go
-struct tag.
+`TestTheTwoAmountColumnsRoundTripThroughDecimal` reads the written file back,
+checks the unscaled values against what the reader produced, and checks the
+annotation in the file's own schema — which is what a query engine reads, rather
+than the Go struct tag.
+
+`TRL-NET` is in that table for an item that is never written, because the mapping
+is what makes the reconciliation legal: all three are scale 2, so the accumulator
+adds the unscaled integers as they stand. `DECIMAL(15,2)` is what it *would* be
+annotated as, and knowing that is what tells you the addition needs no rescaling.
 
 This is worth showing precisely because it looks like it should need a
 conversion. Applying the scale here would apply it twice by the time a value
@@ -260,6 +381,8 @@ it violated is a test:
 | the **ordinal counted by the caller** | the diagnostic cannot say which record failed; `Reader`'s own is unexported | `TestAMappingErrorFailsTheConversion` |
 | a **mapping error that fails the conversion** | a discarded error appends a zero row: empty account, zero amount, indistinguishable from data | same |
 | `TRL-COUNT` **reconciled** | the file, the layout or the conversion is wrong and nothing says so | `TestTheTrailerCountIsReconciled` |
+| `TRL-NET` **reconciled** | a count that agrees over amounts that do not; the accumulator is the only part of this that costs anything | `TestTheTrailerNetIsReconciled` |
+| the **failed output removed** | a footerless file sits where a good one used to, and the next reader finds out | `TestAFailedRunLeavesNoFileBehind` |
 
 The terminal-flush test runs over **999 postings** — the most `HDR-COUNT`'s
 `PIC 9(3)` can describe — because 999 is not a multiple of the batch size, and a

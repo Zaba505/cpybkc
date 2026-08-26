@@ -26,8 +26,8 @@ a field nothing outside can — see
 leaves it alone.
 
 [`parquet/`](parquet) is neither either, and for a different reason: it is what
-somebody *does* with the generated package. It converts this ledger into the two
-Parquet files a data platform would query it as, and it is here because the
+somebody *does* with the generated package. It converts this ledger into the
+Parquet table a data platform would query it as, and it is here because the
 decisions that takes are real, unobvious, and met all at once the first time an
 adopter tries it — [not because there is a right answer to
 generate](https://github.com/Zaba505/cpybkc/issues/272). It is a **Go module of
