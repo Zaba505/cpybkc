@@ -87,13 +87,21 @@ func ledgerBytes(t *testing.T, n int32, trlCount int32, trlNet int64) []byte {
 // PDB-AMOUNT is thirteen digits and PCR-AMOUNT eleven, and a value that fits in
 // both would not tell a mistaken precision from a correct one.
 //
-// The debit is thirteen digits and not nine-nine-nine-nine, because now that
-// TRL-NET is reconciled the largest fixture here has to sum inside the
-// trailer's own fifteen: 999 postings of this one come to
-// 887,012,346,228,013, which fits, where 999 of a full 9,999,999,999,999 would
-// not. That is a property a real layout's trailer has to have and this one only
-// just does — a trailer two digits narrower than the sum of the rows it totals
-// is a layout that cannot describe its own worst case.
+// The debit shrank from a full 9,999,999,999,999 when TRL-NET started being
+// reconciled, because the largest fixture here now has to sum inside the
+// trailer's own fifteen digits. What fits is the **alternating** 999-posting
+// fixture — 499 debits and 500 credits, netting 887,012,346,228,013 — and not
+// 999 debits, which come to 1,874,666,667,776,013 and do not. The headroom is
+// in the alternation and not in the constant, so a change to which record type
+// [posting] hands out, or a fixture longer than 999, overflows TRL-NET and
+// arrives as a reconciliation failure that has nothing to do with the
+// conversion.
+//
+// That the margin is this thin is a property of the layout rather than of the
+// fixture: TRL-NET is two digits wider than PDB-AMOUNT, so a file of more than
+// about a hundred like-signed postings has a total its own trailer cannot
+// describe. A real layout's trailer has to be wide enough for the rows it
+// totals, and this one only just is.
 //
 // The credit is negative because this file stores the sign of a posting on the
 // posting; see [TestTheNetTakesEachAmountWithTheSignTheRecordStoresIt].
@@ -105,16 +113,33 @@ const (
 // netOf is the TRL-NET a well-formed fixture of n postings carries: the amounts
 // its records store, summed.
 //
-// It is arithmetic over this file's own two constants rather than a second copy
-// of the conversion's accumulator — [posting] hands out a debit on every even i,
-// so n/2 of them are debits and the rest credits. A constant written down here
-// instead would have to be recomputed by hand every time either amount moved,
-// and the reconciliation would start failing for a reason that is not the one
-// under test.
+// It walks [posting] rather than counting the record types itself. Closed-form
+// arithmetic over the two constants is shorter, and it was wrong to write:
+// n/2 debits is only right because [ledgerBytes] numbers its postings from one,
+// and a loop that started from zero would leave every fixture failing its own
+// TRL-NET reconciliation for a reason that has nothing to do with the
+// conversion. Reading the fixture is not a second copy of the conversion's
+// accumulator — it never touches convert.go — and it survives a change to
+// either the alternation or the loop base.
 func netOf(n int32) int64 {
-	debits := n / 2
+	net := int64(0)
 
-	return int64(debits)*debitAmount + int64(n-debits)*creditAmount
+	for i := int32(1); i <= n; i++ {
+		switch rec := posting(i).(type) {
+		case *ledger.DebitPosting:
+			net += rec.PstDebit.PdbAmount
+		case *ledger.CreditPosting:
+			net += rec.PstCredit.PcrAmount
+		default:
+			// posting hands out one of the two, so this is unreachable —
+			// and a third record type added to the fixture without an arm
+			// here would otherwise silently net to zero for it, which is a
+			// TRL-NET the conversion would then be blamed for.
+			panic(fmt.Sprintf("the fixture handed out a %T, and netOf knows the two record types this layout names", rec))
+		}
+	}
+
+	return net
 }
 
 // posting is the i'th posting of a fixture, of the i'th of the two record types.
@@ -227,29 +252,14 @@ func rowsOf[T any](t *testing.T, b []byte) []T {
 // directory that reads back with exactly one entry in it is both halves of the
 // claim at once.
 func TestTheConversionWritesOneFile(t *testing.T) {
-	in := filepath.Join(t.TempDir(), "ledger.dat")
-	if err := os.WriteFile(in, ledgerBytes(t, postingTypes, postingTypes, netOf(postingTypes)), 0o600); err != nil {
-		t.Fatalf("writing the fixture extract: %v", err)
-	}
-
-	// A directory that is not there yet, because the invocation README.md
-	// documents has to run on a machine that has never run it.
-	dir := filepath.Join(t.TempDir(), "out")
-	out := filepath.Join(dir, "posting.parquet")
+	in := extractOnDisk(t, postingTypes, netOf(postingTypes))
+	dir, out := outputPath(t)
 
 	if err := run([]string{"-in", in, "-out", out}, io.Discard); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("reading the output directory back: %v", err)
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
+	names := entryNames(t, dir)
 
 	if len(names) != 1 || names[0] != filepath.Base(out) {
 		t.Fatalf("the conversion left %v, want exactly [%q]: one grain that is not the posting is not a second file", names, filepath.Base(out))
@@ -262,6 +272,103 @@ func TestTheConversionWritesOneFile(t *testing.T) {
 
 	if rows := rowsOf[postingRow](t, written); len(rows) != postingTypes {
 		t.Errorf("the posting table holds %d rows, want %d: its grain is the posting", len(rows), postingTypes)
+	}
+}
+
+// extractOnDisk writes a fixture of n postings whose trailer totals trlNet to a
+// file, and returns the path, for the tests that go through [run].
+func extractOnDisk(t *testing.T, n int32, trlNet int64) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "ledger.dat")
+	if err := os.WriteFile(path, ledgerBytes(t, n, n, trlNet), 0o600); err != nil {
+		t.Fatalf("writing the fixture extract: %v", err)
+	}
+
+	return path
+}
+
+// outputPath is a -out under a directory that is not there yet, because the
+// invocation README.md documents has to run on a machine that has never run it.
+func outputPath(t *testing.T) (dir, out string) {
+	t.Helper()
+
+	dir = filepath.Join(t.TempDir(), "out")
+
+	return dir, filepath.Join(dir, "posting.parquet")
+}
+
+// entryNames is what a directory holds, which is how a claim about how many
+// files a run wrote is asserted.
+func entryNames(t *testing.T, dir string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s back: %v", dir, err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	return names
+}
+
+// TestAFailedRunLeavesNoFileBehind is the on-disk half of both reconciliations,
+// and it is the half [TestTheTrailerCountIsReconciled] and
+// [TestTheTrailerNetIsReconciled] cannot assert: they convert into a buffer, so
+// what they show is that the bytes are unopenable, not that write cleaned up
+// after itself.
+//
+// What is on the disk after a failed run is not an unopenable file. It is no
+// file: the footer was never written, and write removes the path it created
+// rather than leaving bytes somebody has to know to distrust.
+func TestAFailedRunLeavesNoFileBehind(t *testing.T) {
+	// One cent out, which is the reconciliation failing rather than the reader.
+	in := extractOnDisk(t, postingTypes, netOf(postingTypes)+1)
+	dir, out := outputPath(t)
+
+	err := run([]string{"-in", in, "-out", out}, io.Discard)
+	if err == nil {
+		t.Fatal("a file whose TRL-NET disagrees with its own postings converted without complaint")
+	}
+
+	if !strings.Contains(err.Error(), "TRL-NET") {
+		t.Errorf("the failure is %q, and it does not name TRL-NET", err)
+	}
+
+	if names := entryNames(t, dir); len(names) != 0 {
+		t.Errorf("the failed run left %v behind, want nothing: a half-converted file that survives is one somebody queries", names)
+	}
+}
+
+// TestOutNamingADirectoryIsReportedAgainstTheRightFlag is the upgrade path.
+//
+// -out named a directory while this conversion wrote two files, so the
+// invocation an adopter already has hands over one that exists. Left to
+// os.Create that is "is a directory" under a wrapper naming the input, which
+// sends somebody to look at their extract over a mistake in a flag.
+func TestOutNamingADirectoryIsReportedAgainstTheRightFlag(t *testing.T) {
+	in := extractOnDisk(t, postingTypes, netOf(postingTypes))
+	dir := t.TempDir()
+
+	err := run([]string{"-in", in, "-out", dir}, io.Discard)
+	if err == nil {
+		t.Fatal("-out naming a directory was accepted, and the conversion writes a file")
+	}
+
+	if !strings.Contains(err.Error(), "-out") {
+		t.Errorf("the failure is %q, and it does not name the flag that is wrong", err)
+	}
+
+	if strings.Contains(err.Error(), in) {
+		t.Errorf("the failure is %q, and it names the input file: the mistake is in -out, and an error that mentions the extract sends somebody to read the wrong thing", err)
+	}
+
+	if names := entryNames(t, dir); len(names) != 0 {
+		t.Errorf("the rejected run left %v in the directory it refused, want nothing", names)
 	}
 }
 

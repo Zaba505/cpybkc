@@ -189,6 +189,22 @@ func run(args []string, stderr io.Writer) error {
 		return err
 	}
 
+	// -out named a directory while this conversion wrote two files, so the
+	// invocation an adopter already has hands over one that exists. That
+	// reaches os.Create as "is a directory", which is a true sentence about the
+	// wrong thing: the mistake is in the flag, and the fix is a filename rather
+	// than a permission or a disk. So the flag checks its own argument, and
+	// this is the only output-side failure worth telling apart by hand —
+	// the rest are ordinary I/O and read as such.
+	//
+	// A -out that is not a directory is taken at its word, extension or no
+	// extension. There is nothing to check there: a path that names no file yet
+	// is exactly what this flag is for, and refusing one that does not end in
+	// .parquet would be this conversion having an opinion about filenames.
+	if info, err := os.Stat(*out); err == nil && info.IsDir() {
+		return fmt.Errorf("-out is %s, which is a directory: it named the directory to write two files into while this conversion wrote two, and it names the file now that it writes one — try -out %s", *out, filepath.Join(*out, "posting.parquet"))
+	}
+
 	// The directory -out sits in is created rather than assumed, so that the
 	// invocation README.md documents runs as it is written on a machine that
 	// has never run it. The file itself is os.Create's business below.
@@ -196,8 +212,11 @@ func run(args []string, stderr io.Writer) error {
 		return err
 	}
 
+	// Both paths, because what write reports can be a fact about either of
+	// them, and a wrapper naming only the input reads as a bad input file
+	// whatever actually went wrong.
 	if err := write(r, *out); err != nil {
-		return fmt.Errorf("converting %s: %w", *in, err)
+		return fmt.Errorf("converting %s into %s: %w", *in, *out, err)
 	}
 
 	return nil
@@ -209,10 +228,16 @@ var errAlreadyReported = errors.New("")
 
 // write creates the table and converts into it.
 //
-// Nothing it created survives a failure. A conversion that fails returns before
-// the footer is written, and a Parquet file with no footer is bytes that read as
-// corruption rather than as a run somebody has to repeat — so the path is
-// removed, and only when this call is the one that opened it.
+// **path is clobbered whether or not this succeeds.** os.Create truncates, and a
+// failed conversion then removes what it truncated — so a run that fails against
+// the path an earlier successful run wrote destroys that output, and leaves no
+// file rather than a short one. That is the deliberate half: a conversion that
+// fails returns before the footer is written, and a Parquet file with no footer
+// is bytes that read as corruption rather than as a run somebody has to repeat,
+// so the path goes. The destructive half is the ordinary cost of an output path
+// that is opened for writing, and it is said out loud here because the default
+// -out is a bare posting.parquet in the working directory, which makes a second
+// run over a bad extract an easy way to meet it.
 //
 // The file is closed whatever happens, and a failure to close is joined to
 // whatever the conversion reported rather than replacing it: a full disk shows

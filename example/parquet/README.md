@@ -35,6 +35,21 @@ name left for it to choose, and a flag that still named a directory would be
 inventing `posting.parquet` inside it for you to go and find. It defaults to
 `posting.parquet` in the working directory.
 
+Two consequences of that change, both of which an adopter meets on the first run
+after it:
+
+- **A `-out` that is an existing directory is refused, by name.** Left alone it
+  would surface as `is a directory` from `os.Create`, wrapped in a sentence about
+  the *input* file — which sends you to read your extract over a mistake in a
+  flag. `TestOutNamingADirectoryIsReportedAgainstTheRightFlag` asserts the
+  message names `-out` and does not name `-in`.
+- **`-out` is clobbered whether or not the run succeeds.** `os.Create` truncates,
+  and a failed conversion then removes what it truncated, so a run over a bad
+  extract destroys an earlier good output at the same path. That is the price of
+  "a failed run leaves nothing a reader will open", and with the default being a
+  bare `posting.parquet` in the working directory it is easy to meet. Write to a
+  fresh path if the previous one matters.
+
 `ledger.dat` is *a dataset of these
 records*, and this repository does not commit one — a ledger extract is bytes in
 cp037 behind DFSMS record descriptor words, which is not a thing to read in a
@@ -131,7 +146,10 @@ Either mismatch is an error, and both run **before the footer is written**, so a
 conversion that does not reconcile leaves a file no reader will open rather than
 one a query would happily return wrong answers from. That ordering is the whole
 trick: a Parquet file is its footer, so "fail before the footer" and "leave
-nothing queryable" are the same sentence.
+nothing queryable" are the same sentence. On disk it goes one step further and
+leaves no file at all — `write` removes the path it created, which
+`TestAFailedRunLeavesNoFileBehind` asserts by reading the output directory back
+rather than by inspecting a buffer.
 
 `TRL-COUNT` is nearly free — the conversion is already counting rows. `TRL-NET`
 costs an `int64` and one addition per posting, and it is worth it: a count agrees
@@ -364,6 +382,7 @@ it violated is a test:
 | a **mapping error that fails the conversion** | a discarded error appends a zero row: empty account, zero amount, indistinguishable from data | same |
 | `TRL-COUNT` **reconciled** | the file, the layout or the conversion is wrong and nothing says so | `TestTheTrailerCountIsReconciled` |
 | `TRL-NET` **reconciled** | a count that agrees over amounts that do not; the accumulator is the only part of this that costs anything | `TestTheTrailerNetIsReconciled` |
+| the **failed output removed** | a footerless file sits where a good one used to, and the next reader finds out | `TestAFailedRunLeavesNoFileBehind` |
 
 The terminal-flush test runs over **999 postings** — the most `HDR-COUNT`'s
 `PIC 9(3)` can describe — because 999 is not a multiple of the batch size, and a
