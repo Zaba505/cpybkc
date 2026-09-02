@@ -1177,6 +1177,19 @@ func TestATransitionCarryingNoPredicateBesideAnEligibleSiblingIsRejected(t *test
 	if ambiguous.State != 0 {
 		t.Errorf("the fault is at state %d, want the start state", ambiguous.State)
 	}
+
+	// This shape is not about a run of bytes and keeps the wording it had
+	// (#326). A record type offering nothing to tell it apart by has no
+	// second target to compare with, and naming a byte offset here would
+	// point an adopter at the discriminator that is fine.
+	message := ambiguous.Error()
+	if !strings.Contains(message, "one of them carries no discriminator, so it matches every record") {
+		t.Errorf("the unguarded shape has been reworded: %s", message)
+	}
+
+	if strings.Contains(message, "byte") {
+		t.Errorf("the unguarded shape names a run of bytes, and there is no pair of runs to name: %s", message)
+	}
 }
 
 // TestTwoRecordsAtOnePointTestingOneRunOfBytesForOneValueAreRejected is
@@ -1433,6 +1446,169 @@ func TestAOneOfOverlapsWhereAnyOfItsValuesAgreesOnTheSharedWindow(t *testing.T) 
 				t.Fatalf("compiling reported %v, want an ambiguity", err)
 			}
 		})
+	}
+}
+
+// TestTheAmbiguityDiagnosticNamesTheRunsTheDiscriminatorsRead is #326: the
+// offset and width of each discriminator's target is the one fact that decides
+// what an adopter does next, and it is the one fact the message used to
+// withhold.
+//
+// Discussion #323 is what withholding it costs. It took four rounds to establish
+// where the adopter's two targets sat, and the report was filed against the
+// sequencing operators — which turned out to be irrelevant, because the fault
+// was two type codes that did not line up.
+//
+// The two shapes are asserted together because the whole point is that they read
+// differently. Runs sharing no byte are told apart by nothing a literal can
+// express and the layout needs a count, a trailer or a different target; runs
+// agreeing over the bytes they share are a clash in the literals and are fixed
+// there. Once #325 narrowed the check to the shared window, those are the only
+// two shapes left, so the message can say which it is without hedging.
+func TestTheAmbiguityDiagnosticNamesTheRunsTheDiscriminatorsRead(t *testing.T) {
+	t.Parallel()
+
+	// A detail whose type code sits behind a lead byte, so that the two
+	// discriminators read runs that share nothing at all.
+	shifted := `01 DTL-REC.
+   05 DTL-LEAD PIC X(1).
+   05 DTL-TYPE PIC X(1).
+   05 DTL-BODY PIC X(20).
+`
+
+	disjoint := countedRunCopybooks()
+	disjoint["DETAIL"] = shifted
+
+	tests := map[string]struct {
+		source    string
+		copybooks map[string]string
+		runs      [2]ByteRun
+		wants     []string
+	}{
+		// HEADER's type code is byte zero of a header and DETAIL's is byte
+		// one of a detail, so no record can be told apart by either literal:
+		// a record carries an `H` at byte zero and a `D` at byte one at the
+		// same time.
+		"runs sharing no bytes": {
+			source: `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(sequence (alt HEADER DETAIL))`,
+			copybooks: disjoint,
+			runs:      [2]ByteRun{{At: 0, Width: 1}, {At: 1, Width: 1}},
+			wants: []string{
+				"HEADER byte 0",
+				"DETAIL byte 1",
+				"share no byte",
+				"no literal either could carry would tell the two apart",
+			},
+		},
+
+		// The genuine clash: one run, one literal, and two records asking
+		// for it.
+		"identical runs agreeing on a literal": {
+			source: `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "H"))
+(sequence (alt HEADER DETAIL))`,
+			copybooks: countedRunCopybooks(),
+			runs:      [2]ByteRun{{At: 0, Width: 1}, {At: 0, Width: 1}},
+			wants: []string{
+				"HEADER byte 0",
+				"DETAIL byte 0",
+				"agree on a literal over byte 0",
+			},
+		},
+
+		// Runs of different widths at one offset, which is where naming both
+		// ends earns its keep: `bytes 0-1` beside `byte 0` says which of the
+		// two reads further and over what the two were compared.
+		"intersecting runs of different widths": {
+			source: `(record NARROW (copybook "narrow.cpy" NAR-REC))
+(record WIDE (copybook "wide.cpy" WID-REC))
+(discriminate NARROW (equals (item NARROW NAR-TYPE) "D"))
+(discriminate WIDE (equals (item WIDE WID-TYPE) "DD"))
+(sequence (alt NARROW WIDE))`,
+			copybooks: sharedWindowCopybooks(),
+			runs:      [2]ByteRun{{At: 0, Width: 1}, {At: 0, Width: 2}},
+			wants: []string{
+				"NARROW byte 0",
+				"WIDE bytes 0-1",
+				"agree on a literal over byte 0",
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var ambiguous *SequenceAmbiguityError
+			if err := refused(t, test.source, test.copybooks); !errors.As(err, &ambiguous) {
+				t.Fatalf("compiling reported %v, want an ambiguity", err)
+			}
+
+			if ambiguous.Runs != test.runs {
+				t.Errorf("the fault carries %v, want %v", ambiguous.Runs, test.runs)
+			}
+
+			for _, want := range test.wants {
+				if !strings.Contains(ambiguous.Error(), want) {
+					t.Errorf("the diagnostic does not say %q: %s", want, ambiguous.Error())
+				}
+			}
+
+			// The fault is about a pair the layout named, and the spans are
+			// still the two places it named them. Naming the bytes is an
+			// addition to what the message says and not a move of where it
+			// points.
+			if spans := ambiguous.Diagnostic().Spans; len(spans) != 2 {
+				t.Errorf("the fault carries %d spans, want the two appearances", len(spans))
+			}
+		})
+	}
+}
+
+// TestTheAmbiguityDiagnosticStillSaysGuardsCanHoldTogether pins the other shape
+// #326 leaves alone.
+//
+// Guards are not about a byte run either: two transitions whose guards can hold
+// at the same time are both eligible, and saying so is what stops an adopter
+// wondering whether the guards were read at all. The clause is kept beside the
+// runs rather than replaced by them.
+func TestTheAmbiguityDiagnosticStillSaysGuardsCanHoldTogether(t *testing.T) {
+	t.Parallel()
+
+	// After the header the state offers an unguarded detail beside a summary
+	// the flag governs, and the two type codes are the same byte asked for
+	// the same value.
+	source := `(record HEADER (copybook "hdr.cpy" HDR-REC))
+(record DETAIL (copybook "dtl.cpy" DTL-REC))
+(record SUMMARY (copybook "sum.cpy" SUM-REC))
+(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
+(discriminate SUMMARY (equals (item SUMMARY SUM-TYPE) "D"))
+(sequence (seq HEADER (alt DETAIL (when (item HEADER SUM-FLAG) "Y" SUMMARY))))`
+
+	var ambiguous *SequenceAmbiguityError
+	if err := refused(t, source, countedRunCopybooks()); !errors.As(err, &ambiguous) {
+		t.Fatalf("compiling reported %v, want an ambiguity", err)
+	}
+
+	if !ambiguous.Guards {
+		t.Fatalf("the fault does not say guards are carried, and the summary's is: %v", ambiguous)
+	}
+
+	for _, want := range []string{
+		"DETAIL byte 0",
+		"SUMMARY byte 0",
+		"and their guards can hold at the same time",
+	} {
+		if !strings.Contains(ambiguous.Error(), want) {
+			t.Errorf("the diagnostic does not say %q: %s", want, ambiguous.Error())
+		}
 	}
 }
 
