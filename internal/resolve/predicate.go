@@ -396,6 +396,27 @@ func alternatives(variant *Node) []string {
 // stretch is a run of a record's bytes: what a predicate tests.
 type stretch struct{ at, width int }
 
+// end is the offset one past the run's last byte.
+func (s stretch) end() int { return s.at + s.width }
+
+// shares is the run both stretches cover, and whether they cover one at all.
+//
+// The empty intersection is reported as a second return rather than as a run of
+// no bytes, because the two are opposite answers here: runs sharing nothing
+// overlap unconditionally, and a shared run of nothing would read as two values
+// agreeing everywhere they are compared, which is the same `true` reached for
+// the opposite reason.
+func (s stretch) shares(other stretch) (stretch, bool) {
+	from := max(s.at, other.at)
+	to := min(s.end(), other.end())
+
+	if from >= to {
+		return stretch{}, false
+	}
+
+	return stretch{at: from, width: to - from}, true
+}
+
 // overlap reports whether one input can satisfy both predicates, each read at
 // the run of bytes given for it.
 //
@@ -403,9 +424,22 @@ type stretch struct{ at, width int }
 // the same bytes, which is the distinction docs/ir/SPEC.md's "When two match,
 // and when none does" draws: predicates reading different fields at different
 // positions overlap just as thoroughly as two reading one, because a record can
-// carry an `S` at byte zero and an `X` at byte ten at the same time. So two over
-// different runs always overlap, and two over one run overlap exactly where
-// their value sets intersect.
+// carry an `S` at byte zero and an `X` at byte ten at the same time.
+//
+// So the runs are intersected rather than compared. Two sharing no byte always
+// overlap, for that reason. Two sharing some bytes are decided on the bytes they
+// share and on nothing else: a `HEADER` keyed on byte zero equal to `H` beside a
+// `DATA` keyed on bytes zero and one equal to `DD` cannot both match, because
+// byte zero would have to be `H` and `D` at once, and a pair that disagrees
+// anywhere in the shared window is proof no input satisfies both. Requiring the
+// two runs to be identical instead called every such pair ambiguous, which was
+// the implementation being coarser than the rule it implements (#325).
+//
+// The window is shared by the *runs* and not by the values, so a `one-of` is
+// inside the same rule with nothing added: the predicates overlap where any
+// value of the one agrees with any value of the other across that window, which
+// for identical runs is the intersection of the two value sets and is the answer
+// this has always given there.
 //
 // A run of bytes rather than a field, because two records built to different
 // copybooks is the ordinary case and is the case docs/ir/SPEC.md's "A counted
@@ -420,15 +454,43 @@ func overlap(first *Predicate, at stretch, second *Predicate, against stretch) b
 		return true
 	}
 
-	if at != against {
+	window, sharing := at.shares(against)
+	if !sharing {
 		return true
 	}
 
 	return slices.ContainsFunc(first.Values, func(one Value) bool {
 		return slices.ContainsFunc(second.Values, func(other Value) bool {
-			return sameValue(one, other)
+			return agree(one, at, other, against, window)
 		})
 	})
+}
+
+// agree reports whether two values ask for the same bytes everywhere the runs
+// carrying them cover one byte.
+//
+// The window is the caller's, because it is a property of the two runs and not
+// of the values: computing it per pair would run the same intersection once for
+// every value a `one-of` carries.
+func agree(one Value, at stretch, other Value, against stretch, window stretch) bool {
+	if !comparableOver(one, at) || !comparableOver(other, against) {
+		// A value carrying no bytes is an integer register's guard's, and one
+		// that is not its run's width is a literal [literalResolver] refused —
+		// neither reaches a discriminator predicate. Nothing here can read
+		// either over a window of bytes, so the pair is left overlapping rather
+		// than decided on a comparison this cannot make. Over one identical run
+		// the old answer is still available, and is still the answer.
+		return at == against && sameValue(one, other)
+	}
+
+	return string(one.Bytes[window.at-at.at:window.end()-at.at]) ==
+		string(other.Bytes[window.at-against.at:window.end()-against.at])
+}
+
+// comparableOver reports whether a value's bytes can be read at the run it was
+// resolved against.
+func comparableOver(value Value, run stretch) bool {
+	return value.Bytes != nil && len(value.Bytes) == run.width
 }
 
 // literals resolves a strategy's literals against the field they are compared

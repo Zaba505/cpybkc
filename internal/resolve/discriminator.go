@@ -330,23 +330,27 @@ func (c *compiler) checkDiscrimination(a *Automaton) {
 //
 // # Why it is reported here rather than as a pass of its own
 //
-// A pair this fires on is a pair the overlap rule fires on too, and the argument
-// is worth writing down because it is what makes the placement safe.
+// It is asked of every pair of transitions the state can offer together, and
+// which of the two things it does depends on whether that pair overlaps.
 //
-// Two predicates over one run of bytes are told apart by their literals and two
-// over different runs are not told apart at all (docs/ir/SPEC.md, "When two
-// match, and when none does"). So a pair that does *not* overlap reads one run,
-// at one offset and one width, in both records — and each predicate's target is
-// an item of its own record, sitting ahead of every item whose extent moves with
-// a count ([compiler.discriminator]'s constant-position check). That puts the
-// run inside the shortest reading of both records, and the rule cannot be broken
-// by a pair the overlap rule admits.
-//
-// What is left is which diagnostic an overlapping pair gets, and this one is
-// more specific: the generic one says a consumer could not tell the two records
+// For an overlapping pair it chooses the diagnostic, and this one is more
+// specific: the generic one says a consumer could not tell the two records
 // apart, and this one says which bytes it would have read to try, and out of
 // which record. It replaces the generic one for [compiler.reportUnnameable]'s
 // reason rather than joining it, so that one pair is one thing to fix.
+//
+// For a pair that does not overlap it is the only thing that fires, and that is
+// the case #325 opened. While the overlap test asked the two runs to be
+// identical, a non-overlapping pair read one run — at one offset and one width —
+// in both records, and each predicate's target is an item of its own record
+// sitting ahead of every item whose extent moves with a count
+// ([compiler.discriminator]'s constant-position check), which put the run inside
+// the shortest reading of both. The rule could not then be broken by a pair the
+// overlap rule admitted. Since the test intersects the runs instead ([overlap]),
+// a pair reading two bytes at offset zero beside one reading one byte there is
+// told apart by the byte they share and admitted — and the wider read still
+// reaches past the shorter record. So the placement is no longer an argument
+// about subsumption; the check is simply asked of both branches.
 func (c *compiler) reportReach(state *State, first, second *Transition) bool {
 	if !c.boundedByLayout() {
 		return false
@@ -898,7 +902,9 @@ func armStrategy(spec *Redefine, alternative string) layoutmodel.Strategy {
 }
 
 // shared is a value two overlapping predicates have in common, or the first of
-// the earlier one where they overlap by reading different runs of bytes.
+// the earlier one where they overlap without having one: two runs sharing no
+// byte overlap whatever their values are, and two runs sharing some of their
+// bytes overlap on those alone ([overlap]).
 func shared(first, second *Predicate) Value {
 	for _, one := range first.Values {
 		for _, other := range second.Values {

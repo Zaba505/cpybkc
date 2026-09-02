@@ -1239,6 +1239,203 @@ func TestTwoDiscriminatorsOverDifferentRunsOfBytesOverlap(t *testing.T) {
 	}
 }
 
+// The copybooks the shared-window tests below are written over: a type code one
+// byte wide at byte zero, one two bytes wide at byte zero, and one two bytes
+// wide at byte one. Every record is the same width and carries its type ahead of
+// everything else, so the run each discriminator reads is the only thing that
+// differs between a pair and nothing else in the compiler has an opinion about
+// them.
+const (
+	narrowType = `01 NAR-REC.
+   05 NAR-TYPE PIC X(1).
+   05 NAR-BODY PIC X(20).
+`
+
+	wideType = `01 WID-REC.
+   05 WID-TYPE PIC X(2).
+   05 WID-BODY PIC X(19).
+`
+
+	shiftedType = `01 SHF-REC.
+   05 SHF-LEAD PIC X(1).
+   05 SHF-TYPE PIC X(2).
+   05 SHF-BODY PIC X(18).
+`
+)
+
+// sharedWindowCopybooks binds NARROW, WIDE and SHIFTED to those three.
+func sharedWindowCopybooks() map[string]string {
+	return map[string]string{"NARROW": narrowType, "WIDE": wideType, "SHIFTED": shiftedType}
+}
+
+// TestDiscriminatorsAtOneOffsetOverDifferentWidthsDisagreeOnTheirSharedByte is
+// #325: two runs that intersect without being identical are decided on the bytes
+// they share, and a disagreement anywhere in that window is proof no record
+// satisfies both.
+//
+// A NARROW keyed on byte zero equal to `H` cannot be a WIDE keyed on bytes zero
+// and one equal to `DD`, because byte zero would have to be `H` and `D` at once.
+// Requiring the two runs to be identical called this pair ambiguous, which is
+// the implementation being coarser than docs/ir/SPEC.md's "When two match, and
+// when none does" rather than the rule saying so.
+func TestDiscriminatorsAtOneOffsetOverDifferentWidthsDisagreeOnTheirSharedByte(t *testing.T) {
+	t.Parallel()
+
+	source := `(record NARROW (copybook "narrow.cpy" NAR-REC))
+(record WIDE (copybook "wide.cpy" WID-REC))
+(discriminate NARROW (equals (item NARROW NAR-TYPE) "H"))
+(discriminate WIDE (equals (item WIDE WID-TYPE) "DD"))
+(sequence (+ (alt NARROW WIDE)))`
+
+	automaton := compiled(t, source, sharedWindowCopybooks())
+
+	if admitted := admits(automaton.States[0]); len(admitted) != 2 {
+		t.Errorf("the start state admits %v, want both records", admitted)
+	}
+}
+
+// TestDiscriminatorsAtOneOffsetOverDifferentWidthsAgreeOnTheirSharedByte is the
+// other side of the same narrowing: intersecting runs whose literals agree
+// across the window they share still overlap, because a record carrying `DD` at
+// bytes zero and one carries `D` at byte zero too.
+func TestDiscriminatorsAtOneOffsetOverDifferentWidthsAgreeOnTheirSharedByte(t *testing.T) {
+	t.Parallel()
+
+	source := `(record NARROW (copybook "narrow.cpy" NAR-REC))
+(record WIDE (copybook "wide.cpy" WID-REC))
+(discriminate NARROW (equals (item NARROW NAR-TYPE) "D"))
+(discriminate WIDE (equals (item WIDE WID-TYPE) "DD"))
+(sequence (+ (alt NARROW WIDE)))`
+
+	var ambiguous *SequenceAmbiguityError
+	if err := refused(t, source, sharedWindowCopybooks()); !errors.As(err, &ambiguous) {
+		t.Fatalf("compiling reported %v, want an ambiguity", err)
+	}
+
+	if ambiguous.Records != [2]string{"NARROW", "WIDE"} {
+		t.Errorf("the fault names %v, want both records", ambiguous.Records)
+	}
+}
+
+// TestDiscriminatorsOverPartiallyOverlappingRunsAreDecidedOnTheBytesTheyShare
+// takes the same rule to runs that start at different offsets: WIDE reads bytes
+// zero and one, SHIFTED reads bytes one and two, and byte one is the whole of
+// what decides the pair.
+//
+// Both orders are written out because the pair is walked in the order the
+// transitions leave the state, and an intersection taken as "the second run
+// inside the first" would answer one of the two and not the other.
+func TestDiscriminatorsOverPartiallyOverlappingRunsAreDecidedOnTheBytesTheyShare(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		shifted   string
+		ambiguous bool
+	}{
+		// WIDE asks for `B` at byte one and SHIFTED asks for `B` there too,
+		// so one record satisfies both.
+		"the shared byte agrees": {shifted: `"BC"`, ambiguous: true},
+
+		// SHIFTED asks for `X` at byte one, which WIDE says is `B`.
+		"the shared byte disagrees": {shifted: `"XC"`, ambiguous: false},
+	}
+
+	for name, test := range tests {
+		for _, order := range [][2]string{{"WIDE", "SHIFTED"}, {"SHIFTED", "WIDE"}} {
+			t.Run(name+", "+order[0]+" first", func(t *testing.T) {
+				t.Parallel()
+
+				source := `(record WIDE (copybook "wide.cpy" WID-REC))
+(record SHIFTED (copybook "shifted.cpy" SHF-REC))
+(discriminate WIDE (equals (item WIDE WID-TYPE) "AB"))
+(discriminate SHIFTED (equals (item SHIFTED SHF-TYPE) ` + test.shifted + `))
+(sequence (+ (alt ` + order[0] + ` ` + order[1] + `)))`
+
+				if !test.ambiguous {
+					compiled(t, source, sharedWindowCopybooks())
+
+					return
+				}
+
+				var ambiguous *SequenceAmbiguityError
+				if err := refused(t, source, sharedWindowCopybooks()); !errors.As(err, &ambiguous) {
+					t.Fatalf("compiling reported %v, want an ambiguity", err)
+				}
+			})
+		}
+	}
+}
+
+// TestAOneOfOverlapsWhereAnyOfItsValuesAgreesOnTheSharedWindow is what a set of
+// values means under the narrowed rule: the window belongs to the two runs and
+// not to the values, so a `one-of` is inside the rule with nothing added. The
+// pair overlaps where any value of the one agrees with any value of the other
+// across the bytes the runs share.
+func TestAOneOfOverlapsWhereAnyOfItsValuesAgreesOnTheSharedWindow(t *testing.T) {
+	t.Parallel()
+
+	const (
+		narrowItem = `(item NARROW NAR-TYPE)`
+		wideItem   = `(item WIDE WID-TYPE)`
+	)
+
+	tests := map[string]struct {
+		narrow    string
+		wide      string
+		ambiguous bool
+	}{
+		// Neither `H` nor `S` is what WIDE says byte zero is.
+		"a one-of on the narrower run agrees on neither value": {
+			narrow:    `(one-of ` + narrowItem + ` "H" "S")`,
+			wide:      `(equals ` + wideItem + ` "DD")`,
+			ambiguous: false,
+		},
+
+		// `D` is WIDE's byte zero, so a record carrying `DD` there is a
+		// NARROW too.
+		"a one-of on the narrower run agrees on one value": {
+			narrow:    `(one-of ` + narrowItem + ` "H" "D")`,
+			wide:      `(equals ` + wideItem + ` "DD")`,
+			ambiguous: true,
+		},
+
+		"a one-of on the wider run agrees on neither value": {
+			narrow:    `(equals ` + narrowItem + ` "H")`,
+			wide:      `(one-of ` + wideItem + ` "DD" "SS")`,
+			ambiguous: false,
+		},
+
+		"a one-of on the wider run agrees on one value": {
+			narrow:    `(equals ` + narrowItem + ` "S")`,
+			wide:      `(one-of ` + wideItem + ` "DD" "SS")`,
+			ambiguous: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			source := `(record NARROW (copybook "narrow.cpy" NAR-REC))
+(record WIDE (copybook "wide.cpy" WID-REC))
+(discriminate NARROW ` + test.narrow + `)
+(discriminate WIDE ` + test.wide + `)
+(sequence (+ (alt NARROW WIDE)))`
+
+			if !test.ambiguous {
+				compiled(t, source, sharedWindowCopybooks())
+
+				return
+			}
+
+			var ambiguous *SequenceAmbiguityError
+			if err := refused(t, source, sharedWindowCopybooks()); !errors.As(err, &ambiguous) {
+				t.Fatalf("compiling reported %v, want an ambiguity", err)
+			}
+		})
+	}
+}
+
 // TestGuardsSeparateTransitionsWhosePredicatesOverlap is the narrowing
 // docs/ir/SPEC.md puts on the overlap rule, and the thing that makes a counted
 // run expressible at all.

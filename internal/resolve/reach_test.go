@@ -26,11 +26,13 @@ import (
 // behind an account key every record of that type carries. That is the shape a
 // worked example is built on, and the whole difficulty is that it looks right.
 //
-// Every one of these layouts is refused by the overlap rule as well, and that is
-// a property of the rule rather than of the tests — [compiler.reportReach] is
-// where the argument is. So what the rejecting tests assert is *which*
-// diagnostic an adopter gets, and they assert the generic one is not reported
-// beside it.
+// Every one of these layouts but the last is refused by the overlap rule as
+// well, because the two runs share no byte and a pair like that is told apart by
+// nothing. So what those rejecting tests assert is *which* diagnostic an adopter
+// gets, and they assert the generic one is not reported beside it. The last is
+// the pair the overlap rule admits and this one does not, which is why the check
+// is asked of every pair a state can offer rather than only of the overlapping
+// ones (#325).
 
 // The copybooks these tests discriminate. `reachHeader` is ten bytes with its
 // type code at the front; `reachDetail` carries a twenty-byte key in front of
@@ -80,6 +82,19 @@ const (
    05 D-TYPE PIC X(2).
    05 D-AMOUNT PIC X(4).
 `
+
+	// reachNarrow is a record one byte long, all of it the type code. A
+	// two-byte target at the same offset ends one byte past it.
+	reachNarrow = `01 N-REC.
+   05 N-TYPE PIC X(1).
+`
+
+	// reachWide keys on two bytes at that same offset, so the two runs
+	// intersect without being identical.
+	reachWide = `01 W-REC.
+   05 W-TYPE PIC X(2).
+   05 W-BODY PIC X(8).
+`
 )
 
 // The framings, in the spellings a layout writes them. The first two leave the
@@ -125,7 +140,7 @@ func reachFaultIn(t *testing.T, err error) *PredicateReachError {
 // is, and not as a reach fault.
 //
 // It is what the relaxations assert. The pair is refused either way — two
-// predicates over different runs of bytes are told apart by nothing — so what a
+// predicates whose runs share no byte are told apart by nothing — so what a
 // relaxation changes is the diagnostic, and a test asserting the compilation
 // failed would pass without the rule being relaxed at all.
 func leftToTheOverlapRule(t *testing.T, err error) {
@@ -338,4 +353,49 @@ func TestRecordsAdmittedAtDifferentStatesAreNotPaired(t *testing.T) {
 (discriminate HEADER (equals (item HEADER H-TYPE) "HD"))
 (discriminate DETAIL (equals (item DETAIL D-TYPE) "DT"))
 (sequence (seq HEADER (* DETAIL)))`, reachCopybooks(reachDetail))
+}
+
+// TestAPredicateReachingPastAShorterRecordIsRejectedWhereThePairIsUnambiguous is
+// the case #325 opened, and the reason this check is asked of every pair a state
+// can offer rather than only of the overlapping ones.
+//
+// NARROW is one byte and asks for `H` there; WIDE asks for `DD` at bytes zero
+// and one. They disagree on the byte the two runs share, so no record satisfies
+// both and the overlap rule has nothing to say about the pair. A consumer at
+// that state still reads two bytes to test WIDE, and where a NARROW is in front
+// of it the second of them is the delimiter's or the next record's.
+//
+// While the overlap test asked the two runs to be identical this layout was
+// refused as an ambiguity, so nothing was lost by leaving the reach check inside
+// that branch. Narrowing the test is what made the branch the wrong place for
+// it.
+func TestAPredicateReachingPastAShorterRecordIsRejectedWhereThePairIsUnambiguous(t *testing.T) {
+	t.Parallel()
+
+	source := delimitedFraming + `
+(record NARROW (copybook "narrow.cpy" N-REC))
+(record WIDE (copybook "wide.cpy" W-REC))
+(discriminate NARROW (equals (item NARROW N-TYPE) "H"))
+(discriminate WIDE (equals (item WIDE W-TYPE) "DD"))
+(sequence (* (alt NARROW WIDE)))`
+
+	err := refused(t, source, map[string]string{"NARROW": reachNarrow, "WIDE": reachWide})
+
+	// One record cannot carry `H` and `D` at byte zero at once, so the pair is
+	// not the ambiguity the coarser test called it.
+	var ambiguity *SequenceAmbiguityError
+	if errors.As(err, &ambiguity) {
+		t.Fatalf("the pair was reported as an ambiguity: %v", ambiguity)
+	}
+
+	reach := reachFaultIn(t, err)
+
+	if reach.Record != "WIDE" || reach.Beside != "NARROW" {
+		t.Errorf("the fault is about %s's target beside %s, want WIDE's beside NARROW",
+			reach.Record, reach.Beside)
+	}
+	if reach.Ends != 2 || reach.Extent != 1 {
+		t.Errorf("the target ends at byte %d against a record of %d bytes, want byte 2 against 1",
+			reach.Ends, reach.Extent)
+	}
 }
