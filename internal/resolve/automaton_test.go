@@ -1190,6 +1190,16 @@ func TestATransitionCarryingNoPredicateBesideAnEligibleSiblingIsRejected(t *test
 	if strings.Contains(message, "byte") {
 		t.Errorf("the unguarded shape names a run of bytes, and there is no pair of runs to name: %s", message)
 	}
+
+	// The runs the fault carries are the zero pair here, and a run of no
+	// bytes says so rather than being drawn as one: the last byte of a run
+	// that has none is the byte before its first, so drawing it gives
+	// `bytes 0--1` to anyone who renders the fault's runs directly.
+	for _, run := range ambiguous.Runs {
+		if run.String() != "no bytes" {
+			t.Errorf("a target that is not there renders as %s, want no bytes", run)
+		}
+	}
 }
 
 // TestTwoRecordsAtOnePointTestingOneRunOfBytesForOneValueAreRejected is

@@ -396,8 +396,18 @@ type ByteRun struct {
 // Both ends rather than an offset and a width, because what an adopter compares
 // is two runs, and two pairs of endpoints can be compared by eye while an offset
 // beside a width cannot.
+//
+// A run of no bytes says so rather than being drawn as one. It is a state a
+// fault really carries — [SequenceAmbiguityError.Runs] is the zero pair wherever
+// there was no target to place, which [SequenceAmbiguityError.placed] is what
+// keeps out of the message — and computing the last byte of a run that has none
+// gives an end before its start, so a `%v` of the fault anywhere else would read
+// `bytes 0--1`.
 func (r ByteRun) String() string {
-	if r.Width == 1 {
+	switch {
+	case r.Width <= 0:
+		return "no bytes"
+	case r.Width == 1:
 		return fmt.Sprintf("byte %d", r.At)
 	}
 
