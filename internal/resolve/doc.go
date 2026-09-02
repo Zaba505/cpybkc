@@ -252,14 +252,18 @@
 // [PredicateReachError] naming the record the target is in, the target and the
 // shorter record it would be read past the end of.
 //
-// It is a diagnostic rather than a second gate, and knowing which it is matters
-// to anyone changing either rule. A layout that breaks it is one the overlap
-// rule refuses anyway — two predicates over different runs of bytes are told
-// apart by nothing — so what the reach rule adds is the message: which bytes a
-// consumer would have read and out of which record, in place of a report that
-// two discriminators could both match. [compiler.reportReach] carries the
-// argument that the two coincide, which is why the specific message replaces the
-// generic one rather than being reported beside it.
+// On an overlapping pair it is a diagnostic rather than a second gate, and
+// knowing which it is matters to anyone changing either rule: such a layout is
+// one the overlap rule refuses anyway, so what the reach rule adds there is the
+// message — which bytes a consumer would have read and out of which record, in
+// place of a report that two discriminators could both match. That is why the
+// specific message replaces the generic one rather than being reported beside
+// it.
+//
+// On a pair the overlap rule admits it is a gate of its own. Two predicates are
+// told apart by the bytes their runs share (#325), so a pair reading runs of
+// different widths can be unambiguous and still have the wider read reach past
+// the shorter record. [compiler.reportReach] carries both readings.
 //
 // [Sequencing.Framing] is what that is keyed on, and a caller stating no framing
 // states neither mechanism, so the rule is not run. It cannot be inferred from

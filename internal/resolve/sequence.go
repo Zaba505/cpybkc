@@ -593,6 +593,19 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 				}
 
 				if !c.predicatesOverlap(first, second) {
+					// A pair a consumer can tell apart is still a
+					// pair it has to read to tell apart, and how far
+					// that read goes is the other rule over a pair.
+					// It sat inside the overlapping branch while the
+					// only pairs admitted here read one identical run
+					// in both records, which is a run inside both;
+					// narrowing the test to the bytes two runs share
+					// (#325) admits pairs whose runs differ in width,
+					// and the wider of the two can reach past the
+					// shortest record the state puts in front of a
+					// consumer. So it is asked of this pair too.
+					c.reportReach(state, first, second)
+
 					continue
 				}
 
@@ -674,9 +687,10 @@ func (c *compiler) reportUnnameable(state *State, first, second *Transition) boo
 // tenth is where the narrower reading lets a real ambiguity through, and
 // predicates reading different fields at different positions overlap just as
 // thoroughly as two reading one". So the question is asked of *positions* and
-// not of items. Two predicates over one run of bytes are told apart by their
-// literals; two over different runs are not told apart at all, because a record
-// can carry an `S` at byte zero and an `X` at byte ten at the same time.
+// not of items. Two predicates are told apart by their literals over the bytes
+// their runs share, and two whose runs share no byte are not told apart at all,
+// because a record can carry an `S` at byte zero and an `X` at byte ten at the
+// same time. [overlap] is where that intersection is taken.
 //
 // It is a run of bytes rather than the copybook item because two records built
 // to different copybooks is the ordinary case, and it is exactly the case
