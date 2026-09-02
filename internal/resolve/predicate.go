@@ -399,6 +399,10 @@ type stretch struct{ at, width int }
 // end is the offset one past the run's last byte.
 func (s stretch) end() int { return s.at + s.width }
 
+// run is the same run as a fault carries it, so that a diagnostic naming the
+// bytes two discriminators read names the ones the check actually intersected.
+func (s stretch) run() ByteRun { return ByteRun{At: s.at, Width: s.width} }
+
 // shares is the run both stretches cover, and whether they cover one at all.
 //
 // The empty intersection is reported as a second return rather than as a run of

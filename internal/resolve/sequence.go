@@ -638,12 +638,39 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 					First:     layoutSpan(c.positions[first.To.ID-1].pos),
 					State:     state.ID,
 					Records:   [2]string{first.Record, second.Record},
+					Runs:      c.runsOf(first, second),
 					Unguarded: first.Predicate == nil || second.Predicate == nil,
 					Guards:    len(first.Guards) > 0 || len(second.Guards) > 0,
 				})
 			}
 		}
 	}
+}
+
+// runsOf is the pair of byte runs two transitions' discriminators read, in the
+// order the pair is reported in, and the zero pair where either target has no
+// run to name.
+//
+// The offsets are the ones [compiler.predicatesOverlap] has just decided the
+// pair on, taken again from [compiler.stretchOf] rather than threaded back out
+// of it: this is the failing path — one pair, in a layout that is about to be
+// refused — and a question named for the answer it gives keeps giving only that
+// answer.
+//
+// Either run being absent is not a fault of its own. A transition carrying no
+// predicate has no target at all (#80), and one whose target this cannot place
+// is a misspelled item [compiler.discriminator] has already reported; the
+// message says what it can say about the pair instead of naming an offset it
+// does not have.
+func (c *compiler) runsOf(first, second *Transition) [2]ByteRun {
+	over, ok := c.stretchOf(first.Record, first.Predicate)
+	against, againstOK := c.stretchOf(second.Record, second.Predicate)
+
+	if !ok || !againstOK {
+		return [2]ByteRun{}
+	}
+
+	return [2]ByteRun{over.run(), against.run()}
 }
 
 // reportUnnameable reports an overlapping pair one of whose records offers no

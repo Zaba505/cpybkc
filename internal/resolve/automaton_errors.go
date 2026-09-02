@@ -267,6 +267,17 @@ func (e *UnboundRegisterError) Diagnostic() diag.Diagnostic {
 // says which of the two shapes it is, because the fixes differ: one is a
 // discriminator to narrow and the other is a record type that offers nothing to
 // tell it apart by.
+//
+// [SequenceAmbiguityError.Runs] is the pair of byte runs the two discriminators
+// actually compared, and naming them is what tells the two remaining shapes
+// apart. Once intersecting runs whose literals disagree are accepted (#325),
+// what is left is either a pair whose runs share no byte — which no literal
+// either record could carry would ever separate, so the layout needs a count, a
+// trailer or a different target — or a pair agreeing on a literal over the bytes
+// they do share, which is a clash in the literals and is the adopter's to fix
+// there. Discussion #323 is what the distinction costs when it is missing: four
+// rounds to establish where the two targets sat, and a report filed against
+// sequencing operators that turned out to be irrelevant.
 type SequenceAmbiguityError struct {
 	// Pos is where the second of the two record names was written, and First
 	// where the first was.
@@ -283,6 +294,14 @@ type SequenceAmbiguityError struct {
 	// Records are the records the two transitions admit.
 	Records [2]string
 
+	// Runs are the bytes each discriminator's target occupies in the record
+	// it belongs to, in the same order as Records.
+	//
+	// Both are the zero run where one of the two carries no predicate, since
+	// there is then no second target to place and Unguarded is what the
+	// message is about instead.
+	Runs [2]ByteRun
+
 	// Unguarded reports that one of the two carries no predicate at all.
 	Unguarded bool
 
@@ -298,8 +317,14 @@ func (e *SequenceAmbiguityError) Error() string { return e.Diagnostic().String()
 // Diagnostic is what the error says, and where.
 func (e *SequenceAmbiguityError) Diagnostic() diag.Diagnostic {
 	why := "their discriminators can both match one record"
-	if e.Unguarded {
+
+	switch {
+	case e.Unguarded:
+		// A record type offering nothing to tell it apart by is not about a
+		// run of bytes, so it keeps the wording it had.
 		why = "one of them carries no discriminator, so it matches every record"
+	case e.placed():
+		why = e.compared()
 	}
 
 	separated := ""
@@ -315,6 +340,94 @@ func (e *SequenceAmbiguityError) Diagnostic() diag.Diagnostic {
 		Spans: spans(e.Pos, e.First, "the other is admitted here"),
 	}
 }
+
+// placed reports whether both targets were located in their records.
+//
+// A run of no bytes is not one an item can occupy, so it is what "there was no
+// target to place" looks like: the unguarded pair, where one of the two carries
+// no predicate at all, and the pair [compiler.stretchOf] could not place — which
+// is a misspelled item [compiler.discriminator] has already reported, and not
+// something to name a byte offset over.
+func (e *SequenceAmbiguityError) placed() bool {
+	return e.Runs[0].Width > 0 && e.Runs[1].Width > 0
+}
+
+// compared is the two runs the discriminators read and what sharing or not
+// sharing bytes leaves an adopter to do about them.
+//
+// The two are opposite answers rather than degrees of the same one, which is why
+// the message says which it is. Runs that share no byte are told apart by
+// nothing a literal can express — a record carries an `S` at byte zero and an
+// `X` at byte ten at the same time — so the resolution is a count, a trailer or
+// a different target, and an adopter who reads "their discriminators overlap"
+// and goes looking for a better literal is looking for something that does not
+// exist. Runs that do share bytes and agree over them are the ordinary clash,
+// and the literals are exactly where it is fixed.
+func (e *SequenceAmbiguityError) compared() string {
+	read := fmt.Sprintf("their discriminators read %s %s and %s %s",
+		e.Records[0], e.Runs[0], e.Records[1], e.Runs[1])
+
+	window, sharing := e.Runs[0].shares(e.Runs[1])
+	if !sharing {
+		return read + ", which share no byte, so no literal either could carry would tell the two apart"
+	}
+
+	return read + fmt.Sprintf(", and they agree on a literal over %s", window)
+}
+
+// ByteRun is where a discriminator's target sits in the record it belongs to:
+// the offset of its first byte, counting from zero, and how many bytes it
+// covers.
+//
+// It is the offset within that record and not within the file, because that is
+// what a consumer reading the record in front of it has: the run
+// [compiler.stretchOf] takes off the record's own static layout, which is the
+// same run in every record of that type.
+type ByteRun struct {
+	// At is the offset of the first byte, counting from zero, and Width the
+	// number of bytes.
+	At    int
+	Width int
+}
+
+// String draws the run the way a diagnostic names it: `byte 4` for one byte and
+// `bytes 4-5` for a run of them, ends included.
+//
+// Both ends rather than an offset and a width, because what an adopter compares
+// is two runs, and two pairs of endpoints can be compared by eye while an offset
+// beside a width cannot.
+//
+// A run of no bytes says so rather than being drawn as one. It is a state a
+// fault really carries — [SequenceAmbiguityError.Runs] is the zero pair wherever
+// there was no target to place, which [SequenceAmbiguityError.placed] is what
+// keeps out of the message — and computing the last byte of a run that has none
+// gives an end before its start, so a `%v` of the fault anywhere else would read
+// `bytes 0--1`.
+func (r ByteRun) String() string {
+	switch {
+	case r.Width <= 0:
+		return "no bytes"
+	case r.Width == 1:
+		return fmt.Sprintf("byte %d", r.At)
+	}
+
+	return fmt.Sprintf("bytes %d-%d", r.At, r.At+r.Width-1)
+}
+
+// shares is the run both cover, and whether they cover one at all.
+//
+// It is [stretch.shares] asked of the pair a fault carries, so that the message
+// intersects the two runs exactly as the check that raised it did. Two readings
+// of what "share no bytes" means would be a diagnostic that says a different
+// literal cannot help about a pair [overlap] decided on a literal.
+func (r ByteRun) shares(other ByteRun) (ByteRun, bool) {
+	window, sharing := r.stretch().shares(other.stretch())
+
+	return window.run(), sharing
+}
+
+// stretch is the run as the overlap check spells it.
+func (r ByteRun) stretch() stretch { return stretch{at: r.At, width: r.Width} }
 
 // SequenceAcceptanceError is a point in the expression that would accept end of
 // input under either of two different sets of guards.
