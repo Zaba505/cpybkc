@@ -2661,6 +2661,56 @@ The evaluation order is normative all the same, so that two consumers handed the
 same bytes do the same work in the same order and report the same thing when
 something is wrong with them.
 
+That permission is a consumer's, and it is not a producer's. **Ordered
+evaluation does not license an overlapping pair.** A producer **MUST NOT** emit
+two transitions leaving one state whose guards can hold at the same time and
+whose predicates can both match one record on the grounds that a consumer would
+try them in the order the state carries, and `resolve` **MUST** reject such a
+layout whether or not the layout says that is what it intends (#324). The
+asymmetry is only apparent: stopping at the first match is safe *because* at
+most one transition can match, which is what the paragraphs above establish, and
+reading the permission the other way round makes an optimisation into the thing
+that was meant to justify it.
+
+The shape that asks for it is real, and naming it here is cheaper than meeting
+it as a diagnostic. A file that is a sequence of batches — a header, then
+details until the next header — has two records eligible at the state after a
+header, and where the two discriminators name runs at different offsets or of
+different widths the runs do not line up and one record can satisfy both tests
+(#323). *Try the header's test first, and read anything that fails it as a
+detail* reads that file, and is presumably what the vendor reader that wrote it
+does. `layout/SPEC.md` states the shape, and what a layout may write instead, at
+[A batch boundary told only by evaluation
+order](../layout/SPEC.md#a-batch-boundary-told-only-by-evaluation-order).
+
+What such a descriptor gives up is the whole of what the overlap rule gives.
+Ordered matching encodes *try the header first*; it is not a proof that the two
+tests cannot both hold. A detail whose account number begins with the header's
+literal at that offset is then read as a header, the batch is split in the wrong
+place, and no rule in this document fires on it — those bytes matched a
+predicate the descriptor carries, so it is not an undescribed record, and where
+the two records share an extent the framing has nothing to disagree with either
+([The extent governs, and framing is checked against
+it](#the-extent-governs-and-framing-is-checked-against-it)). Admitting it is
+admitting a layout that opts out of the check, which is the `otherwise`
+`layout/SPEC.md` refuses under another spelling: an arm that catches what the
+others missed is what *last in the order* means, whether the lastness is written
+as a keyword or as a position.
+
+Both spellings of the permission were weighed against [Versioning and
+compatibility](#versioning-and-compatibility), and the safer one costs more. A
+pair a consumer can *tell* is ordered — a marker on the state, or a third member
+of the predicate set — is an addition a consumer must understand in order to
+stay correct, so the IR version advances and every existing consumer refuses
+every descriptor until it is taught the marker: a bill paid by everyone who has
+one, for a shape one reported file has. The spelling that costs nothing is the
+worse of the two, because leaving the ordering to be inferred from transition
+order alone is invisible to an old consumer, which reads the descriptor as
+conforming, keeps its own order, and misreads the file rather than refusing it.
+`v0.0.4` is released, so neither is free. And the two directions are not
+symmetric in time: this refusal can be lifted later at exactly that price, while
+a permission cannot be withdrawn from the descriptors already written under it.
+
 Where no transition matches, the input is a record the layout does not describe.
 A consumer **MUST** report that rather than skipping ahead to a transition that
 matches later or falling through to a default. There is no default, and a file
@@ -3909,7 +3959,7 @@ records offer them.
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir` |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, settled unchanged by #324 against discussion #323 |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |

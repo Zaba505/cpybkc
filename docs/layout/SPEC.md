@@ -1166,6 +1166,21 @@ miss, and the IR refuses the reading in as many words, because a state offering
 two transitions that can both apply is a layout that was rejected before a
 consumer saw it.
 
+Nor does the *order* two strategies are written in become one. There is no form
+saying to try one discriminator first and read what it does not match as the
+other record, and no spelling is reserved for one — not a fourth strategy, not a
+modifier on `discriminate`, and not a rule reading the order of the
+`discriminate` forms or of an `alt`'s operands. That was reopened by
+[discussion #323](https://github.com/Zaba505/cpybkc/discussions/323), where a
+file that is a sequence of batches needs exactly it, and settled unchanged
+(#324): a first-match ordering over two discriminators that can both match one
+record *is* the default arm, spelled as a position rather than as a keyword, and
+[`ir/SPEC.md`](../ir/SPEC.md#when-two-match-and-when-none-does) refuses the
+descriptor it would lower into, weighing there what admitting it would cost a
+released IR version. The shape that asks for it, and the four things a layout
+may write instead, are [A batch boundary told only by evaluation
+order](#a-batch-boundary-told-only-by-evaluation-order).
+
 ### The strategies that are not in the set, and where each one went
 
 Five ways of telling record types apart were proposed for this format (#28).
@@ -1854,6 +1869,53 @@ What an adopter writes instead is stated where the loss is — the two record
 names where the flag is the discriminating item, and a check of their own beside
 the generated reader where it is not.
 
+### A batch boundary told only by evaluation order
+
+`(+ (seq HEADER (* DATA)))` — a header, then details until the next header — is
+an ordinary layout and compiles. What is **not** describable is that shape where
+the two records can be told apart only by *trying the header's discriminator
+first*. At the state after a `HEADER` the sequence admits `DATA`, by another
+pass of the inner `*`, and `HEADER`, by the outer `+`'s back edge; where the two
+discriminators name runs at different offsets or of different widths, one record
+can satisfy both tests, and `resolve` rejects the layout naming both records.
+There is no form saying to try one of them first, and none is planned ([Three
+strategies, and the set is closed for
+v1](#three-strategies-and-the-set-is-closed-for-v1)).
+
+Four things separate those two transitions, and a layout needs **one** of them:
+
+- **a type code at a common offset and width in both records**, which makes the
+  two literals name the same run, so `equals` on each provably excludes the
+  other;
+- **a count in the header**, written `(times …)` on the inner repetition, which
+  separates the two transitions by a guard instead of by bytes ([Two operators
+  read a value, and they are the automaton's
+  memory](#two-operators-read-a-value-and-they-are-the-automatons-memory));
+- **a trailer ending each batch**, `(+ (seq HEADER (* DATA) TRAILER))`, which
+  moves the back edge to a state where `HEADER` is the only record admitted;
+- **an item with a bounded value set** at the offset and width of the other
+  record's discriminator, which `one-of` can name to line the two runs up.
+
+Reason: ordered matching would encode *try `HEADER` first*, which is not a proof
+that the two tests cannot both hold, and that proof is the whole of what the
+overlap check gives. Where a detail's account number can begin with the header's
+literal at that offset, a first-match reader reads that detail as a header and
+splits the batch in the wrong place, with no diagnostic anywhere: those bytes
+matched a predicate the descriptor carries, so it is not an undescribed record,
+and where the two records share an extent the framing has nothing to disagree
+with either. So it is a convention a layout would assert about its data rather
+than something either layer can check, and the layer that would have to carry it
+refuses it — [`ir/SPEC.md`](../ir/SPEC.md#when-two-match-and-when-none-does)
+holds the refusal and weighs what admitting it would cost a released IR version,
+which is where the decision would be reopened.
+
+Raised by [discussion #323](https://github.com/Zaba505/cpybkc/discussions/323),
+whose adopter has none of the four and vendor copybooks that cannot be changed,
+and settled by #324. It is a limit of the same kind as [a record told apart only
+by its length](../ir/SPEC.md#a-record-told-apart-only-by-its-length), and it is
+stated here for the same reason: an adopter meets it in prose rather than in a
+diagnostic.
+
 ### The copybook language
 
 Level numbers, `PIC` clauses, `OCCURS`, `REDEFINES` — the contents of a copybook
@@ -2165,7 +2227,7 @@ and neither is a second profile.
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
-| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve` |
+| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, and the batch shape that is undescribable without one, settled by #324 against discussion #323 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |
