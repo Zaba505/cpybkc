@@ -1,0 +1,32 @@
+;; batch-ordered's layout, unchanged, over a file that carries the mis-read
+;; the order admits. A detail whose account number begins with the header's
+;; literal at the header's own offset satisfies the header's test, and the
+;; header's test is the one the state tries first, so that record is read as
+;; a header and the batch splits in the wrong place.
+;;
+;; Nothing diagnoses it. Those bytes matched a predicate the descriptor
+;; carries, so the record is not an undescribed one, and both record types
+;; share an extent, so the framing has nothing to disagree with either. That
+;; is what a layout asserts about its data by writing two discriminators whose
+;; runs share no byte, and this entry is what the assertion costs when the
+;; data does not honour it.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm FB)
+  (lrecl 40))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "detail.cpy" BATCH-DETAIL))
+
+(discriminate HEADER (equals (item HEADER BH-TYPE) (bytes "C8C4D9")))
+(discriminate DETAIL (equals (item DETAIL BD-TYPE) (bytes "C4")))
+
+(sequence (+ (seq HEADER (* DETAIL))))

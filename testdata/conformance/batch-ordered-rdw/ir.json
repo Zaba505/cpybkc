@@ -1,0 +1,279 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "descriptor_word": {},
+        "start_state_id": "15"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "BATCH-HEADER"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4",
+          "5",
+          "6"
+        ],
+        "names": {
+          "original": "BATCH-HEADER"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 3,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BH-TYPE"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 6,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 6
+        },
+        "names": {
+          "original": "BH-BATCH-NO"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "field": {
+        "width": 8,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BH-DATE"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "field": {
+        "width": 23,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BH-FILLER"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "record": {
+        "root_id": "8",
+        "names": {
+          "original": "BATCH-DETAIL"
+        }
+      }
+    },
+    {
+      "id": "8",
+      "group": {
+        "member_ids": [
+          "9",
+          "10",
+          "11",
+          "12"
+        ],
+        "names": {
+          "original": "BATCH-DETAIL"
+        }
+      }
+    },
+    {
+      "id": "9",
+      "field": {
+        "width": 10,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BD-ACCOUNT"
+        }
+      }
+    },
+    {
+      "id": "10",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BD-TYPE"
+        }
+      }
+    },
+    {
+      "id": "11",
+      "field": {
+        "width": 11,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 11
+        },
+        "names": {
+          "original": "BD-AMOUNT"
+        }
+      }
+    },
+    {
+      "id": "12",
+      "field": {
+        "width": 18,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BD-FILLER"
+        }
+      }
+    },
+    {
+      "id": "13",
+      "predicate": {
+        "field_id": "3",
+        "bytes_equal": {
+          "value": "yMTZ"
+        }
+      }
+    },
+    {
+      "id": "14",
+      "predicate": {
+        "field_id": "10",
+        "bytes_equal": {
+          "value": "xA=="
+        }
+      }
+    },
+    {
+      "id": "15",
+      "state": {
+        "transition_ids": [
+          "17"
+        ]
+      }
+    },
+    {
+      "id": "16",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "18",
+          "19"
+        ]
+      }
+    },
+    {
+      "id": "17",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "16",
+        "predicate_id": "13"
+      }
+    },
+    {
+      "id": "18",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "16",
+        "predicate_id": "13"
+      }
+    },
+    {
+      "id": "19",
+      "transition": {
+        "record_id": "7",
+        "next_state_id": "16",
+        "predicate_id": "14"
+      }
+    }
+  ]
+}

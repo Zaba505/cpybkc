@@ -1,0 +1,31 @@
+;; A batched extract whose header is keyed on the three bytes a detail's own
+;; packed amount occupies. The two runs share no byte, so the pair is admitted
+;; and resolved by the order -- the header's test first, because its run
+;; begins at the earlier byte.
+;;
+;; What makes this file the writer's case rather than the reader's is that a
+;; packed item is read leniently and written canonically: the detail here
+;; carries the sign nibble A, which is positive and which a writer emits as C,
+;; and 12 34 5C is exactly the header's literal. So the reader routes the
+;; record to the detail and a writer handed that same record back would emit
+;; bytes its own reader routes to the header.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm FB)
+  (lrecl 8))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "detail.cpy" BATCH-DETAIL))
+
+(discriminate HEADER (equals (item HEADER BH-KEY) (bytes "12345C")))
+(discriminate DETAIL (equals (item DETAIL BD-TYPE) (bytes "C4")))
+
+(sequence (+ (seq HEADER (* DETAIL))))

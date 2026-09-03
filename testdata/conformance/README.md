@@ -248,6 +248,10 @@ with four items in it.
 | [`mixed-record-converted`](mixed-record-converted) | The same record after a correct, copybook-aware conversion from EBCDIC. |
 | [`batch-fixed`](batch-fixed) | Three record types told apart by a type code and ordered by a sequencing expression, end to end. |
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
+| [`batch-ordered`](batch-ordered) | A batch with no trailer, whose two discriminators sit at different offsets and different widths: the pair only the order at that state separates, with the header's test first. |
+| [`batch-disjoint`](batch-disjoint) | The same shape with the opposing items numeric `DISPLAY`, which proves the pair exclusive in both directions — so the state carries the *detail's* test first and nothing observes it. |
+| [`batch-ordered-missplit`](batch-ordered-missplit) | `batch-ordered`'s layout over a detail carrying the header's literal at the header's offset: it is read as a header, the batch splits in the wrong place, and nothing diagnoses it. |
+| [`batch-ordered-rdw`](batch-ordered-rdw) | The ordered pair behind the record descriptor word, which the framing changes nothing about. |
 | [`delimited-terminator`](delimited-terminator) | A line-sequential file whose records end with `0x15`, two of them holding a packed amount whose own bytes are `0x15`. |
 | [`delimited-optional-terminator`](delimited-optional-terminator) | The same three records in a file whose last record carries no delimiter, which a writer supplies: twenty-three bytes written back as twenty-four. |
 | [`delimited-ascii-newline`](delimited-ascii-newline) | The delimited file an adopter on Linux has: ASCII, records ended by `0x0A`, two of them holding a binary count whose own bytes are `0x0A`. |
@@ -257,8 +261,9 @@ with four items in it.
 | [`alphanumeric-payload`](alphanumeric-payload) | A `PIC X` item that carries bytes rather than text: one `encoding-override` on the group they sit in, a status flag of `0x03`, a region byte of `0x93`, all 256 byte values in one item, and both pad bytes — beside text items still read as characters. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Ten are not derived from it — `float-ieee754-special`,
-`batch-fixed`, `batch-rdw`, `delimited-terminator`,
+it came from (#67). Fourteen are not derived from it — `float-ieee754-special`,
+`batch-fixed`, `batch-rdw`, `batch-ordered`, `batch-disjoint`,
+`batch-ordered-missplit`, `batch-ordered-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
 `segmented-spanning`, `odo-sliding`,
 `sync-slack` and `alphanumeric-payload` — and the subsections
@@ -395,6 +400,87 @@ a delimiter of one.
 And a segment control code of `0` — a complete, unspanned record inside a spanned
 dataset — cannot occur in `segmented-spanning`, because its one record type is
 longer than its largest segment; a second record type is what would reach it.
+
+### The batched-order entries cite this repository, and carry both outcomes
+
+`(+ (seq HEADER (* DATA)))` — a header, then details until the next header — is
+the commonest shape a batched extract takes, and this format refused it until
+#332: two records are eligible at the state after a header, and where the two
+type codes sit at different offsets or different widths one record can satisfy
+both tests. `batch-fixed` is the same construction with a trailer on the end,
+and the trailer is exactly what makes it separable, so it exercises the easy
+case and nothing else. Four entries carry the shape the format now admits, and
+they are four rather than one because it has two outcomes and one of them has a
+cost worth writing down.
+
+`batch-ordered` and `batch-disjoint` are the pair. Both are a forty-byte header
+and a forty-byte detail; both key on runs that share no byte and that differ in
+offset *and* in width, a three-byte type code against a one-byte one ten bytes
+away. What differs is the item covering each run **inside the other record**. In `batch-ordered` both are `PIC X`, so no byte is ruled out of either
+and the copybooks prove nothing: the pair rests on the order, which is the
+header's test first because its run begins at the earlier byte. In
+`batch-disjoint` both are unsigned numeric `DISPLAY`, so every byte of each is
+one of the charset's ten digit bytes, neither record can carry the other's
+literal, and the two tests are exclusive — the proof
+[`ir/SPEC.md`](../../docs/ir/SPEC.md#when-two-match-and-when-none-does) takes
+from the copybooks, in both directions because one direction alone proves
+nothing.
+
+That the descriptor carries no marker saying which of the two a pair is, is the
+point rather than an omission, and it is why the two entries are worth having
+side by side: what says so is the copybooks. `batch-disjoint`'s state carries the
+*detail's* transition first — the reverse of `batch-ordered`'s, because the
+detail's run is the earlier one there — and the file reads the same either way,
+because where the pair is proved exclusive the order at that state cannot be
+observed at all. Where it is not proved, that order is the whole of what reads
+the file.
+
+`batch-ordered-missplit` is what resting on the order costs. Its third record is
+a detail whose account number begins `HDR`, which is the header's literal at the
+header's own offset, so the state's first test matches and the record is read as
+a header: the batch splits in the wrong place, the detail's remaining items are
+read as the header's, and the file is reported complete. **The entry records that
+as the expected answer.** Nothing diagnoses it — those bytes matched a predicate
+the descriptor carries, so the record is not an undescribed one, and both record
+types share an extent, so the framing has nothing to disagree with either — and
+an outcome no entry writes down is one two generators can disagree about while
+both pass.
+
+**Which framings they run under.** `batch-ordered-rdw` is the ordered pair behind
+the record descriptor word, and the claim is worth its entry: the word in front of
+a record is consumed before the automaton is handed the record's bytes, so a
+framing carrying a length changes neither which runs the two predicates read nor
+the order the state carries them in. `delimited` and `segmented` are skipped, and
+what is skipped is a third and a fourth spelling of that same independence — each
+would cost a hand-authored descriptor and pin nothing `batch-ordered-rdw` does
+not, while the framings themselves are covered by four entries of their own. The
+one thing a framing could add is not so much skipped as absent from the corpus
+altogether: where two record types have *different* extents, the length in front
+of a record disagrees with a mis-split and the framing catches what the order
+cannot ([*The extent governs, and framing is checked against
+it*](../../docs/ir/SPEC.md#the-extent-governs-and-framing-is-checked-against-it)).
+All four entries keep the two extents equal, deliberately, because that is the
+arrangement the mis-read survives — so that claim has no entry under any framing,
+and it is a known gap rather than covered ground.
+
+**The writer's half of the permission is not an entry, and could not be.** A
+producer admitting this pair owes the check
+[*A writer walks the same
+automaton*](../../docs/ir/SPEC.md#a-writer-walks-the-same-automaton) requires: at
+such a state a writer evaluates the predicates of the transitions ordered before
+the one it took, against the bytes it is about to emit, and reports a record any
+of them matches rather than emitting it. An entry cannot state that outcome. A
+values document is one set of values and both directions are held to it, and its
+`failure` is a read that stopped — so a writer refusing a record the reader read
+cleanly has nowhere to be written down, which is [*A file the reader
+refused*](../../docs/conformance/SPEC.md#a-file-the-reader-refused) seen from the
+side it does not cover. The case lives beside the harness instead, as a fixture
+at `internal/conformance/goadapter/testdata/writer-refusal` and a test that loads
+it, and what that test asserts is what an entry would: the run disagrees, and the
+disagreement is the writing direction's. Reaching it at all needs a record whose
+bytes differ between being read and being written, which the lenient packed sign
+nibble `A` supplies — `packed-ascii` is where this corpus states that it is
+positive, and a writer emits `C`.
 
 ### The variable-table entry cites the two specs that decide it
 

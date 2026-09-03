@@ -1,0 +1,19 @@
+{
+  "records": [
+    {
+      "name": "BATCH-HEADER",
+      "value": {
+        "BH-KEY": "12345",
+        "BH-NAME": "BATCH"
+      }
+    },
+    {
+      "name": "BATCH-DETAIL",
+      "value": {
+        "BD-AMT": "12345",
+        "BD-TYPE": "D",
+        "BD-REF": "R001"
+      }
+    }
+  ]
+}
