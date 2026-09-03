@@ -250,7 +250,7 @@ with four items in it.
 | [`batch-rdw`](batch-rdw) | The same batch behind the record descriptor word `RECFM=VB` puts in front of each record. |
 | [`batch-ordered`](batch-ordered) | A batch with no trailer, whose two discriminators sit at different offsets and different widths: the pair only the order at that state separates, with the header's test first. |
 | [`batch-disjoint`](batch-disjoint) | The same shape with the opposing items numeric `DISPLAY`, which proves the pair exclusive in both directions — so the state carries the *detail's* test first and nothing observes it. |
-| [`batch-ordered-missplit`](batch-ordered-missplit) | `batch-ordered`'s layout over a detail carrying the header's literal at the header's offset: read as a header, the batch split in the wrong place, and nothing diagnosing it. |
+| [`batch-ordered-missplit`](batch-ordered-missplit) | `batch-ordered`'s layout over a detail carrying the header's literal at the header's offset: it is read as a header, the batch splits in the wrong place, and nothing diagnoses it. |
 | [`batch-ordered-rdw`](batch-ordered-rdw) | The ordered pair behind the record descriptor word, which the framing changes nothing about. |
 | [`delimited-terminator`](delimited-terminator) | A line-sequential file whose records end with `0x15`, two of them holding a packed amount whose own bytes are `0x15`. |
 | [`delimited-optional-terminator`](delimited-optional-terminator) | The same three records in a file whose last record carries no delimiter, which a writer supplies: twenty-three bytes written back as twenty-four. |
