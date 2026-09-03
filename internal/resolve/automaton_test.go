@@ -1772,3 +1772,226 @@ func TestCompileSequenceRefusesNoSequence(t *testing.T) {
 		t.Errorf("compiling nothing reported %v, want %v", err, ErrNilSequence)
 	}
 }
+
+// The copybooks the byte-domain tests below are written over. Every record is
+// twenty-one bytes wide and carries a one-byte type code — the header's at byte
+// zero and the detail's at byte ten — which is discussion #323's shape: two
+// discriminators whose runs never meet, at a state where both records are
+// eligible.
+//
+// What differs between the details is the one item covering byte zero, which is
+// what the header's literal is asked of. The header is fixed, and byte ten falls
+// inside its five-digit sequence number.
+const (
+	batchHeader = `01 BAT-HDR.
+   05 BAT-TYPE PIC X(1).
+   05 BAT-ID   PIC 9(9).
+   05 BAT-SEQ  PIC 9(5).
+   05 BAT-BODY PIC X(6).
+`
+
+	batchDetail = `01 BDT-REC.
+   05 BDT-KEY  %s.
+   05 BDT-TYPE PIC X(1).
+   05 BDT-BODY PIC X(10).
+`
+)
+
+// batchCopybooks binds HEADER to that header and DETAIL to that detail, with the
+// ten bytes ahead of its type code described by key.
+func batchCopybooks(key string) map[string]string {
+	return map[string]string{
+		"HEADER": batchHeader,
+		"DETAIL": fmt.Sprintf(batchDetail, key),
+	}
+}
+
+// batchSource is the layout those two are read under: a file of batches, each a
+// header followed by its details, which puts both records on the state after a
+// detail.
+const batchSource = `(record HEADER (copybook "header.cpy" BAT-HDR))
+(record DETAIL (copybook "detail.cpy" BDT-REC))
+(discriminate HEADER (equals (item HEADER BAT-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL BDT-TYPE) "D"))
+(sequence (+ (seq HEADER (+ DETAIL))))`
+
+// TestDiscriminatorsOverDifferentRunsAreDisjointWhereTheCopybooksForbidTheOpposingLiteral
+// is #330: two runs that share no byte are decided on what the copybooks say
+// those bytes may hold, and not on the general truth that a record can carry one
+// value at byte zero and another at byte ten.
+//
+// The header is keyed on byte zero equal to `H` and the detail on byte ten equal
+// to `D`, both EBCDIC letters. Byte ten of a header is inside a five-digit
+// DISPLAY item, so a header can never carry `D` there; where byte zero of a
+// detail is a ten-digit DISPLAY item it can never carry `H` either, and the two
+// tests are then provably exclusive with nothing added to the layout. Where byte
+// zero of a detail is anything this cannot state a domain for, the pair is left
+// overlapping and refused exactly as before.
+func TestDiscriminatorsOverDifferentRunsAreDisjointWhereTheCopybooksForbidTheOpposingLiteral(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		key       string
+		ambiguous bool
+	}{
+		// The whole point: neither record can hold the other's letter.
+		"an unsigned zoned item holds digits and no letter": {
+			key: "PIC 9(10)", ambiguous: false,
+		},
+
+		// "Any byte value may appear in an alphanumeric field", so this
+		// proves nothing and the refusal stands. One direction is not
+		// enough: a detail carrying `H` at byte zero and `D` at byte ten
+		// satisfies both tests, whatever the header says about byte ten.
+		"an alphanumeric item holds any byte": {
+			key: "PIC X(10)", ambiguous: true,
+		},
+
+		// The sign is an overpunch on one of the ten digits, and where
+		// codec puts it is codec's to say rather than this package's.
+		"a signed zoned item is declined": {
+			key: "PIC S9(10)", ambiguous: true,
+		},
+
+		// A packed item's digits are nibbles and its last nibble is the
+		// sign; same reason.
+		"a packed item is declined": {
+			key: "PIC 9(18) COMP-3", ambiguous: true,
+		},
+
+		// A binary item is a bit pattern with no bytes ruled out.
+		"a binary item is declined": {
+			key: "PIC 9(9) COMP.\n   05 BDT-PAD  PIC X(6)", ambiguous: true,
+		},
+
+		// BLANK WHEN ZERO puts the charset's spaces in a numeric item, so
+		// the digits are not the whole of what it holds.
+		"a numeric item blank when zero is declined": {
+			key: "PIC 9(10) BLANK WHEN ZERO", ambiguous: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if !test.ambiguous {
+				compiled(t, batchSource, batchCopybooks(test.key))
+
+				return
+			}
+
+			var ambiguous *SequenceAmbiguityError
+			if err := refused(t, batchSource, batchCopybooks(test.key)); !errors.As(err, &ambiguous) {
+				t.Fatalf("compiling reported %v, want an ambiguity", err)
+			}
+
+			// The refusal is the one #326 wrote: the two runs are what an
+			// adopter reads the message for, and narrowing when the pair is
+			// refused does not change what is said when it is.
+			want := [2]ByteRun{{At: 0, Width: 1}, {At: 10, Width: 1}}
+			if ambiguous.Runs != want && ambiguous.Runs != [2]ByteRun{want[1], want[0]} {
+				t.Errorf("the fault names the runs %v, want %v", ambiguous.Runs, want)
+			}
+		})
+	}
+}
+
+// TestTheByteDomainIsDeclinedWhereTheLayoutDoesNotSettleTheItem is the soundness
+// half: the refinement reads a domain only where the record's own layout says
+// which item covers the opposing run, and every other shape is left overlapping.
+//
+// Each detail below keys on a run the header describes with something other than
+// one item at a fixed offset, and each is refused for that reason alone — byte
+// zero of every one of them is a zoned item that cannot hold `H`, so the pair
+// would be disjoint if the header's side of the question had an answer.
+func TestTheByteDomainIsDeclinedWhereTheLayoutDoesNotSettleTheItem(t *testing.T) {
+	t.Parallel()
+
+	// A two-byte type code at byte nine spans the header's nine-digit
+	// identifier and its sequence number, and one at byte ten sits wholly
+	// inside the sequence number.
+	spanning := `01 BSP-REC.
+   05 BSP-KEY  PIC 9(9).
+   05 BSP-TYPE PIC X(2).
+   05 BSP-BODY PIC X(10).
+`
+
+	inside := `01 BSP-REC.
+   05 BSP-KEY  PIC 9(10).
+   05 BSP-TYPE PIC X(2).
+   05 BSP-BODY PIC X(9).
+`
+
+	// Slack: a four-byte binary item SYNCHRONIZED onto a four-byte boundary
+	// leaves bytes nine, ten and eleven belonging to no item at all.
+	slack := `01 BSL-HDR.
+   05 BSL-TYPE PIC X(1).
+   05 BSL-FILL PIC X(8).
+   05 BSL-BIN  PIC 9(9) COMP SYNC.
+`
+
+	// An OCCURS DEPENDING ON ahead of byte ten moves every byte at or after
+	// it, so the static layout does not say which item is there.
+	variable := `01 BOD-HDR.
+   05 BOD-TYPE  PIC X(1).
+   05 BOD-COUNT PIC 9(2).
+   05 BOD-TAB   PIC X(4) OCCURS 1 TO 5 TIMES DEPENDING ON BOD-COUNT.
+   05 BOD-SEQ   PIC 9(5).
+`
+
+	tests := map[string]struct {
+		header    string
+		record    string
+		detail    string
+		item      string
+		literal   string
+		ambiguous bool
+	}{
+		"the opposing run spans two items": {
+			header: batchHeader, record: "BAT-HDR", detail: spanning,
+			item: "BSP-TYPE", literal: `"DD"`, ambiguous: true,
+		},
+
+		"the opposing run sits inside one": {
+			header: batchHeader, record: "BAT-HDR", detail: inside,
+			item: "BSP-TYPE", literal: `"DD"`, ambiguous: false,
+		},
+
+		"the opposing run lands on slack": {
+			header: slack, record: "BSL-HDR", detail: fmt.Sprintf(batchDetail, "PIC 9(10)"),
+			item: "BDT-TYPE", literal: `"D"`, ambiguous: true,
+		},
+
+		"the opposing run sits in an ODO-variable region": {
+			header: variable, record: "BOD-HDR", detail: fmt.Sprintf(batchDetail, "PIC 9(10)"),
+			item: "BDT-TYPE", literal: `"D"`, ambiguous: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			headerType := recordOf(t, test.header).Children[0].Name
+			source := `(record HEADER (copybook "header.cpy" ` + test.record + `))
+(record DETAIL (copybook "detail.cpy" BDT-REC))
+(discriminate HEADER (equals (item HEADER ` + headerType + `) "H"))
+(discriminate DETAIL (equals (item DETAIL ` + test.item + `) ` + test.literal + `))
+(sequence (+ (seq HEADER (+ DETAIL))))`
+
+			copybooks := map[string]string{"HEADER": test.header, "DETAIL": test.detail}
+
+			if !test.ambiguous {
+				compiled(t, source, copybooks)
+
+				return
+			}
+
+			var ambiguous *SequenceAmbiguityError
+			if err := refused(t, source, copybooks); !errors.As(err, &ambiguous) {
+				t.Fatalf("compiling reported %v, want an ambiguity", err)
+			}
+		})
+	}
+}

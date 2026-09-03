@@ -869,10 +869,25 @@ func (r *resolver) checkArmOverlap(c cluster, table *copybook.Item, arms []Arm, 
 
 	for i := range arms {
 		for j := i + 1; j < len(arms); j++ {
-			over := stretch{at: targets[i].Offset, width: targets[i].Length}
-			against := stretch{at: targets[j].Offset, width: targets[j].Length}
+			// Neither side carries byte domains, and that is the answer
+			// rather than a corner left unswept. The domain refinement
+			// [overlap] applies to a pair of records asks what the *other*
+			// record's copybook covers the opposing run with (#330); here the
+			// two arms are alternatives of one REDEFINES cluster, so every run
+			// either arm reads is covered by both descriptions of the same
+			// storage — which is exactly the shape [covering] declines, and
+			// handing it the record's layout would decline every pair while
+			// reading as though the copybooks had been consulted.
+			over := discriminant{
+				predicate: arms[i].Predicate,
+				run:       stretch{at: targets[i].Offset, width: targets[i].Length},
+			}
+			against := discriminant{
+				predicate: arms[j].Predicate,
+				run:       stretch{at: targets[j].Offset, width: targets[j].Length},
+			}
 
-			if !overlap(arms[i].Predicate, over, arms[j].Predicate, against) {
+			if !overlap(over, against) {
 				continue
 			}
 

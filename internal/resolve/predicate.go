@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	cobol "github.com/Zaba505/cobol-go"
 	"github.com/Zaba505/cobol-go/codec"
 	"github.com/Zaba505/cobol-go/copybook"
 	"github.com/Zaba505/cobol-go/picture"
@@ -406,10 +407,11 @@ func (s stretch) run() ByteRun { return ByteRun{At: s.at, Width: s.width} }
 // shares is the run both stretches cover, and whether they cover one at all.
 //
 // The empty intersection is reported as a second return rather than as a run of
-// no bytes, because the two are opposite answers here: runs sharing nothing
-// overlap unconditionally, and a shared run of nothing would read as two values
-// agreeing everywhere they are compared, which is the same `true` reached for
-// the opposite reason.
+// no bytes, because the two are opposite answers here: runs sharing nothing are
+// two values nothing compares, and a shared run of nothing would read as two
+// values agreeing everywhere they are compared, which is the same `true` reached
+// for the opposite reason. What separates them afterwards is what the copybooks
+// admit at each run rather than what the values say ([overlap]).
 func (s stretch) shares(other stretch) (stretch, bool) {
 	from := max(s.at, other.at)
 	to := min(s.end(), other.end())
@@ -421,6 +423,42 @@ func (s stretch) shares(other stretch) (stretch, bool) {
 	return stretch{at: from, width: to - from}, true
 }
 
+// discriminant is one side of an overlap question: a predicate, the run of one
+// record's bytes it reads, and what that record's copybook admits at any other
+// run of the same bytes.
+//
+// The third member is what turns "both may match" into a proof for a pair whose
+// runs never meet. A discriminator reads a run of the input, and the *other*
+// record covers that run with an item of its own carrying a PICTURE and a
+// USAGE; where the literal the other discriminator asks for is a byte that item
+// can never hold, no record of this type satisfies that predicate, whatever the
+// runs do (#330).
+type discriminant struct {
+	// predicate is the test, nil where the transition or arm carries none.
+	predicate *Predicate
+
+	// run is the bytes of its own record that test reads.
+	run stretch
+
+	// admits is that record's byte domains, nil where none can be taken.
+	admits domains
+}
+
+// carries reports whether a well-formed record of this side's type could hold a
+// value's bytes over a run of its own.
+//
+// Everything it cannot settle is `true`, which is what keeps the refinement a
+// narrowing of a refusal rather than a widening of one: a record whose copybook
+// says nothing about those bytes is left able to carry them, and the pair stays
+// overlapping exactly as it was before this was consulted.
+func (d discriminant) carries(value Value, over stretch) bool {
+	if d.admits == nil || !comparableOver(value, over) {
+		return true
+	}
+
+	return d.admits(over).admits(value.Bytes)
+}
+
 // overlap reports whether one input can satisfy both predicates, each read at
 // the run of bytes given for it.
 //
@@ -430,20 +468,37 @@ func (s stretch) shares(other stretch) (stretch, bool) {
 // positions overlap just as thoroughly as two reading one, because a record can
 // carry an `S` at byte zero and an `X` at byte ten at the same time.
 //
-// So the runs are intersected rather than compared. Two sharing no byte always
-// overlap, for that reason. Two sharing some bytes are decided on the bytes they
-// share and on nothing else: a `HEADER` keyed on byte zero equal to `H` beside a
-// `DATA` keyed on bytes zero and one equal to `DD` cannot both match, because
-// byte zero would have to be `H` and `D` at once, and a pair that disagrees
-// anywhere in the shared window is proof no input satisfies both. Requiring the
-// two runs to be identical instead called every such pair ambiguous, which was
-// the implementation being coarser than the rule it implements (#325).
+// So the runs are intersected rather than compared. Two sharing some bytes are
+// decided on the bytes they share: a `HEADER` keyed on byte zero equal to `H`
+// beside a `DATA` keyed on bytes zero and one equal to `DD` cannot both match,
+// because byte zero would have to be `H` and `D` at once, and a pair that
+// disagrees anywhere in the shared window is proof no input satisfies both.
+// Requiring the two runs to be identical instead called every such pair
+// ambiguous, which was the implementation being coarser than the rule it
+// implements (#325).
 //
 // The window is shared by the *runs* and not by the values, so a `one-of` is
 // inside the same rule with nothing added: the predicates overlap where any
 // value of the one agrees with any value of the other across that window, which
 // for identical runs is the intersection of the two value sets and is the answer
 // this has always given there.
+//
+// A pair agreeing over that window — and every pair whose runs share no byte at
+// all, which agrees vacuously — is then asked what the two *copybooks* say. Each
+// side has to be able to carry the other's literal at the other's run, because
+// an input satisfying both is a well-formed record of one of the two types and
+// therefore holds, everywhere that type describes, a byte that type admits. So
+// the pair survives only where the first record could carry the second's literal
+// at the second's run, or the second could carry the first's at the first's; a
+// pair failing both is two tests one input cannot pass, however far apart the
+// bytes they read are (#330). Neither direction is enough on its own: the record
+// that *can* hold the other's literal is exactly the record that satisfies both
+// tests at once.
+//
+// That proof is over well-formed records, which is a narrowing of the invariant
+// and is stated as one in docs/ir/SPEC.md's "When two match, and when none
+// does". A record carrying bytes its own copybook's items cannot hold is outside
+// it, and is a file the layout is already wrong about.
 //
 // A run of bytes rather than a field, because two records built to different
 // copybooks is the ordinary case and is the case docs/ir/SPEC.md's "A counted
@@ -453,19 +508,21 @@ func (s stretch) shares(other stretch) (stretch, bool) {
 //
 // A predicate that is absent matches every record, so it overlaps everything
 // (#80).
-func overlap(first *Predicate, at stretch, second *Predicate, against stretch) bool {
-	if first == nil || second == nil {
+func overlap(first, second discriminant) bool {
+	if first.predicate == nil || second.predicate == nil {
 		return true
 	}
 
-	window, sharing := at.shares(against)
-	if !sharing {
-		return true
-	}
+	window, sharing := first.run.shares(second.run)
 
-	return slices.ContainsFunc(first.Values, func(one Value) bool {
-		return slices.ContainsFunc(second.Values, func(other Value) bool {
-			return agree(one, at, other, against, window)
+	return slices.ContainsFunc(first.predicate.Values, func(one Value) bool {
+		return slices.ContainsFunc(second.predicate.Values, func(other Value) bool {
+			if sharing && !agree(one, first.run, other, second.run, window) {
+				return false
+			}
+
+			return first.carries(other, second.run) ||
+				second.carries(one, first.run)
 		})
 	})
 }
@@ -495,6 +552,192 @@ func agree(one Value, at stretch, other Value, against stretch, window stretch) 
 // resolved against.
 func comparableOver(value Value, run stretch) bool {
 	return value.Bytes != nil && len(value.Bytes) == run.width
+}
+
+// domains is what one record's copybook admits over a run of that record's
+// bytes: the question a discriminator reading *another* record's run asks of it.
+//
+// A nil result — from a nil `domains` or from a call that can settle nothing —
+// is "this copybook says nothing about those bytes", and every caller reads it
+// as the record being able to carry anything there. That is the direction the
+// whole refinement has to fail in: an unsound domain turns an ambiguity into a
+// layout that compiles and a file read as the wrong record type, while a domain
+// declined turns nothing into anything worse than the refusal already given.
+type domains func(run stretch) byteDomain
+
+// byteDomain is what a copybook says one run of a record's bytes may hold: one
+// set of admissible bytes per byte of the run, and a nil set at a position
+// nothing here can state.
+//
+// One set per position rather than one for the run, because the shapes with a
+// domain are not uniform along their bytes — a signed zoned item's sign
+// position and a packed item's sign nibble are the two this cannot state yet,
+// and both are one position of an item whose others are digits.
+type byteDomain [][]byte
+
+// admits reports whether a well-formed record could carry these bytes over the
+// run the domain was taken at.
+//
+// A domain that is not the width of the value is not a disagreement but a
+// question this cannot ask, so it admits: the two came from different readings
+// of the same run and comparing them position by position would compare bytes
+// nobody claimed line up.
+func (d byteDomain) admits(want []byte) bool {
+	if len(d) != len(want) {
+		return true
+	}
+
+	for at, b := range want {
+		if d[at] != nil && !slices.Contains(d[at], b) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// domainsOf reads one record's byte domains off its layout.
+//
+// The axes are a function rather than a value because the four encoding axes
+// are per item — an override reaching one item and not its sibling is what
+// [axesOf] folds — and the item is not known until the run is.
+func domainsOf(built *copybook.Layout, axes func(*copybook.Field) layoutmodel.Axes) domains {
+	if built == nil || axes == nil {
+		return nil
+	}
+
+	return func(run stretch) byteDomain {
+		item, ok := covering(built, run)
+		if !ok {
+			return nil
+		}
+
+		whole := itemDomain(item, axes(item.Field))
+		if whole == nil {
+			return nil
+		}
+
+		return whole[run.at-item.Offset : run.end()-item.Offset]
+	}
+}
+
+// covering is the one elementary item whose storage holds every byte of a run,
+// and whether the record's layout settles which item that is.
+//
+// Everything it declines is a soundness bound rather than a gap to fill later,
+// and there are four of them. A run no elementary item wholly contains is a run
+// spanning an item boundary or landing on the slack a SYNCHRONIZED item pushed
+// in front of itself, and slack belongs to no item and is described by nothing
+// (KindSlack in node.go). A run at or after a repetition whose count is a
+// reference sits at an offset that moves with the record's own data, so the
+// static layout does not say which bytes it is. A run inside a table is one
+// occurrence of many and this places only the first. And a run more than one
+// item covers is a REDEFINES cluster — two descriptions of one run of storage,
+// either of which a well-formed record may be — so the domain is the union of
+// the members' and reading one of them would be reading the wrong one half the
+// time.
+func covering(built *copybook.Layout, run stretch) (*copybook.Item, bool) {
+	for _, item := range built.Items() {
+		if item.MinOccurs != item.MaxOccurs && item.Offset < run.end() {
+			return nil, false
+		}
+	}
+
+	var found *copybook.Item
+
+	for _, item := range built.Items() {
+		if item.Field.Kind != copybook.KindElementary {
+			continue
+		}
+
+		if run.at < item.Offset || run.end() > item.Offset+item.Length {
+			continue
+		}
+
+		if item.Occurs > 1 || item.MaxOccurs > 1 || enclosingTable(item) != nil {
+			return nil, false
+		}
+
+		if found != nil {
+			return nil, false
+		}
+
+		found = item
+	}
+
+	return found, found != nil
+}
+
+// itemDomain is what one item's PICTURE and USAGE say each of its bytes may
+// hold, or nil where they settle nothing.
+//
+// This is the one reading of a byte domain in this repository, and it states one
+// shape: the unsigned zoned DISPLAY item, whose every byte is one of the
+// charset's ten digits. The other three shapes docs/ir/SPEC.md's "When two match,
+// and when none does" lists are declined here and each for its own reason.
+// `PIC X` and the binary usages have no domain to state — "Any byte value may
+// appear in an alphanumeric field" (cobol-go, codec/decoder.go) and a binary
+// item is a bit pattern — so consulting them proves nothing. A packed item and a
+// signed zoned one do have one, and it is not stated here because stating it
+// would mean writing down where `codec` puts a sign nibble and an overpunch: a
+// second reading of an encoding cobol-go already implements and does not export,
+// which is the disagreement between two repositories that
+// [github.com/Zaba505/cobol-go/copybook] exists here to prevent. Zaba505/cobol-go#134
+// asks for the domain API those two shapes need; until it lands they decline,
+// which costs a refusal that could have been narrowed and never an unsound
+// proof.
+//
+// The shape itself is [zonedUnsigned]'s, asked as a question rather than
+// re-derived, and the bytes are [charsetOf]'s table rather than ten constants —
+// so what an unsigned zoned item is, and what a digit's byte is, are each read
+// in one place and read the same way the literal on the other side of the
+// comparison was resolved. Where `charsetOf` has no table the domain declines
+// rather than guessing; where it has a borrowed one, the ten digits are inside
+// the subset codec/SPEC.md states is identical across every EBCDIC code page the
+// charset axis admits, which is the same subset [invariant] holds a literal to.
+//
+// BLANK WHEN ZERO is the one clause that takes the domain away from a shape that
+// otherwise has one: the item holds the charset's spaces when its value is zero,
+// which is a byte outside the digits and inside a perfectly well-formed record.
+func itemDomain(item *copybook.Item, axes layoutmodel.Axes) byteDomain {
+	if zonedUnsigned(item.Field) != "" || blankWhenZero(item.Field) {
+		return nil
+	}
+
+	charset, _ := charsetOf(axes.Charset)
+	if charset == nil {
+		return nil
+	}
+
+	digits := make([]byte, 0, 10)
+	for digit := '0'; digit <= '9'; digit++ {
+		encoded, ok := charset.FromUnicode(digit)
+		if !ok {
+			return nil
+		}
+
+		digits = append(digits, encoded)
+	}
+
+	domain := make(byteDomain, item.Length)
+	for at := range domain {
+		domain[at] = digits
+	}
+
+	return domain
+}
+
+// blankWhenZero reports whether the item's entry carries BLANK WHEN ZERO.
+func blankWhenZero(field *copybook.Field) bool {
+	if field == nil || field.Entry == nil {
+		return false
+	}
+
+	return slices.ContainsFunc(field.Entry.Clauses, func(clause cobol.DataClause) bool {
+		_, blank := clause.(*cobol.BlankWhenZeroClause)
+
+		return blank
+	})
 }
 
 // literals resolves a strategy's literals against the field they are compared

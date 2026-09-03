@@ -739,8 +739,8 @@ func (c *compiler) predicatesOverlap(first, second *Transition) bool {
 		return true
 	}
 
-	over, ok := c.stretchOf(first.Record, first.Predicate)
-	against, againstOK := c.stretchOf(second.Record, second.Predicate)
+	over, ok := c.discriminant(first)
+	against, againstOK := c.discriminant(second)
 	if !ok || !againstOK {
 		// A discriminator whose target this cannot place is one
 		// [compiler.discriminator] has already reported, and an ambiguity
@@ -749,7 +749,34 @@ func (c *compiler) predicatesOverlap(first, second *Transition) bool {
 		return false
 	}
 
-	return overlap(first.Predicate, over, second.Predicate, against)
+	return overlap(over, against)
+}
+
+// discriminant is one transition's side of an overlap question: what it tests,
+// the run of its record's bytes it reads, and what that record's copybook admits
+// anywhere else in it.
+//
+// The third is why this is built here rather than inside [overlap]: the byte
+// domains are the record's copybook, and the copybook is the compiler's to hold
+// (#330).
+func (c *compiler) discriminant(transition *Transition) (discriminant, bool) {
+	run, ok := c.stretchOf(transition.Record, transition.Predicate)
+	if !ok {
+		return discriminant{}, false
+	}
+
+	known, knownOK := c.record(transition.Record)
+	if !knownOK {
+		return discriminant{}, false
+	}
+
+	return discriminant{
+		predicate: transition.Predicate,
+		run:       run,
+		admits: domainsOf(c.layoutOf(known), func(field *copybook.Field) layoutmodel.Axes {
+			return axesOf(c.opts.Encoding, c.opts.EncodingOverrides, field)
+		}),
+	}, true
 }
 
 // satisfiable reports whether some register file satisfies every guard in the
