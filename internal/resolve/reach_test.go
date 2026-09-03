@@ -26,13 +26,13 @@ import (
 // behind an account key every record of that type carries. That is the shape a
 // worked example is built on, and the whole difficulty is that it looks right.
 //
-// Every one of these layouts but the last is refused by the overlap rule as
-// well, because the two runs share no byte and a pair like that is told apart by
-// nothing. So what those rejecting tests assert is *which* diagnostic an adopter
-// gets, and they assert the generic one is not reported beside it. The last is
-// the pair the overlap rule admits and this one does not, which is why the check
-// is asked of every pair a state can offer rather than only of the overlapping
-// ones (#325).
+// None of these layouts is refused by the overlap rule any more. The two runs
+// share no byte, and the order the state carries settles a pair like that
+// (#332) — so this rule is the only thing left that refuses them, and the
+// relaxations below are layouts that compile rather than layouts refused in
+// other words. That is also what makes the check worth asking of every pair a
+// state can offer rather than only of the overlapping ones (#325): it is no
+// longer standing behind a check that would have refused the same layout anyway.
 
 // The copybooks these tests discriminate. `reachHeader` is ten bytes with its
 // type code at the front; `reachDetail` carries a twenty-byte key in front of
@@ -136,14 +136,14 @@ func reachFaultIn(t *testing.T, err error) *PredicateReachError {
 	return reach
 }
 
-// leftToTheOverlapRule asserts that a pair was reported as the ambiguity it also
-// is, and not as a reach fault.
+// notHeldToTheReachRule asserts that a layout this rule does not run on
+// compiles, and names the reach fault where one was reported anyway.
 //
-// It is what the relaxations assert. The pair is refused either way — two
-// predicates whose runs share no byte are told apart by nothing — so what a
-// relaxation changes is the diagnostic, and a test asserting the compilation
-// failed would pass without the rule being relaxed at all.
-func leftToTheOverlapRule(t *testing.T, err error) {
+// It is what the relaxations assert. Nothing else refuses these layouts: the two
+// discriminators read runs that share no byte, and the order the state carries
+// resolves that pair (#332), so a relaxation is the difference between a
+// compilation and a refusal rather than between two diagnostics.
+func notHeldToTheReachRule(t *testing.T, err error) {
 	t.Helper()
 
 	var reach *PredicateReachError
@@ -151,9 +151,8 @@ func leftToTheOverlapRule(t *testing.T, err error) {
 		t.Fatalf("the reach rule was run: %v", reach)
 	}
 
-	var ambiguity *SequenceAmbiguityError
-	if !errors.As(err, &ambiguity) {
-		t.Fatalf("compiling reported %v, want the overlap rule's own fault", err)
+	if err != nil {
+		t.Fatalf("compiling reported %v, want a layout this rule does not run on", err)
 	}
 }
 
@@ -247,10 +246,9 @@ func TestATargetStraddlingTheBoundIsRejectedOnTheSameFooting(t *testing.T) {
 //
 // Under **descriptor-word** and **segmented** the length of the record in front
 // of the consumer is in hand before any predicate runs, so a target outside it
-// does not match and no file is misread. The layout is still refused, because
-// two predicates over different runs of bytes are told apart by nothing — but it
-// is refused as the ambiguity it is, and not for a read that cannot happen
-// there.
+// does not match and no file is misread. The layout compiles there, and the
+// difference is the whole of what the framing buys: the same two copybooks under
+// a delimited framing are refused for a read this one bounds.
 func TestTheRuleIsRelaxedWhereTheFramingStatesEachRecordsLength(t *testing.T) {
 	t.Parallel()
 
@@ -261,7 +259,8 @@ func TestTheRuleIsRelaxedWhereTheFramingStatesEachRecordsLength(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			leftToTheOverlapRule(t, refused(t, reachLayout(framing), reachCopybooks(reachDetail)))
+			_, err := compileLayout(t, reachLayout(framing), reachCopybooks(reachDetail))
+			notHeldToTheReachRule(t, err)
 		})
 	}
 }
@@ -277,7 +276,8 @@ func TestTheRuleIsRelaxedWhereTheFramingStatesEachRecordsLength(t *testing.T) {
 func TestALayoutStatingNoFramingIsNotHeldToEitherMechanism(t *testing.T) {
 	t.Parallel()
 
-	leftToTheOverlapRule(t, refused(t, reachLayout(""), reachCopybooks(reachDetail)))
+	_, err := compileLayout(t, reachLayout(""), reachCopybooks(reachDetail))
+	notHeldToTheReachRule(t, err)
 }
 
 // TestAFixedLengthDatasetBoundsThePredicateByItsLRECL is why docs/ir/SPEC.md
@@ -292,7 +292,8 @@ func TestALayoutStatingNoFramingIsNotHeldToEitherMechanism(t *testing.T) {
 func TestAFixedLengthDatasetBoundsThePredicateByItsLRECL(t *testing.T) {
 	t.Parallel()
 
-	leftToTheOverlapRule(t, refused(t, reachLayout(fixedFraming), reachCopybooks(reachDetail)))
+	_, err := compileLayout(t, reachLayout(fixedFraming), reachCopybooks(reachDetail))
+	notHeldToTheReachRule(t, err)
 }
 
 // TestTheShortestRecordIsMeasuredAtTheMinimumOccurrences is the *shortest* in
@@ -331,7 +332,7 @@ func TestTheShortestRecordIsMeasuredAtTheMinimumOccurrences(t *testing.T) {
 		opts.Reading = layoutmodel.NoODOSlide
 
 		_, err := CompileSequence(opts)
-		leftToTheOverlapRule(t, err)
+		notHeldToTheReachRule(t, err)
 	})
 }
 
@@ -398,4 +399,85 @@ func TestAPredicateReachingPastAShorterRecordIsRejectedWhereThePairIsUnambiguous
 		t.Errorf("the target ends at byte %d against a record of %d bytes, want byte 2 against 1",
 			reach.Ends, reach.Extent)
 	}
+}
+
+// TestTheBatchShapeIsAdmittedAndStillHeldToTheReachRule is the pairing #332
+// leaves behind, asserted on the shape that story is about: a sequence of
+// batches whose two discriminators sit at different offsets and different
+// widths.
+//
+// The overlap rule no longer refuses it and this one still can, and the two are
+// independent. What decides is not whether the runs meet — they never do here —
+// but whether either target is read out of a record shorter than the target
+// ends. So the first of these compiles with the pair left to the order, and the
+// second is refused in this rule's own words, naming the record whose bytes
+// would have been read past.
+func TestTheBatchShapeIsAdmittedAndStillHeldToTheReachRule(t *testing.T) {
+	t.Parallel()
+
+	// A header keyed on three bytes at the front, and a batch detail keyed on
+	// one byte behind a key of its own — different offsets and different
+	// widths, which is the pair that has no run to share.
+	const header = `01 B-HDR.
+   05 B-TYPE PIC X(3).
+   05 B-ID   PIC X(9).
+`
+
+	const inside = `01 B-DTL.
+   05 D-KEY  PIC X(8).
+   05 D-TYPE PIC X(1).
+   05 D-AMT  PIC X(3).
+`
+
+	const past = `01 B-DTL.
+   05 D-KEY  PIC X(20).
+   05 D-TYPE PIC X(1).
+   05 D-AMT  PIC X(3).
+`
+
+	source := delimitedFraming + `
+(record HEADER (copybook "header.cpy" B-HDR))
+(record DETAIL (copybook "detail.cpy" B-DTL))
+(discriminate HEADER (equals (item HEADER B-TYPE) "HDR"))
+(discriminate DETAIL (equals (item DETAIL D-TYPE) "D"))
+(sequence (+ (seq HEADER (* DETAIL))))`
+
+	t.Run("both targets are inside both records", func(t *testing.T) {
+		t.Parallel()
+
+		automaton := compiled(t, source, map[string]string{"HEADER": header, "DETAIL": inside})
+
+		// The header's run begins at byte zero and the detail's at byte
+		// eight, so the header's test is tried first — which is the order
+		// that reads a batched file (#331).
+		state := stateAdmitting(t, automaton, "HEADER")
+		if got := admits(state); got[0] != "HEADER" {
+			t.Errorf("the state tries %s first, want the discriminator reading the earlier byte: %v", got[0], got)
+		}
+	})
+
+	t.Run("the detail's target is read past the end of a header", func(t *testing.T) {
+		t.Parallel()
+
+		err := refused(t, source, map[string]string{"HEADER": header, "DETAIL": past})
+		reach := reachFaultIn(t, err)
+
+		if reach.Record != "DETAIL" || reach.Beside != "HEADER" || reach.Ends != 21 || reach.Extent != 12 {
+			t.Errorf("the fault is %s's target ending at byte %d beside %s at %d bytes, want DETAIL's at 21 beside HEADER at 12",
+				reach.Record, reach.Ends, reach.Beside, reach.Extent)
+		}
+
+		// And it is this rule's fault and not the overlap rule's: the pair
+		// the order would otherwise have settled is still refused here, in
+		// words that name the read rather than the pair (#332).
+		//
+		// The whole error is asked rather than the reach fault taken out of
+		// it, because faults are joined: asking the extracted one whether it
+		// is also an ambiguity is a question with one answer whatever the
+		// compilation reported.
+		var ambiguity *SequenceAmbiguityError
+		if errors.As(err, &ambiguity) {
+			t.Errorf("the overlap rule reported the same pair as well: %v", ambiguity)
+		}
+	})
 }

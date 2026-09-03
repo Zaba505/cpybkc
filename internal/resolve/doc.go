@@ -252,20 +252,20 @@
 // [PredicateReachError] naming the record the target is in, the target and the
 // shorter record it would be read past the end of.
 //
-// On an overlapping pair it is a diagnostic rather than a second gate, and
-// knowing which it is matters to anyone changing either rule: such a layout is
-// one the overlap rule refuses anyway, so what the reach rule adds there is the
-// message — which bytes a consumer would have read and out of which record, in
-// place of a report that two discriminators could both match. That is why the
-// specific message replaces the generic one rather than being reported beside
-// it.
+// On a pair the overlap rule refuses it is a diagnostic rather than a second
+// gate, and knowing which it is matters to anyone changing either rule: such a
+// layout is refused anyway, so what the reach rule adds there is the message —
+// which bytes a consumer would have read and out of which record, in place of a
+// report that two discriminators could both match. That is why the specific
+// message replaces the generic one rather than being reported beside it.
 //
-// On a pair the overlap rule admits it is a gate of its own. Two predicates are
-// told apart by the bytes their runs share (#325) and by what each record's
-// copybook admits at the other's run (#330), so a pair reading runs of different
-// widths — or runs sharing no byte at all — can be unambiguous and still have one
-// of them reach past the shorter record. [compiler.reportReach] carries both
-// readings.
+// Everywhere else it is a gate of its own, and that is most pairs now. Two
+// predicates are told apart by the bytes their runs share (#325) and by what
+// each record's copybook admits at the other's run (#330), and a pair whose runs
+// share no byte is admitted whatever those say, on the order the state carries
+// (#332) — so a pair can be perfectly readable and still have one of the two
+// reach past the shorter record the state can put in front of a consumer.
+// [compiler.reportReach] carries both readings, and is asked of every pair.
 //
 // [Sequencing.Framing] is what that is keyed on, and a caller stating no framing
 // states neither mechanism, so the rule is not run. It cannot be inferred from

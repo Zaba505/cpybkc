@@ -253,12 +253,17 @@ func (e *UnboundRegisterError) Diagnostic() diag.Diagnostic {
 
 // SequenceAmbiguityError is two transitions leaving one state that can be
 // eligible together and are selected by predicates that can both match one
-// record.
+// record over the bytes both of them read.
 //
-// docs/ir/SPEC.md's "When two match, and when none does" refuses the pair rather
-// than settling it, so that the question docs/layout/SPEC.md defers — what
-// happens when two discriminators match — does not arise: such an IR is never
-// produced.
+// docs/ir/SPEC.md's "When two match, and when none does" refuses that pair
+// rather than settling it, so that the question docs/layout/SPEC.md defers —
+// what happens when two discriminators match — does not arise there: such an IR
+// is never produced.
+//
+// It is not every pair a record can satisfy both of. Two discriminators reading
+// runs that share no byte are settled by the order the state carries and are not
+// this fault (#332); what is left here is the pair asking for the same bytes and
+// agreeing about them, which is a clash in the literals.
 //
 // [SequenceAmbiguityError.Unguarded] is the case #80 folds into the same rule. A
 // transition carrying no predicate matches every record, so it overlaps every
@@ -269,15 +274,13 @@ func (e *UnboundRegisterError) Diagnostic() diag.Diagnostic {
 // tell it apart by.
 //
 // [SequenceAmbiguityError.Runs] is the pair of byte runs the two discriminators
-// actually compared, and naming them is what tells the two remaining shapes
-// apart. Once intersecting runs whose literals disagree are accepted (#325),
-// what is left is either a pair whose runs share no byte — which no literal
-// either record could carry would ever separate, so the layout needs a count, a
-// trailer or a different target — or a pair agreeing on a literal over the bytes
-// they do share, which is a clash in the literals and is the adopter's to fix
-// there. Discussion #323 is what the distinction costs when it is missing: four
-// rounds to establish where the two targets sat, and a report filed against
-// sequencing operators that turned out to be irrelevant.
+// actually compared, and naming them is what points an adopter at the literals
+// to change. Discussion #323 is what withholding them costs: four rounds to
+// establish where the two targets sat, and a report filed against sequencing
+// operators that turned out to be irrelevant. The shape that report was actually
+// about — two runs that share no byte — is no longer refused at all, so what
+// reaches this message is a pair agreeing on a literal over the bytes they do
+// share, and the window is the whole of what has to change (#326, #332).
 type SequenceAmbiguityError struct {
 	// Pos is where the second of the two record names was written, and First
 	// where the first was.
@@ -352,24 +355,21 @@ func (e *SequenceAmbiguityError) placed() bool {
 	return e.Runs[0].Width > 0 && e.Runs[1].Width > 0
 }
 
-// compared is the two runs the discriminators read and what sharing or not
-// sharing bytes leaves an adopter to do about them.
+// compared is the two runs the discriminators read and the window over which
+// they agree, which is where an adopter changes a literal.
 //
-// The two are opposite answers rather than degrees of the same one, which is why
-// the message says which it is. Runs that share no byte are told apart by
-// nothing a literal can express — a record carries an `S` at byte zero and an
-// `X` at byte ten at the same time — so the resolution is a count, a trailer or
-// a different target, and an adopter who reads "their discriminators overlap"
-// and goes looking for a better literal is looking for something that does not
-// exist. Runs that do share bytes and agree over them are the ordinary clash,
-// and the literals are exactly where it is fixed.
+// A pair reaching this shares bytes, because [compiler.resolvedByOrder] settles
+// the pair that does not on the order the state carries (#332). The window is
+// named all the same rather than assumed: the fault is an exported value anyone
+// may construct, and two runs that share nothing have no window to point at, so
+// the message says what it can about them and invents no agreement.
 func (e *SequenceAmbiguityError) compared() string {
 	read := fmt.Sprintf("their discriminators read %s %s and %s %s",
 		e.Records[0], e.Runs[0], e.Records[1], e.Runs[1])
 
 	window, sharing := e.Runs[0].shares(e.Runs[1])
 	if !sharing {
-		return read + ", which share no byte, so no literal either could carry would tell the two apart"
+		return read
 	}
 
 	return read + fmt.Sprintf(", and they agree on a literal over %s", window)

@@ -1162,24 +1162,129 @@ each record type rather than something standing outside them.
 
 An `otherwise` or a default arm is deliberately absent. `single-record-type`
 does not become one: it is not tried last, it does not catch what the others
-miss, and the IR refuses the reading in as many words, because a state offering
-two transitions that can both apply is a layout that was rejected before a
-consumer saw it.
+miss, and the IR refuses the reading in as many words, because a record admitted
+by a strategy that tests nothing may not sit at a state beside a record that is
+eligible with it.
 
-Nor does the *order* two strategies are written in become one. There is no form
-saying to try one discriminator first and read what it does not match as the
-other record, and no spelling is reserved for one — not a fourth strategy, not a
-modifier on `discriminate`, and not a rule reading the order of the
-`discriminate` forms or of an `alt`'s operands. That was reopened by
-[discussion #323](https://github.com/Zaba505/cpybkc/discussions/323), where a
-file that is a sequence of batches needs exactly it, and settled unchanged
-(#324): a first-match ordering over two discriminators that can both match one
-record *is* the default arm, spelled as a position rather than as a keyword, and
-[`ir/SPEC.md`](../ir/SPEC.md#when-two-match-and-when-none-does) refuses the
-descriptor it would lower into, weighing there what admitting it would cost a
-released IR version. The shape that asks for it, and the four things a layout
-may write instead, are [A batch boundary told only by evaluation
-order](#a-batch-boundary-told-only-by-evaluation-order).
+Nor is there a form saying to try one discriminator first and read what it does
+not match as the other record. No spelling is reserved for one — not a fourth
+strategy, not a modifier on `discriminate`, and not a rule reading the order of
+the `discriminate` forms or of an `alt`'s operands — and there is nothing to
+write, because the order is not the layout's to choose. Where two records
+eligible at one point key on runs of bytes that share none, the resolved
+automaton evaluates them in the order a reader reaches those bytes in, which the
+copybooks decide and which neither the layout nor the shape of its sequencing
+can reach
+([`ir/SPEC.md`](../ir/SPEC.md#transitions-are-ordered-by-what-they-read)).
+
+That is not the `otherwise` this section refuses, and the difference is worth
+being exact about, because it was read as one and refused as one until #332. An
+`otherwise` catches what the others missed, so what it admits depends on every
+arm beside it and on nothing about its own record; the ordered pair is two tests
+that each say what they are looking for, tried in an order derived from the
+records themselves. What it *does* share with an `otherwise` is the cost: the
+order is a convention a layout asserts about its data rather than a proof that
+the two tests cannot both hold, and a record satisfying the earlier test is read
+as that record with no diagnostic anywhere. So the layout still says nothing
+about ordering, and what an adopter is choosing when they write two such
+discriminators is set out at [A batch boundary, told by the
+order](#a-batch-boundary-told-by-the-order). Two records keying on runs that *do*
+share a byte are refused where their literals agree over it, which is a clash
+the literals are the place to fix
+([`ir/SPEC.md`](../ir/SPEC.md#when-two-match-and-when-none-does)).
+
+### A batch boundary, told by the order
+
+`(+ (seq HEADER (* DATA)))` — a header, then details until the next header — is
+the commonest shape a batched extract takes, and it is an ordinary layout. At
+the state after a `HEADER` the sequence admits `DATA`, by another pass of the
+inner `*`, and `HEADER` again, by the outer `+`'s back edge, so both records are
+eligible and something has to tell them apart.
+
+Where the two type codes sit at one offset and one width, `equals` on each
+provably excludes the other and there is nothing more to say. This section is
+about the file where they do not, because that file is common and its copybooks
+usually cannot be changed:
+
+```
+01  BATCH-HEADER.
+    05  BH-TYPE          PIC X(3).
+    05  BH-BATCH-NO      PIC 9(6).
+    05  BH-DATE          PIC X(8).
+    05  BH-FILLER        PIC X(23).
+
+01  BATCH-DETAIL.
+    05  BD-ACCOUNT       PIC X(10).
+    05  BD-TYPE          PIC X(1).
+    05  BD-AMOUNT        PIC 9(11).
+    05  BD-FILLER        PIC X(18).
+```
+
+```
+(record HEADER (copybook "batch.cpy" BATCH-HEADER))
+(record DETAIL (copybook "batch.cpy" BATCH-DETAIL))
+
+(discriminate HEADER (equals (item HEADER BH-TYPE) "HDR"))
+(discriminate DETAIL (equals (item DETAIL BD-TYPE) "D"))
+
+(sequence (+ (seq HEADER (* DETAIL))))
+```
+
+The header is told by three bytes at the front and the detail by one byte behind
+its account number, so the two runs never meet: bytes 0–2 in a header and byte
+10 in a detail. No literal either record could carry separates them, because a
+record carries `HDR` at bytes 0–2 and a `D` at byte 10 at the same time. What
+reads the file is trying the header's test first, and that is what the resolved
+automaton does — not because this layout said so, but because the header's run
+begins at the earlier byte and transitions are evaluated in the order a reader
+reaches their bytes
+([`ir/SPEC.md`](../ir/SPEC.md#transitions-are-ordered-by-what-they-read)).
+
+**What the layout is asserting, by writing it.** That no detail carries `HDR` in
+the first three bytes of its account number. Nothing checks that: `resolve`
+cannot, because the account number is `PIC X` and every byte is a byte it may
+hold, and a consumer cannot, because such a detail matches a predicate the
+descriptor carries — so it is not an undescribed record, and where the two
+records are the same width the framing has nothing to disagree with either. The
+batch simply splits in the wrong place, and the file is reported complete
+([`ir/SPEC.md`](../ir/SPEC.md#a-batch-boundary-is-told-by-the-order)).
+
+That is the whole of what is given up, and it is given up because the
+alternative was refusing a file the adopter has (discussion #323, reversing
+#324). Four constructions make the pair provably exclusive instead, and a layout
+that can write **one** of them **SHOULD**:
+
+- **a type code at a common offset and width in both records**, which makes the
+  two literals name the same run, so `equals` on each provably excludes the
+  other;
+- **an item with a bounded value set** at the offset and width of the other
+  record's discriminator, which `one-of` can name to line the two runs up;
+- **a count in the header**, written `(times …)` on the inner repetition, which
+  separates the two transitions by a guard instead of by bytes ([Two operators
+  read a value, and they are the automaton's
+  memory](#two-operators-read-a-value-and-they-are-the-automatons-memory));
+- **a trailer ending each batch**, `(+ (seq HEADER (* DATA) TRAILER))`, which
+  moves the back edge to a state where `HEADER` is the only record admitted.
+
+The copybooks often supply the first without anybody writing anything. Where the
+ten bytes a header carries at the detail's type-code offset are a numeric
+`DISPLAY` item — a batch number, a date, a sequence — a header can never hold
+the detail's literal there, and where the same holds in the other direction the
+two tests are proved exclusive from the copybooks alone and the order at that
+state cannot be observed
+([`ir/SPEC.md`](../ir/SPEC.md#when-two-match-and-when-none-does)). What is left
+resting on the order is the pair where at least one of those items is `PIC X`,
+which is the pair written out above.
+
+Two things are still refused here, and neither is about the order. A pair whose
+runs *do* share a byte and whose literals agree over it is a clash in the
+literals, and `resolve` names both records and both runs. And a discriminator
+reading past the end of the shortest record its state can put in front of a
+consumer is refused whatever the other record does, under the framings that
+leave the bound to the layout — a detail keyed behind a twenty-byte account
+number, beside a twelve-byte header, is that fault and not this permission
+([`ir/SPEC.md`](../ir/SPEC.md#a-predicate-never-reads-past-the-record-in-front-of-it)).
+
 
 ### The strategies that are not in the set, and where each one went
 
@@ -1869,53 +1974,6 @@ What an adopter writes instead is stated where the loss is — the two record
 names where the flag is the discriminating item, and a check of their own beside
 the generated reader where it is not.
 
-### A batch boundary told only by evaluation order
-
-`(+ (seq HEADER (* DATA)))` — a header, then details until the next header — is
-an ordinary layout and compiles. What is **not** describable is that shape where
-the two records can be told apart only by *trying the header's discriminator
-first*. At the state after a `HEADER` the sequence admits `DATA`, by another
-pass of the inner `*`, and `HEADER`, by the outer `+`'s back edge; where the two
-discriminators name runs at different offsets or of different widths, one record
-can satisfy both tests, and `resolve` rejects the layout naming both records.
-There is no form saying to try one of them first, and none is planned ([Three
-strategies, and the set is closed for
-v1](#three-strategies-and-the-set-is-closed-for-v1)).
-
-Four things separate those two transitions, and a layout needs **one** of them:
-
-- **a type code at a common offset and width in both records**, which makes the
-  two literals name the same run, so `equals` on each provably excludes the
-  other;
-- **a count in the header**, written `(times …)` on the inner repetition, which
-  separates the two transitions by a guard instead of by bytes ([Two operators
-  read a value, and they are the automaton's
-  memory](#two-operators-read-a-value-and-they-are-the-automatons-memory));
-- **a trailer ending each batch**, `(+ (seq HEADER (* DATA) TRAILER))`, which
-  moves the back edge to a state where `HEADER` is the only record admitted;
-- **an item with a bounded value set** at the offset and width of the other
-  record's discriminator, which `one-of` can name to line the two runs up.
-
-Reason: ordered matching would encode *try `HEADER` first*, which is not a proof
-that the two tests cannot both hold, and that proof is the whole of what the
-overlap check gives. Where a detail's account number can begin with the header's
-literal at that offset, a first-match reader reads that detail as a header and
-splits the batch in the wrong place, with no diagnostic anywhere: those bytes
-matched a predicate the descriptor carries, so it is not an undescribed record,
-and where the two records share an extent the framing has nothing to disagree
-with either. So it is a convention a layout would assert about its data rather
-than something either layer can check, and the layer that would have to carry it
-refuses it — [`ir/SPEC.md`](../ir/SPEC.md#when-two-match-and-when-none-does)
-holds the refusal and weighs what admitting it would cost a released IR version,
-which is where the decision would be reopened.
-
-Raised by [discussion #323](https://github.com/Zaba505/cpybkc/discussions/323),
-whose adopter has none of the four and vendor copybooks that cannot be changed,
-and settled by #324. It is a limit of the same kind as [a record told apart only
-by its length](../ir/SPEC.md#a-record-told-apart-only-by-its-length), and it is
-stated here for the same reason: an adopter meets it in prose rather than in a
-diagnostic.
-
 ### The copybook language
 
 Level numbers, `PIC` clauses, `OCCURS`, `REDEFINES` — the contents of a copybook
@@ -2227,7 +2285,7 @@ and neither is a second profile.
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
-| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, and the batch shape that is undescribable without one, settled by #324 against discussion #323 |
+| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |
