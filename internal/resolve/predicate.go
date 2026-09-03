@@ -444,19 +444,14 @@ type discriminant struct {
 	admits domains
 }
 
-// carries reports whether a well-formed record of this side's type could hold a
-// value's bytes over a run of its own.
-//
-// Everything it cannot settle is `true`, which is what keeps the refinement a
-// narrowing of a refusal rather than a widening of one: a record whose copybook
-// says nothing about those bytes is left able to carry them, and the pair stays
-// overlapping exactly as it was before this was consulted.
-func (d discriminant) carries(value Value, over stretch) bool {
-	if d.admits == nil || !comparableOver(value, over) {
-		return true
+// domainOver is what a well-formed record of this side's type may hold over one
+// run of its bytes, and nil where its copybook settles nothing there.
+func (d discriminant) domainOver(over stretch) byteDomain {
+	if d.admits == nil {
+		return nil
 	}
 
-	return d.admits(over).admits(value.Bytes)
+	return d.admits(over)
 }
 
 // overlap reports whether one input can satisfy both predicates, each read at
@@ -515,14 +510,22 @@ func overlap(first, second discriminant) bool {
 
 	window, sharing := first.run.shares(second.run)
 
+	// Both domains are properties of the two runs and of neither side's
+	// values, so they are taken once here rather than once inside the pair
+	// walk: two `one-of` predicates are a product of value lists, and reading
+	// the same item off the same layout for every pair in it is one answer
+	// computed a quadratic number of times.
+	firstOverSecond := first.domainOver(second.run)
+	secondOverFirst := second.domainOver(first.run)
+
 	return slices.ContainsFunc(first.predicate.Values, func(one Value) bool {
 		return slices.ContainsFunc(second.predicate.Values, func(other Value) bool {
 			if sharing && !agree(one, first.run, other, second.run, window) {
 				return false
 			}
 
-			return first.carries(other, second.run) ||
-				second.carries(one, first.run)
+			return firstOverSecond.carries(other, second.run) ||
+				secondOverFirst.carries(one, first.run)
 		})
 	})
 }
@@ -574,6 +577,21 @@ type domains func(run stretch) byteDomain
 // position and a packed item's sign nibble are the two this cannot state yet,
 // and both are one position of an item whose others are digits.
 type byteDomain [][]byte
+
+// carries reports whether a well-formed record could hold a value's bytes over
+// the run this domain was taken at.
+//
+// Everything it cannot settle is `true`, which is what keeps the refinement a
+// narrowing of a refusal rather than a widening of one: a record whose copybook
+// says nothing about those bytes is left able to carry them, and the pair stays
+// overlapping exactly as it was before this was consulted.
+func (d byteDomain) carries(value Value, over stretch) bool {
+	if d == nil || !comparableOver(value, over) {
+		return true
+	}
+
+	return d.admits(value.Bytes)
+}
 
 // admits reports whether a well-formed record could carry these bytes over the
 // run the domain was taken at.
