@@ -149,13 +149,17 @@ import (
 // step.
 //
 // And no two transitions leaving one state are eligible together and selected by
-// predicates that can both match one record ("When two match, and when none
-// does"). Guards narrow which pairs that is about: two transitions whose guards
-// cannot hold at the same time may be selected by the very same test on the very
-// same bytes, which is what makes a counted run expressible at all. A transition
-// carrying no predicate is inside that rule rather than beside it — it matches
-// every record, so it overlaps every sibling whose guards can hold at the same
-// time as its own (#80).
+// predicates that can both match one record over bytes both of them read ("When
+// two match, and when none does"). Guards narrow which pairs that is about: two
+// transitions whose guards cannot hold at the same time may be selected by the
+// very same test on the very same bytes, which is what makes a counted run
+// expressible at all. So does what the two read: a pair whose runs share no byte
+// is told apart by nothing a literal could express, and the order the state
+// carries resolves it instead ("A batch boundary is told by the order", #332). A
+// transition carrying no predicate is inside the rule rather than beside it and
+// outside that permission — it matches every record, so it overlaps every
+// sibling whose guards can hold at the same time as its own and reads no run to
+// be ordered by (#80).
 
 // RegisterKind is what a register holds, one member of the closed set
 // docs/ir/SPEC.md's "The automaton remembers, in registers" admits.
@@ -569,8 +573,9 @@ type Sequencing struct {
 //     binding, including the run counted by a field of the record being counted
 //     ([UnboundRegisterError], #88);
 //   - two transitions leaving one state whose guards can hold at the same time
-//     and whose predicates can both match one record, a transition carrying no
-//     predicate included ([SequenceAmbiguityError], #37, #80);
+//     and whose predicates can both match one record over bytes both of them
+//     read, a transition carrying no predicate included
+//     ([SequenceAmbiguityError], #37, #80, #332);
 //   - a state whose acceptance would have to be a disjunction of guard lists,
 //     which is not a shape a state can carry ([SequenceAcceptanceError]).
 //

@@ -2159,21 +2159,26 @@ reaches their bytes — byte 0 before byte 8 — and that order is derivable fro
 the copybooks alone, needs nothing from the adopter, and is what a vendor reader
 of such a file already does.
 
-**This is not a licence to overlap.** Ordering the transitions makes the order
-meaningful; it does not make it a proof, and the paragraph in [When two match,
-and when none does](#when-two-match-and-when-none-does) refusing an overlapping
-pair on the strength of evaluation order stands exactly as it was (#324). Nor
-does it change what any conforming consumer does: a consumer already evaluates
-the transitions in the order the state carries them, so this is a requirement on
-what a producer puts in the descriptor and adds nothing a consumer must
-understand. It is therefore not a change [Versioning and
-compatibility](#versioning-and-compatibility) prices — the version does not
-advance, because a descriptor carrying transitions in this order is read
-correctly by a consumer that has never heard of this section.
+**Ordering the transitions makes the order meaningful; it does not make it a
+proof.** What it licenses is stated where the licence is, and it is narrower than
+"overlap": [A batch boundary is told by the
+order](#a-batch-boundary-is-told-by-the-order) admits a pair whose two
+discriminators read runs sharing no byte, on the grounds that the order is the
+one a reader of those bytes reaches them in, and a pair whose runs *do* share a
+byte is refused there as it always was (#332, reversing #324 on the first of the
+two and leaving the second alone). Nor does the rule here change what any
+conforming consumer does: a consumer already evaluates the transitions in the
+order the state carries them, so this is a requirement on what a producer puts in
+the descriptor and adds nothing a consumer must understand. It is therefore not a
+change [Versioning and compatibility](#versioning-and-compatibility) prices — the
+version does not advance, because a descriptor carrying transitions in this order
+is read correctly by a consumer that has never heard of this section.
 
-Where the pair at a state is provably disjoint — which is every pair a producer
-may emit — the order cannot be observed at all, and the diff a descriptor shows
-on adopting this rule is a reordering rather than a change of behaviour. What it
+Where the pair at a state is provably disjoint the order cannot be observed at
+all, and the diff a descriptor shows on adopting this rule is a reordering rather
+than a change of behaviour. Where it is not — the pair the section above admits —
+the order is the whole of what reads the file, which is why it is stated here
+rather than left to the walk. What it
 buys is that the order is stated: a state whose two transitions could both be
 reached is a state whose evaluation order somebody has to be able to reason
 about, and reasoning about the nesting depth of the expression that produced it
@@ -2686,15 +2691,23 @@ against a reference that **MAY** be absent (#80).
 ### When two match, and when none does
 
 Two transitions leaving the same state **MUST NOT** be selected by predicates
-that can both match the same record; `resolve` rejects a layout whose
-discriminators overlap (#37). The test is whether one input can satisfy both,
-not whether the two read the same bytes: a state offering a transition keyed on
-a record's first field beside one keyed on its tenth is where the narrower
-reading lets a real ambiguity through, and predicates reading different fields
-at different positions overlap just as thoroughly as two reading one. So the
-question `layout/SPEC.md` defers to this document — what happens when two
-discriminators match — has an answer at the one place it is cheap: it does not
-arise, because such an IR is never produced.
+that can both match the same record *and* that read runs of bytes sharing one;
+`resolve` rejects a layout whose discriminators ask for the same bytes and agree
+about them (#37). The test of whether one input can satisfy both is not whether
+the two read the same bytes — predicates reading different fields at different
+positions can both match one record just as thoroughly as two reading one — but
+what follows from the answer is not the same in the two cases. A pair whose runs
+share a byte is told apart by the literals over that byte, so a pair agreeing
+there is a clash in the literals and the layout is refused; a pair whose runs
+share none is told apart by nothing a literal could express, and the order the
+state carries resolves it instead ([A batch boundary is told by the
+order](#a-batch-boundary-is-told-by-the-order), #332).
+
+So the question `layout/SPEC.md` defers to this document — what happens when two
+discriminators match — has an answer here, and it is two answers. For a pair
+reading one run it does not arise, because such an IR is never produced. For a
+pair reading two that never meet it is the order, and what that costs is stated
+below rather than left to be discovered.
 
 Whether two predicates *can* both match is decided on bytes, in two steps, and
 `resolve` **MUST** take both before it refuses a pair.
@@ -2729,8 +2742,10 @@ Only these are claimed:
 | alphanumeric, `PIC X` | every byte value, so nothing is proved |
 | binary — `COMP`, `COMP-5` | every bit pattern, so nothing is proved |
 
-Everything else is **declined**, and a decline leaves the pair overlapping and
-refused exactly as it was before the copybooks were read. A producer **MUST**
+Everything else is **declined**, and a decline leaves the pair overlapping
+exactly as it was before the copybooks were read — refused where the two runs
+share a byte, and resting on the order where they do not ([A batch boundary is
+told by the order](#a-batch-boundary-is-told-by-the-order)). A producer **MUST**
 decline rather than narrow wherever the record's static layout does not settle
 which item covers the run: a run no single elementary item wholly contains, a run
 landing on the slack bytes a SYNCHRONIZED item pushed in front of itself, a run
@@ -2740,8 +2755,8 @@ encoding profile does not state. A packed item and a signed zoned one do have a
 domain and are declined all the same, because stating one means restating where
 the encoding puts a sign — a second reading of an encoding, kept in a second
 place, which is the disagreement this refinement is not worth. Declining costs a
-refusal that could have been narrowed; guessing costs a file read as the wrong
-record type.
+refusal, or a descriptor resting on its order, where either could have been
+narrowed to a proof; guessing costs a file read as the wrong record type.
 
 **The proof holds over well-formed records, and that is a narrowing.** A record
 whose bytes are what its own copybook's items admit is inside the proof. A record
@@ -2761,16 +2776,20 @@ expressible at all, since the transition reading another detail and the one
 moving past them can be selected by the very same test on the very same bytes,
 and only the counter separates them. For every other pair — both unguarded, or
 guarded compatibly — the rule above stands unchanged and a producer **MUST NOT**
-emit one.
+emit one whose two runs share a byte.
 
 A transition carrying no predicate ([A transition may carry no
 predicate](#a-transition-may-carry-no-predicate)) is inside that rule rather
-than beside it. It matches every record, so it overlaps every transition leaving
-its state whose guards can hold at the same time as its own, and a producer
-**MUST NOT** emit one where such a transition exists. That is the whole answer
-for a transition not selected by record content, and it is the same answer as
-for one that is: the question was never what a predicate reads, only whether one
-input can satisfy two of them (#80).
+than beside it, and the narrowing above does not reach it. It matches every
+record, so it overlaps every transition leaving its state whose guards can hold
+at the same time as its own, and a producer **MUST NOT** emit one where such a
+transition exists. The permission below is not available to it and **MUST NOT**
+be read as covering it: it reads no run, so there is no pair of runs to share
+nothing, and there is no input it would leave for a transition after it —
+ordering it ahead of one would make that one unreachable and ordering it behind
+would make it the default arm [A transition may carry no
+predicate](#a-transition-may-carry-no-predicate) refuses in as many words (#80,
+#332).
 
 That check stays decidable because of what a guard is not. A flat conjunction of
 three tests over a fixed set of declared registers, with no arithmetic in it
@@ -2788,64 +2807,12 @@ discriminator reads, and not the shape of the expression the automaton was
 compiled from — is [Transitions are ordered by what they
 read](#transitions-are-ordered-by-what-they-read)'s (#331).
 
-That permission is a consumer's, and it is not a producer's. **Ordered
-evaluation does not license an overlapping pair.** A producer **MUST NOT** emit
-two transitions leaving one state whose guards can hold at the same time and
-whose predicates can both match one record on the grounds that a consumer would
-try them in the order the state carries, and `resolve` **MUST** reject such a
-layout whether or not the layout says that is what it intends (#324). The
-asymmetry is only apparent: stopping at the first match is safe *because* at
-most one transition can match, which is what the paragraphs above establish, and
-reading the permission the other way round makes an optimisation into the thing
-that was meant to justify it.
-
-The shape that asks for it is real, and naming it here is cheaper than meeting
-it as a diagnostic. A file that is a sequence of batches — a header, then
-details until the next header — has two records eligible at the state after a
-header, and where the two discriminators name runs at different offsets or of
-different widths the runs do not line up and one record can satisfy both tests
-(#323). *Try the header's test first, and read anything that fails it as a
-detail* reads that file, and is presumably what the vendor reader that wrote it
-does. `layout/SPEC.md` states the shape, and what a layout may write instead, at
-[A batch boundary told only by evaluation
-order](../layout/SPEC.md#a-batch-boundary-told-only-by-evaluation-order).
-
-The copybooks decide how often that shape actually arises, which is why they are
-consulted above. Where the item covering the header's run inside a detail is
-numeric — an account number, a sequence number, a date — and the item covering
-the detail's run inside a header is too, the two tests are provably exclusive and
-the layout compiles with nothing added to it and nothing asked of the adopter.
-What is left over is the shape where at least one of those items is `PIC X`, and
-there the paragraph above stands unchanged: nothing in the copybooks separates
-the two, and ordered evaluation is not a proof that they are separate.
-
-What such a descriptor gives up is the whole of what the overlap rule gives.
-Ordered matching encodes *try the header first*; it is not a proof that the two
-tests cannot both hold. A detail whose account number begins with the header's
-literal at that offset is then read as a header, the batch is split in the wrong
-place, and no rule in this document fires on it — those bytes matched a
-predicate the descriptor carries, so it is not an undescribed record, and where
-the two records share an extent the framing has nothing to disagree with either
-([The extent governs, and framing is checked against
-it](#the-extent-governs-and-framing-is-checked-against-it)). Admitting it is
-admitting a layout that opts out of the check, which is the `otherwise`
-`layout/SPEC.md` refuses under another spelling: an arm that catches what the
-others missed is what *last in the order* means, whether the lastness is written
-as a keyword or as a position.
-
-Both spellings of the permission were weighed against [Versioning and
-compatibility](#versioning-and-compatibility), and the safer one costs more. A
-pair a consumer can *tell* is ordered — a marker on the state, or a third member
-of the predicate set — is an addition a consumer must understand in order to
-stay correct, so the IR version advances and every existing consumer refuses
-every descriptor until it is taught the marker: a bill paid by everyone who has
-one, for a shape one reported file has. The spelling that costs nothing is the
-worse of the two, because leaving the ordering to be inferred from transition
-order alone is invisible to an old consumer, which reads the descriptor as
-conforming, keeps its own order, and misreads the file rather than refusing it.
-`v0.0.4` is released, so neither is free. And the two directions are not
-symmetric in time: this refusal can be lifted later at exactly that price, while
-a permission cannot be withdrawn from the descriptors already written under it.
+That order is also the whole of what resolves a pair the rule above no longer
+refuses, and it asks a consumer for nothing it was not already doing: it
+evaluates the transitions in the order the state carries and stops at the first
+that matches, which is what this document has required of it since before the
+pair was admitted. The permission below is therefore a producer's, and the
+consumer requirement it leans on is the one already stated.
 
 Where no transition matches, the input is a record the layout does not describe.
 A consumer **MUST** report that rather than skipping ahead to a transition that
@@ -2872,6 +2839,105 @@ means the layout is missing a record type, while a detail arriving after its
 counter reached zero means the file and its own header disagree about how many
 there are. Both are reported and neither is skipped; only the wording differs,
 and it is the wording that saves a day.
+
+### A batch boundary is told by the order
+
+A producer **MAY** emit two transitions leaving one state whose guards can hold
+at the same time and whose predicates can both match one record, provided the
+runs of bytes the two predicates read share none. A consumer resolves such a
+pair by the order the state carries — the first eligible transition whose
+predicate matches admits the record — which is the [evaluation
+order](#transitions-are-ordered-by-what-they-read) it already follows, so there
+is nothing further it is asked to do. `resolve` **MUST** admit that layout
+rather than refusing it (#332).
+
+The shape that asks for it is a file that is a sequence of batches: a header,
+then details until the next header. Two records are eligible at the state after
+a header, and where the two discriminators name runs at different offsets or of
+different widths the runs do not line up and one record can satisfy both tests
+(#323). *Try the header's test first, and read anything that fails it as a
+detail* reads that file, and is what the vendor reader that wrote it does.
+`layout/SPEC.md` writes the shape out at [A batch boundary, told by the
+order](../layout/SPEC.md#a-batch-boundary-told-by-the-order).
+
+**This reverses #324**, which refused exactly this pair, and it reverses it
+because the thing that weighing was missing has since landed. At the time the
+order a state carried was an artifact of expression nesting — on this very shape,
+exactly backwards — so relying on it needed a marker saying the order was meant,
+and a marker is an addition every consumer must understand. [Transitions are
+ordered by what they read](#transitions-are-ordered-by-what-they-read) removed
+that: the order is the offset each discriminator reads, derived from the
+copybooks, stated normatively, and already followed by every conforming consumer
+(#331).
+
+The asymmetry #324 relied on is **withdrawn**, and withdrawing it rather than
+restating it is the honest reading. That asymmetry said stopping at the first
+match is safe *because* at most one transition can match, so ordered evaluation
+could not be turned round into a licence to overlap. Both halves survive for a
+pair whose runs share a byte, where the literals could have told the two apart
+and a pair agreeing over them is still refused. Neither is what decides this
+pair, because at that state more than one transition can match, and what makes
+the first match the right answer is instead that the order is the order a reader
+of those bytes reaches them in. A consumer's obligation is unchanged either way; what narrowed
+is the producer's.
+
+**What the permission gives up is the whole of what the overlap rule gives, and
+it is not free.** Ordered matching encodes *try the header's test first*; it is
+not a proof that the two tests cannot both hold. A detail whose account number
+begins with the header's literal at the header's own offset is read as a header,
+the batch splits in the wrong place, and no rule in this document fires on it:
+those bytes matched a predicate the descriptor carries, so it is not an
+undescribed record, and where the two records share an extent the framing has
+nothing to disagree with either ([The extent governs, and framing is checked
+against it](#the-extent-governs-and-framing-is-checked-against-it)). **The
+mis-split is not diagnosed**, at compile time or at read time, and there is
+nothing here to diagnose it from. Ordered matching is a convention the layout
+asserts about its data rather than something either layer can check, and
+admitting the pair is admitting a layout that says so. A producer **SHOULD**
+prefer any construction making the two tests provably exclusive where the file
+allows one — a type code at a common offset and width, a count in the header, a
+trailer ending each batch — and rely on the order where it does not.
+
+The copybooks decide how often a descriptor actually rests on that convention,
+which is why they are consulted above. Where the item covering the header's run
+inside a detail is numeric — an account number, a sequence number, a date — and
+the item covering the detail's run inside a header is too, the two tests are
+provably exclusive, the order at that state cannot be observed at all, and
+nothing is given up. What rests on the order is the shape where at least one of
+those items is `PIC X`, or is one the refinement declines.
+
+Two rules still refuse a pair this one admits, and both are about something other
+than telling the two records apart. [A predicate never reads past the record in
+front of it](#a-predicate-never-reads-past-the-record-in-front-of-it) refuses a
+target read out of a record shorter than the target ends, which no order makes
+safe: the bytes are not the record's, whichever transition is tried first. [A
+record with nothing outside a table to
+name](#a-record-with-nothing-outside-a-table-to-name) refuses a record offering
+no target at all, which is a transition carrying no predicate and is not a pair
+of runs. Each keeps its own diagnostic, in its own words, because each sends an
+adopter somewhere different.
+
+Weighed against [Versioning and compatibility](#versioning-and-compatibility)
+with `v0.0.4` released: **`IrVersion` does not advance.** No field is added, none
+changes meaning, and no closed set grows a member — the descriptor a producer
+writes under this permission is one it could already have written, and what
+changed is that `resolve` now emits it instead of refusing to. Nor is it an
+addition a consumer must understand in order to stay correct: the order it must
+follow is the one this document already requires of it, and a consumer that has
+never heard of this section reads a batched file correctly by doing exactly what
+it already does. That is the cheaper of the two spellings #324 weighed, and it is
+no longer the worse one, because what made it worse — an order left to be
+inferred from however the sequencing was nested — is what #331 removed.
+
+The bill this does not settle is the writer's. [A writer walks the same
+automaton](#a-writer-walks-the-same-automaton) derives reader and writer landing
+in the same place from there being at most one transition a record can match,
+which is not true at such a state, and a writer narrowing only by the predicate
+of the record it was asked to write can emit a record its own reader routes
+somewhere else. That check belongs to the writer and is stated there; the two
+**MUST** be adopted together, since a producer admitting the pair without it
+turns a convention the layout asserts into a file this format's own tools break
+(#333).
 
 ### A predicate never reads past the record in front of it
 
@@ -3156,7 +3222,15 @@ the same occurrence, and `resolve` **MUST** reject a layout whose alternatives
 overlap, naming the record, the repeating group and both arms (#37, #90). That
 is [When two match, and when none does](#when-two-match-and-when-none-does) at
 this scope and for its reasons, so the arms' order decides nothing and a
-consumer **MAY** stop at the first arm that matches. The order is normative all
+consumer **MAY** stop at the first arm that matches. It is that rule without the
+permission beside it: [A batch boundary is told by the
+order](#a-batch-boundary-is-told-by-the-order) admits a pair of *transitions*
+whose runs share no byte, and no arm of a variant is admitted that way. The two
+scopes are not alike — the arms of a variant are alternative descriptions of one
+run of storage rather than two record types a state offers, so an arm reading a
+run another arm does not is reading bytes that arm describes differently, and
+there is no adopter with vendor copybooks and no fourth construction behind it
+(#332). The order is normative all
 the same, so that two consumers do the same work in the same order and report
 the same thing when something is wrong with the bytes.
 
@@ -3245,21 +3319,40 @@ byte window and can try any predicate against it; a writer has a record, and a
 predicate belonging to a transition admitting some *other* record names a field
 at an offset the record in hand may not even reach. What makes the narrowed walk
 land in the same place anyway is [When two match, and when none
-does](#when-two-match-and-when-none-does): no two transitions leaving a state
-can both match one input, so bytes satisfying the predicate of a transition
+does](#when-two-match-and-when-none-does): where no two transitions leaving a
+state can both match one input, bytes satisfying the predicate of a transition
 admitting this record satisfy no earlier transition's predicate, and the reader
 arrives at the transition the writer took. That rule is load-bearing on this
 side too, and without it a writer could emit a record its reader routes
 somewhere else.
+
+It is load-bearing enough that where it no longer holds the derivation has to be
+replaced rather than dropped. At a state carrying the pair [A batch boundary is
+told by the order](#a-batch-boundary-is-told-by-the-order) admits, two
+transitions can both match one input, so the narrowed walk is no longer *proved*
+to land where the reader lands: a writer that has narrowed to this record's own
+transition and evaluated only its predicate can emit a record an earlier
+transition's predicate also matches, and the reader — following the same
+normative order — takes that earlier one. What restores agreement is the order,
+spent on the writing side as it is spent on the reading side: at such a state a
+writer **MUST** evaluate the predicates of the transitions ordered before the one
+it took, against the bytes it is about to emit, and **MUST** report a record any
+of them matches rather than emitting it. That is the same refusal as the
+paragraph below, reached for a different reason, and it is what keeps a
+convention the layout asserts from being broken by this format's own writer
+(#333).
 
 Two transitions may admit the same record and differ only in the state they move
 to — a header deciding whether a later record type appears at all is written
 that way. A writer needs no rule for that beyond the one above, and for the
 reason reading needs none: a transition is never labelled with a record name, so
 the predicates decide there as they decide everywhere else, and where neither of
-the two carries one the guards do — nothing else could, since no two eligible
-transitions leaving a state may both match ([When two match, and when none
-does](#when-two-match-and-when-none-does)).
+the two carries one the guards do — nothing else could, since a transition
+carrying no predicate may not sit beside an eligible sibling at all ([When two
+match, and when none does](#when-two-match-and-when-none-does)). Where both
+carry one and the order is what separates them, the order decides, on the
+writing side as on the reading side ([A batch boundary is told by the
+order](#a-batch-boundary-is-told-by-the-order)).
 
 Where no transition matches, a writer **MUST** report it, and **MUST NOT** emit
 the record anyway or take a transition whose predicate is false. The record does
@@ -4095,7 +4188,7 @@ records offer them.
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331 |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, settled unchanged by #324 against discussion #323 |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323 |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |

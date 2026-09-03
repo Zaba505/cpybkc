@@ -245,6 +245,26 @@ func assertRendering(t *testing.T, a *Automaton, want string) {
 	}
 }
 
+// stateAdmitting is the first state offering the named record beside at least
+// one other, which is the state any rule about a pair is about.
+func stateAdmitting(t *testing.T, a *Automaton, record string) *State {
+	t.Helper()
+
+	for _, state := range a.States {
+		if len(state.Transitions) < 2 {
+			continue
+		}
+
+		if slices.Contains(admits(state), record) {
+			return state
+		}
+	}
+
+	t.Fatalf("no state offers %s beside another record:\n%s", record, renderAutomaton(a))
+
+	return nil
+}
+
 // TestTheCountedRunOfTheAppendix compiles docs/ir/SPEC.md's "A counted run, as
 // nodes" and asserts the graph against it.
 //
@@ -881,15 +901,21 @@ state 5 accepts
 `)
 	})
 
-	t.Run("a flag beside the type code is an overlap, not a missing feature", func(t *testing.T) {
+	t.Run("a flag beside the type code is settled by the order, and says what that costs", func(t *testing.T) {
 		t.Parallel()
 
-		// The precondition on the branch above, stated as the fault an
-		// adopter meets where it does not hold. Telling the two details apart
-		// needs the flag and telling either of them from the trailer needs
-		// the type code, and a discriminator is one test on one item — so
-		// `resolve` reports the pair that can both match one record rather
-		// than a shape the format is missing.
+		// The precondition on the branch above, stated as what an adopter
+		// gets where it does not hold. Telling the two details apart needs
+		// the flag and telling either of them from the trailer needs the type
+		// code, and a discriminator is one test on one item — so the trailer's
+		// test and the detail's read runs that share no byte, and the order
+		// the state carries resolves them (#332).
+		//
+		// What that costs is stated rather than diagnosed: the trailer's test
+		// reads byte zero and the detail's byte one, so the trailer is tried
+		// first and a detail whose first byte is `T` is read as a trailer.
+		// Until this story the layout was refused instead, which asked the
+		// adopter for a record shape the file does not have.
 		overlapping := `(record HEADER (copybook "hdr.cpy" HDR-REC))
 (record DETAIL (copybook "dtl.cpy" DTL-REC))
 (record DETAIL-FLAGGED (copybook "dtl.cpy" DTL-REC))
@@ -905,21 +931,16 @@ state 5 accepts
 		copybooks := flaggedRunCopybooks()
 		copybooks["DETAIL-FLAGGED"] = flagged
 
-		err := refused(t, overlapping, copybooks)
+		automaton := compiled(t, overlapping, copybooks)
 
-		var ambiguous *SequenceAmbiguityError
-		if !errors.As(err, &ambiguous) {
-			t.Fatalf("compiling reported %v, want an ambiguity", err)
-		}
-
-		// The pair is named in the state's evaluation order, and that order
-		// is now the copybooks' rather than the walk's: the trailer's type
-		// code is the record's first byte and the detail's flag is its
-		// second, so the trailer's test is tried first and is named first
+		// The state a detail leads to, where the trailer and both details
+		// compete. The order is the copybooks' rather than the walk's: the
+		// trailer's type code is the record's first byte and the flag both
+		// details key on is its second, so the trailer's test is tried first
 		// (#331).
-		if ambiguous.Records != [2]string{"TRAILER", "DETAIL"} {
-			t.Errorf("the fault names %v, want the pair a discriminator on the flag cannot separate",
-				ambiguous.Records)
+		state := stateAdmitting(t, automaton, "TRAILER")
+		if got := admits(state); got[0] != "TRAILER" {
+			t.Errorf("the state tries %s first, want the discriminator reading the earlier byte: %v", got[0], got)
 		}
 	})
 }
@@ -1236,14 +1257,20 @@ func TestTwoRecordsAtOnePointTestingOneRunOfBytesForOneValueAreRejected(t *testi
 	}
 }
 
-// TestTwoDiscriminatorsOverDifferentRunsOfBytesOverlap is the reading
-// docs/ir/SPEC.md insists on: the test is whether one input can satisfy both,
-// not whether the two read the same bytes.
+// TestTwoDiscriminatorsOverRunsSharingNoByteAreResolvedByTheOrder is #332: a
+// record keyed on its first byte beside one keyed on its second is a pair one
+// input can satisfy both of, and the order the state carries is what settles it.
 //
-// A record keyed on its first byte beside one keyed on its second is where the
-// narrower reading lets a real ambiguity through, because a record can carry
-// both values at once.
-func TestTwoDiscriminatorsOverDifferentRunsOfBytesOverlap(t *testing.T) {
+// It was refused until this story, on the grounds that ordered matching is not a
+// proof of disjointness — which is true, and is now what the layout asserts
+// rather than what it is refused for. No literal either record could carry would
+// separate the two, because a record carries an `H` at byte zero and a `D` at
+// byte one at the same time, so refusing it asked the adopter for a construction
+// that does not exist for the file in front of them (discussion #323).
+//
+// The order is the copybooks' rather than the walk's, so the header's test is
+// tried first: it reads byte zero and the detail's reads byte one (#331).
+func TestTwoDiscriminatorsOverRunsSharingNoByteAreResolvedByTheOrder(t *testing.T) {
 	t.Parallel()
 
 	elsewhere := `01 DTL-REC.
@@ -1261,9 +1288,14 @@ func TestTwoDiscriminatorsOverDifferentRunsOfBytesOverlap(t *testing.T) {
 (discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
 (sequence (alt HEADER DETAIL))`
 
-	var ambiguous *SequenceAmbiguityError
-	if err := refused(t, source, copybooks); !errors.As(err, &ambiguous) {
-		t.Fatalf("compiling reported %v, want an ambiguity", err)
+	automaton := compiled(t, source, copybooks)
+
+	if admitted := admits(automaton.States[0]); len(admitted) != 2 {
+		t.Fatalf("the start state admits %v, want both records", admitted)
+	}
+
+	if got := admits(automaton.States[0]); got[0] != "HEADER" {
+		t.Errorf("the state tries %s first, want the discriminator reading the earlier byte", got[0])
 	}
 }
 
@@ -1474,25 +1506,13 @@ func TestAOneOfOverlapsWhereAnyOfItsValuesAgreesOnTheSharedWindow(t *testing.T) 
 // sequencing operators — which turned out to be irrelevant, because the fault
 // was two type codes that did not line up.
 //
-// The two shapes are asserted together because the whole point is that they read
-// differently. Runs sharing no byte are told apart by nothing a literal can
-// express and the layout needs a count, a trailer or a different target; runs
-// agreeing over the bytes they share are a clash in the literals and are fixed
-// there. Once #325 narrowed the check to the shared window, those are the only
-// two shapes left, so the message can say which it is without hedging.
+// One shape reaches the message now. Runs that share no byte are settled by the
+// order the state carries and are not refused at all (#332), so what is left is
+// the pair asking for the same bytes and agreeing about them — a clash in the
+// literals, fixed where the literals are written, and the window is what says
+// which bytes to change.
 func TestTheAmbiguityDiagnosticNamesTheRunsTheDiscriminatorsRead(t *testing.T) {
 	t.Parallel()
-
-	// A detail whose type code sits behind a lead byte, so that the two
-	// discriminators read runs that share nothing at all.
-	shifted := `01 DTL-REC.
-   05 DTL-LEAD PIC X(1).
-   05 DTL-TYPE PIC X(1).
-   05 DTL-BODY PIC X(20).
-`
-
-	disjoint := countedRunCopybooks()
-	disjoint["DETAIL"] = shifted
 
 	tests := map[string]struct {
 		source    string
@@ -1500,26 +1520,6 @@ func TestTheAmbiguityDiagnosticNamesTheRunsTheDiscriminatorsRead(t *testing.T) {
 		runs      [2]ByteRun
 		wants     []string
 	}{
-		// HEADER's type code is byte zero of a header and DETAIL's is byte
-		// one of a detail, so no record can be told apart by either literal:
-		// a record carries an `H` at byte zero and a `D` at byte one at the
-		// same time.
-		"runs sharing no bytes": {
-			source: `(record HEADER (copybook "hdr.cpy" HDR-REC))
-(record DETAIL (copybook "dtl.cpy" DTL-REC))
-(discriminate HEADER (equals (item HEADER HDR-TYPE) "H"))
-(discriminate DETAIL (equals (item DETAIL DTL-TYPE) "D"))
-(sequence (alt HEADER DETAIL))`,
-			copybooks: disjoint,
-			runs:      [2]ByteRun{{At: 0, Width: 1}, {At: 1, Width: 1}},
-			wants: []string{
-				"HEADER byte 0",
-				"DETAIL byte 1",
-				"share no byte",
-				"no literal either could carry would tell the two apart",
-			},
-		},
-
 		// The genuine clash: one run, one literal, and two records asking
 		// for it.
 		"identical runs agreeing on a literal": {
@@ -1820,182 +1820,65 @@ const batchSource = `(record HEADER (copybook "header.cpy" BAT-HDR))
 (discriminate DETAIL (equals (item DETAIL BDT-TYPE) "D"))
 (sequence (+ (seq HEADER (+ DETAIL))))`
 
-// TestDiscriminatorsOverDifferentRunsAreDisjointWhereTheCopybooksForbidTheOpposingLiteral
-// is #330: two runs that share no byte are decided on what the copybooks say
-// those bytes may hold, and not on the general truth that a record can carry one
-// value at byte zero and another at byte ten.
+// TestTheBatchShapeCompilesWhetherOrNotTheCopybooksProveThePairDisjoint is the
+// two halves of discussion #323's shape, and after #332 they compile alike.
 //
 // The header is keyed on byte zero equal to `H` and the detail on byte ten equal
-// to `D`, both EBCDIC letters. Byte ten of a header is inside a five-digit
-// DISPLAY item, so a header can never carry `D` there; where byte zero of a
-// detail is a ten-digit DISPLAY item it can never carry `H` either, and the two
-// tests are then provably exclusive with nothing added to the layout. Where byte
-// zero of a detail is anything this cannot state a domain for, the pair is left
-// overlapping and refused exactly as before.
-func TestDiscriminatorsOverDifferentRunsAreDisjointWhereTheCopybooksForbidTheOpposingLiteral(t *testing.T) {
+// to `D`, so the two runs share no byte and one record can satisfy both tests
+// unless something forbids it. Where byte zero of a detail is a zoned item it
+// can never hold `H`, the pair is provably exclusive and the order at the state
+// is unobservable (#330). Where it is `PIC X` — or anything the refinement
+// declines — nothing separates the two and the order the state carries is what
+// reads the file: the header's test reads the earlier byte, so it is tried
+// first, and a detail carrying `H` at byte zero is read as a header with no
+// diagnostic anywhere (#332).
+//
+// What the copybooks say therefore no longer decides whether the layout
+// compiles. It decides what a consumer is relying on, which is why the proof is
+// still taken; the proof itself is asserted over [covering] and [byteDomain] in
+// predicate_test.go, where a declined shape has an answer to assert.
+func TestTheBatchShapeCompilesWhetherOrNotTheCopybooksProveThePairDisjoint(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]struct {
-		key       string
-		ambiguous bool
-	}{
-		// The whole point: neither record can hold the other's letter.
-		"an unsigned zoned item holds digits and no letter": {
-			key: "PIC 9(10)", ambiguous: false,
-		},
+	keys := []string{
+		// Neither record can hold the other's letter, so the pair is proved
+		// disjoint and needs no order.
+		"PIC 9(10)",
 
-		// "Any byte value may appear in an alphanumeric field", so this
-		// proves nothing and the refusal stands. One direction is not
-		// enough: a detail carrying `H` at byte zero and `D` at byte ten
-		// satisfies both tests, whatever the header says about byte ten.
-		"an alphanumeric item holds any byte": {
-			key: "PIC X(10)", ambiguous: true,
-		},
+		// "Any byte value may appear in an alphanumeric field", so nothing is
+		// proved and the order is what separates the two.
+		"PIC X(10)",
 
-		// The sign is an overpunch on one of the ten digits, and where
-		// codec puts it is codec's to say rather than this package's.
-		"a signed zoned item is declined": {
-			key: "PIC S9(10)", ambiguous: true,
-		},
+		// The sign is an overpunch on one of the ten digits, and where codec
+		// puts it is codec's to say rather than this package's.
+		"PIC S9(10)",
 
-		// A packed item's digits are nibbles and its last nibble is the
-		// sign; same reason.
-		"a packed item is declined": {
-			key: "PIC 9(18) COMP-3", ambiguous: true,
-		},
+		// A packed item's digits are nibbles and its last nibble is the sign;
+		// same reason.
+		"PIC 9(18) COMP-3",
 
 		// A binary item is a bit pattern with no bytes ruled out.
-		"a binary item is declined": {
-			key: "PIC 9(9) COMP.\n   05 BDT-PAD  PIC X(6)", ambiguous: true,
-		},
+		"PIC 9(9) COMP.\n   05 BDT-PAD  PIC X(6)",
 
-		// BLANK WHEN ZERO puts the charset's spaces in a numeric item, so
-		// the digits are not the whole of what it holds.
-		"a numeric item blank when zero is declined": {
-			key: "PIC 9(10) BLANK WHEN ZERO", ambiguous: true,
-		},
+		// BLANK WHEN ZERO puts the charset's spaces in a numeric item, so the
+		// digits are not the whole of what it holds.
+		"PIC 9(10) BLANK WHEN ZERO",
 	}
 
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
+	for _, key := range keys {
+		t.Run(key, func(t *testing.T) {
 			t.Parallel()
 
-			if !test.ambiguous {
-				compiled(t, batchSource, batchCopybooks(test.key))
+			automaton := compiled(t, batchSource, batchCopybooks(key))
 
-				return
-			}
-
-			var ambiguous *SequenceAmbiguityError
-			if err := refused(t, batchSource, batchCopybooks(test.key)); !errors.As(err, &ambiguous) {
-				t.Fatalf("compiling reported %v, want an ambiguity", err)
-			}
-
-			// The refusal is the one #326 wrote: the two runs are what an
-			// adopter reads the message for, and narrowing when the pair is
-			// refused does not change what is said when it is.
-			want := [2]ByteRun{{At: 0, Width: 1}, {At: 10, Width: 1}}
-			if ambiguous.Runs != want && ambiguous.Runs != [2]ByteRun{want[1], want[0]} {
-				t.Errorf("the fault names the runs %v, want %v", ambiguous.Runs, want)
-			}
-		})
-	}
-}
-
-// TestTheByteDomainIsDeclinedWhereTheLayoutDoesNotSettleTheItem is the soundness
-// half: the refinement reads a domain only where the record's own layout says
-// which item covers the opposing run, and every other shape is left overlapping.
-//
-// Each detail below keys on a run the header describes with something other than
-// one item at a fixed offset, and each is refused for that reason alone — byte
-// zero of every one of them is a zoned item that cannot hold `H`, so the pair
-// would be disjoint if the header's side of the question had an answer.
-func TestTheByteDomainIsDeclinedWhereTheLayoutDoesNotSettleTheItem(t *testing.T) {
-	t.Parallel()
-
-	// A two-byte type code at byte nine spans the header's nine-digit
-	// identifier and its sequence number, and one at byte ten sits wholly
-	// inside the sequence number.
-	spanning := `01 BSP-REC.
-   05 BSP-KEY  PIC 9(9).
-   05 BSP-TYPE PIC X(2).
-   05 BSP-BODY PIC X(10).
-`
-
-	inside := `01 BSP-REC.
-   05 BSP-KEY  PIC 9(10).
-   05 BSP-TYPE PIC X(2).
-   05 BSP-BODY PIC X(9).
-`
-
-	// Slack: a four-byte binary item SYNCHRONIZED onto a four-byte boundary
-	// leaves bytes nine, ten and eleven belonging to no item at all.
-	slack := `01 BSL-HDR.
-   05 BSL-TYPE PIC X(1).
-   05 BSL-FILL PIC X(8).
-   05 BSL-BIN  PIC 9(9) COMP SYNC.
-`
-
-	// An OCCURS DEPENDING ON ahead of byte ten moves every byte at or after
-	// it, so the static layout does not say which item is there.
-	variable := `01 BOD-HDR.
-   05 BOD-TYPE  PIC X(1).
-   05 BOD-COUNT PIC 9(2).
-   05 BOD-TAB   PIC X(4) OCCURS 1 TO 5 TIMES DEPENDING ON BOD-COUNT.
-   05 BOD-SEQ   PIC 9(5).
-`
-
-	tests := map[string]struct {
-		header    string
-		record    string
-		detail    string
-		item      string
-		literal   string
-		ambiguous bool
-	}{
-		"the opposing run spans two items": {
-			header: batchHeader, record: "BAT-HDR", detail: spanning,
-			item: "BSP-TYPE", literal: `"DD"`, ambiguous: true,
-		},
-
-		"the opposing run sits inside one": {
-			header: batchHeader, record: "BAT-HDR", detail: inside,
-			item: "BSP-TYPE", literal: `"DD"`, ambiguous: false,
-		},
-
-		"the opposing run lands on slack": {
-			header: slack, record: "BSL-HDR", detail: fmt.Sprintf(batchDetail, "PIC 9(10)"),
-			item: "BDT-TYPE", literal: `"D"`, ambiguous: true,
-		},
-
-		"the opposing run sits in an ODO-variable region": {
-			header: variable, record: "BOD-HDR", detail: fmt.Sprintf(batchDetail, "PIC 9(10)"),
-			item: "BDT-TYPE", literal: `"D"`, ambiguous: true,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			headerType := recordOf(t, test.header).Children[0].Name
-			source := `(record HEADER (copybook "header.cpy" ` + test.record + `))
-(record DETAIL (copybook "detail.cpy" BDT-REC))
-(discriminate HEADER (equals (item HEADER ` + headerType + `) "H"))
-(discriminate DETAIL (equals (item DETAIL ` + test.item + `) ` + test.literal + `))
-(sequence (+ (seq HEADER (+ DETAIL))))`
-
-			copybooks := map[string]string{"HEADER": test.header, "DETAIL": test.detail}
-
-			if !test.ambiguous {
-				compiled(t, source, copybooks)
-
-				return
-			}
-
-			var ambiguous *SequenceAmbiguityError
-			if err := refused(t, source, copybooks); !errors.As(err, &ambiguous) {
-				t.Fatalf("compiling reported %v, want an ambiguity", err)
+			// The state after a detail, where the next header and the next
+			// detail compete. The header's type code is byte zero and the
+			// detail's is byte ten, so the header is tried first (#331) —
+			// which is the order that reads a batched file and the whole of
+			// what the permission rests on.
+			state := stateAdmitting(t, automaton, "HEADER")
+			if got := admits(state); got[0] != "HEADER" {
+				t.Errorf("the state tries %s first, want the discriminator reading the earlier byte: %v", got[0], got)
 			}
 		})
 	}

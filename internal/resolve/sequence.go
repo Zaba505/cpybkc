@@ -662,7 +662,8 @@ func unboundRead(bound map[int]bool, register *Register, state *State, on *Trans
 
 // checkAmbiguity holds every state to docs/ir/SPEC.md's "When two match, and
 // when none does": two transitions leaving one state must not be eligible
-// together and selected by predicates that can both match one record.
+// together and selected by predicates that can both match one record over the
+// bytes both of them read.
 //
 // Guards narrow which pairs the rule is about. Two transitions whose guards
 // cannot hold at the same time are never both eligible, and their predicates may
@@ -670,6 +671,12 @@ func unboundRead(bound map[int]bool, register *Register, state *State, on *Trans
 // the transition reading another detail and the one moving past them are
 // selected by the very same test on the very same bytes and only the counter
 // separates them.
+//
+// So does what the two discriminators read. A pair whose runs share a byte and
+// agree over it is a clash in the literals, and refusing it names something the
+// adopter fixes where it is written; a pair whose runs share no byte is one no
+// literal either record could carry would ever separate, and the order the state
+// carries resolves it instead ([compiler.resolvedByOrder], #332).
 func (c *compiler) checkAmbiguity(a *Automaton) {
 	for _, state := range a.States {
 		for i, first := range state.Transitions {
@@ -716,6 +723,19 @@ func (c *compiler) checkAmbiguity(a *Automaton) {
 				// (docs/ir/SPEC.md, "A predicate never reads past the
 				// record in front of it", #94).
 				if c.reportReach(state, first, second) {
+					continue
+				}
+
+				// The order the state carries resolves a pair whose
+				// discriminators read runs sharing no byte, and this
+				// is where that permission is spent (#332). It sits
+				// behind the two refusals above because neither of
+				// them is about telling the pair apart: one is a
+				// record offering no target to name and the other a
+				// read leaving the record in front of the consumer,
+				// and both are still faults over a pair the order
+				// would otherwise have settled.
+				if c.resolvedByOrder(first, second) {
 					continue
 				}
 
@@ -836,6 +856,53 @@ func (c *compiler) predicatesOverlap(first, second *Transition) bool {
 	}
 
 	return overlap(over, against)
+}
+
+// resolvedByOrder reports whether the order the state carries settles this pair
+// on its own, which docs/ir/SPEC.md's "When two match, and when none does"
+// permits a producer to rely on.
+//
+// The question is whether the two discriminators read runs that share a byte.
+// Sharing one, the pair is separable by the literals themselves — the layout
+// asked for the same bytes twice and one of the two asks for something else
+// instead — and a refusal names a fix the adopter can make where the literals
+// are written. Sharing none, no literal either record could carry would ever
+// separate them: a record carries an `H` at byte zero and a `D` at byte ten at
+// the same time, so the pair is told apart by trying one of the two first and by
+// nothing else. That is the shape a sequence of batches takes when the header's
+// type code and the detail's do not line up (discussion #323), and the four
+// constructions docs/layout/SPEC.md used to offer instead are all things an
+// adopter with vendor copybooks cannot write.
+//
+// What it gives up is stated in both documents and is not diagnosed anywhere: a
+// detail carrying the header's literal at the header's own run is read as a
+// header and the batch splits in the wrong place. Ordered matching is a
+// convention the layout asserts about its data, not a proof that the two tests
+// cannot both hold.
+//
+// A transition carrying no predicate is not resolved by order and never reaches
+// this. It matches every record, so there is no run to compare and no input it
+// would leave for the transition after it; docs/ir/SPEC.md's "A transition may
+// carry no predicate" refuses the reading that would make it a default arm, and
+// the fault below says so in its own words (#80).
+func (c *compiler) resolvedByOrder(first, second *Transition) bool {
+	if first.Predicate == nil || second.Predicate == nil {
+		return false
+	}
+
+	over, ok := c.stretchOf(first.Record, first.Predicate)
+	against, againstOK := c.stretchOf(second.Record, second.Predicate)
+	if !ok || !againstOK {
+		// A target this cannot place is a misspelled item
+		// [compiler.discriminator] has already reported, and a pair admitted
+		// on the strength of two runs neither of which was found is a layout
+		// admitted for a reason nobody stated.
+		return false
+	}
+
+	_, sharing := over.shares(against)
+
+	return !sharing
 }
 
 // discriminant is one transition's side of an overlap question: what it tests,
