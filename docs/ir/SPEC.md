@@ -3326,9 +3326,9 @@ arrives at the transition the writer took. That rule is load-bearing on this
 side too, and it no longer covers every state. Where it holds, the narrowing is
 the whole of the derivation and a writer owes nothing further. Where it does not,
 what lands the walk in the same place is the order the state carries **together
-with** the check the paragraph below requires — the two of them, and never the
-narrowing on its own, which is a writer emitting a record its reader routes
-somewhere else.
+with** the check the paragraph below requires. Agreement rests on the two of them
+and never on the narrowing alone: a writer that narrowed and stopped there emits
+a record its reader routes somewhere else.
 
 It is load-bearing enough that where it no longer holds the derivation has to be
 replaced rather than dropped. At a state carrying the pair [A batch boundary is

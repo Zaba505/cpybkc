@@ -29,10 +29,10 @@ import (
 // than dropped — the writer spends the order on the writing side too, and
 // refuses a record an earlier transition would have taken (#332, #333).
 //
-// Three of the four transitions leaving a state are not rivals, and each is
-// skipped for a reason rather than for economy. Emitting a test that can never
-// fire is dead code in every generated package that has one, and the goldens say
-// which those are.
+// Most of the transitions leaving a state are not rivals, and each is skipped for
+// a reason rather than for economy. Emitting a test that can never fire is dead
+// code in every generated package that has one, and the goldens say which those
+// are. The reasons, and there are five:
 //
 // **A transition ordered after this one is not a rival.** The reader reaches it
 // only where everything ahead of it failed, and this record's own transition is
