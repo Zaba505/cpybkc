@@ -912,7 +912,12 @@ state 5 accepts
 			t.Fatalf("compiling reported %v, want an ambiguity", err)
 		}
 
-		if ambiguous.Records != [2]string{"DETAIL", "TRAILER"} {
+		// The pair is named in the state's evaluation order, and that order
+		// is now the copybooks' rather than the walk's: the trailer's type
+		// code is the record's first byte and the detail's flag is its
+		// second, so the trailer's test is tried first and is named first
+		// (#331).
+		if ambiguous.Records != [2]string{"TRAILER", "DETAIL"} {
 			t.Errorf("the fault names %v, want the pair a discriminator on the flag cannot separate",
 				ambiguous.Records)
 		}

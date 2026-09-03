@@ -8,16 +8,16 @@
 stateDiagram-v2
     [*] --> s40
     s40 --> s41: LEDGER-HEADER, when HDR-TYPE = 0xF0 0xF1, then r39 = HDR-COUNT
+    s41 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
     s41 --> s42: DEBIT-POSTING, when PST-TYPE = 0xC4 0xD9, if r39 greater than zero, then r39 = r39 - 1
     s41 --> s43: CREDIT-POSTING, when PST-TYPE = 0xC3 0xD9, if r39 greater than zero, then r39 = r39 - 1
-    s41 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
+    s44 --> [*]
+    s42 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
     s42 --> s42: DEBIT-POSTING, when PST-TYPE = 0xC4 0xD9, if r39 greater than zero, then r39 = r39 - 1
     s42 --> s43: CREDIT-POSTING, when PST-TYPE = 0xC3 0xD9, if r39 greater than zero, then r39 = r39 - 1
-    s42 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
+    s43 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
     s43 --> s42: DEBIT-POSTING, when PST-TYPE = 0xC4 0xD9, if r39 greater than zero, then r39 = r39 - 1
     s43 --> s43: CREDIT-POSTING, when PST-TYPE = 0xC3 0xD9, if r39 greater than zero, then r39 = r39 - 1
-    s43 --> s44: LEDGER-TRAILER, when TRL-TYPE = 0xF9 0xF9, if r39 = 0
-    s44 --> [*]
 ```
 
 ## Registers
@@ -45,6 +45,15 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 12 | 6 | HDR-PERIOD | DISPLAY | 9(6) | always |
 | 18 | 3 | HDR-CURRENCY | DISPLAY | X(3) | always |
 | 21 | 3 | HDR-COUNT | DISPLAY | 9(3) | always |
+
+### LEDGER-TRAILER
+
+| Offset | Width | Item | Usage | Picture | Present |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 2 | TRL-TYPE | DISPLAY | X(2) | always |
+| 2 | 6 | TRL-COUNT | DISPLAY | 9(6) | always |
+| 8 | 8 | TRL-NET | PACKED-DECIMAL | S9(13)V9(2) | always |
+| 16 | 8 | *filler* | DISPLAY | X(8) | always |
 
 ### DEBIT-POSTING
 
@@ -76,12 +85,3 @@ Each record's items, in containment order, beginning at the first byte of the re
 | 42 | 8 | PST-TAIL-REF | — | — | always |
 | 42 | 4 | PST-TAIL-REF.PTR-BATCH | DISPLAY | 9(4) | always |
 | 46 | 4 | PST-TAIL-REF.PTR-LINE | DISPLAY | 9(4) | always |
-
-### LEDGER-TRAILER
-
-| Offset | Width | Item | Usage | Picture | Present |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 2 | TRL-TYPE | DISPLAY | X(2) | always |
-| 2 | 6 | TRL-COUNT | DISPLAY | 9(6) | always |
-| 8 | 8 | TRL-NET | PACKED-DECIMAL | S9(13)V9(2) | always |
-| 16 | 8 | *filler* | DISPLAY | X(8) | always |

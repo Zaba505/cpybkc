@@ -6,6 +6,7 @@
 package resolve
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strconv"
@@ -254,7 +255,8 @@ func (c *compiler) assemble(top facts) *Automaton {
 }
 
 // edges builds one state's outgoing transitions out of the ways into the
-// positions that may follow it.
+// positions that may follow it, and leaves them in the order a consumer
+// evaluates them ([compiler.order]).
 func (c *compiler) edges(from *State, ways []entry, states []*State) {
 	for _, way := range ways {
 		if !satisfiable(way.guards) {
@@ -277,6 +279,90 @@ func (c *compiler) edges(from *State, ways []entry, states []*State) {
 			Bindings:  mergeBindings(way.binding, c.bindings(record.record)),
 			To:        to,
 		})
+	}
+
+	c.order(from)
+}
+
+// order puts one state's transitions into the evaluation order docs/ir/SPEC.md's
+// "Transitions are ordered by what they read" requires: the transitions whose
+// predicates read a run of the record are ordered among themselves by where that
+// run begins and then by where it ends, and everything else stays where the walk
+// left it.
+//
+// The order the transitions arrive in is the expression walk's, and the walk's
+// order is an artifact of how deeply the record names happened to be nested
+// rather than of anything an adopter wrote. Tracing `(+ (seq HEADER (* DATA)))`,
+// the inner `(* DATA)` links its own back edge before the enclosing `seq` links
+// the way from a header into a detail and before the outer `+` links the way from
+// a detail back to a header, so the state after a HEADER arrives carrying the
+// detail's test ahead of the header's — the inverse of what reads a batched file,
+// and a pair the adopter has no lever to reach, since the two competitors come
+// from different nesting levels and `(alt ...)` orders only siblings (#323).
+//
+// A hand-written streaming reader has no such problem, because it tests
+// discriminators in the order it reaches their bytes: byte 0 before byte 8. That
+// order is derivable from the copybooks alone, so it is derived here, once, and
+// the descriptor carries it — which is what makes the order a property a producer
+// owes rather than a by-product of the algebra.
+//
+// It is a sort and never a filter, and it is not a licence. Nothing is added,
+// nothing is dropped, and no transition's predicate, guards or bindings are
+// touched: a pair whose merged guards are unsatisfiable is as un-co-eligible
+// after it as before, and [compiler.checkAmbiguity] refuses an overlapping pair
+// whatever order it ends up in. Where the overlap rule has already proved a pair
+// disjoint, the order it lands in cannot be observed at all.
+func (c *compiler) order(state *State) {
+	runs := make(map[*Transition]stretch, len(state.Transitions))
+
+	var reading []*Transition
+	var slots []int
+
+	for at, transition := range state.Transitions {
+		run, ok := c.stretchOf(transition.Record, transition.Predicate)
+		if !ok {
+			// A transition carrying no predicate reads no byte of the
+			// record, so there is no offset to order it by and it keeps the
+			// position the walk gave it. That is docs/ir/SPEC.md's "A
+			// transition may carry no predicate" left standing rather than
+			// narrowed: such a transition is still not a default arm, it is
+			// still not moved to the end of the list, and wherever its
+			// guards can hold it is the only eligible transition its state
+			// offers anyway (#80).
+			//
+			// A predicate whose run this package could not locate — a target
+			// naming no item of the record, a copybook that would not lay
+			// out — is here too. The fault is already reported against the
+			// discriminator, and ordering it by an offset nobody knows would
+			// be inventing one.
+			continue
+		}
+
+		runs[transition] = run
+		reading = append(reading, transition)
+		slots = append(slots, at)
+	}
+
+	slices.SortStableFunc(reading, func(one, other *Transition) int {
+		first, second := runs[one], runs[other]
+
+		if by := cmp.Compare(first.at, second.at); by != 0 {
+			return by
+		}
+
+		// Two runs beginning at the same byte are ordered by where they end,
+		// which is the same rule again rather than a second one: a reader
+		// standing at that byte has read enough to decide the shorter test
+		// before it has read enough to decide the longer. Two runs that begin
+		// and end together are one run, no order tells them apart, and the
+		// sort is stable so they stay as they were.
+		return cmp.Compare(first.end(), second.end())
+	})
+
+	// Back into the slots they came out of, which is what leaves every other
+	// transition at the index it already had.
+	for i, transition := range reading {
+		state.Transitions[slots[i]] = transition
 	}
 }
 

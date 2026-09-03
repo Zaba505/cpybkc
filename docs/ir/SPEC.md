@@ -2113,6 +2113,72 @@ is unambiguous and a consumer is entitled to assume it. Which pairs of
 transitions that test is over, once guards are present, is [When two
 match](#when-two-match-and-when-none-does)'s.
 
+### Transitions are ordered by what they read
+
+A state's transitions are an order of evaluation, and that order is a property a
+producer owes rather than a by-product of however the sequencing was written.
+The transitions leaving one state that carry a predicate **MUST** be ordered
+among themselves by the offset of the first byte their predicate reads,
+ascending; and two whose predicates begin at the same byte by the offset of the
+last, ascending. The offsets are the ones [Ordering and width, and no
+offset](#ordering-and-width-and-no-offset) makes a consumer sum, over the record
+the transition admits, and no node carries either of them: this is a statement
+about the order the transitions are in, not a second statement of where anything
+is.
+
+A transition carrying no predicate **MUST** keep the position it already had. It
+reads no byte of the record, so there is no offset to order it by, and [A
+transition may carry no
+predicate](#a-transition-may-carry-no-predicate) stands unchanged: it is
+evaluated in the order the state carries like every other transition, it is not
+tried last, and it does not catch what the others miss. Ordering it behind
+everything that reads a run would have made it the default arm that section
+refuses.
+
+Two predicates reading exactly the same run are ordered alike by this rule, and
+the producer **MUST** leave them in whatever order it already had them —
+`resolve` sorts stably. That is the tie-break, and it is deterministic in the
+sense [Identity, ordering and
+determinism](#identity-ordering-and-determinism) asks for: identical inputs
+produce byte-identical IR. It is not a claim that two producers reaching the same
+graph by different constructions would agree there, and it does not need to be:
+two transitions reading one run are told apart by their literals, which [When two
+match](#when-two-match-and-when-none-does) has already required to disagree.
+
+Reason: the order the algebra leaves behind is an artifact of expression nesting
+and nothing else, and on the file shape this is most visible on, it is exactly
+backwards. Compiling `(+ (seq HEADER (* DATA)))` — a header, then details until
+the next header — the inner repetition links its own back edge before the
+enclosing `seq` links the way from a header into a detail, and the outer `+`
+links the way from a detail back to a header last of all. So the state after a
+detail carries the detail's test ahead of the header's, and an adopter has no
+lever to correct it: the two competitors come from different nesting levels, so
+the order of an `(alt …)`'s branches cannot reach them. A hand-written streaming
+reader has no such problem, because it tests discriminators in the order it
+reaches their bytes — byte 0 before byte 8 — and that order is derivable from
+the copybooks alone, needs nothing from the adopter, and is what a vendor reader
+of such a file already does.
+
+**This is not a licence to overlap.** Ordering the transitions makes the order
+meaningful; it does not make it a proof, and the paragraph in [When two match,
+and when none does](#when-two-match-and-when-none-does) refusing an overlapping
+pair on the strength of evaluation order stands exactly as it was (#324). Nor
+does it change what any conforming consumer does: a consumer already evaluates
+the transitions in the order the state carries them, so this is a requirement on
+what a producer puts in the descriptor and adds nothing a consumer must
+understand. It is therefore not a change [Versioning and
+compatibility](#versioning-and-compatibility) prices — the version does not
+advance, because a descriptor carrying transitions in this order is read
+correctly by a consumer that has never heard of this section.
+
+Where the pair at a state is provably disjoint — which is every pair a producer
+may emit — the order cannot be observed at all, and the diff a descriptor shows
+on adopting this rule is a reordering rather than a change of behaviour. What it
+buys is that the order is stated: a state whose two transitions could both be
+reached is a state whose evaluation order somebody has to be able to reason
+about, and reasoning about the nesting depth of the expression that produced it
+is not reasoning anybody can do from a descriptor.
+
 ### The automaton remembers, in registers
 
 A file shape this project exists to read: a header carries a flag saying whether
@@ -2717,7 +2783,10 @@ stated as a restriction.
 A consumer **MAY** therefore stop at the first eligible transition that matches.
 The evaluation order is normative all the same, so that two consumers handed the
 same bytes do the same work in the same order and report the same thing when
-something is wrong with them.
+something is wrong with them. What that order *is* — the offset each
+discriminator reads, and not the shape of the expression the automaton was
+compiled from — is [Transitions are ordered by what they
+read](#transitions-are-ordered-by-what-they-read)'s (#331).
 
 That permission is a consumer's, and it is not a producer's. **Ordered
 evaluation does not license an overlapping pair.** A producer **MUST NOT** emit
@@ -4025,7 +4094,7 @@ records offer them.
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
-| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir` |
+| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331 |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, settled unchanged by #324 against discussion #323 |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
