@@ -459,7 +459,8 @@ func TestTheBatchShapeIsAdmittedAndStillHeldToTheReachRule(t *testing.T) {
 	t.Run("the detail's target is read past the end of a header", func(t *testing.T) {
 		t.Parallel()
 
-		reach := reachFaultIn(t, refused(t, source, map[string]string{"HEADER": header, "DETAIL": past}))
+		err := refused(t, source, map[string]string{"HEADER": header, "DETAIL": past})
+		reach := reachFaultIn(t, err)
 
 		if reach.Record != "DETAIL" || reach.Beside != "HEADER" || reach.Ends != 21 || reach.Extent != 12 {
 			t.Errorf("the fault is %s's target ending at byte %d beside %s at %d bytes, want DETAIL's at 21 beside HEADER at 12",
@@ -469,8 +470,13 @@ func TestTheBatchShapeIsAdmittedAndStillHeldToTheReachRule(t *testing.T) {
 		// And it is this rule's fault and not the overlap rule's: the pair
 		// the order would otherwise have settled is still refused here, in
 		// words that name the read rather than the pair (#332).
+		//
+		// The whole error is asked rather than the reach fault taken out of
+		// it, because faults are joined: asking the extracted one whether it
+		// is also an ambiguity is a question with one answer whatever the
+		// compilation reported.
 		var ambiguity *SequenceAmbiguityError
-		if errors.As(reach, &ambiguity) {
+		if errors.As(err, &ambiguity) {
 			t.Errorf("the overlap rule reported the same pair as well: %v", ambiguity)
 		}
 	})
