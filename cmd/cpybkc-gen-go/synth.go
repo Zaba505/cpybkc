@@ -52,6 +52,24 @@ type synth struct {
 	// first arm.
 	arms map[uint64]int
 
+	// shift moves every value this generator derives for itself along by that
+	// many positions, and is zero for every case that needs no re-picking.
+	//
+	// The rule below keys a value to where its item sits, which is what makes a
+	// regenerated golden readable — a field at the wrong offset is a run
+	// starting on the wrong letter. Nothing in that rule knows what any *other*
+	// record's discriminator reads, so a filler can land on the literal a
+	// transition ordered ahead of this one tests, and the file that came out
+	// would be one the generated reader routes elsewhere. The file tier catches
+	// that after the fact (see [filetest.walked]) and asks for the values again
+	// with this moved along, which is a re-pick rather than a refusal: the case
+	// is still one the layout describes, and it is still derived from the
+	// record's own offsets rather than from the clock.
+	//
+	// A literal a predicate or a guard requires is not derived and does not
+	// move. Only the values this file invents do.
+	shift int
+
 	// literal is the bytes a predicate requires of a field, by that field's
 	// identifier. See [synth.discriminators].
 	literal map[uint64][]byte
@@ -879,7 +897,7 @@ func (s *synth) opaque(width int, item, picture string) error {
 
 	body := make([]byte, width)
 	for i := range body {
-		body[i] = opaqueByte(at + i)
+		body[i] = opaqueByte(at + i + s.shift)
 	}
 
 	// Reported rather than discarded, and by the same route [synth.field]
@@ -913,7 +931,7 @@ func (s *synth) field(id uint64, f *irpb.Field, target, item string) error {
 
 	at := int(s.w.Offset())
 
-	value, err := s.value(id, f, at)
+	value, err := s.value(id, f, at+s.shift)
 	if err != nil {
 		return err
 	}

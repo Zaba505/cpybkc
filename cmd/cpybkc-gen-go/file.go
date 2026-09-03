@@ -105,6 +105,19 @@ type filer struct {
 	// strings, which is the whole of what it imports "bytes" for. See
 	// [filer.survey], which settles it.
 	comparesBytes bool
+
+	// forges is whether the writer evaluates any earlier transition's predicate
+	// against the bytes it is about to emit, which is what a state resting on
+	// the order the descriptor carries costs it. See [filer.emitRivalChecks],
+	// which sets it, and [filer.emitWriterDiagnostics], which says so in the
+	// refusal's doc comment where it holds.
+	//
+	// Set while the records are written and read after them, which is the order
+	// [filer.emitWriter] composes in. A descriptor whose every state is settled
+	// by its literals reaches neither, and the file it emits is the file it
+	// emitted before this check existed — byte for byte, which is what the
+	// goldens in internal/ assert.
+	forges bool
 }
 
 // fileImports is what every generated file of this kind imports.

@@ -791,6 +791,41 @@ until [#318](https://github.com/Zaba505/cpybkc/issues/318).
 The same rule decides the file tier of the generated tests, one layer up: see
 [*Decided: the file tier covers by predicate, not by edge*](#decided-the-file-tier-covers-by-predicate-not-by-edge).
 
+### A record your own reader would route elsewhere
+
+The generated writer narrows to the transitions leaving the state it is in that
+admit the record you handed it, and takes the first whose predicate the bytes it
+is about to emit satisfy. What makes that narrowed walk land where the reader
+lands is normally the overlap rule: where no two transitions leaving a state can
+both match one input, bytes satisfying this record's predicate satisfy no earlier
+transition's, and the reader arrives where the writer went.
+
+`ir/SPEC.md`'s *A batch boundary is told by the order* admits one state where
+that is not so. A file that is a sequence of batches — a header, then details
+until the next header — has two transitions eligible after a header, and where
+the header's type code and the detail's sit at different offsets no literal
+either record could carry tells them apart. The order is the whole of what does:
+*try the header's test first, and read anything that fails it as a detail*.
+
+So at such a state the writer spends the order too. Before a record goes out, the
+predicate of every transition ordered ahead of the one it took is evaluated
+against the bytes it is about to emit, and a record any of them matches is
+**refused** rather than written — through the same refusal every other one goes
+through, naming the record, the item whose value those bytes would be read as,
+the run that did it, and the record type whose boundary it would forge. A detail
+whose account key opens with the header's literal is a record your own reader
+admits as a header: the batch splits in the wrong place, nothing downstream
+reports it, and refusing where the mistake was made costs one diagnostic.
+
+Nothing is emitted where nothing is needed, and that is most descriptors. A pair
+whose runs share a byte is told apart by the literals over that byte — `resolve`
+refuses one that agrees there — and a pair whose guards cannot both hold is never
+both eligible, which is the counted run. Both are skipped, so a state settled by
+its literals emits the writer it emitted before this check existed, byte for
+byte. [`internal/batched/`](internal/batched/) is the golden for the state that
+is not, and [`example/ledger/`](../../example/ledger/) is the shape whose
+discriminators sit twelve bytes apart and whose counter separates them anyway.
+
 ### Decided: the read-ahead buffer is a constant
 
 The generated reader wraps whatever you hand it in a `bufio.Reader` of
@@ -1167,6 +1202,19 @@ The rule, in the order it is applied:
   a writer that filled the run instead of emitting what it read would emit
   zeros, so a case whose slack were zeros would pass whether the bytes survived
   or not.
+
+One thing moves those values afterwards, and only one. A value keyed to where its
+item sits knows nothing about what the *other* record types of the file are
+discriminated on, so a filler can hold, at some other record type's run, the
+literal that record type's predicate tests — and the file laid out would be one
+the generated reader routes elsewhere ([*A record your own reader would route
+elsewhere*](#a-record-your-own-reader-would-route-elsewhere)). The walk over the
+laid-out bytes is checked against the path the case was built for, and where they
+disagree for that reason every derived value is moved along one position and the
+case is laid out again. Nine attempts, after which the goal is **skipped** with a
+reason naming the two records and the run — because a case that had to be
+searched for is one nobody could regenerate and recognise, which is the whole
+point of the rule above. A literal a predicate or a guard requires does not move.
 
 Nothing in a chosen value comes from the clock, the environment, the host or a
 path, which is `docs/plugin/SPEC.md`'s *Determinism* over the one file of this

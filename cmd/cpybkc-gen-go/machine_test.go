@@ -37,6 +37,7 @@ var machineGoldens = map[string]func() *irpb.Descriptor{
 	"internal/chunks":  chunksDescriptor,
 	"internal/sep":     separatedDescriptor,
 	"internal/opt":     optionalDescriptor,
+	"internal/batched": batchedDescriptor,
 }
 
 // TestTheGeneratedFileMachinesAreTheGoldens holds every byte of each of them
@@ -286,6 +287,66 @@ func lineDescriptor(placement irpb.DelimiterPlacement) *irpb.Descriptor {
 			group(105, "LINE-RECORD", nil, 101, 102),
 			alphanumeric(101, "LINE-TEXT", 5),
 			packed(102, "LINE-AMOUNT", 3, 5, 2, true),
+		},
+	}
+}
+
+// batchedDescriptor is docs/ir/SPEC.md's "A batch boundary is told by the
+// order": a header, then details until the next header, with the two
+// discriminators at offsets that do not line up.
+//
+// The state after a header carries two transitions whose predicates read runs
+// sharing no byte — the header's type code at 0:2, the detail's at 10:12 — so no
+// literal either record could carry separates them and the order the state
+// carries is the whole of what does. `resolve` admits that pair rather than
+// refusing it (#332), and what it costs the writer is the check this package is
+// the golden for: a detail whose account key opens with the header's literal is
+// a record this file's own reader admits as a header, and the writer refuses it
+// rather than emitting a batch boundary nobody asked for (#333).
+//
+// Unframed, and both record types twenty bytes wide, because that is the shape
+// with nothing else left to tell the two apart: a framing stating a length would
+// disagree with a record of the wrong extent, and here there is no such
+// disagreement to be had.
+func batchedDescriptor() *irpb.Descriptor {
+	return &irpb.Descriptor{
+		Version: supportedIRVersion,
+		Nodes: []*irpb.Node{
+			{Id: 1, Kind: &irpb.Node_File{File: &irpb.File{
+				Framing:      &irpb.File_Unframed{Unframed: &irpb.Unframed{}},
+				StartStateId: 2,
+			}}},
+
+			// start — a batch file opens with a header, so nothing else is
+			// admitted here and the empty file is not one of these.
+			{Id: 2, Kind: &irpb.Node_State{State: &irpb.State{TransitionIds: []uint64{10}}}},
+
+			// inside a batch — accepts, and carries the ordered pair. The
+			// header's transition is ahead of the detail's because its
+			// discriminator reads the earlier run, which is what
+			// docs/ir/SPEC.md's "Transitions are ordered by what they read"
+			// requires of the descriptor rather than of the consumer.
+			{Id: 3, Kind: &irpb.Node_State{State: &irpb.State{
+				Accepts: true, TransitionIds: []uint64{11, 12},
+			}}},
+
+			edge(10, 100, 3, predicateOn(50), nil, nil),
+			edge(11, 100, 3, predicateOn(50), nil, nil),
+			edge(12, 110, 3, predicateOn(51), nil, nil),
+
+			equals(50, 101, "\xc8\xc4"),
+			equals(51, 112, "\xc4\xe3"),
+
+			record(100, "BATCH-HEADER", 105),
+			group(105, "BATCH-HEADER", nil, 101, 102),
+			alphanumeric(101, "HDR-TYPE", 2),
+			alphanumeric(102, "HDR-NAME", 18),
+
+			record(110, "BATCH-DETAIL", 115),
+			group(115, "BATCH-DETAIL", nil, 111, 112, 113),
+			alphanumeric(111, "DTL-ACCOUNT", 10),
+			alphanumeric(112, "DTL-TYPE", 2),
+			alphanumeric(113, "DTL-MEMO", 8),
 		},
 	}
 }

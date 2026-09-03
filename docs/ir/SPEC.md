@@ -3323,7 +3323,11 @@ does](#when-two-match-and-when-none-does): where no two transitions leaving a
 state can both match one input, bytes satisfying the predicate of a transition
 admitting this record satisfy no earlier transition's predicate, and the reader
 arrives at the transition the writer took. That rule is load-bearing on this
-side too, and without it a writer could emit a record its reader routes
+side too, and it no longer covers every state. Where it holds, the narrowing is
+the whole of the derivation and a writer owes nothing further. Where it does not,
+what lands the walk in the same place is the order the state carries **together
+with** the check the paragraph below requires — the two of them, and never the
+narrowing on its own, which is a writer emitting a record its reader routes
 somewhere else.
 
 It is load-bearing enough that where it no longer holds the derivation has to be
@@ -3341,6 +3345,15 @@ of them matches rather than emitting it. That is the same refusal as the
 paragraph below, reached for a different reason, and it is what keeps a
 convention the layout asserts from being broken by this format's own writer
 (#333).
+
+What it is owed at is the state, not the file. A pair whose runs share a byte is
+told apart by the literals over that byte and a pair the copybooks prove
+exclusive is told apart by them, so at either the reader arrives where the writer
+went for the reason it always did and there is nothing to evaluate. A writer
+**MAY** therefore emit no such test where no transition of the state is ordered
+before the one it took, or where every one that is could not have matched — and
+where it cannot tell which it is in, evaluating one that can never match costs a
+comparison and skipping one that can costs the file.
 
 Two transitions may admit the same record and differ only in the state they move
 to — a header deciding whether a later record type appears at all is written
@@ -4189,7 +4202,7 @@ records offer them.
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331 |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323 |
-| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go` |
+| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go`; reader and writer agreement re-derived from the transition order, and the writer's evaluation of the transitions ordered ahead of the one it took, by #333 |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | [Reading a descriptor without generated code](#reading-a-descriptor-without-generated-code) | #19 `ir`, #57 `container` |
