@@ -2630,6 +2630,64 @@ question `layout/SPEC.md` defers to this document — what happens when two
 discriminators match — has an answer at the one place it is cheap: it does not
 arise, because such an IR is never produced.
 
+Whether two predicates *can* both match is decided on bytes, in two steps, and
+`resolve` **MUST** take both before it refuses a pair.
+
+**The runs are intersected.** Two predicates whose runs share bytes and whose
+literals disagree anywhere in that shared window cannot both match, because one
+byte would have to hold two values at once: a `HEADER` keyed on byte zero equal
+to `H` beside a `DATA` keyed on bytes zero and one equal to `DD` is such a pair,
+and requiring the two runs to be identical instead called every pair like it
+ambiguous (#325). A **bytes one of** predicate is inside that rule with nothing
+added, since the window belongs to the runs and not to the values: the pair
+overlaps where any value of the one agrees with any value of the other across it.
+
+**And the copybooks are consulted.** Agreeing over that window — which every pair
+whose runs share no byte does vacuously — is not the end of the question. The run
+one discriminator reads is covered, *inside the other record*, by an item with a
+PICTURE and a USAGE, and those bound what a record of that type may hold there.
+Where the literal one predicate asks for is a byte the other record's item can
+never carry, no record of that type satisfies that predicate however far apart
+the two runs are; where that holds in **both** directions the two tests are
+exclusive, and `resolve` **MUST** admit the pair rather than refusing it (#330).
+Both directions are required, and the requirement is not conservatism: the record
+that *can* carry the other's literal is exactly the record that satisfies both
+tests at once, so one direction alone proves nothing.
+
+A byte domain is what an item's PICTURE and USAGE say each of its bytes may hold.
+Only these are claimed:
+
+| Shape | Domain |
+|---|---|
+| unsigned zoned DISPLAY | the charset's ten digit bytes, at every position |
+| alphanumeric, `PIC X` | every byte value, so nothing is proved |
+| binary — `COMP`, `COMP-5` | every bit pattern, so nothing is proved |
+
+Everything else is **declined**, and a decline leaves the pair overlapping and
+refused exactly as it was before the copybooks were read. A producer **MUST**
+decline rather than narrow wherever the record's static layout does not settle
+which item covers the run: a run no single elementary item wholly contains, a run
+landing on the slack bytes a SYNCHRONIZED item pushed in front of itself, a run
+at or after a repetition whose count is a reference, a run inside a table, a run
+more than one description of the same storage covers, and a run whose charset the
+encoding profile does not state. A packed item and a signed zoned one do have a
+domain and are declined all the same, because stating one means restating where
+the encoding puts a sign — a second reading of an encoding, kept in a second
+place, which is the disagreement this refinement is not worth. Declining costs a
+refusal that could have been narrowed; guessing costs a file read as the wrong
+record type.
+
+**The proof holds over well-formed records, and that is a narrowing.** A record
+whose bytes are what its own copybook's items admit is inside the proof. A record
+carrying a byte outside the domain of the item describing it — a corrupt record,
+a file written by something that did not honour the copybook — is outside it, and
+a consumer handed one may take a transition this rule proved could not be taken.
+Everywhere else in this document the overlap rule is a claim about *any* input;
+here it is a claim about inputs the layout is right about, and the difference is
+stated rather than absorbed. It is not a new exposure so much as a new place to
+find an old one: such a file is a file the layout is already wrong about, and
+what it loses is the diagnostic it would otherwise have got.
+
 Guards narrow which pairs that rule is about. Two transitions leaving one state
 whose guards cannot hold at the same time are never both eligible, and their
 predicates **MAY** overlap freely — which is what makes a counted run of records
@@ -2682,6 +2740,15 @@ detail* reads that file, and is presumably what the vendor reader that wrote it
 does. `layout/SPEC.md` states the shape, and what a layout may write instead, at
 [A batch boundary told only by evaluation
 order](../layout/SPEC.md#a-batch-boundary-told-only-by-evaluation-order).
+
+The copybooks decide how often that shape actually arises, which is why they are
+consulted above. Where the item covering the header's run inside a detail is
+numeric — an account number, a sequence number, a date — and the item covering
+the detail's run inside a header is too, the two tests are provably exclusive and
+the layout compiles with nothing added to it and nothing asked of the adopter.
+What is left over is the shape where at least one of those items is `PIC X`, and
+there the paragraph above stands unchanged: nothing in the copybooks separates
+the two, and ordered evaluation is not a proof that they are separate.
 
 What such a descriptor gives up is the whole of what the overlap rule gives.
 Ordered matching encodes *try the header first*; it is not a proof that the two

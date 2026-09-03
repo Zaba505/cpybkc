@@ -261,9 +261,11 @@
 // it.
 //
 // On a pair the overlap rule admits it is a gate of its own. Two predicates are
-// told apart by the bytes their runs share (#325), so a pair reading runs of
-// different widths can be unambiguous and still have the wider read reach past
-// the shorter record. [compiler.reportReach] carries both readings.
+// told apart by the bytes their runs share (#325) and by what each record's
+// copybook admits at the other's run (#330), so a pair reading runs of different
+// widths — or runs sharing no byte at all — can be unambiguous and still have one
+// of them reach past the shorter record. [compiler.reportReach] carries both
+// readings.
 //
 // [Sequencing.Framing] is what that is keyed on, and a caller stating no framing
 // states neither mechanism, so the rule is not run. It cannot be inferred from

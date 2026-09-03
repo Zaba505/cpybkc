@@ -805,3 +805,210 @@ func TestValueEqualityDoesNotDependOnWhichAnswerIsAsked(t *testing.T) {
 		})
 	}
 }
+
+// layoutOf lays a copybook source out under the dialect every test here states.
+func layoutOf(t *testing.T, source string) *copybook.Layout {
+	t.Helper()
+
+	built, err := copybook.NewLayout(recordOf(t, source), copybook.IBMEnterprise())
+	if err != nil {
+		t.Fatalf("laying the copybook out: %v", err)
+	}
+
+	return built
+}
+
+// TestTheItemCoveringARunIsTakenOnlyWhereTheLayoutSettlesIt is the soundness
+// bound of #330's refinement, asked of [covering] rather than of a pair of
+// records: everything the static layout does not settle has to decline, because
+// a domain read off the wrong item turns an ambiguity into a layout that
+// compiles and a file read as the wrong record type.
+//
+// Two of these are not reachable through a pair of records at all. Slack belongs
+// to no item and sits only in front of a binary item, so a record whose byte the
+// refinement declines for slack declines for the binary item either way; and a
+// run covered by a REDEFINES cluster is every run of the arm overlap check,
+// which passes no domains at all. They are held here so that the reason each
+// declines is the reason written down rather than the one that happens to
+// coincide with it.
+func TestTheItemCoveringARunIsTakenOnlyWhereTheLayoutSettlesIt(t *testing.T) {
+	t.Parallel()
+
+	const plain = `01 PLA-REC.
+   05 PLA-TYPE PIC X(1).
+   05 PLA-ID   PIC 9(9).
+   05 PLA-SEQ  PIC 9(5).
+`
+
+	// BIN-BIN is SYNCHRONIZED onto a four-byte boundary, so bytes nine, ten
+	// and eleven are slack: part of the record and described by no item.
+	const synchronized = `01 BIN-REC.
+   05 BIN-TYPE PIC X(1).
+   05 BIN-FILL PIC X(8).
+   05 BIN-BIN  PIC 9(9) COMP SYNC.
+`
+
+	const depending = `01 ODO-REC.
+   05 ODO-COUNT PIC 9(2).
+   05 ODO-TAB   PIC X(4) OCCURS 1 TO 5 TIMES DEPENDING ON ODO-COUNT.
+   05 ODO-SEQ   PIC 9(5).
+`
+
+	const table = `01 TAB-REC.
+   05 TAB-TYPE PIC X(1).
+   05 TAB-TAB  PIC 9(2) OCCURS 5 TIMES.
+`
+
+	const redefined = `01 RED-REC.
+   05 RED-TYPE PIC X(1).
+   05 RED-BODY PIC 9(8).
+   05 RED-ALT REDEFINES RED-BODY.
+      10 RED-ALT-A PIC X(4).
+      10 RED-ALT-B PIC X(4).
+`
+
+	tests := map[string]struct {
+		copybook string
+		run      stretch
+		want     string
+	}{
+		"a run inside one elementary item": {
+			copybook: plain, run: stretch{at: 10, width: 1}, want: "PLA-SEQ",
+		},
+
+		"a run that is the whole of one item": {
+			copybook: plain, run: stretch{at: 1, width: 9}, want: "PLA-ID",
+		},
+
+		"a run spanning two items": {
+			copybook: plain, run: stretch{at: 9, width: 2}, want: "",
+		},
+
+		"a run past the last byte of the record": {
+			copybook: plain, run: stretch{at: 14, width: 2}, want: "",
+		},
+
+		"a run landing on slack": {
+			copybook: synchronized, run: stretch{at: 10, width: 1}, want: "",
+		},
+
+		"a run ahead of a repetition whose count is a reference": {
+			copybook: depending, run: stretch{at: 0, width: 2}, want: "ODO-COUNT",
+		},
+
+		"a run after a repetition whose count is a reference": {
+			copybook: depending, run: stretch{at: 23, width: 5}, want: "",
+		},
+
+		"a run inside a table": {
+			copybook: table, run: stretch{at: 3, width: 2}, want: "",
+		},
+
+		"a run more than one description covers": {
+			copybook: redefined, run: stretch{at: 1, width: 2}, want: "",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			item, ok := covering(layoutOf(t, test.copybook), test.run)
+			if !ok {
+				if test.want != "" {
+					t.Fatalf("the run is covered by no item, want %s", test.want)
+				}
+
+				return
+			}
+
+			if test.want == "" {
+				t.Fatalf("the run is covered by %s, want no item at all", item.Field.Name)
+			}
+
+			if item.Field.Name != test.want {
+				t.Errorf("the run is covered by %s, want %s", item.Field.Name, test.want)
+			}
+		})
+	}
+}
+
+// TestOnlyTheUnsignedZonedItemStatesAByteDomain is the other half: what a
+// PICTURE and a USAGE are read as once the item is known.
+//
+// The one shape stated is the unsigned zoned DISPLAY item, whose bytes are the
+// charset's ten digits and nothing else. Every other shape declines, and the
+// declines are not all the same kind of thing — `PIC X` and the binary usages
+// have no domain to state, while a packed item and a signed zoned one have one
+// this package will not write a second reading of (Zaba505/cobol-go#134).
+func TestOnlyTheUnsignedZonedItemStatesAByteDomain(t *testing.T) {
+	t.Parallel()
+
+	// F0 through F9: the digits of cp037, which codec/SPEC.md states are the
+	// digits of every EBCDIC code page the charset axis admits.
+	ebcdicDigits := []byte{0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9}
+
+	tests := map[string]struct {
+		picture string
+		charset layoutmodel.Charset
+		want    []byte
+	}{
+		"an unsigned zoned item": {
+			picture: "PIC 9(3)", charset: layoutmodel.CP037, want: ebcdicDigits,
+		},
+
+		"an unsigned zoned item on a borrowed table": {
+			picture: "PIC 9(3)", charset: layoutmodel.CP1047, want: ebcdicDigits,
+		},
+
+		"an unsigned zoned item in ASCII": {
+			picture: "PIC 9(3)", charset: layoutmodel.ASCII,
+			want: []byte("0123456789"),
+		},
+
+		"an alphanumeric item": {picture: "PIC X(3)", charset: layoutmodel.CP037},
+		"a signed zoned item":  {picture: "PIC S9(3)", charset: layoutmodel.CP037},
+		"a scaled item":        {picture: "PIC 9V99", charset: layoutmodel.CP037},
+		"a packed item":        {picture: "PIC 9(5) COMP-3", charset: layoutmodel.CP037},
+		"a binary item":        {picture: "PIC 9(4) COMP", charset: layoutmodel.CP037},
+
+		"an item nothing states a charset for": {picture: "PIC 9(3)"},
+
+		"an item whose bytes are not characters": {
+			picture: "PIC 9(3)", charset: layoutmodel.None,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			built := layoutOf(t, "01 DOM-REC.\n   05 DOM-ITEM "+test.picture+".\n")
+
+			item, ok := covering(built, stretch{at: 0, width: 1})
+			if !ok {
+				t.Fatalf("the item covers no run of its own record")
+			}
+
+			domain := itemDomain(item, layoutmodel.Axes{Charset: test.charset})
+
+			if test.want == nil {
+				if domain != nil {
+					t.Errorf("the item states the domain %x, want none", domain)
+				}
+
+				return
+			}
+
+			if len(domain) != item.Length {
+				t.Fatalf("the domain covers %d bytes, want %d", len(domain), item.Length)
+			}
+
+			for at, set := range domain {
+				if string(set) != string(test.want) {
+					t.Errorf("byte %d admits %x, want %x", at, set, test.want)
+				}
+			}
+		})
+	}
+}
