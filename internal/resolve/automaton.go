@@ -421,6 +421,12 @@ type State struct {
 	Acceptance []Guard
 
 	// Transitions are the edges leaving the state, in evaluation order.
+	//
+	// The order is the one docs/ir/SPEC.md's "Transitions are ordered by
+	// what they read" requires and not the one the expression walk left
+	// behind: by the first byte each predicate reads, then by the last, with
+	// a transition carrying no predicate left where it was
+	// ([compiler.order], #331).
 	Transitions []*Transition
 }
 

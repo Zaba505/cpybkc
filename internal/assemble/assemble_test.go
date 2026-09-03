@@ -1279,3 +1279,91 @@ func TestCharsetNoneReachesTheFieldTheOverrideNames(t *testing.T) {
 11 transition record=1 to=8 predicate=10
 `)
 }
+
+// The batched file docs/ir/SPEC.md's "Transitions are ordered by what they read"
+// is written for: a header keyed on the record's first byte, a detail keyed ten
+// bytes in, and both admissible at the state after a detail. The ten digits
+// ahead of the detail's type code are what make the pair provably exclusive, so
+// what a descriptor carries here is an order rather than a refusal.
+const (
+	batchHeader = `01 BAT-HDR.
+   05 BAT-TYPE PIC X(1).
+   05 BAT-ID   PIC 9(9).
+   05 BAT-SEQ  PIC 9(5).
+   05 BAT-BODY PIC X(6).
+`
+
+	batchDetail = `01 BDT-REC.
+   05 BDT-KEY  PIC 9(10).
+   05 BDT-TYPE PIC X(1).
+   05 BDT-BODY PIC X(10).
+`
+)
+
+const batched = `(framing (recfm FB) (lrecl 21))
+(encoding (charset cp037) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))
+(record HEADER (copybook "header.cpy" BAT-HDR))
+(record DETAIL (copybook "detail.cpy" BDT-REC))
+(discriminate HEADER (equals (item HEADER BAT-TYPE) "H"))
+(discriminate DETAIL (equals (item DETAIL BDT-TYPE) "D"))
+(sequence (+ (seq HEADER (+ DETAIL))))`
+
+// TestTheOrderAStateCarriesItsTransitionsInSurvivesAssembly is docs/ir/SPEC.md's
+// "Transitions are ordered by what they read" asserted one layer on: the order
+// `resolve` decided is the order the state node's transition list is in, and
+// nothing between here and the wire re-derives it (#331).
+//
+// It is asserted over the record each transition admits rather than over the
+// identifiers, because identifiers are assigned by this traversal and would
+// come out ascending whatever order the transitions were in — which is the one
+// way this assertion could pass while saying nothing.
+func TestTheOrderAStateCarriesItsTransitionsInSurvivesAssembly(t *testing.T) {
+	t.Parallel()
+
+	descriptor := assembled(t, batched, map[string]string{"HEADER": batchHeader, "DETAIL": batchDetail})
+
+	var admitted [][]string
+	for _, node := range descriptor.GetNodes() {
+		state, isState := node.GetKind().(*irpb.Node_State)
+		if !isState || len(state.State.GetTransitionIds()) < 2 {
+			continue
+		}
+
+		var records []string
+		for _, at := range state.State.GetTransitionIds() {
+			records = append(records, recordAdmittedBy(t, descriptor, at))
+		}
+
+		admitted = append(admitted, records)
+	}
+
+	// The names are the copybooks' `01`-levels, which is what a record node
+	// carries (docs/ir/SPEC.md, "Names").
+	want := [][]string{{"BAT-HDR", "BDT-REC"}}
+	if !slices.EqualFunc(admitted, want, slices.Equal) {
+		t.Errorf("the states offering a choice admit %v, want %v — the header's code is byte zero and the detail's is byte ten",
+			admitted, want)
+	}
+}
+
+// recordAdmittedBy is the name of the record one transition node admits.
+func recordAdmittedBy(t *testing.T, d *irpb.Descriptor, transition uint64) string {
+	t.Helper()
+
+	byID := make(map[uint64]*irpb.Node, len(d.GetNodes()))
+	for _, node := range d.GetNodes() {
+		byID[node.GetId()] = node
+	}
+
+	edge, isTransition := byID[transition].GetKind().(*irpb.Node_Transition)
+	if !isTransition {
+		t.Fatalf("node %d is not a transition", transition)
+	}
+
+	record, isRecord := byID[edge.Transition.GetRecordId()].GetKind().(*irpb.Node_Record)
+	if !isRecord {
+		t.Fatalf("transition %d admits node %d, which is not a record", transition, edge.Transition.GetRecordId())
+	}
+
+	return record.Record.GetNames().GetOriginal()
+}
