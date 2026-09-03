@@ -1,0 +1,32 @@
+;; batch-ordered's file shape with the other outcome: a header, then details
+;; until the next header, whose two discriminators still sit at different
+;; offsets and different widths, but whose opposing items are numeric DISPLAY
+;; rather than PIC X. The run each discriminator reads is covered, inside the
+;; other record, by an item whose every byte is a digit byte, so neither
+;; record can carry the other's literal and the two tests are proved exclusive
+;; from the copybooks alone.
+;;
+;; The detail's run is the earlier one here, so the state carries the detail's
+;; test first -- the reverse of batch-ordered's order, and a reversal the file
+;; is read the same way under, because a pair that cannot both match is a pair
+;; whose order cannot be observed.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm FB)
+  (lrecl 40))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "detail.cpy" BATCH-DETAIL))
+
+(discriminate HEADER (equals (item HEADER BH-TYPE) (bytes "C8C4D9")))
+(discriminate DETAIL (equals (item DETAIL BD-TYPE) (bytes "C4")))
+
+(sequence (+ (seq HEADER (* DETAIL))))

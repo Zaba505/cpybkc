@@ -1,0 +1,30 @@
+;; A batched extract: a header, then details until the next header, with no
+;; trailer to end a batch. Two records are eligible at the state after a
+;; header and the two discriminators sit at different offsets and different
+;; widths, so the runs share no byte and no literal either record could carry
+;; separates them. What reads the file is trying the header's test first,
+;; which is what the resolved automaton does -- not because this layout said
+;; so, but because the header's run begins at the earlier byte.
+;;
+;; The copybooks are docs/layout/SPEC.md's own, at "A batch boundary, told by
+;; the order".
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm FB)
+  (lrecl 40))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "detail.cpy" BATCH-DETAIL))
+
+(discriminate HEADER (equals (item HEADER BH-TYPE) (bytes "C8C4D9")))
+(discriminate DETAIL (equals (item DETAIL BD-TYPE) (bytes "C4")))
+
+(sequence (+ (seq HEADER (* DETAIL))))

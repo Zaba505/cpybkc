@@ -1,0 +1,29 @@
+;; batch-ordered, reframed. Every record is preceded by a four-byte record
+;; descriptor word whose first two bytes are the length of the record and the
+;; word together, big-endian, and whose last two are zero.
+;;
+;; The framing is what changes and the discrimination is not: a record's bytes
+;; are handed to the automaton the same way once the word in front of them has
+;; been consumed, so the pair still shares no byte and the state still tries
+;; the header's test first. The two record types are one width here as they are
+;; in batch-ordered, which is what leaves the mis-read batch-ordered-missplit
+;; carries undiagnosed under this framing as well.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm VB))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "detail.cpy" BATCH-DETAIL))
+
+(discriminate HEADER (equals (item HEADER BH-TYPE) (bytes "C8C4D9")))
+(discriminate DETAIL (equals (item DETAIL BD-TYPE) (bytes "C4")))
+
+(sequence (+ (seq HEADER (* DETAIL))))

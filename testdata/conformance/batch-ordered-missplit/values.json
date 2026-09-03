@@ -1,0 +1,40 @@
+{
+  "records": [
+    {
+      "name": "BATCH-HEADER",
+      "value": {
+        "BH-TYPE": "HDR",
+        "BH-BATCH-NO": "417",
+        "BH-DATE": "20260901",
+        "BH-FILLER": ""
+      }
+    },
+    {
+      "name": "BATCH-DETAIL",
+      "value": {
+        "BD-ACCOUNT": "ACCT000001",
+        "BD-TYPE": "D",
+        "BD-AMOUNT": "12345",
+        "BD-FILLER": ""
+      }
+    },
+    {
+      "name": "BATCH-HEADER",
+      "value": {
+        "BH-TYPE": "HDR",
+        "BH-BATCH-NO": "4",
+        "BH-DATE": "2D000000",
+        "BH-FILLER": "00777"
+      }
+    },
+    {
+      "name": "BATCH-DETAIL",
+      "value": {
+        "BD-ACCOUNT": "ACCT000002",
+        "BD-TYPE": "D",
+        "BD-AMOUNT": "42",
+        "BD-FILLER": ""
+      }
+    }
+  ]
+}

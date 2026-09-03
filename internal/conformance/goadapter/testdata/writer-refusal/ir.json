@@ -1,0 +1,218 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "unframed": {},
+        "start_state_id": "12"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "BATCH-HEADER"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4"
+        ],
+        "names": {
+          "original": "BATCH-HEADER"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 3,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_PACKED_DECIMAL",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 5,
+          "signed": true
+        },
+        "names": {
+          "original": "BH-KEY"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 5,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BH-NAME"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "record": {
+        "root_id": "6",
+        "names": {
+          "original": "BATCH-DETAIL"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "group": {
+        "member_ids": [
+          "7",
+          "8",
+          "9"
+        ],
+        "names": {
+          "original": "BATCH-DETAIL"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "field": {
+        "width": 3,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_PACKED_DECIMAL",
+        "picture": {
+          "category": "CATEGORY_NUMERIC",
+          "digits": 5,
+          "signed": true
+        },
+        "names": {
+          "original": "BD-AMT"
+        }
+      }
+    },
+    {
+      "id": "8",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BD-TYPE"
+        }
+      }
+    },
+    {
+      "id": "9",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "BD-REF"
+        }
+      }
+    },
+    {
+      "id": "10",
+      "predicate": {
+        "field_id": "3",
+        "bytes_equal": {
+          "value": "EjRc"
+        }
+      }
+    },
+    {
+      "id": "11",
+      "predicate": {
+        "field_id": "8",
+        "bytes_equal": {
+          "value": "xA=="
+        }
+      }
+    },
+    {
+      "id": "12",
+      "state": {
+        "transition_ids": [
+          "14"
+        ]
+      }
+    },
+    {
+      "id": "13",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "15",
+          "16"
+        ]
+      }
+    },
+    {
+      "id": "14",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "13",
+        "predicate_id": "10"
+      }
+    },
+    {
+      "id": "15",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "13",
+        "predicate_id": "10"
+      }
+    },
+    {
+      "id": "16",
+      "transition": {
+        "record_id": "5",
+        "next_state_id": "13",
+        "predicate_id": "11"
+      }
+    }
+  ]
+}
