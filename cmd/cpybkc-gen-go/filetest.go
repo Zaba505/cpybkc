@@ -866,18 +866,76 @@ func (t *filetest) lay(path []step) (*laid, string, error) {
 		return nil, why, err
 	}
 
-	one, err := t.write(path, sites)
-	if err != nil {
-		return nil, "", err
-	}
-
-	if why, err := t.walked(path, sites, one); err != nil || why != "" {
+	one, why, err := t.laidOut(path, sites)
+	if err != nil || one == nil {
 		return nil, why, err
 	}
 
 	one.meets = t.met(path)
 
 	return one, "", nil
+}
+
+// repicks is how many times the values a case invents may be chosen again
+// before the path is refused.
+//
+// A re-pick moves every derived value along by one position, so nine attempts
+// are nine distinct fillers over any one run of a record. A literal every one of
+// them lands on is a discriminator the rule in [synth.value] cannot step around,
+// and a tenth guess is a worse answer there than a refusal naming the pair — the
+// skip says which two records and which bytes, which is something an adopter can
+// act on, and a case that had to be searched for is one nobody could regenerate
+// and recognise.
+const repicks = 8
+
+// laidOut is one path's bytes, re-picked until the reader's walk over them is
+// the walk the path names, or the reason it never was.
+//
+// The re-pick is what keeps a collision from costing the goal. This generator
+// keys the value of every item it invents to where that item sits, and knows
+// nothing there about what the *other* records of the file are discriminated on
+// — so a filler can hold, at some other record type's run, the literal that
+// record type's predicate tests, and the file laid out would be one the reader
+// routes elsewhere. Nothing is wrong with the path, the record or the
+// descriptor: the numbers this file chose are wrong, and choosing again is the
+// whole of the fix (#333).
+//
+// Only that collision is re-picked. A transition held eligible by its guards, or
+// one carrying no predicate at all, is eligible whatever bytes are laid down,
+// and moving the fillers would be nine attempts at a question that is not about
+// them.
+func (t *filetest) laidOut(path []step, sites []site) (*laid, string, error) {
+	// The synthesizer outlives this call and every other candidate shares it, so
+	// the shift goes back whatever happens here.
+	defer func() { t.synth.shift = 0 }()
+
+	var why string
+
+	for shift := range repicks + 1 {
+		t.synth.shift = shift
+
+		one, err := t.write(path, sites)
+		if err != nil {
+			return nil, "", err
+		}
+
+		again := false
+
+		why, again, err = t.walked(path, sites, one)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if why == "" {
+			return one, "", nil
+		}
+
+		if !again {
+			break
+		}
+	}
+
+	return nil, why, nil
 }
 
 // met is every goal a path passes through, which is what makes one case cover
@@ -1762,22 +1820,41 @@ func cut(parts []chunk, from, to int) []chunk {
 // does not hold, or by a predicate the record's own bytes do not satisfy. That is
 // a fact about the bytes as well as about the registers, which is why it is
 // checked here rather than while the path was being chosen.
-func (t *filetest) walked(path []step, sites []site, one *laid) (string, error) {
+func (t *filetest) walked(path []step, sites []site, one *laid) (string, bool, error) {
 	for at, taken := range path {
+		admitted := t.walks[taken.from][taken.at]
+
 		for earlier := range taken.at {
-			held, err := t.eligible(t.walks[taken.from][earlier], path[:at], sites, one.records[at].raw)
+			other := t.walks[taken.from][earlier]
+
+			held, err := t.eligible(other, path[:at], sites, one.records[at].raw)
 			if err != nil {
-				return "", err
+				return "", false, err
 			}
 
-			if held {
-				return fmt.Sprintf("the reader takes transition %d of the state the descriptor carries as node %d for record %d, not transition %d",
-					earlier+1, t.states[taken.from].GetId(), at+1, taken.at+1), nil
+			if !held {
+				continue
 			}
+
+			// The pair the order resolves, met from the synthesizer's side: two
+			// runs that share no byte, so nothing about this record made the
+			// earlier transition match and the filler chosen for those bytes did
+			// it. That is the one refusal here worth choosing again for, and the
+			// message names the run and both records rather than two transition
+			// numbers, because the run is what a re-pick moves and what an
+			// adopter would look at if every re-pick failed.
+			if admitted.match != "" && other.match != "" && !shareBytes(admitted, other) {
+				return fmt.Sprintf("record %d is a %s and the values chosen for it hold, at bytes %d:%d, the literal the transition admitting %s tests, so the reader takes transition %d of the state the descriptor carries as node %d rather than transition %d",
+					at+1, admitted.record.GetNames().GetOriginal(), other.at, other.reads,
+					other.record.GetNames().GetOriginal(), earlier+1, t.states[taken.from].GetId(), taken.at+1), true, nil
+			}
+
+			return fmt.Sprintf("the reader takes transition %d of the state the descriptor carries as node %d for record %d, not transition %d",
+				earlier+1, t.states[taken.from].GetId(), at+1, taken.at+1), false, nil
 		}
 	}
 
-	return "", nil
+	return "", false, nil
 }
 
 // eligible is whether one transition would take the record in front of it.

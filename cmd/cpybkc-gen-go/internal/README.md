@@ -21,7 +21,7 @@ DO NOT EDIT.` header is what tells them apart. `records_test.go` and
 `file_test.go` are **output**: the first is one case per record and per variant
 arm, the second one case per path through the automaton, each carrying the bytes
 it reads as a literal, and `written` pins both byte for byte like every other
-generated file. Everything else — `file_roundtrip_test.go` in all six,
+generated file. Everything else — `file_roundtrip_test.go` in all seven,
 `record_roundtrip_test.go` in `orders`, and the four `file_reuse_test.go` — is
 hand-written and is skipped, because those assertions live *inside* each package
 for a reason the generated ones do not have: the bytes retained for a slack node
@@ -58,7 +58,10 @@ escapes into the decoder.
 A descriptor carries one file node and a file node carries one framing, so what
 the reader and the writer do with the bytes around a record cannot be exercised
 from a package whose file node names a different one. There is therefore one
-package per framing, and one per delimiter placement:
+package per framing, and one per delimiter placement — and one more, `batched`,
+which is not about a framing at all: it is the state whose two transitions no
+literal separates, where what a reader and a writer agree on is the order the
+state carries and the check that spends it:
 
 | Package | Framing | What it is for |
 |---|---|---|
@@ -68,6 +71,7 @@ package per framing, and one per delimiter placement:
 | [`chunks`](chunks) | segmented | Reassembly, and a writer laying a record into as few segments as the largest allows |
 | [`sep`](sep) | delimited, separator | A trailing delimiter announcing a record that is not there |
 | [`opt`](opt) | delimited, optional terminator | Tuesday's file and Wednesday's, and a writer that emits the final delimiter rather than choosing whether to |
+| [`batched`](batched) | unframed | `ir/SPEC.md`'s *A batch boundary is told by the order* — two discriminators at offsets that do not line up, and the writer refusing a detail its own reader would admit as a header |
 
 Regenerate one whenever the emitter changes: the failure prints the whole of
 both sides, so the new bytes come out of the test's own output.

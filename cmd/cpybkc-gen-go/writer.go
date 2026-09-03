@@ -296,7 +296,7 @@ func (f *filer) emitWriteRecords(b *strings.Builder, walks [][]transition, admit
 			line(b, "case %d: // the state the descriptor carries as node %d", i, f.states[i].GetId())
 
 			for _, j := range narrowed {
-				if err := f.emitWriterTransition(b, walk[j], j); err != nil {
+				if err := f.emitWriterTransition(b, walk, j); err != nil {
 					return err
 				}
 			}
@@ -318,7 +318,15 @@ func (f *filer) emitWriteRecords(b *strings.Builder, walks [][]transition, admit
 }
 
 // emitWriterTransition writes one candidate transition of the narrowed walk.
-func (f *filer) emitWriterTransition(b *strings.Builder, t transition, at int) error {
+//
+// The whole walk rather than the one transition, because what the writer owes a
+// record it is about to admit is not decided by that transition alone: the
+// transitions ordered ahead of it are what a reader tries first, and where the
+// order is the only thing separating a pair, evaluating them here is what keeps
+// the two directions agreeing. See [filer.emitRivalChecks].
+func (f *filer) emitWriterTransition(b *strings.Builder, walk []transition, at int) error {
+	t := walk[at]
+
 	line(b, "// Transition %d of that state.", at+1)
 
 	test, phrase, registers, err := f.guardTests(t, "w")
@@ -354,6 +362,10 @@ func (f *filer) emitWriterTransition(b *strings.Builder, t transition, at int) e
 		line(b, "if %s(raw) {", matches)
 
 		closing = "}"
+	}
+
+	if err := f.emitRivalChecks(b, walk, at, registers); err != nil {
+		return err
 	}
 
 	line(b, "if err := w.emit(raw); err != nil {")
@@ -451,13 +463,31 @@ func (f *filer) emitWriterDiagnostics(b *strings.Builder, walks [][]transition) 
 	line(b, "// refuse is what a writer says when no transition leaving the state it is in")
 	line(b, "// took the record it was asked to write.")
 	line(b, "//")
-	line(b, "// Two things bring a caller here and the message covers both, because the")
-	line(b, "// writer's walk is narrowed before any predicate runs: the state may admit no")
-	line(b, "// record of this type at all, which is a record written out of order, or it may")
-	line(b, "// admit one and be selected by a predicate this record's values do not satisfy.")
+	if f.forges {
+		line(b, "// Three things bring a caller here and the message covers all of them, because")
+		line(b, "// the writer's walk is narrowed before any predicate runs: the state may admit")
+		line(b, "// no record of this type at all, which is a record written out of order; it may")
+		line(b, "// admit one and be selected by a predicate this record's values do not satisfy;")
+		line(b, "// or the record may satisfy the predicate of a transition ordered ahead of the")
+		line(b, "// one that would have taken it, which is a record this file's own reader admits")
+		line(b, "// as some other record type.")
+	} else {
+		line(b, "// Two things bring a caller here and the message covers both, because the")
+		line(b, "// writer's walk is narrowed before any predicate runs: the state may admit no")
+		line(b, "// record of this type at all, which is a record written out of order, or it may")
+		line(b, "// admit one and be selected by a predicate this record's values do not satisfy.")
+	}
+
 	line(b, "//")
-	line(b, "// Either way the record does not belong at this point in the file with the")
-	line(b, "// values it has, and the value a predicate tests is the caller's: a writer")
+
+	if f.forges {
+		line(b, "// In every one of them the record does not belong at this point in the file with")
+		line(b, "// the values it has, and the value a predicate tests is the caller's: a writer")
+	} else {
+		line(b, "// Either way the record does not belong at this point in the file with the")
+		line(b, "// values it has, and the value a predicate tests is the caller's: a writer")
+	}
+
 	line(b, "// checks it and reports it when it is wrong rather than deriving one that would")
 	line(b, "// satisfy the test and storing it into the field.")
 	line(b, "func (w *%s) refuse(record string, excluded string) error {", writerType)
