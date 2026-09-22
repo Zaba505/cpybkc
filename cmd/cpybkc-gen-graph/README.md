@@ -357,12 +357,31 @@ impersonate one.
 the Offset column is saying: they are [alternatives over one run of
 bytes](../../docs/ir/SPEC.md#a-variant-is-chosen-once-per-occurrence) and not
 items that follow one another. An arm has no name of its own, so what tells them
-apart is the predicate that selects it, in the last column.
+apart is the selector, in the last column.
+
+**An arm is chosen in one of two ways, and the column says which.** Where the
+variant is chosen by bytes, the cell is the arm's predicate — `when
+ENTRIES.ENTRY-KIND = 0xC1`, the same phrase an edge label uses for the same
+message. Where the variant is chosen by [its position in the
+table](../../docs/ir/SPEC.md#an-arm-may-be-selected-by-its-position-in-the-table)
+instead, the cell names the occurrences that take it — `in occurrence 1 of the
+table`, `in occurrences 2 and 3 of the table` — because what a reader with that
+layout in front of them is checking is which occurrence holds which alternative,
+and a cell reading "chosen by position" would be true of every arm of the
+variant. [`testdata/scheduled.md`](testdata/scheduled.md) carries one record of
+each, so the two read side by side.
+
+Every arm of one variant carries the same kind of selector. A variant mixing
+them is refused rather than drawn, on the same terms as any other malformed
+descriptor below: half a column saying which bytes select an arm and half saying
+which occurrence does is one column asking two questions, and no reader can tell
+which one a given row answered.
 
 **The last column says what makes an item present and how many times**: `always`
 for an item that is there once and unconditionally, `occurs 12 times` for a
 constant table, `occurs COUNT-FIELD times (1 to 20)` for an `OCCURS DEPENDING
-ON` one with the bounds the copybook declared, and `when …` for an arm.
+ON` one with the bounds the copybook declared, and `when …` or `in occurrence …`
+for an arm.
 
 Where an item's USAGE or category is something the descriptor does not say —
 a `USAGE` outside the closed set, a `DISPLAY` item carrying no picture, an
