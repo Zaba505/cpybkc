@@ -1,0 +1,40 @@
+{
+  "records": [
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "3",
+        "ADR-ENTRY": [
+          {"ADR-KIND": "D", "ADR-DOMESTIC": {"ADR-STATE": "NY", "ADR-ZIP": "10001"}},
+          {"ADR-KIND": "F", "ADR-FOREIGN": {"ADR-COUNTRY": "CAN"}},
+          {"ADR-KIND": "D", "ADR-DOMESTIC": {"ADR-STATE": "TX", "ADR-ZIP": "73301"}}
+        ],
+        "ADR-TAIL": "END1"
+      }
+    },
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "1",
+        "ADR-ENTRY": [
+          {"ADR-KIND": "F", "ADR-FOREIGN": {"ADR-COUNTRY": "MEX"}}
+        ],
+        "ADR-TAIL": "END2"
+      }
+    },
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "2",
+        "ADR-ENTRY": [
+          {"ADR-KIND": "F", "ADR-FOREIGN": {"ADR-COUNTRY": "BRA"}},
+          {"ADR-KIND": "D", "ADR-DOMESTIC": {"ADR-STATE": "WA", "ADR-ZIP": "98101"}}
+        ],
+        "ADR-TAIL": "END3"
+      }
+    }
+  ]
+}

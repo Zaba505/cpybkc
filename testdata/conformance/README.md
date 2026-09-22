@@ -30,8 +30,8 @@ unstated rule becomes a coordinated migration (#194).
 Beside it is [`docs/conformance/GRAMMAR.md`](../../docs/conformance/GRAMMAR.md),
 the value language as a table of a value against the exact text it is written
 as. That is where a writer for a new language is checked before any entry here
-is run, and it is where the constructs no entry covers — a variant arm, a slack
-node, `INDEX`, `POINTER`, `NATIONAL` and both edited categories — are written
+is run, and it is where the constructs no entry covers — a slack node, `INDEX`,
+`POINTER`, `NATIONAL` and both edited categories — are written
 down (#197).
 
 What stays here is the corpus rather than the format: why it exists, why every
@@ -259,14 +259,18 @@ with four items in it.
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
 | [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
 | [`alphanumeric-payload`](alphanumeric-payload) | A `PIC X` item that carries bytes rather than text: one `encoding-override` on the group they sit in, a status flag of `0x03`, a region byte of `0x93`, all 256 byte values in one item, and both pad bytes — beside text items still read as characters. |
+| [`variant-fixed`](variant-fixed) | A `REDEFINES` inside a repeating group: a table of address entries each choosing its own alternative, read `noodoslide` — a constant three entries, with the shorter alternative carrying a slack run of its own. |
+| [`variant-sliding`](variant-sliding) | The same copybook read `odoslide`, so a variable extent and a variant's arms are exercised together: three records of three entries, one and two, behind the record descriptor word the reading obliges. |
+| [`variant-no-arm`](variant-no-arm) | `variant-fixed`'s layout over a file whose second record carries an entry no arm covers, refused as such and not as a record type the layout is missing. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Fourteen are not derived from it — `float-ieee754-special`,
+it came from (#67). Seventeen are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `batch-ordered`, `batch-disjoint`,
 `batch-ordered-missplit`, `batch-ordered-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
 `segmented-spanning`, `odo-sliding`,
-`sync-slack` and `alphanumeric-payload` — and the subsections
+`sync-slack`, `alphanumeric-payload`, `variant-fixed`, `variant-sliding` and
+`variant-no-arm` — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
 question about the entries that *are* derived from it.
@@ -615,6 +619,72 @@ record, under no override, and they are still characters — `TXN-NAME` is padde
 to six bytes and comes back as two, which is the trailing-space rule holding
 where it still applies. An entry of payload items alone would pass for a
 generator that had stopped reading charsets altogether.
+
+### The variant entries cite the sections that add the kind, and no vector
+
+`codec/SPEC.md` tabulates a byte string against the value it decodes to, and a
+`REDEFINES` has no such row: an overlay states that one run of storage has two
+descriptions, and which description a given run carries is a fact about the
+adopter's data rather than about the bytes of any value. So `variant-fixed`,
+`variant-sliding` and `variant-no-arm` are authored against
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *A variant is chosen once per
+occurrence* and *A predicate on an arm reads one occurrence* — the node kind and
+the rules of the predicate that selects an arm — and
+[`docs/layout/SPEC.md`](../../docs/layout/SPEC.md)'s *A discriminator for a
+redefine inside a table*, which is the only place a layout says anything about a
+redefine at all. The bytes of their items are still `codec/SPEC.md`'s, which is
+what each entry cites beside them.
+
+They are the corpus's first entries to carry a `Variant` node, and until they
+arrived the mechanism was specified, resolved, generated and shipped with no
+entry holding any generator to reading one (#90, #344). `GRAMMAR.md` covered it
+already and covers it still — the two checks are different, and the grammar one
+runs first: it holds a writer to *spelling* an arm the way the value language
+says, which is a claim about one occurrence written down, while an entry holds a
+reader to picking the right arm and a writer to putting the bytes back.
+
+Three rules are what the three entries are for, and none of them is visible in a
+corpus of one record with one occurrence in it.
+
+**The arm chosen varies per occurrence.** Both positive entries hold a record
+whose entries do not all take the same alternative, so a generator that selected
+one arm for the record — the shape a record-level `REDEFINES` resolves to, and
+the mistake nearest to hand — reads a foreign entry's country out of a domestic
+one's state and ZIP and passes nothing.
+
+**Slack is retained per occurrence.** `ADR-FOREIGN` is four bytes shorter than
+the run it redefines, so each entry that takes it carries a slack run of its own
+and each entry that does not carries none. Which runs a record has, and where
+they fall, is therefore decided by the data rather than by the descriptor — which
+is what `sync-slack` cannot state, its two runs being at the same two offsets in
+every record. `ADR-TAIL` sits behind the table and holds it to account: under
+`recfm F` a record written back without one of those runs is short, and the next
+record is read four bytes early.
+
+**An occurrence no arm matches is reported, and reported distinguishably.**
+`variant-no-arm` is a file whose second record carries a kind byte the
+alternatives do not cover, in a record whose type byte the layout does describe.
+The read stops there and the entry's answer is the first record and a failure.
+What it writes down is the distinction *A predicate on an arm reads one
+occurrence* requires a consumer to make: a record no transition matched is a
+record type the layout is missing, while an occurrence no arm matched is a record
+the layout does describe carrying an entry it does not, and an adopter sent to
+the first for the second spends the day on a record type they already have. The
+words of the diagnostic are the generator's own and are not compared
+([*A file the reader
+refused*](../../docs/conformance/SPEC.md#a-file-the-reader-refused)).
+
+The pair of readings is the fourth thing, and it costs one entry rather than a
+second copybook. `variant-fixed` and `variant-sliding` are one copybook read
+both ways, which is the fork *An item after a table slides, and the other
+reading is a fixed table* is emphatic about: the descriptors differ in the
+table's repetition and in nothing else about the record, and the framing follows
+from that — a sliding record has a variable extent and cannot sit on a
+fixed-length dataset. A consumer that read either file the other way is wrong at
+every item behind the table, silently, at every record, and nothing in either
+file disagrees with it. `odo-sliding` covers the sliding reading in a counted run
+of records; what these two add is the fork itself, with a variant inside it,
+which is the shape an adopter arrived with (#340).
 
 ### No row of Appendix A is deliberately absent, and two once were
 

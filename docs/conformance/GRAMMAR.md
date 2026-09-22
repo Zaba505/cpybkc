@@ -213,7 +213,7 @@ means the completeness this file claims is checked rather than asserted: a usage
 or a category the IR gains, and this table does not cover, fails the test that
 every one of them is named by some row.
 
-The corpus's own entries do not cover a variant arm, `INDEX`, `POINTER`,
+The corpus's own entries do not cover `INDEX`, `POINTER`,
 `NATIONAL` or either edited category — every entry in
 [`testdata/conformance/`](../../testdata/conformance) is derived from a real
 file layout and none of those has needed one yet. This table is where those
@@ -224,3 +224,13 @@ A slack node was on that list and is not any more:
 `slack-omitted` row above is now stated by an entry as well as by this file. The
 `group-only-slack` row is still this file's alone — a group whose every byte is
 slack is a group no copybook has yet wanted.
+
+A variant arm has left the list the same way.
+[`variant-fixed`](../../testdata/conformance/variant-fixed) and
+[`variant-sliding`](../../testdata/conformance/variant-sliding) hold records
+whose entries do not all take the same alternative, so the `variant-arm-held`
+and `variant-arm-absent` rows are stated by an entry as well as by this file
+(#344). Neither row retires for it, and the order does not change: this table
+holds a writer to *spelling* one occurrence's arm the way the value language
+says, and it runs before any entry does, while an entry holds a reader to
+picking the arm out of the bytes and a writer to putting them back.

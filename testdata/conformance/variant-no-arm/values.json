@@ -1,0 +1,18 @@
+{
+  "records": [
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "3",
+        "ADR-ENTRY": [
+          {"ADR-KIND": "D", "ADR-DOMESTIC": {"ADR-STATE": "NY", "ADR-ZIP": "10001"}},
+          {"ADR-KIND": "F", "ADR-FOREIGN": {"ADR-COUNTRY": "CAN"}},
+          {"ADR-KIND": "D", "ADR-DOMESTIC": {"ADR-STATE": "TX", "ADR-ZIP": "73301"}}
+        ],
+        "ADR-TAIL": "END1"
+      }
+    }
+  ],
+  "failure": "the second entry of the second record carries the kind byte M, which no arm of the variant selects on"
+}

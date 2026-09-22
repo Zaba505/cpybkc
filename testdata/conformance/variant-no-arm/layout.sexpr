@@ -1,0 +1,36 @@
+;; variant-fixed's layout and copybook over a file whose second record carries
+;; an entry the alternatives do not cover: a kind byte M, where the arms select
+;; on D and on F. No arm matches that entry, and a consumer MUST report it
+;; rather than fall through to the last arm or leave the entry's items unset.
+;;
+;; The record it sits in is one the layout does describe. Its type byte is A, so
+;; the transition matched and the record was admitted; what has no description
+;; is one entry inside it. That is the distinction this entry exists to write
+;; down: a record no transition matched is a record type the layout is missing,
+;; while an occurrence no arm matched is a record the layout does describe
+;; carrying an entry it does not, and the two send an adopter to different
+;; places. The remedy for this file is an arm for the residue, spelled over the
+;; codes the layout covers -- not a fourth record type.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 30))
+
+(record ADDRESS
+  (copybook "address.cpy" ADR-RECORD))
+
+(copybook-reading
+  (occurs-depending-on noodoslide))
+
+(discriminate ADDRESS (equals (item ADDRESS ADR-TYPE) "A"))
+
+(discriminate-variant (item ADDRESS ADR-ENTRY ADR-DOMESTIC)
+  (arm ADR-DOMESTIC (equals (item ADDRESS ADR-ENTRY ADR-KIND) "D"))
+  (arm ADR-FOREIGN  (equals (item ADDRESS ADR-ENTRY ADR-KIND) "F")))
+
+(sequence (* ADDRESS))
