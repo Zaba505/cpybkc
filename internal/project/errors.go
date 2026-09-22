@@ -342,6 +342,46 @@ func quoteAll(names []string) []string {
 	return quoted
 }
 
+// ScheduledVariantError is a `schedule-variant` this build reads, checks and
+// does not lower.
+//
+// docs/layout/SPEC.md admits the form and
+// [github.com/Zaba505/cpybkc/internal/layoutmodel] reads it, so a layout
+// carrying one is well formed and the layout reader has already made every check
+// a number settles on its own. What is not here is the rest: the coverage check
+// needs the repetition's declared maximum, which is the copybook's, and the
+// lowering needs the IR's scheduled selector.
+//
+// The message says the construct is not resolved rather than that the layout is
+// wrong, and that distinction is the whole of why this is a fault type of its own
+// instead of being left to
+// [github.com/Zaba505/cpybkc/internal/resolve.UndiscriminatedRedefineError]. That
+// one tells an adopter that nothing says which alternative to read, which is
+// false here and would send somebody who wrote a correct schedule to rewrite it
+// as something else (#353).
+type ScheduledVariantError struct {
+	// Pos is the `schedule-variant` form.
+	Pos diag.Span
+
+	// Variant is the item it names.
+	Variant layoutmodel.ItemRef
+}
+
+// Error implements the error interface.
+func (e *ScheduledVariantError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *ScheduledVariantError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the schedule on %s is not resolved by this build", e.Variant),
+		Spans: []diag.Span{
+			e.Pos,
+			{Note: "a variant settled by the position of an occurrence is read and checked, and nothing " +
+				"lowers one into the IR yet; the layout says what it means"},
+		},
+	}
+}
+
 // GeneratorError is a generator the manifest names that could not be resolved to
 // an executable.
 //

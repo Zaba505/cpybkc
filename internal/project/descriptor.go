@@ -139,6 +139,8 @@ func (l *layers) assemble(bound *bindings) (*irpb.Descriptor, error) {
 	renames := l.substitutes(bound)
 	chosen := l.alternatives(bound)
 
+	l.schedules(bound)
+
 	// Every item reference the layout writes is resolved before this line, and
 	// nothing below resolves another. A reference that names no item reports
 	// itself against `bound`, and `bound` is read exactly here — so a stage that
@@ -473,6 +475,29 @@ func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 	}
 
 	return redefines
+}
+
+// schedules reports every `schedule-variant` the layout carries, because nothing
+// lowers one into the IR yet (#353).
+//
+// The layout reader reads the form and makes every check a number settles on its
+// own, so a schedule that reaches here is well formed and says something the
+// format admits. What is missing is the rest of the way: resolving one needs the
+// repetition's declared maximum to check the coverage against, and lowering one
+// needs the IR's scheduled selector. Until both are here the run stops, and the
+// message says the construct is not resolved rather than that the layout is
+// wrong — an adopter who wrote a correct schedule must not be sent to rewrite it.
+//
+// It is reported against the same list every other item reference is, and after
+// the reference is resolved rather than instead of it: a schedule naming an item
+// the copybook does not declare is a fault of the layout's, and this is the only
+// place it would be found.
+func (l *layers) schedules(bound *bindings) {
+	for _, schedule := range l.discrimination.Schedules {
+		bound.field(schedule.Variant)
+
+		bound.Fail(&ScheduledVariantError{Pos: span(schedule.Pos), Variant: schedule.Variant})
+	}
 }
 
 // substitutes resolves each `rename` to what it names: a copybook item, or the

@@ -53,11 +53,31 @@ func renderDiscrimination(d *Discrimination) string {
 		}
 	}
 
+	for _, schedule := range d.Schedules {
+		lines = append(lines, fmt.Sprintf("%s schedule-variant %s", schedule.Pos, schedule.Variant))
+
+		for _, arm := range schedule.Arms {
+			lines = append(lines, fmt.Sprintf("  %s arm %s: %s", arm.Pos, arm.Alternative, renderOccurrences(arm)))
+		}
+	}
+
 	for _, taken := range d.Taken {
 		lines = append(lines, fmt.Sprintf("%s take-alternative %s: %s", taken.Pos, taken.Redefine, taken.Alternative))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderOccurrences draws a scheduled arm's occurrences, each with the position
+// it was written at, because a diagnostic about a schedule points at the number
+// rather than at the arm.
+func renderOccurrences(arm ScheduledArm) string {
+	occurrences := make([]string, 0, len(arm.Occurrences))
+	for _, occurrence := range arm.Occurrences {
+		occurrences = append(occurrences, fmt.Sprintf("%s %d", occurrence.Pos, occurrence.Value))
+	}
+
+	return strings.Join(occurrences, " ")
 }
 
 // renderStrategy draws one strategy: where it was written, which member of the

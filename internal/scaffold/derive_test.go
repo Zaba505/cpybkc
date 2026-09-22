@@ -374,6 +374,39 @@ func TestCopybookReadingIsRaisedForAnOccursDependingOnAndNotOtherwise(t *testing
 	}
 }
 
+// A redefine inside a repeating group takes three forms and the scaffold raises
+// one of them, so the other two are named where the raised one is.
+//
+// The omission this closes is the wall discussion #340 hit: an adopter whose
+// entries carry roles rather than types has no byte to test, and a scaffold that
+// offered only `discriminate-variant` left them writing a predicate over bytes
+// that decide nothing. Which of the three applies is a reading of the file and
+// never of the copybook, so the comment states all three and chooses none
+// (#341, #346, #353).
+func TestTheVariantCommentNamesEveryFormARedefineInATableTakes(t *testing.T) {
+	t.Parallel()
+
+	text := string(deriveOf(t, book("order.cpy", table)).Bytes())
+
+	for _, want := range []string{
+		";; (discriminate-variant (item ORDER-RECORD ORD-LINE LN-BODY)",
+		";;   (schedule-variant <item-ref>",
+		";;     (arm <name> <occurrence> ...)",
+		";;   (take-alternative <item-ref> <name>)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the scaffold does not carry %q:\n%s", want, text)
+		}
+	}
+
+	// The two named in prose are named and not raised: a scaffold carrying a
+	// second form over one redefine would be two statements about it, and
+	// uncommenting both is a diagnostic the adopter did not have to meet.
+	if got := strings.Count(text, "(schedule-variant"); got != 1 {
+		t.Errorf("schedule-variant stands %d times, want once, in the comment above the form raised:\n%s", got, text)
+	}
+}
+
 func TestTheCommentedFormsCarryTheirSubjectsAndNoValues(t *testing.T) {
 	t.Parallel()
 

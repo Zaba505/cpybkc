@@ -13,13 +13,21 @@ import (
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
-// The tags this layer reads. `discriminate`, `discriminate-variant` and
-// `take-alternative` are the top-level forms; the rest stand inside them.
-// `record` is read for its name alone, because a rule counting one form against
-// another needs both.
+// The tags this layer reads. `discriminate`, `discriminate-variant`,
+// `schedule-variant` and `take-alternative` are the top-level forms; the rest
+// stand inside them. `record` is read for its name alone, because a rule
+// counting one form against another needs both.
+//
+// `arm` is one tag in two sorts — carrying a predicate under
+// `discriminate-variant` and occurrences under `schedule-variant` — the way
+// `one-of` is a strategy in one position and a `when`'s value in another. Which
+// is written is decided by the form it sits in, and neither is reachable where
+// the other belongs (docs/layout/SPEC.md, "A schedule for a redefine chosen by
+// position").
 const (
 	tagDiscriminate        = "discriminate"
 	tagDiscriminateVariant = "discriminate-variant"
+	tagScheduleVariant     = "schedule-variant"
 	tagTakeAlternative     = "take-alternative"
 	tagArm                 = "arm"
 	tagEquals              = "equals"
@@ -270,13 +278,17 @@ type TakenAlternative struct {
 }
 
 // Discrimination is a layout's discrimination layer: every `discriminate` form,
-// and every `discriminate-variant` and `take-alternative` beside them.
+// and every `discriminate-variant`, `schedule-variant` and `take-alternative`
+// beside them.
 //
 // The first two are the two scopes a discriminator is written in — a record, and
 // an alternative inside one occurrence of a table — and the strategies are one
-// closed set lowering into both. The third discriminates nothing: it is the
-// redefine inside a table that is not a variant, and it is read here because
-// exactly one form names each redefine and there is nowhere else to count that.
+// closed set lowering into both. The third settles a variant by the position of
+// an occurrence rather than by its bytes, for the table whose entries carry
+// roles rather than types; the fourth discriminates nothing at all, being the
+// redefine inside a table that is not a variant. Both are read here because
+// exactly one form names each redefine inside a repeating group and there is
+// nowhere else to count that.
 type Discrimination struct {
 	// Records are the record discriminators, in the order the layout writes
 	// them. On a value handed back there is exactly one per `record` form the
@@ -287,9 +299,15 @@ type Discrimination struct {
 	// them, and no two of them name one item.
 	Variants []VariantDiscriminator
 
+	// Schedules are the variants settled by the position of an occurrence, in
+	// the order the layout writes them. No two of them name one item, and none
+	// names an item a [Discrimination.Variants] entry names.
+	Schedules []ScheduledVariant
+
 	// Taken are the redefines every occurrence of which takes one alternative,
 	// in the order the layout writes them. No two of them name one item, and
-	// none names an item a [Discrimination.Variants] entry names.
+	// none names an item a [Discrimination.Variants] or
+	// [Discrimination.Schedules] entry names.
 	Taken []TakenAlternative
 }
 
@@ -304,9 +322,12 @@ type Discrimination struct {
 // exactly one form names each redefine inside a repeating group, that a
 // discriminator tests an item of the record it discriminates, that an arm's
 // target stands where an arm's target may stand, and that two arms of one
-// variant do not name one alternative or one literal. Everything else about
-// containment and overlap needs a copybook and is `resolve`'s
-// (docs/layout/SPEC.md's "Validation and diagnostics").
+// variant do not name one alternative or one literal. A scheduled variant adds
+// the half of its rules a number settles on its own: every occurrence positive,
+// at least one per arm, none named twice by one variant, and the arms and their
+// occurrences in ascending order. Everything else about containment, overlap and
+// coverage needs a copybook and is `resolve`'s (docs/layout/SPEC.md's
+// "Validation and diagnostics").
 //
 // Top-level forms belonging to other layers are not read here and are not
 // faults. `record` forms are read for their names alone, because "exactly one
@@ -322,6 +343,8 @@ func ReadDiscrimination(file *layout.File) (*Discrimination, error) {
 			read.discriminate(discrimination, form)
 		case tagDiscriminateVariant:
 			read.variant(discrimination, form)
+		case tagScheduleVariant:
+			read.schedule(discrimination, form)
 		case tagTakeAlternative:
 			read.taken(discrimination, form)
 		}
@@ -554,10 +577,11 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 // variantItem holds the item a form naming a redefine inside a repeating group
 // names to what such a reference can be checked against without a copybook.
 //
-// All three forms stand on the same two rules — a record the layout defines, and
-// a path deep enough for the item to be inside a group that repeats — and on the
-// one that counts them against each other. Only what each form says about the
-// redefine differs, and none of that is here.
+// All three forms naming a redefine inside a repeating group stand on the same
+// two rules — a record the layout defines, and a path deep enough for the item
+// to be inside a group that repeats — and on the one that counts them against
+// each other. Only what each form says about the redefine differs, and none of
+// that is here.
 func (r *discriminationReader) variantItem(form layout.Form, item ItemRef) {
 	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == item.Record }) {
 		r.Fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
@@ -578,10 +602,11 @@ func (r *discriminationReader) variantItem(form layout.Form, item ItemRef) {
 // naming one redefine.
 //
 // Which diagnostic that is follows from the two tags. Two variant
-// discriminators are two statements of which arm an occurrence takes, and the
-// order they were written in would decide the answer; a variant discriminator
-// beside a taken alternative is two statements about whether there is a variant
-// there at all, which is the larger disagreement and says so.
+// discriminators, or two schedules, are two statements of which arm an
+// occurrence takes, and the order they were written in would decide the answer;
+// two forms of different tags disagree about more than that — whether the
+// alternative is chosen by bytes or by position, or whether there is a variant
+// there at all — which is the larger disagreement and says so.
 func (r *discriminationReader) name(form layout.Form, item ItemRef) {
 	first, already := r.named[item.identity()]
 	if !already {
@@ -594,10 +619,17 @@ func (r *discriminationReader) name(form layout.Form, item ItemRef) {
 		return
 	}
 
-	if first.tag == form.Tag && form.Tag == tagDiscriminateVariant {
-		r.Fail(&DuplicateVariantError{Pos: form.Pos, First: first.pos, Variant: item})
+	if first.tag == form.Tag {
+		switch form.Tag {
+		case tagDiscriminateVariant:
+			r.Fail(&DuplicateVariantError{Pos: form.Pos, First: first.pos, Variant: item})
 
-		return
+			return
+		case tagScheduleVariant:
+			r.Fail(&DuplicateScheduleError{Pos: form.Pos, First: first.pos, Variant: item})
+
+			return
+		}
 	}
 
 	r.Fail(&RedefineNamedTwiceError{

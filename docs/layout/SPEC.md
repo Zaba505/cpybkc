@@ -2074,13 +2074,16 @@ or form; a value outside a closed set — a `recfm`, a `placement`, a strategy,
 an axis value; a duplicate record name; a record with no `discriminate` form or
 two; a discriminator whose item reference is rooted at a record other than the
 one it discriminates; a second form naming one redefine inside a repeating
-group, whether the two are of one tag or of two; a `take-alternative` or a
-variant discriminator whose reference names an item directly under a record's
-top-level item, which no copybook can make a redefine inside a table; two
-arms of one variant naming one alternative, or naming one target and one
+group, whether the two are of one tag or of two; a `take-alternative`, a
+variant discriminator or a schedule whose reference names an item directly under
+a record's top-level item, which no copybook can make a redefine inside a table;
+two arms of one variant naming one alternative, or naming one target and one
 literal; an arm whose target is rooted at another record, stands under another
 outermost group than the variant, or descends through the variant or one of its
-arms; a record name in the sequencing expression that no `record` form defines,
+arms; a scheduled arm taken for no occurrence, an occurrence that is not counted
+from one, one occurrence scheduled twice by one variant whether by two arms or
+twice within one arm, and a schedule whose arms or whose occurrences within an
+arm are not in ascending order; a record name in the sequencing expression that no `record` form defines,
 and a `record` the expression never names; an `alternative` child whose
 reference is rooted at another record, and two of them naming one item; a second
 `rename` naming one item or one record, a

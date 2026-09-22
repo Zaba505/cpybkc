@@ -1098,6 +1098,278 @@ func (e *ArmOverlapError) Error() string {
 	)
 }
 
+// ScheduleFormError is a `schedule-variant` that names no item at all.
+//
+// A reference that is written and wrong is an [ItemReferenceError]; this is the
+// form carrying nothing where the variant belongs.
+type ScheduleFormError struct {
+	// Pos is the form.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ScheduleFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a variant schedule is written (schedule-variant <item-ref> (arm <name> <occurrence> ...) ...), "+
+			"and this is %s",
+		e.Pos, e.Found,
+	)
+}
+
+// DuplicateScheduleError is a second `schedule-variant` naming an item another
+// one already named.
+//
+// It is [DuplicateVariantError] for the other way a variant is settled, and for
+// the same reason: two statements of which arm an occurrence takes would leave
+// the order they were written in deciding the answer. The two forms are counted
+// against each other by [RedefineNamedTwiceError], which is the pair that
+// disagrees about how the alternative is chosen rather than about which one it
+// is.
+type DuplicateScheduleError struct {
+	// Pos is the second schedule.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Variant is the item both name.
+	Variant ItemRef
+}
+
+// Error implements the error interface.
+func (e *DuplicateScheduleError) Error() string {
+	return fmt.Sprintf(
+		"%s: %s is scheduled twice, and is scheduled first at %s; a variant carries exactly one schedule",
+		e.Pos, e.Variant, e.First,
+	)
+}
+
+// ScheduleArmCountError is a variant schedule written with fewer than two arms.
+//
+// It is [VariantArmCountError] for the other way a variant is settled, and the
+// message names the same spelling for the same reason: an alternation with one
+// arm is the redefine every occurrence of which takes one alternative, and the
+// format has a form for saying that (docs/layout/SPEC.md, "Every occurrence of a
+// table takes one alternative").
+//
+// Like that rule, it is about the arms as the layout writes them and never about
+// the arms that could be read. An arm refused for a reason of its own is
+// reported against that arm, and this rule stays silent rather than restating
+// the refusal as a shortage of arms (#342).
+type ScheduleArmCountError struct {
+	// Pos is the `schedule-variant` form.
+	Pos layout.Pos
+
+	// Variant is the item it names.
+	Variant ItemRef
+
+	// Count is how many arms the layout wrote, whether or not each of them
+	// could be read.
+	Count int
+}
+
+// Error implements the error interface.
+func (e *ScheduleArmCountError) Error() string {
+	return fmt.Sprintf(
+		"%s: the variant at %s is scheduled with %d arms, and a variant carries at least two; "+
+			"a redefine every occurrence of which takes one alternative is not a variant, "+
+			"and is written (take-alternative <item-ref> <name>)",
+		e.Pos, e.Variant, e.Count,
+	)
+}
+
+// ScheduledArmFormError is an arm of a schedule that is not
+// `(arm <name> <occurrence> …)`.
+//
+// It is a second fault type rather than an [ArmFormError] carrying a different
+// sentence because the two arms take different things: one takes a predicate and
+// the other a list of occurrences, and a message naming the wrong one sends an
+// adopter to write the arm the form does not take.
+type ScheduledArmFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *ScheduledArmFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a scheduled arm is written (arm <name> <occurrence> ...), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// EmptyScheduledArmError is an arm of a schedule naming no occurrence.
+//
+// It names the variant and the arm rather than reporting the shape, because the
+// shape is right: the form is an `arm` and it carries a name. What is missing is
+// the statement, and an arm scheduled for nothing is an arm nothing selects.
+type EmptyScheduledArmError struct {
+	// Pos is the `arm` form.
+	Pos layout.Pos
+
+	// Variant is the variant it is an arm of.
+	Variant ItemRef
+
+	// Alternative is the name it gives.
+	Alternative string
+}
+
+// Error implements the error interface.
+func (e *EmptyScheduledArmError) Error() string {
+	return fmt.Sprintf(
+		"%s: arm %s of the variant at %s is scheduled for no occurrence, and an arm scheduled for nothing "+
+			"is an arm nothing selects",
+		e.Pos, quote(e.Alternative), e.Variant,
+	)
+}
+
+// OccurrenceValueError is an occurrence that is a number and not a position in a
+// table.
+//
+// Occurrences are counted from one, the way COBOL subscripts are, so zero is not
+// the first entry and a negative number is not an entry at all.
+type OccurrenceValueError struct {
+	// Pos is the number.
+	Pos layout.Pos
+
+	// Variant is the variant being scheduled.
+	Variant ItemRef
+
+	// Alternative is the arm it was written under.
+	Alternative string
+
+	// Occurrence is what was written.
+	Occurrence int64
+}
+
+// Error implements the error interface.
+func (e *OccurrenceValueError) Error() string {
+	return fmt.Sprintf(
+		"%s: arm %s of the variant at %s is scheduled for occurrence %d, and an occurrence is counted from one",
+		e.Pos, quote(e.Alternative), e.Variant, e.Occurrence,
+	)
+}
+
+// OccurrenceOrderError is an occurrence written before one already on its arm.
+//
+// An arm's occurrences are written in strictly ascending order, which is what
+// makes two layouts describing one file one text. An occurrence equal to the one
+// before it is a [DuplicateOccurrenceError] instead: strictness is what leaves a
+// repeat inside an arm unambiguously a duplicate rather than an ordering that
+// happens to hold.
+type OccurrenceOrderError struct {
+	// Pos is the occurrence out of order.
+	Pos layout.Pos
+
+	// First is the one it was written after.
+	First layout.Pos
+
+	// Variant is the variant being scheduled.
+	Variant ItemRef
+
+	// Alternative is the arm both were written under.
+	Alternative string
+
+	// Occurrences are the two, in the order the layout writes them.
+	Occurrences [2]int64
+}
+
+// Error implements the error interface.
+func (e *OccurrenceOrderError) Error() string {
+	return fmt.Sprintf(
+		"%s: arm %s of the variant at %s schedules occurrence %d after occurrence %d at %s, "+
+			"and an arm's occurrences are written in ascending order",
+		e.Pos, quote(e.Alternative), e.Variant, e.Occurrences[1], e.Occurrences[0], e.First,
+	)
+}
+
+// DuplicateOccurrenceError is one occurrence scheduled twice by one variant.
+//
+// It is the schedule's counterpart of [ArmOverlapError] and is decidable from
+// the layout alone for a stronger reason than that one: a number is a number
+// whatever charset the file is in, so nothing about the copybook can make two
+// arms scheduled for one entry disagree about which of them takes it.
+//
+// Two arms and one arm are the same rule and the same fault, because
+// docs/layout/SPEC.md states it of the variant — "whether by two arms or twice
+// within one arm" — but the message distinguishes them, since an adopter who
+// wrote one number twice on one line is looking for something different from one
+// who gave entry two to two alternatives.
+type DuplicateOccurrenceError struct {
+	// Pos is the second occurrence.
+	Pos layout.Pos
+
+	// First is the one before it.
+	First layout.Pos
+
+	// Variant is the variant both are scheduled for.
+	Variant ItemRef
+
+	// Arms are the two alternatives, in the order the layout writes them. They
+	// are one name written twice where the repeat is inside a single arm.
+	Arms [2]string
+
+	// Occurrence is the entry both name.
+	Occurrence int64
+}
+
+// Error implements the error interface.
+func (e *DuplicateOccurrenceError) Error() string {
+	if e.Arms[0] == e.Arms[1] {
+		return fmt.Sprintf(
+			"%s: arm %s of the variant at %s is scheduled for occurrence %d twice, and is scheduled for it "+
+				"first at %s; an occurrence takes exactly one alternative",
+			e.Pos, quote(e.Arms[0]), e.Variant, e.Occurrence, e.First,
+		)
+	}
+
+	return fmt.Sprintf(
+		"%s: occurrence %d of the variant at %s is scheduled by arms %s and %s, and is scheduled first at %s; "+
+			"an occurrence takes exactly one alternative",
+		e.Pos, e.Occurrence, e.Variant, quote(e.Arms[0]), quote(e.Arms[1]), e.First,
+	)
+}
+
+// ScheduleOrderError is an arm written before the one above it in a schedule.
+//
+// Arms are written in ascending order of their first occurrence. Nothing about
+// the file depends on it — the arms say the same thing in any order — and that
+// is exactly the reason for the rule: two layouts describing one file are one
+// text, and a schedule is the one form here whose arms carry an order of their
+// own to be written in.
+type ScheduleOrderError struct {
+	// Pos is the first occurrence of the arm out of order.
+	Pos layout.Pos
+
+	// First is the first occurrence of the arm above it.
+	First layout.Pos
+
+	// Variant is the variant both are arms of.
+	Variant ItemRef
+
+	// Arms are the two alternatives, in the order the layout writes them.
+	Arms [2]string
+
+	// Occurrences are the two arms' first occurrences, in that same order.
+	Occurrences [2]int64
+}
+
+// Error implements the error interface.
+func (e *ScheduleOrderError) Error() string {
+	return fmt.Sprintf(
+		"%s: arm %s of the variant at %s is scheduled from occurrence %d and follows arm %s, which is "+
+			"scheduled from occurrence %d at %s; a schedule's arms are written in ascending order of their "+
+			"first occurrence",
+		e.Pos, quote(e.Arms[1]), e.Variant, e.Occurrences[1], quote(e.Arms[0]), e.Occurrences[0], e.First,
+	)
+}
+
 // RenameFormError is a `rename` that is neither `(rename <item-ref> "<name>")`
 // nor `(rename <record-name> "<name>")`.
 //
