@@ -1973,12 +1973,14 @@ retained rather than reconstructed for exactly this reason.
 like.** `Charset` is a closed set, and [What breaks it](#what-breaks-it) calls
 adding a member to one breaking — a consumer that read this item as text would
 trim it, translate it, and be wrong about 236 of the 256 values a byte may hold.
-That bullet is right and this is not an exception to it. It is the case its own
-last sentence describes: the sets are enumerated **before the first release**
-rather than after it, `IR_VERSION_1` is the version being assembled and not one
-anything has yet been held to, and there is nothing to advance from. Every other
-closed set in this document was settled that way; the charset axis is being
-settled the same way, once.
+That bullet is right and this is not an exception to it. It is the case [While
+`IR_VERSION_1` is being
+assembled](#while-ir_version_1-is-being-assembled) governs: the sets are
+enumerated **before the first release** rather than after it, and settling the
+charset axis once is that enumeration rather than a departure from it. This
+member is of the shape that section prices highest — an unset choice a consumer
+may default, not a reference it must fail on — which is why what such a consumer
+does instead is written out below rather than left to be worked out.
 
 What is deliberately **not** the argument is that an old consumer would refuse
 it. A consumer **MUST** refuse a charset it does not recognise, and that is a
@@ -3639,7 +3641,10 @@ Breaking, and requiring the version to advance:
   consumer sees an unset choice where a new one sees a member,
   and generates code for a file it has silently misread. This is the standing
   cost of the flat node set, and it is why the kinds are enumerated before the
-  first release instead of after it.
+  first release instead of after it. That enumeration is not finished, and until
+  it is this bullet does not bind: [While `IR_VERSION_1` is being
+  assembled](#while-ir_version_1-is-being-assembled) is what governs such an
+  addition, and it is the enumerating rather than an exception to it (#347).
 - Any addition a consumer must understand in order to stay correct, whether or
   not protobuf would call it compatible.
 
@@ -3651,6 +3656,90 @@ The reversal that makes this work is worth stating on its own. A consumer
 closed set*. The two rules point in opposite directions on purpose: a field it
 has never seen is information it did not need, while a choice it has never seen
 is a fact about the data that it cannot represent at all.
+
+### While `IR_VERSION_1` is being assembled
+
+The bullet above is the standing rule and it is not yet the rule this project
+follows. `Charset` gained `CHARSET_NONE` with `IrVersion` left at 1 (#275), and
+#346 adds one to the predicate set on the same footing. Each has argued its own
+case in a comment on the member it added, which is a rule being written one
+member at a time. It is written here instead, once (#347).
+
+Until the event named below, a member **MAY** be added to a closed set of this
+schema without `IrVersion` advancing, within the limits the two shapes of
+addition below set. After it, [What breaks it](#what-breaks-it) binds without
+exception: a member added to any closed set is breaking, and the version
+advances.
+
+**What ends it is the project's first `v1.0.0` release.** That is what *the
+first release* means throughout this document — not the `v0.y.z` releases
+already published, which carry the IR as it is being enumerated rather than as
+it will stand. It is a fact anybody can check without asking: the release notes
+of every release name the IR version that release speaks, and the CLI that wrote
+a descriptor answers with the release it came from
+([`--version`](../cli/SPEC.md#--version)). While that number begins `v0.`, the
+sets are still being settled.
+
+Keying the *end* of a period to a tag does not make the version field a function
+of one. [What this version is not](#what-this-version-is-not) stands: after
+`v1.0.0` one IR version goes on outliving many releases, and the tag is the
+event that closes the enumeration rather than a second place the version is
+written.
+
+**The two shapes of addition are not the same price, and this permission is not
+a licence for the expensive one.** What [What breaks it](#what-breaks-it) fears
+is a consumer that generates code for a file it has silently misread, and
+whether that can happen depends on the shape of the addition rather than on the
+fact of it.
+
+An addition a conforming consumer **must fail on** leaves a required reference
+unresolvable: a new node kind, or a new member of a set some reference position
+admits. Every reference **MUST** resolve to a node of a kind the referring
+position admits ([Identity, ordering and
+determinism](#identity-ordering-and-determinism)), so an old consumer that
+indexed the kinds it knows does not find the node the reference names and stops
+— `cpybkc-gen-go` returns `unresolved` naming the identifier for an arm whose
+predicate reference names no node it built. The worst outcome is a refusal
+naming what could not be resolved, which is what advancing the version would
+have bought. This is the shape the permission is for.
+
+An addition a consumer **may silently default** leaves an unset choice it has a
+plausible answer for: a framing, a delimiter's placement, a charset, any member
+reached by a `switch` that falls through rather than failing. Nothing catches it
+and the misread is exactly the one feared. Such a member **MAY** still be added
+while the version is being assembled — `CHARSET_NONE` is one, and it has
+shipped — and two things are required of one that is. It **MUST** carry, where
+it is defined, what a consumer that has never heard of it does with a descriptor
+using it, so that the cost is written down beside the member rather than left to
+be worked out. And it **MUST NOT** be added once the period has ended, by the
+bullet that binds from then on. A permission that did not separate the two
+shapes would be a permission for the second one, granted because the first is
+cheap.
+
+**What it costs an adopter.** Two descriptors both saying `IR_VERSION_1` can
+mean different things, and nothing in either says which. An adopter pinning
+`v0.0.4` and reading a descriptor a later `resolve` wrote gets no signal from
+the version field at all — that field is doing exactly what it will do after
+`v1.0.0`, which is to say it will not warn them. What is available instead is
+the schema itself: `ir.binpb` and `ir-protos.tar.gz` are attached to every
+release and are a function of the schema alone ([What the set
+contains](#what-the-set-contains)), so the members a release added are a diff of
+two artifacts the adopter already has. That is a poorer signal than a version
+field and it is the one on offer; pinning the cpybkc that writes the descriptors
+a consumer reads is what closes the gap while the period is open.
+
+The exposure runs one way, which is why the permission is affordable at all. A
+consumer built against a later schema reads an earlier descriptor correctly: an
+earlier descriptor uses a subset of the members a later one may, and every
+member it does use is one that consumer knows. What is exposed is the other
+direction, a consumer pinned to an earlier schema handed a later descriptor.
+
+The descriptors already written under `IR_VERSION_1` are not re-labelled and are
+not owed a promise they were not given. `IR_VERSION_1` means the closed sets as
+they stand at `v1.0.0`; a descriptor a `v0.y.z` release wrote carries that
+number and uses a subset of those sets, so every consumer built at or after
+`v1.0.0` reads it, and no consumer built before `v1.0.0` was promised the
+members added after it was built.
 
 ### What this version is not
 
@@ -4203,7 +4292,7 @@ records offer them.
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331 |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323 |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go`; reader and writer agreement re-derived from the transition order, and the writer's evaluation of the transitions ordered ahead of the one it took, by #333 |
-| [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir` |
+| [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir`; what a closed-set addition costs while `IR_VERSION_1` is being assembled, what ends that period and which shape of addition it permits, settled by #347 |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | [Reading a descriptor without generated code](#reading-a-descriptor-without-generated-code) | #19 `ir`, #57 `container` |
 | [A descriptor is readable by a person](#a-descriptor-is-readable-by-a-person) | #21 `ir` |
