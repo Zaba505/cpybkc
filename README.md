@@ -191,13 +191,13 @@ byte for byte, so the path an adopter takes — write a layout, generate, look a
 the graph, read a file — is one this repository runs on every pull request rather
 than one it describes.
 
-All three projects here run **two** generators, `go` and `graph` — which is what
+All four projects here run **two** generators, `go` and `graph` — which is what
 makes them the place the plugin contract's central equality can be tested rather than
 only stated: every generator in a run, and `--emit-ir`, is handed the same
 descriptor bytes. With one generator there is no second set of bytes for that to
 hold between.
 
-They are hard in three different directions, because a worked example is what an
+They are hard in four different directions, because a worked example is what an
 adopter reads to find out whether their own file is describable.
 
 [`example/ledger/`](example/ledger/) is the one to read first, and it is **deep**:
@@ -224,6 +224,17 @@ of resolving into record types, and this is the example of the
 redefines, its slack surviving a round trip per occurrence, and the
 `OCCURS DEPENDING ON` reading a counted table obliges a layout to state.
 [`example/claim/README.md`](example/claim/README.md) is where the file shape is.
+
+[`example/member/`](example/member/) is the same construct settled the **other**
+way: a counted table of addresses whose entries carry roles rather than types —
+entry one the home address, entry two the work address, entry three the mailing
+address — and no byte of an entry saying which it is. With nothing for a
+predicate to test, a [`schedule-variant`](docs/layout/SPEC.md#a-schedule-for-a-redefine-chosen-by-position)
+names the occurrences each alternative is taken for, and because that is checked
+statically an entry matching no arm is a fault the layout cannot get past rather
+than one a reader meets. Read it beside `claim/`: the two are the pair, and which
+of them your own table is depends only on whether it carries a byte that says.
+[`example/member/README.md`](example/member/README.md) is where the file shape is.
 
 ## The companion Dagger module
 

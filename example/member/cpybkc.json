@@ -1,0 +1,22 @@
+{
+  "layout": "member.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "member",
+      "options": {
+        "package_name": "member",
+        "receiver": "m",
+        "import_path": "github.com/Zaba505/cpybkc/example/member/member"
+      }
+    },
+    {
+      "name": "graph",
+      "out": "graph",
+      "options": {
+        "format": "mermaid",
+        "records": "all"
+      }
+    }
+  ]
+}
