@@ -98,6 +98,13 @@ option go_package = "github.com/Zaba505/cpybkc/irpb";
 //   - Any other addition a consumer must understand in order to stay correct,
 //     whether or not protobuf would call it compatible.
 //
+// The second of those does not bind yet. The closed sets are still being
+// enumerated, and until the first v1.0.0 release one MAY gain a member with
+// this left where it is. What that permits, what it requires of the addition
+// and what it costs an adopter who pinned an earlier release are
+// docs/ir/SPEC.md, "While IR_VERSION_1 is being assembled", which is the one
+// statement of it rather than a note per member (#347).
+//
 // It does not advance for a new field a consumer ignoring it still handles the
 // descriptor correctly without. Within a version every edit MUST be
 // wire-compatible in the sense of the protobuf language guide's "Updating A
@@ -117,7 +124,12 @@ enum IrVersion {
   // did not set one.
   IR_VERSION_UNSPECIFIED = 0;
 
-  // The first release.
+  // The first release: the version every descriptor this project has written
+  // carries, and the one being assembled rather than one anything has been held
+  // to yet. Its closed sets are fixed by the first v1.0.0 release, and until
+  // then one may still gain a member with this number unchanged. That is a rule
+  // with a stated end and a stated cost, not an open licence: docs/ir/SPEC.md,
+  // "While IR_VERSION_1 is being assembled".
   IR_VERSION_1 = 1;
 }
 
@@ -534,9 +546,16 @@ enum Charset {
   // A code page a consumer has no table for is one it cannot emit a reader for
   // at all; this value is one it could translate through and would be wrong to,
   // so the refusal rule is a rule rather than a mechanism here. What carries it
-  // is that closed sets are settled before the first release and IR_VERSION_1
-  // is the version being assembled. See docs/ir/SPEC.md, "An item with no
-  // charset carries bytes, not characters".
+  // is docs/ir/SPEC.md, "While IR_VERSION_1 is being assembled", which permits
+  // a closed set still being enumerated to gain a member.
+  //
+  // It is the shape that rule prices highest — an unset choice a consumer may
+  // default rather than a reference it must fail on — so what an old consumer
+  // does is stated here, as that rule asks: a consumer that has never heard of
+  // this value reads the item as text, translating its bytes through a code
+  // page and trimming the trailing ones that match that page's space, and is
+  // wrong about both. See also docs/ir/SPEC.md, "An item with no charset
+  // carries bytes, not characters".
   CHARSET_NONE = 6;
 }
 
