@@ -420,17 +420,20 @@ message Arm {
     //
     // It is the cheap shape that rule is for — the one a conforming consumer
     // must fail on — and what an old consumer does is written here because the
-    // rule asks for it. A consumer that has never heard of a schedule reads
-    // this arm's predicate reference, which a scheduled arm does not set, and
-    // dereferences what it reads. There is no node the identifier names, so it
-    // stops: every reference MUST resolve to a node of a kind the referring
-    // position admits, and cpybkc-gen-go returns unresolved naming the arm's
-    // identifier. Zero is an ordinary identifier here and not a sentinel (see
-    // Node.id), so the other reachable outcome is a node that exists and is not
-    // a Predicate, which that same obligation refuses as a malformed
-    // descriptor. Both are refusals naming what could not be used, which is
-    // what advancing the version would have bought, and is why the permission
-    // is affordable for this addition.
+    // rule asks for it. Such a consumer cannot observe which member of the
+    // choice is set: it reads this arm's predicate reference, which a scheduled
+    // arm does not set, and gets the zero a scalar with implicit presence
+    // defaults to. Zero is an ordinary identifier here and not a sentinel (see
+    // Node.id), so what it dereferences is node zero. In a descriptor this
+    // project writes that node exists and is the File node, because assemble
+    // reserves the root before any record, and the consumer refuses the
+    // descriptor as malformed: the node it found is not a Predicate. Where node
+    // zero is absent it resolves nothing at all, and cpybkc-gen-go returns
+    // unresolved naming the arm's identifier. Either way it finds no Predicate
+    // node the identifier names, which is what this position MUST resolve to,
+    // and MUST stop. A refusal naming what could not be used is what advancing
+    // the version would have bought, and is why the permission is affordable
+    // for this addition.
     Schedule schedule = 4;
   }
 
