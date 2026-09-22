@@ -492,9 +492,17 @@ func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 // the reference is resolved rather than instead of it: a schedule naming an item
 // the copybook does not declare is a fault of the layout's, and this is the only
 // place it would be found.
+//
+// A reference that does not resolve reports itself and nothing is added, for
+// [layers.redefines]' reason. The adopter cannot act on "this build does not
+// lower one" until the layout names an item at all, and a second message beside
+// the first would name the same line twice with the one of the two that is not
+// theirs to fix.
 func (l *layers) schedules(bound *bindings) {
 	for _, schedule := range l.discrimination.Schedules {
-		bound.field(schedule.Variant)
+		if bound.field(schedule.Variant) == nil {
+			continue
+		}
 
 		bound.Fail(&ScheduledVariantError{Pos: span(schedule.Pos), Variant: schedule.Variant})
 	}

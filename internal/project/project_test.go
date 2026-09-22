@@ -702,6 +702,59 @@ func TestAScheduledVariantIsNotResolvedAndSaysSoAboutItself(t *testing.T) {
 	}
 }
 
+// A schedule naming an item the copybook does not declare is one fault and not
+// two.
+//
+// The reference is what the adopter has to fix, and "this build does not lower
+// one" is not something they can act on until the layout names an item at all —
+// so it is a second message on one line saying the half of it that is not
+// theirs.
+func TestAScheduleOnAnItemThatIsNotThereReportsTheReferenceAlone(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "addr.cpy"), fixed(
+		"01  ADDR-REC.",
+		"    05  ADR-COUNT         PIC X(2).",
+		"    05  ADR-ENTRY OCCURS 3 TIMES.",
+		"        10  ADR-HOME.",
+		"            15  ADR-H-LINE     PIC X(8).",
+		"        10  ADR-WORK REDEFINES ADR-HOME.",
+		"            15  ADR-W-COMPANY  PIC X(4).",
+		"            15  ADR-W-LINE     PIC X(4).",
+		"        10  ADR-TAG           PIC X(1).",
+	))
+
+	write(t, filepath.Join(dir, "addr.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 29))
+(record ADDR (copybook "addr.cpy" ADDR-REC))
+(discriminate ADDR single-record-type)
+(schedule-variant (item ADDR ADR-ENTRY ADR-ELSEWHERE)
+  (arm ADR-HOME 1 3)
+  (arm ADR-WORK 2))
+(sequence (* ADDR))
+`)
+	write(t, filepath.Join(dir, manifest.Name), `{"layout": "addr.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	run, err := project.Load(filepath.Join(dir, manifest.Name))
+	if err == nil {
+		t.Fatalf("the project resolved a schedule on an item that is not there: %v", run.Descriptor)
+	}
+
+	var unknown *project.UnknownItemError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("no UnknownItemError in:\n%s", diag.Render(err))
+	}
+
+	var unresolved *project.ScheduledVariantError
+	if errors.As(err, &unresolved) {
+		t.Errorf("the reference that does not resolve is reported twice over:\n%s", diag.Render(err))
+	}
+}
+
 // variants is how many variant nodes a descriptor carries, which is one per
 // redefine inside a repeating group whose alternatives are told apart.
 func variants(d *irpb.Descriptor) int {
