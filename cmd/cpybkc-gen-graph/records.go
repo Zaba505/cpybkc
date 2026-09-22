@@ -764,17 +764,28 @@ func (w *itemWalk) selector(id uint64, a *irpb.Arm) (presence, error) {
 
 		return presence{chosen: chosen}, nil
 	case *irpb.Arm_Schedule:
-		// A schedule resolves to no node, so what there is to check is the two
-		// things a producer owes the numbers themselves. Both are checked for
-		// the reason the one-of predicate's are: a cell reading "in occurrences
-		//  of the table" or one naming occurrence 2 after occurrence 5 is a
-		// table nobody can act on, and drawing it would present a producer bug
-		// as a layout.
+		// A schedule resolves to no node, so what there is to check is the
+		// three things a producer owes the numbers themselves. All three are
+		// checked for the reason the one-of predicate's are: a cell reading "in
+		// occurrences  of the table", one naming occurrence 2 after occurrence
+		// 5, and one naming an occurrence 0 that no table has are each a row
+		// nobody can act on, and drawing one would present a producer bug as a
+		// layout.
 		numbers := selector.Schedule.GetOccurrenceNumbers()
 
 		if len(numbers) == 0 {
 			return presence{}, malformed(
 				fmt.Sprintf("an arm of variant %d is scheduled for no occurrence at all", id),
+				scheduleRule)
+		}
+
+		// Counted from one, which the ascending check below does not say on its
+		// own — a schedule opening at zero ascends perfectly well. Only the
+		// first number can be the zero, because every number after it is
+		// greater than the one ahead of it.
+		if numbers[0] == 0 {
+			return presence{}, malformed(
+				fmt.Sprintf("an arm of variant %d is scheduled for occurrence 0", id),
 				scheduleRule)
 		}
 
@@ -797,14 +808,14 @@ func (w *itemWalk) selector(id uint64, a *irpb.Arm) (presence, error) {
 	}
 }
 
-// scheduleRule is the `note:` line the two refusals about a schedule's numbers
+// scheduleRule is the `note:` line the refusals about a schedule's numbers
 // carry.
 //
-// One sentence for the pair because they are one requirement broken two ways:
-// at least one occurrence and strictly ascending are both what makes a schedule
-// a thing that selects an arm, and a reader holding a producer that emitted
-// neither is looking at the same bug.
-const scheduleRule = "a producer MUST emit at least one occurrence number on a scheduled arm, in strictly ascending order; " +
+// One sentence for the three of them because they are one requirement broken
+// three ways: at least one occurrence, counted from one, and strictly ascending
+// are together what makes a schedule a thing that selects an arm, and a reader
+// holding a producer that emitted any of the three is looking at the same bug.
+const scheduleRule = "a producer MUST emit at least one occurrence number on a scheduled arm, counted from one and in strictly ascending order; " +
 	"see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\""
 
 // oneKindOfSelector refuses a variant whose arms are not all chosen the same

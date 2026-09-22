@@ -296,8 +296,11 @@ func TestAnArmCarryingNoSelectorIsRefused(t *testing.T) {
 // An empty schedule is an arm nothing selects rather than an arm selected by
 // nothing, and it would draw as a cell with a hole in the middle of a sentence.
 // A schedule out of ascending order is what says inside one arm what coverage
-// says across two, and drawing one would present a producer bug as a layout
-// somebody has to make sense of.
+// says across two. A schedule counted from zero ascends perfectly well and names
+// a position no table has, so the ascending check does not catch it and a row
+// reading `in occurrence 0 of the table` is one nobody can act on. Drawing any
+// of the three would present a producer bug as a layout somebody has to make
+// sense of.
 func TestAScheduleThatSelectsNothingIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -312,6 +315,10 @@ func TestAScheduleThatSelectsNothingIsRefused(t *testing.T) {
 		"out of ascending order": {
 			arm:  armScheduledAt([]uint32{3, 1}, 401),
 			says: "is scheduled for occurrence 1 after occurrence 3",
+		},
+		"counted from zero": {
+			arm:  armScheduledAt([]uint32{0, 1}, 401),
+			says: "is scheduled for occurrence 0",
 		},
 		"the same occurrence twice": {
 			arm:  armScheduledAt([]uint32{2, 2}, 401),
@@ -331,6 +338,56 @@ func TestAScheduleThatSelectsNothingIsRefused(t *testing.T) {
 
 			if err == nil {
 				t.Fatal("read accepted a schedule that selects nothing")
+			}
+
+			if !strings.Contains(err.Error(), test.says) {
+				t.Errorf("the refusal reads %q, and does not say %q", err, test.says)
+			}
+		})
+	}
+}
+
+// TestAnArmThatIsNotThereIsRefusedRatherThanCrashing is the walk held to the
+// thing it says about every other malformed descriptor: it refuses them.
+//
+// A nil element in `Variant.arms` is the shape a reader worries about, because
+// every other refusal in this file is reached by reading a field of the arm. It
+// is not reached by dereferencing one: protoc-gen-go's getters answer the zero
+// value for a nil receiver, so `GetSelector` on a missing arm answers no
+// selector at all and the arm is refused with the diagnostic that says so. This
+// holds that, over both shapes — one arm missing beside a real one, and a
+// variant of nothing but missing arms — so that a hand-written getter or a
+// switch on a field rather than on the choice would fail here rather than panic
+// in front of somebody.
+func TestAnArmThatIsNotThereIsRefusedRatherThanCrashing(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		arms []*irpb.Arm
+		says string
+	}{
+		"beside an arm that is there": {
+			arms: []*irpb.Arm{nil, armScheduledAt([]uint32{1}, 402)},
+			says: "is selected by its position in the table and its first arm by nothing",
+		},
+		"and nothing else": {
+			arms: []*irpb.Arm{nil, nil},
+			says: "says nothing about what selects it",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := read(oneRecordAutomaton(
+				edgeNode(30, 100, 2, nil, nil, nil),
+				groupNode(105, "HEADER-RECORD", 101, 400),
+				variantNode(400, test.arms...),
+				fieldNode(401, "ONE-ARM", 2),
+				fieldNode(402, "OTHER-ARM", 2),
+			), defaults())
+
+			if err == nil {
+				t.Fatal("read accepted a variant carrying an arm that is not there")
 			}
 
 			if !strings.Contains(err.Error(), test.says) {
