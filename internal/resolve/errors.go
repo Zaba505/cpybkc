@@ -214,8 +214,8 @@ func (e *UndiscriminatedRedefineError) Error() string { return e.Diagnostic().St
 func (e *UndiscriminatedRedefineError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
-			"in record %s, nothing says which alternative of %s to read in the repeating group %s: %s redefines it, and a redefine inside a table is chosen once per occurrence",
-			e.Record, e.Redefined, e.Group, joinAnd(e.Names)),
+			"in record %s, nothing says which alternative of %s to read in the repeating group %s: %s it, and a redefine inside a table is chosen once per occurrence",
+			e.Record, e.Redefined, e.Group, joinAndVerb(e.Names, "redefines", "redefine")),
 		Spans: []diag.Span{e.Pos},
 	}
 }
@@ -829,6 +829,25 @@ func axisNames(axes []layoutmodel.Axis) []string {
 		names = append(names, axis.String())
 	}
 	return names
+}
+
+// joinAndVerb renders a list the way a sentence does, followed by a verb that
+// agrees with it in number.
+//
+// The verb is the half of such a sentence a format string cannot hold constant:
+// a list of names is plural at every length but one, so a fixed verb written
+// beside [joinAnd] reads correctly for a single name and ungrammatically for the
+// two or more that are usually the case the message exists for. Rendering the
+// list and its verb together is what keeps a later name in the list from being
+// able to disagree with a verb nobody thought to move. The empty list renders as
+// "nothing", which takes the singular.
+func joinAndVerb(names []string, singular, plural string) string {
+	verb := plural
+	if len(names) <= 1 {
+		verb = singular
+	}
+
+	return joinAnd(names) + " " + verb
 }
 
 // joinAnd renders a list the way a sentence does.

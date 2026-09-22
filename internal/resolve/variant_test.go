@@ -434,6 +434,62 @@ func TestARedefineInsideATableTheLayoutSaysNothingAboutIsRejected(t *testing.T) 
 	}
 }
 
+// threeAlternativeTableSource is the same repeating group with three
+// descriptions of the redefined item's bytes rather than one, which is the shape
+// the undiscriminated-redefine diagnostic exists for: one alternative is a
+// layout naming every occurrence's reading, and two or more is the choice
+// nothing has made.
+const threeAlternativeTableSource = `01 R.
+   05 HDR PIC X(3).
+   05 ENTRY OCCURS 4 TIMES.
+      10 CODE PIC X.
+      10 BODY PIC X(8).
+      10 HALVES REDEFINES BODY PIC X(8).
+      10 QUARTERS REDEFINES BODY PIC X(8).
+      10 EIGHTHS REDEFINES BODY PIC X(8).
+      10 TAG PIC X(2).
+   05 TRAILER PIC X(5).
+`
+
+// TestTheUndiscriminatedRedefineDiagnosticAgreesWithItsList is that message's
+// grammar rather than its content. It renders a list of the alternatives and
+// then a verb, and the list is one name or several while the verb was neither —
+// so a copybook with two redefines in one table read "A and B redefines it".
+// This is the first message an adopter with such a copybook sees, and it is the
+// one that has to teach them what a variant is.
+func TestTheUndiscriminatedRedefineDiagnosticAgreesWithItsList(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "one alternative", src: tableSource, want: "SPLIT redefines it"},
+		{
+			name: "three alternatives",
+			src:  threeAlternativeTableSource,
+			want: "HALVES, QUARTERS and EIGHTHS redefine it",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := resolveTable(t, testCase.src, func(*copybook.Field) []Redefine { return nil })
+
+			var undiscriminated *UndiscriminatedRedefineError
+			if !errors.As(err, &undiscriminated) {
+				t.Fatalf("resolving reported %v, want an UndiscriminatedRedefineError", err)
+			}
+			if !strings.Contains(undiscriminated.Error(), testCase.want) {
+				t.Errorf("the diagnostic does not read %q: %s", testCase.want, undiscriminated.Error())
+			}
+		})
+	}
+}
+
 // TestAnAlternativeTheCopybookDoesNotDeclareIsRejected, with the ones it does
 // declare in the message, because the list an adopter needs is the list of the
 // ones they could have meant.
