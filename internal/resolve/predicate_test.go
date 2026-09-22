@@ -867,9 +867,28 @@ func TestTheItemCoveringARunIsTakenOnlyWhereTheLayoutSettlesIt(t *testing.T) {
       10 RED-ALT-B PIC X(4).
 `
 
+	// A group whose declared maximum is one: a table under `odoslide` and an
+	// ordinary group at a constant offset under `noodoslide`, so the item
+	// inside it is settled by the static layout under one reading and not the
+	// other (#373).
+	//
+	// The bounds are `1 TO 1` rather than `0 TO 1` so that the reading is what
+	// the answer turns on. A declared minimum below its maximum is a repetition
+	// whose count is a reference by the first loop's test as well, and that
+	// loop declines under both readings — so a `0 TO 1` group would be declined
+	// here for the position it sits at rather than for the table it is, and the
+	// case would pass whatever this function did about tables.
+	const maybe = `01 OPT-REC.
+   05 OPT-TAIL   PIC X(3).
+   05 OPT-COUNT  PIC 9(1).
+   05 OPT-GROUP OCCURS 1 TO 1 TIMES DEPENDING ON OPT-COUNT.
+      10 OPT-BODY PIC X(4).
+`
+
 	tests := map[string]struct {
 		copybook string
 		run      stretch
+		reading  layoutmodel.Reading
 		want     string
 	}{
 		"a run inside one elementary item": {
@@ -907,13 +926,31 @@ func TestTheItemCoveringARunIsTakenOnlyWhereTheLayoutSettlesIt(t *testing.T) {
 		"a run more than one description covers": {
 			copybook: redefined, run: stretch{at: 1, width: 2}, want: "",
 		},
+
+		"a run inside a group whose declared maximum is one, read odoslide": {
+			copybook: maybe, run: stretch{at: 4, width: 2},
+			reading: layoutmodel.ODOSlide,
+			want:    "",
+		},
+
+		"the same run read noodoslide": {
+			copybook: maybe, run: stretch{at: 4, width: 2},
+			reading: layoutmodel.NoODOSlide,
+			want:    "OPT-BODY",
+		},
+
+		"a run ahead of that group, read odoslide": {
+			copybook: maybe, run: stretch{at: 0, width: 3},
+			reading: layoutmodel.ODOSlide,
+			want:    "OPT-TAIL",
+		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			item, ok := covering(layoutOf(t, test.copybook), test.run)
+			item, ok := covering(layoutOf(t, test.copybook), test.run, test.reading)
 			if !ok {
 				if test.want != "" {
 					t.Fatalf("the run is covered by no item, want %s", test.want)
@@ -985,7 +1022,7 @@ func TestOnlyTheUnsignedZonedItemStatesAByteDomain(t *testing.T) {
 
 			built := layoutOf(t, "01 DOM-REC.\n   05 DOM-ITEM "+test.picture+".\n")
 
-			item, ok := covering(built, stretch{at: 0, width: 1})
+			item, ok := covering(built, stretch{at: 0, width: 1}, layoutmodel.ODOSlide)
 			if !ok {
 				t.Fatalf("the item covers no run of its own record")
 			}

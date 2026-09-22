@@ -133,7 +133,7 @@ func (c *compiler) discriminator(record SequencedRecord) *Predicate {
 	// rule "A reference names a field, not an occurrence of one" states for
 	// every position naming a field (#84). An arm's target is outside this rule
 	// and is *required* to sit inside one, which is where a variant is built.
-	if group := enclosingTable(target); target.MaxOccurs > 1 || group != nil {
+	if group := enclosingTable(target, c.opts.Reading); repeats(target, c.opts.Reading) || group != nil {
 		c.faults.Fail(&PredicateOccurrenceError{
 			Pos:      layoutSpan(strategy.Item.Pos),
 			Copybook: copybookSpan(record, target.Field),
@@ -660,7 +660,7 @@ func (c *compiler) beside(a *Automaton, record string) []string {
 // rule is not softened for it: the first entry of a table is exactly where a
 // discriminator looks right and reads a value belonging to the data rather than
 // to the record's identity.
-func nameable(built *copybook.Layout) bool {
+func nameable(built *copybook.Layout, reading layoutmodel.Reading) bool {
 	if built == nil {
 		return false
 	}
@@ -670,7 +670,7 @@ func nameable(built *copybook.Layout) bool {
 			continue
 		}
 
-		if item.MaxOccurs > 1 || enclosingTable(item) != nil {
+		if repeats(item, reading) || enclosingTable(item, reading) != nil {
 			continue
 		}
 

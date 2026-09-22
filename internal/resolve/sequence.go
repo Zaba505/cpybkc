@@ -129,7 +129,7 @@ func (c *compiler) field(e layoutmodel.Expression) *copybook.Field {
 	// a binding names a field and nothing carries an occurrence number, so an
 	// item with a value per occurrence is a value the automaton cannot name
 	// (#76, #84).
-	if group := enclosingTable(item); item.MaxOccurs > 1 || group != nil {
+	if group := enclosingTable(item, c.opts.Reading); repeats(item, c.opts.Reading) || group != nil {
 		c.faults.Fail(&SequenceOccurrenceError{
 			Pos:      layoutSpan(e.Item.Pos),
 			Copybook: copybookSpan(record, item.Field),
@@ -794,7 +794,7 @@ func (c *compiler) reportUnnameable(state *State, first, second *Transition) boo
 		}
 
 		record, known := c.record(pair[0].Record)
-		if !known || nameable(c.layoutOf(record)) {
+		if !known || nameable(c.layoutOf(record), c.opts.Reading) {
 			continue
 		}
 
@@ -928,7 +928,7 @@ func (c *compiler) discriminant(transition *Transition) (discriminant, bool) {
 		run:       run,
 		admits: domainsOf(c.layoutOf(known), func(field *copybook.Field) layoutmodel.Axes {
 			return axesOf(c.opts.Encoding, c.opts.EncodingOverrides, field)
-		}),
+		}, c.opts.Reading),
 	}, true
 }
 

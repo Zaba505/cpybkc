@@ -15,6 +15,7 @@ import (
 	"github.com/Zaba505/cobol-go/copybook"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 	"github.com/Zaba505/cpybkc/internal/resolve"
 )
 
@@ -94,15 +95,20 @@ func (r reference) String() string {
 	return "(item " + strings.Join(append([]string{r.record}, r.path...), " ") + ")"
 }
 
-// Notes are the `note:` diagnostics the run owes, one per 01-level that resolved
-// to more than one record type.
+// Notes are the `note:` diagnostics the run owes: one per 01-level that resolved
+// to more than one record type, and one per REDEFINES whose resolution the
+// `OCCURS DEPENDING ON` reading decides.
 //
 // They are here rather than written from here because docs/cli/SPEC.md puts
 // every line cpybkc says about a run on standard error and this package holds
-// neither stream. Each names the copybook, the 01-level, how many REDEFINES
-// outside a repeating group it carries and how many record types they produce:
-// it is the size of the work in front of the reader, which is a thing they have
-// to act on rather than discover in the file.
+// neither stream. The first kind names the copybook, the 01-level, how many
+// REDEFINES outside a repeating group it carries and how many record types they
+// produce: it is the size of the work in front of the reader, which is a thing
+// they have to act on rather than discover in the file. The second names the
+// copybook, the 01-level, the redefined item and the group it sits in, and says
+// which of the two readings the record forms below it were written under — it is
+// the one part of a scaffold that is not a function of the copybooks alone
+// (#373).
 func (s *Scaffold) Notes() []string { return slices.Clone(s.notes) }
 
 // dialect is the compiler whose answers the derivation is read under.
@@ -114,6 +120,24 @@ func (s *Scaffold) Notes() []string { return slices.Clone(s.notes) }
 // is narrow — whether a redefining item longer than what it redefines is legal —
 // and it decides nothing about which forms the scaffold carries.
 func dialect() copybook.Dialect { return copybook.IBMEnterprise() }
+
+// reading is which reading of `OCCURS DEPENDING ON` the derivation is read
+// under, and there is nothing for it to be but unstated.
+//
+// A scaffold is what an adopter writes a layout *from*, and the reading is one
+// of the questions it raises rather than one of the answers it carries: which
+// compiler wrote the file is not in any copybook, and `init` is handed copybooks
+// and nothing else. So there is no value to pass here, and passing one would be
+// this package choosing on the adopter's behalf the one thing the scaffold's own
+// `copybook-reading` comment says it cannot.
+//
+// [github.com/Zaba505/cpybkc/internal/resolve.Describe] is explicit about what
+// an unstated reading answers — a fixed table, which is
+// [github.com/Zaba505/cpybkc/internal/layoutmodel.Reading.Slides]'s safe answer
+// — and about the one alternation that answer decides differently, which reaches
+// here as [github.com/Zaba505/cpybkc/internal/resolve.Alternation.ReadingDecides]
+// and is raised as a note (#373).
+func reading() layoutmodel.Reading { return layoutmodel.ReadingUnstated }
 
 // Derive reads every copybook and returns the scaffold they decide.
 //
@@ -156,7 +180,7 @@ func Derive(books []Copybook) (*Scaffold, error) {
 		}
 
 		for _, item := range items {
-			shape, err := resolve.Describe(item, dialect())
+			shape, err := resolve.Describe(item, dialect(), reading())
 			if err != nil {
 				faults.Fail(&SourceError{Path: book.Path, Err: err})
 
@@ -256,6 +280,30 @@ func (s *Scaffold) take(
 		s.notes = append(s.notes, fmt.Sprintf(
 			"%s: %s carries %d REDEFINES outside a repeating group, which resolve to %d record types",
 			book.Path, item.Name, redefines(shape), len(shape.Combinations),
+		))
+	}
+
+	// The one part of a shape no copybook decides, raised where it stands
+	// rather than folded into the count above. A REDEFINES inside a group
+	// declared `OCCURS 0 TO 1 TIMES DEPENDING ON` is a variant under
+	// `odoslide` and a record type per alternative under `noodoslide`, and
+	// `init` holds no reading to settle it with — so the record forms below are
+	// one of the two answers and the adopter has to be told which, beside the
+	// `copybook-reading` question the scaffold already raises.
+	//
+	// It is a note rather than a fault for that form's reason: a copybook a
+	// layout has not been written for yet is not a copybook with a fault in it,
+	// and refusing here would make `init` unusable on exactly the copybooks it
+	// is most wanted for.
+	for _, alternation := range shape.Alternations {
+		if !alternation.ReadingDecides {
+			continue
+		}
+
+		s.notes = append(s.notes, fmt.Sprintf(
+			"%s: %s redefines %s inside %s, a group that repeats under odoslide and does not under noodoslide; "+
+				"the record forms below are the noodoslide answer, and under odoslide this is one variant instead",
+			book.Path, item.Name, alternation.Item.Name, alternation.Table.Name,
 		))
 	}
 

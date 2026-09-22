@@ -70,6 +70,19 @@
 //     that chooses it and the item that is its body (docs/ir/SPEC.md, "A variant
 //     is chosen once per occurrence").
 //
+// "Inside a repeating group" is asked under [Options.Reading], because at one
+// declared maximum a copybook does not settle it. A group declared `OCCURS 0 TO
+// 1 TIMES DEPENDING ON` is a table under `odoslide` — the count read at run time
+// says whether the group is in the record at all — and a fixed table of a single
+// occurrence at a constant offset under `noodoslide`, which is an ordinary
+// group. So one copybook resolves to a variant under the first reading and to a
+// record type per alternative under the second, and nothing in it picks between
+// them (#373). Every other declared maximum answers the same way twice, which is
+// why this is the only place the two halves of the fork meet.
+//
+// [Describe] answers the same question for a caller holding no layout, and says
+// which of the two answers it gave: see [Alternation.ReadingDecides].
+//
 // Which alternatives a variant has and what selects each one is a layout's to
 // say and not a copybook's, so it arrives as [Redefine] values rather than being
 // inferred. A [Redefine] naming a single alternative is the overlay an adopter
@@ -92,6 +105,16 @@
 // scheduled variant cannot produce the "occurrence no arm matched" failure at
 // read time at all, so a schedule with a hole in it would be an entry an adopter
 // reads with nothing describing it and nothing to say so.
+//
+// That check is what settles the scheduled form inside the table the paragraph
+// above makes reachable, and it settles it as *inadmissible*: at M = 1 there is
+// one occurrence to cover and a variant needs two arms, so one of the two is
+// always either scheduling an occurrence the table has not got or scheduling the
+// one occurrence its sibling already took. There is no assignment of two arms
+// over one occurrence that covers it exactly once, so the form is refused for
+// every layout that writes it rather than for the particular schedule one
+// happened to write. A variant chosen by the bytes of its occurrence is what
+// such a table admits, and it is the shape #373 made reachable.
 //
 // # The encoding is per field, and no default survives
 //
