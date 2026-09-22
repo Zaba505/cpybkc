@@ -1,0 +1,101 @@
+;; A membership extract on a variable-length dataset: one record type, every
+;; record a member, and inside each member a counted table of addresses whose
+;; entries carry roles rather than types.
+;;
+;; What is hard about it, and why it is a worked example of its own, is in
+;; README.md beside this file. In short: the REDEFINES in `member.cpy` is inside
+;; a group that repeats, so it stays a variant rather than resolving into record
+;; types -- and nothing in an entry's bytes says which alternative it is, so
+;; there is nothing for a predicate to test. Where the entry sits decides, and
+;; this file is where that is written.
+
+;; The encoding profile. All four axes, always, with no default for any.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; The dataset. VB rather than FB, and not a free choice: the reading below
+;; makes a member's extent move with the number of addresses they gave, and a
+;; variable-extent record type is refused on a fixed-length dataset -- see
+;; docs/layout/SPEC.md, "`lrecl` and `blksize` describe the dataset, not the
+;; stream". The framing follows the reading; it does not follow the schedule,
+;; which is the point the comment on `copybook-reading` below makes.
+(framing
+  (recfm VB)
+  (lrecl 512))
+
+;; The record type. One, because this file is a flat extract of members with no
+;; header and no trailer, and because what the example is here to show happens
+;; inside a record rather than between records -- `ledger/` is the example of a
+;; file whose record types have to be told apart, and `policy/` of a file that
+;; has eleven of them.
+(record MEMBER-RECORD (copybook "member.cpy" MEMBER-RECORD))
+
+;; How `MBR-ADDRESS OCCURS 1 TO 3 TIMES DEPENDING ON MBR-ADDRESS-COUNT` is read,
+;; and the one statement in this layout that no copybook could have made: it is
+;; a property of the compiler that wrote the file, and both readings are
+;; ordinary.
+;;
+;; `odoslide`, because the file this describes is one IBM Enterprise COBOL
+;; wrote, which slides unconditionally and has no directive to name. Under it
+;; the table is a repetition whose count is read out of MBR-ADDRESS-COUNT, and
+;; MBR-STATUS begins sixty-one bytes on from wherever the last entry ended -- a
+;; different offset in a member with one address and a member with three.
+;;
+;; `noodoslide` would describe a different file out of the same copybook: three
+;; entries always present, MBR-ADDRESS-COUNT an ordinary field beside them
+;; saying how many are meant, and every member the same 225 bytes. Nothing in
+;; the bytes disagrees with the wrong reading, which is why there is no default
+;; and why this form is required rather than inferred.
+;;
+;; The schedule below is legal under either, and the text of it would not
+;; change. Which reading applies is a property of the extract rather than of the
+;; copybook, so it must not also decide whether the copybook can be described --
+;; docs/layout/SPEC.md, "It is available whichever way the table's count is
+;; read". What the reading changes is how many of the scheduled arms a given
+;; record reaches, not which occurrence takes which arm.
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+;; What selects the record type. Nothing does: every record in the extract is a
+;; member, so there is nothing for a predicate to test and `single-record-type`
+;; says so. Writing it is what makes that a statement rather than a gap --
+;; every `record` form is named by exactly one `discriminate`, this one
+;; included.
+(discriminate MEMBER-RECORD single-record-type)
+
+;; And the variant. `ADR-HOME` is described three ways inside a group that
+;; repeats, so the choice is made once per entry rather than once per record.
+;; A `schedule-variant` rather than a `discriminate-variant`, because no byte of
+;; an entry says which of the three it carries: the enrolment screen asks for a
+;; home address, then a work address, then a mailing address, and the order they
+;; were written in is the whole of the rule. An arm here names occurrences
+;; rather than carrying a predicate, and a variant is scheduled or discriminated
+;; and never both.
+;;
+;; The argument is the redefined item, exactly as `discriminate-variant`'s is --
+;; `ADR-HOME` is the first alternative over those bytes and not a declaration
+;; standing in front of the real ones, so it is both the variant and an arm.
+;;
+;; The occurrence numbers count from one and the schedule covers the table
+;; exactly once from one to its declared maximum of three; `resolve` rejects one
+;; that leaves an entry uncovered, naming the occurrences with no arm. That
+;; check is static, which is why an entry matching no arm is not a failure a
+;; reader of this file can meet -- the one thing a schedule takes away from the
+;; byte-selected form, and what it gives back for a file that carries no byte to
+;; select on.
+;;
+;; The roles are named rather than numbered, and that is what makes the three
+;; lines below read as the schedule the enrolment screen enforces rather than as
+;; arithmetic over a table.
+(schedule-variant (item MEMBER-RECORD MBR-ADDRESS ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2)
+  (arm ADR-MAIL 3))
+
+;; The order they may appear in. One or more members and nothing else, so `+`
+;; rather than `*`: an extract of no members is not a file this describes.
+(sequence
+  (+ MEMBER-RECORD))

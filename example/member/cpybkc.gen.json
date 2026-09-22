@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "files": [
+    "graph/graph.md",
+    "member/codec.go",
+    "member/doc.go",
+    "member/file.go",
+    "member/file_test.go",
+    "member/records.go",
+    "member/records_test.go"
+  ]
+}
