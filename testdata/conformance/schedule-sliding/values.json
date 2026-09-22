@@ -1,0 +1,42 @@
+{
+  "records": [
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "4",
+        "ADR-ENTRY": [
+          {"ADR-HOME": {"ADR-STATE": "NY", "ADR-ZIP": "10001"}},
+          {"ADR-WORK": {"ADR-DESK": "12A3"}},
+          {"ADR-WORK": {"ADR-DESK": "7B44"}},
+          {"ADR-MAIL": {"ADR-BOX": "POB0042"}}
+        ],
+        "ADR-TAIL": "END1"
+      }
+    },
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "1",
+        "ADR-ENTRY": [
+          {"ADR-HOME": {"ADR-STATE": "CA", "ADR-ZIP": "94105"}}
+        ],
+        "ADR-TAIL": "END2"
+      }
+    },
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "3",
+        "ADR-ENTRY": [
+          {"ADR-HOME": {"ADR-STATE": "WA", "ADR-ZIP": "98101"}},
+          {"ADR-WORK": {"ADR-DESK": "5X21"}},
+          {"ADR-WORK": {"ADR-DESK": "6Y37"}}
+        ],
+        "ADR-TAIL": "END3"
+      }
+    }
+  ]
+}

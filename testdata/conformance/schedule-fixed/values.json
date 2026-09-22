@@ -1,0 +1,32 @@
+{
+  "records": [
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "4",
+        "ADR-ENTRY": [
+          {"ADR-HOME": {"ADR-STATE": "NY", "ADR-ZIP": "10001"}},
+          {"ADR-WORK": {"ADR-DESK": "12A3"}},
+          {"ADR-WORK": {"ADR-DESK": "7B44"}},
+          {"ADR-MAIL": {"ADR-BOX": "POB0042"}}
+        ],
+        "ADR-TAIL": "END1"
+      }
+    },
+    {
+      "name": "ADR-RECORD",
+      "value": {
+        "ADR-TYPE": "A",
+        "ADR-ENTRY-COUNT": "2",
+        "ADR-ENTRY": [
+          {"ADR-HOME": {"ADR-STATE": "TX", "ADR-ZIP": "73301"}},
+          {"ADR-WORK": {"ADR-DESK": "9C10"}},
+          {"ADR-WORK": {"ADR-DESK": ""}},
+          {"ADR-MAIL": {"ADR-BOX": ""}}
+        ],
+        "ADR-TAIL": "END2"
+      }
+    }
+  ]
+}

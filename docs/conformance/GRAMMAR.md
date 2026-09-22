@@ -234,3 +234,16 @@ and `variant-arm-absent` rows are stated by an entry as well as by this file
 holds a writer to *spelling* one occurrence's arm the way the value language
 says, and it runs before any entry does, while an entry holds a reader to
 picking the arm out of the bytes and a writer to putting them back.
+
+An arm chosen by its **position** has left it too, and it is the half the two
+rows could not have distinguished on their own.
+[`schedule-fixed`](../../testdata/conformance/schedule-fixed),
+[`schedule-sliding`](../../testdata/conformance/schedule-sliding) and
+[`schedule-occurs`](../../testdata/conformance/schedule-occurs) hold records
+whose entries take three different alternatives with no byte anywhere in the
+record to choose between them (#357). The value language is the same either way
+— a held arm contributes its body's members and an absent one contributes no key
+— which is the point: the rows above are written against the arm an occurrence
+holds and say nothing about how it came to hold it, so a writer checked here is
+checked for both selectors at once, and it takes an entry to say that a reader
+picked the right one.

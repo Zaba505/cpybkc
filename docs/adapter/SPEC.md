@@ -772,6 +772,37 @@ Reason: they are the corpus's own, in
 contract names an entry by its name and knows nothing else about it, which is
 what lets the corpus grow an entry without touching a published interface.
 
+### How an arm of a variant is selected
+
+Which alternative an occurrence of a table holds, and whether the descriptor
+settles that by a predicate over the occurrence's bytes or by a schedule over
+the occurrence's position, is **not specified here** — and **nothing in this
+contract changes for one selector or the other**.
+
+Reason: an arm's selector never appears on the wire. A descriptor travels
+[`generate`](#generate) and [`rebuild`](#rebuild) as opaque bytes an adapter
+hands to its generator. A values document renders the arm an occurrence *holds*,
+under that arm's own name, and says nothing about how it came to be held
+([`conformance/SPEC.md`](../conformance/SPEC.md#a-group-a-table-and-a-variant)),
+so `decoded` and `written` have one shape for both. And
+[`roundtrip`](#roundtrip) carries no records at all — it writes back the records
+the adapter's own reader produced — so no arm is named in a frame in either
+direction. An adapter whose generator handles both selectors implements this
+contract once, and an adapter written before schedules existed needs no change
+for one.
+
+What is left over is the generator's, and it is
+[`ir/SPEC.md`](../ir/SPEC.md)'s *An arm may be selected by its position in the
+table* rather than this document's: a scheduled arm is determined by the
+descriptor, so a writer takes it from there and never from a caller, and the
+*occurrence no arm matched* failure is unreachable for such a variant, so a
+`decode` answering with one is wrong about the file rather than about this
+contract.
+
+It is written down here because the alternative is an adapter author working it
+out from the corpus's entries, and *there is nothing to do* is worth more stated
+than inferred (#357).
+
 ### How a generator is invoked
 
 The argument vector a `cpybkc-gen-<name>` executable is run with, the `PATH`

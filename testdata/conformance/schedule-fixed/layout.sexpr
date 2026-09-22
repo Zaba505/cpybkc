@@ -1,0 +1,47 @@
+;; A fixed-length dataset of one record type whose table holds a redefine no
+;; byte of the record chooses between, read noodoslide -- a constant four
+;; entries, the count an ordinary item beside them.
+;;
+;; The two discriminations are in the two scopes and only one of them is a
+;; discrimination at all. The first chooses a record and is evaluated before
+;; anything has been admitted. The second settles which alternative an entry of
+;; the table carries, and it tests nothing: entry one is the home address,
+;; entries two and three are work addresses and entry four is the mailing
+;; address, which is a fact about the file the adopter has and not one any item
+;; of a record states.
+;;
+;; A schedule is what that shape needs. The count sits outside an occurrence, so
+;; a predicate reading it would choose one arm for every entry of the record; an
+;; arm carries no guard; and the strategies admit nothing that tests neither. So
+;; the alternative is decided by where an entry sits, which is the position the
+;; arms are written against here.
+;;
+;; The count in this file is not the number of entries the table holds. Under
+;; this reading the table is always four entries wide and the count says how
+;; many of them a program filled in, which is what makes the reading visible:
+;; the second record says two and carries four, so a consumer that read the
+;; table at the count would take ADR-TAIL out of the third entry's bytes.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 34))
+
+(record ADDRESS
+  (copybook "address.cpy" ADR-RECORD))
+
+(copybook-reading
+  (occurs-depending-on noodoslide))
+
+(discriminate ADDRESS (equals (item ADDRESS ADR-TYPE) "A"))
+
+(schedule-variant (item ADDRESS ADR-ENTRY ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2 3)
+  (arm ADR-MAIL 4))
+
+(sequence (* ADDRESS))
