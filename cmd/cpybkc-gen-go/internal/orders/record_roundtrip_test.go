@@ -590,9 +590,11 @@ func TestAnOccurrenceMatchingNoArmIsReportedAsItsOwnFailure(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		// Which record, which table, and which entry of it.
+		// Which record, which table, and which entry of it. The broken entry
+		// is the second, and the diagnostics count occurrences from one, so
+		// the report names it occurrence two.
 		"ENTRY-RECORD",
-		"occurrence 1 of ENTRY",
+		"occurrence 2 of ENTRY",
 
 		// And that this is a record type the layout has, so that it is not read
 		// as the other failure.
@@ -669,7 +671,9 @@ func TestAWriterEvaluatesAnArmsPredicateAndNeverInvertsOne(t *testing.T) {
 				t.Errorf("the report reads %q and does not say %q", err, tc.says)
 			}
 
-			if !strings.Contains(err.Error(), "occurrence 1 of ENTRY") {
+			// Every case breaks Entry[1], the second occurrence, and the
+			// diagnostics count occurrences from one.
+			if !strings.Contains(err.Error(), "occurrence 2 of ENTRY") {
 				t.Errorf("the report reads %q and does not say which occurrence it is about", err)
 			}
 		})
@@ -1130,8 +1134,11 @@ func TestAWriterEmitsTheArmTheScheduleAssignsAndReportsACallerNamingAnother(t *t
 			}
 
 			// The record, the repeating group and the occurrence, beside the
-			// two arms each case names for itself.
-			for _, want := range append([]string{"ADDR-RECORD", "occurrence 0 of ADR-ENTRY"}, tc.says...) {
+			// two arms each case names for itself. Every case breaks
+			// AdrEntry[0], and the report names it occurrence *one*: the
+			// diagnostics count occurrences from one, as COBOL subscripts and
+			// the schedule in the layout do.
+			for _, want := range append([]string{"ADDR-RECORD", "occurrence 1 of ADR-ENTRY"}, tc.says...) {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("the report reads %q and does not say %q", err, want)
 				}

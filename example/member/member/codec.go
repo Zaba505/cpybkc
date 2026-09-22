@@ -141,7 +141,7 @@ func (m *MemberRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	for i0 := range m.MbrAddress {
 		var occurrence1 []byte
 		if occurrence1, err = r.ReadBytes(61); err != nil {
-			return fmt.Errorf("MEMBER-RECORD: reading its bytes in occurrence %d of MBR-ADDRESS: %w", i0, err)
+			return fmt.Errorf("MEMBER-RECORD: reading its bytes in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 		}
 		entry2.Reset(occurrence1)
 		switch i0 + 1 {
@@ -150,57 +150,57 @@ func (m *MemberRecord) UnmarshalCOBOL(r *codec.Reader) error {
 			m.MbrAddress[i0].AdrWork = nil
 			m.MbrAddress[i0].AdrMail = nil
 			if m.MbrAddress[i0].AdrHome.AhmStreet, err = entry2.ReadAlphanumeric(30); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AHM-STREET in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AHM-STREET in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrHome.AhmCity, err = entry2.ReadAlphanumeric(20); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AHM-CITY in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AHM-CITY in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrHome.AhmRegion, err = entry2.ReadAlphanumeric(2); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AHM-REGION in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AHM-REGION in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrHome.AhmPostal, err = entry2.ReadAlphanumeric(9); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AHM-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AHM-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 		case 2:
 			m.MbrAddress[i0].AdrWork = fresh(m.MbrAddress[i0].AdrWork)
 			m.MbrAddress[i0].AdrHome = nil
 			m.MbrAddress[i0].AdrMail = nil
 			if m.MbrAddress[i0].AdrWork.AwkEmployer, err = entry2.ReadAlphanumeric(30); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AWK-EMPLOYER in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AWK-EMPLOYER in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrWork.AwkStreet, err = entry2.ReadAlphanumeric(20); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AWK-STREET in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AWK-STREET in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrWork.AwkRegion, err = entry2.ReadAlphanumeric(2); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AWK-REGION in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AWK-REGION in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrWork.AwkPostal, err = entry2.ReadAlphanumeric(9); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AWK-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AWK-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 		case 3:
 			m.MbrAddress[i0].AdrMail = fresh(m.MbrAddress[i0].AdrMail)
 			m.MbrAddress[i0].AdrHome = nil
 			m.MbrAddress[i0].AdrWork = nil
 			if m.MbrAddress[i0].AdrMail.AmlBox, err = entry2.ReadAlphanumeric(12); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AML-BOX in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AML-BOX in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrMail.AmlCity, err = entry2.ReadAlphanumeric(20); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AML-CITY in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AML-CITY in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrMail.AmlRegion, err = entry2.ReadAlphanumeric(2); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading AML-REGION in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading AML-REGION in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if m.MbrAddress[i0].AdrMail.slack[0], err = entry2.ReadBytes(27); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: reading the 27 bytes no item of it covers in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: reading the 27 bytes no item of it covers in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 		}
 	}
@@ -262,91 +262,91 @@ func (m *MemberRecord) MarshalCOBOL(w *codec.Writer) error {
 		switch i0 + 1 {
 		case 1:
 			if m.MbrAddress[i0].AdrWork != nil {
-				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-WORK in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-WORK in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if m.MbrAddress[i0].AdrMail != nil {
-				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-MAIL in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-MAIL in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if m.MbrAddress[i0].AdrHome == nil {
-				return fmt.Errorf("MEMBER-RECORD: the schedule assigns ADR-HOME to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: the schedule assigns ADR-HOME to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrHome.AhmStreet, 30); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AHM-STREET in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AHM-STREET in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrHome.AhmCity, 20); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AHM-CITY in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AHM-CITY in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrHome.AhmRegion, 2); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AHM-REGION in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AHM-REGION in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrHome.AhmPostal, 9); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AHM-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AHM-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 		case 2:
 			if m.MbrAddress[i0].AdrHome != nil {
-				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-HOME in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-HOME in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if m.MbrAddress[i0].AdrMail != nil {
-				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-MAIL in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-MAIL in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if m.MbrAddress[i0].AdrWork == nil {
-				return fmt.Errorf("MEMBER-RECORD: the schedule assigns ADR-WORK to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: the schedule assigns ADR-WORK to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrWork.AwkEmployer, 30); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AWK-EMPLOYER in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AWK-EMPLOYER in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrWork.AwkStreet, 20); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AWK-STREET in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AWK-STREET in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrWork.AwkRegion, 2); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AWK-REGION in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AWK-REGION in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrWork.AwkPostal, 9); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AWK-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AWK-POSTAL in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 		case 3:
 			if m.MbrAddress[i0].AdrHome != nil {
-				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-HOME in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-HOME in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if m.MbrAddress[i0].AdrWork != nil {
-				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-WORK in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-WORK in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if m.MbrAddress[i0].AdrMail == nil {
-				return fmt.Errorf("MEMBER-RECORD: the schedule assigns ADR-MAIL to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of MBR-ADDRESS", i0)
+				return fmt.Errorf("MEMBER-RECORD: the schedule assigns ADR-MAIL to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of MBR-ADDRESS", i0+1)
 			}
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrMail.AmlBox, 12); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AML-BOX in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AML-BOX in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrMail.AmlCity, 20); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AML-CITY in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AML-CITY in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(m.MbrAddress[i0].AdrMail.AmlRegion, 2); err != nil {
-				return fmt.Errorf("MEMBER-RECORD: writing AML-REGION in occurrence %d of MBR-ADDRESS: %w", i0, err)
+				return fmt.Errorf("MEMBER-RECORD: writing AML-REGION in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 			}
 
 			switch {
 			case m.MbrAddress[i0].AdrMail.slack[0] == nil:
 				if err = entry2.WriteBytes(zeroFill[:27]); err != nil {
-					return fmt.Errorf("MEMBER-RECORD: writing 27 zero bytes for slack this record carries none for in occurrence %d of MBR-ADDRESS: %w", i0, err)
+					return fmt.Errorf("MEMBER-RECORD: writing 27 zero bytes for slack this record carries none for in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 				}
 			case len(m.MbrAddress[i0].AdrMail.slack[0]) != 27:
-				return fmt.Errorf("MEMBER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 27 bytes is %d in occurrence %d of MBR-ADDRESS", len(m.MbrAddress[i0].AdrMail.slack[0]), i0)
+				return fmt.Errorf("MEMBER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 27 bytes is %d in occurrence %d of MBR-ADDRESS", len(m.MbrAddress[i0].AdrMail.slack[0]), i0+1)
 			default:
 				if err = entry2.WriteBytes(m.MbrAddress[i0].AdrMail.slack[0]); err != nil {
-					return fmt.Errorf("MEMBER-RECORD: writing the 27 bytes no item of it covers in occurrence %d of MBR-ADDRESS: %w", i0, err)
+					return fmt.Errorf("MEMBER-RECORD: writing the 27 bytes no item of it covers in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 				}
 			}
 		}
 		if err = w.WriteBytes(entry2.Bytes()); err != nil {
-			return fmt.Errorf("MEMBER-RECORD: writing its bytes in occurrence %d of MBR-ADDRESS: %w", i0, err)
+			return fmt.Errorf("MEMBER-RECORD: writing its bytes in occurrence %d of MBR-ADDRESS: %w", i0+1, err)
 		}
 	}
 

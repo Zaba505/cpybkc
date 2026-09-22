@@ -708,6 +708,32 @@ a satisfying value to store into the predicate's target — see `ir/SPEC.md`'s
 is still a field you fill. A scheduled arm is not an exception to it: there is
 no predicate on such an arm to invert, and nothing you supplied selected it.
 
+### Occurrences in a diagnostic are counted from one
+
+Every message a generated decoder or encoder emits about a table — reading or
+writing an item, an entry no arm matched, an arm the schedule did not assign,
+two counts disagreeing — names the occurrence it is about, and **the first
+occurrence is one**:
+
+```
+CLAIM-RECORD: the record type is one the layout describes and no arm of the
+alternation over CLN-PROFESSIONAL matches the entry in occurrence 1 of CLM-LINE
+```
+
+The Go index is zero, and the number in the message is not it. The person
+reading one of these has the copybook open and the file on their desk, and both
+of those count the first entry as one: COBOL subscripts are one-based,
+[`layout/SPEC.md`](../../docs/layout/SPEC.md) writes a `schedule-variant`'s
+occurrences from one, and the generated record tests label the same entry
+`CLM-LINE(1)`. A report naming entry zero of a table whose maximum is nine is
+off by one against everything it is held against.
+
+So the number is the *occurrence*, not the subscript — and it is the same number
+whether the table is fixed, counted by a field, or counted by a register.
+[`occurrenceNumber`](codec.go) is the one place the two conventions meet, so a
+message added later cannot count from zero without inventing a second way to
+name an occurrence.
+
 ### A table counted by a register
 
 Where a table's count is a register rather than a field of the record, decoding
