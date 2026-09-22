@@ -38,7 +38,10 @@
 //  1. the file node, which is therefore identifier zero;
 //  2. each record type in the order [Options.Records] gives them, and inside
 //     one, its record node, then its top level, then its members in record
-//     order, an arm's predicate ahead of the arm's body;
+//     order, an arm's predicate ahead of the arm's body. An arm chosen by the
+//     position of an occurrence rather than by its bytes has no predicate and
+//     allocates nothing: its schedule is numbers carried on the arm itself,
+//     resolving to no node and dereferencing nothing;
 //  3. the registers, in the order the automaton allocated them;
 //  4. every state, in the automaton's own order;
 //  5. then, state by state in that same order, the guards qualifying its

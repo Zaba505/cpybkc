@@ -139,8 +139,6 @@ func (l *layers) assemble(bound *bindings) (*irpb.Descriptor, error) {
 	renames := l.substitutes(bound)
 	chosen := l.alternatives(bound)
 
-	l.schedules(bound)
-
 	// Every item reference the layout writes is resolved before this line, and
 	// nothing below resolves another. A reference that names no item reports
 	// itself against `bound`, and `bound` is read exactly here — so a stage that
@@ -423,20 +421,28 @@ func (l *layers) overrides(bound *bindings) (map[string][]resolve.EncodingOverri
 	return overrides, flat
 }
 
-// redefines resolves each `discriminate-variant` and each `take-alternative` to
-// the copybook item it names, keyed by the record its reference is rooted at.
+// redefines resolves each `discriminate-variant`, each `schedule-variant` and
+// each `take-alternative` to the copybook item it names, keyed by the record its
+// reference is rooted at.
 //
-// Both are about a redefine *inside* a repeating group: the alternative is
+// All three are about a redefine *inside* a repeating group: the alternative is
 // chosen once per occurrence rather than once per record, which is why it
 // arrives as input to resolving a record instead of multiplying the record types
 // the way a redefine outside one does.
 //
-// They differ in how many alternatives they hand over, and `resolve` reads the
-// count as the statement it is: two or more are a variant with an arm apiece,
-// and exactly one says every occurrence takes that alternative and resolves to
-// its items with no variant node at all (docs/layout/SPEC.md, "Every occurrence
-// of a table takes one alternative"). Nothing here says which of the two it is,
-// because the number already does.
+// They differ in how many alternatives they hand over and in what selects each
+// one, and `resolve` reads both as the statements they are. Two or more
+// alternatives are a variant with an arm apiece, and exactly one says every
+// occurrence takes that alternative and resolves to its items with no variant
+// node at all (docs/layout/SPEC.md, "Every occurrence of a table takes one
+// alternative"). Nothing here says which of the two it is, because the number
+// already does. An arm carrying a schedule is selected by the position of an
+// occurrence and one carrying a strategy by its bytes, and nothing here says
+// which kind a variant is either, because the form the layout wrote already
+// does: the two are separate top-level forms, so a variant mixing them is not
+// something one layout can spell. `resolve` rejects a mixture all the same,
+// because its input is a Go value and the forms are not the only way to build
+// one (docs/ir/SPEC.md, "One kind of selector per variant").
 func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 	redefines := make(map[string][]resolve.Redefine)
 
@@ -458,6 +464,34 @@ func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 		redefines[record] = append(redefines[record], resolve.Redefine{Item: item, Alternatives: alternatives})
 	}
 
+	for _, schedule := range l.discrimination.Schedules {
+		item := bound.field(schedule.Variant)
+		if item == nil {
+			continue
+		}
+
+		alternatives := make([]resolve.Alternative, 0, len(schedule.Arms))
+		for _, arm := range schedule.Arms {
+			occurrences := make([]int64, 0, len(arm.Occurrences))
+			for _, occurrence := range arm.Occurrences {
+				occurrences = append(occurrences, occurrence.Value)
+			}
+
+			alternatives = append(alternatives, resolve.Alternative{
+				Name:     arm.Alternative,
+				Schedule: &resolve.Schedule{Occurrences: occurrences},
+			})
+		}
+
+		// The numbers are carried across as the layout wrote them, unclamped
+		// and unsorted. Both are deliberate: the layout reader has already held
+		// them to being positive and ascending, and the one check left is
+		// against the copybook's own occurrence count — which needs the number
+		// the adopter wrote in order to name it back to them.
+		record := schedule.Variant.Record
+		redefines[record] = append(redefines[record], resolve.Redefine{Item: item, Alternatives: alternatives})
+	}
+
 	for _, taken := range l.discrimination.Taken {
 		item := bound.field(taken.Redefine)
 		if item == nil {
@@ -475,37 +509,6 @@ func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 	}
 
 	return redefines
-}
-
-// schedules reports every `schedule-variant` the layout carries, because nothing
-// lowers one into the IR yet (#353).
-//
-// The layout reader reads the form and makes every check a number settles on its
-// own, so a schedule that reaches here is well formed and says something the
-// format admits. What is missing is the rest of the way: resolving one needs the
-// repetition's declared maximum to check the coverage against, and lowering one
-// needs the IR's scheduled selector. Until both are here the run stops, and the
-// message says the construct is not resolved rather than that the layout is
-// wrong — an adopter who wrote a correct schedule must not be sent to rewrite it.
-//
-// It is reported against the same list every other item reference is, and after
-// the reference is resolved rather than instead of it: a schedule naming an item
-// the copybook does not declare is a fault of the layout's, and this is the only
-// place it would be found.
-//
-// A reference that does not resolve reports itself and nothing is added, for
-// [layers.redefines]' reason. The adopter cannot act on "this build does not
-// lower one" until the layout names an item at all, and a second message beside
-// the first would name the same line twice with the one of the two that is not
-// theirs to fix.
-func (l *layers) schedules(bound *bindings) {
-	for _, schedule := range l.discrimination.Schedules {
-		if bound.field(schedule.Variant) == nil {
-			continue
-		}
-
-		bound.Fail(&ScheduledVariantError{Pos: span(schedule.Pos), Variant: schedule.Variant})
-	}
 }
 
 // substitutes resolves each `rename` to what it names: a copybook item, or the

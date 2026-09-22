@@ -447,10 +447,28 @@ func renderArms(arms []*irpb.Arm) string {
 			body = "field=" + id(held.FieldId)
 		}
 
-		rendered = append(rendered, "arm(predicate="+id(arm.GetPredicateId())+" "+body+")")
+		rendered = append(rendered, "arm("+renderSelector(arm)+" "+body+")")
 	}
 
 	return strings.Join(rendered, " ")
+}
+
+// renderSelector draws how one arm is chosen: the predicate node that tests the
+// bytes of the occurrence in front of it, or the occurrences it is taken for.
+func renderSelector(arm *irpb.Arm) string {
+	switch selector := arm.GetSelector().(type) {
+	case *irpb.Arm_PredicateId:
+		return "predicate=" + id(selector.PredicateId)
+	case *irpb.Arm_Schedule:
+		numbers := make([]string, 0, len(selector.Schedule.GetOccurrenceNumbers()))
+		for _, number := range selector.Schedule.GetOccurrenceNumbers() {
+			numbers = append(numbers, strconv.Itoa(int(number)))
+		}
+
+		return "schedule=[" + strings.Join(numbers, " ") + "]"
+	}
+
+	return "selector=none"
 }
 
 func renderTest(predicate *irpb.Predicate) string {
@@ -865,6 +883,58 @@ func TestAVariantBecomesArmsAndPredicates(t *testing.T) {
 13 transition record=1 to=12 predicate=14
 14 predicate field=3 equals 0xc5
 15 transition record=1 to=12 predicate=14
+`)
+}
+
+// TestAScheduledVariantBecomesArmsAndSchedules is the other way an arm is
+// chosen, and the half of the choice no node is allocated for: a schedule
+// resolves to nothing and dereferences nothing, so the occurrences sit inline on
+// the arm and no predicate node stands beside the variant.
+//
+// It is the shape discussion #340 is about — a table whose entries carry roles
+// rather than types, where no byte of an entry says which alternative it is and
+// the position decides.
+func TestAScheduledVariantBecomesArmsAndSchedules(t *testing.T) {
+	const entries = `01 ENT-REC.
+   05 ENT-TYPE PIC X(1).
+   05 ENT-LINE OCCURS 3 TIMES.
+      10 ENT-CASH PIC 9(4).
+      10 ENT-NOTE REDEFINES ENT-CASH PIC X(4).
+`
+
+	const source = `(framing (recfm V) (lrecl 100))
+(encoding (charset cp037) (sign-convention ebcdic) (byte-order big-endian) (float-format hfp))
+(record ENTRY (copybook "ent.cpy" ENT-REC))
+(discriminate ENTRY (equals (item ENTRY ENT-TYPE) "E"))
+(sequence (+ ENTRY))`
+
+	descriptor := assembled(t, source, map[string]string{"ENTRY": entries},
+		func(t *testing.T, name string, record *copybook.Field) []resolve.Redefine {
+			t.Helper()
+
+			return []resolve.Redefine{{
+				Item: fieldNamed(t, record, "ENT-CASH"),
+				Alternatives: []resolve.Alternative{
+					{Name: "ENT-CASH", Schedule: &resolve.Schedule{Occurrences: []int64{1, 3}}},
+					{Name: "ENT-NOTE", Schedule: &resolve.Schedule{Occurrences: []int64{2}}},
+				},
+			}}
+		})
+
+	equal(t, render(descriptor), `version 1
+0 file descriptor-word start=8
+1 record ENT-REC root=2
+2 group ENT-REC members=[3 4]
+3 field ENT-TYPE width=1 display cp037/ebcdic/big-endian/ibm-hfp alphanumeric(0,0)
+4 group ENT-LINE members=[5] occurs=3
+5 variant arm(schedule=[1 3] field=6) arm(schedule=[2] field=7)
+6 field ENT-CASH width=4 display cp037/ebcdic/big-endian/ibm-hfp numeric(4,0)
+7 field ENT-NOTE width=4 display cp037/ebcdic/big-endian/ibm-hfp alphanumeric(0,0)
+8 state transitions=[10]
+9 state accepts transitions=[12]
+10 transition record=1 to=9 predicate=11
+11 predicate field=3 equals 0xc5
+12 transition record=1 to=9 predicate=11
 `)
 }
 

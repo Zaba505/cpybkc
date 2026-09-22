@@ -209,7 +209,9 @@ type Arm struct {
 	// which is what a layout writes in an `arm` form.
 	Alternative string
 
-	// Predicate is the predicate that selects this arm, and is never nil.
+	// Predicate is the predicate that selects this arm by the bytes of the
+	// occurrence in front of it. It is never nil on an arm of a variant
+	// selected by bytes, and always nil on one carrying a [Arm.Schedule].
 	//
 	// The same node kind and the same closed set of tests a transition's
 	// predicate is, and bound by different rules: its target sits inside the
@@ -220,6 +222,22 @@ type Arm struct {
 	// An arm carries exactly one, and there is no default arm: an alternative
 	// selected by nothing is a choice a consumer cannot make.
 	Predicate *Predicate
+
+	// Schedule is the occurrences of the enclosing table this arm is taken
+	// for, and is nil on an arm selected by the bytes in front of it.
+	//
+	// Exactly one of [Arm.Predicate] and this is set, on every arm of every
+	// variant handed back, and every arm of one variant sets the same one —
+	// so a consumer may read the first arm's to know which kind the variant
+	// is (docs/ir/SPEC.md, "An arm may be selected by its position in the
+	// table").
+	//
+	// Where it is set, the schedules of the variant's arms cover 1..M exactly
+	// once for M the enclosing table's declared maximum, and [Resolve] proved
+	// that before it returned. A scheduled variant therefore cannot produce
+	// the "occurrence no arm matched" failure at read time at all, which is
+	// why that check is not a consumer's.
+	Schedule *Schedule
 
 	// Body is the arm's body, a group or a field node. Where the alternative
 	// occupies fewer bytes than the variant's extent, it is a group holding

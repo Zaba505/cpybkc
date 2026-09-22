@@ -309,7 +309,23 @@ func (v *validator) variant(id uint64, variant *irpb.Variant) {
 	for at, arm := range variant.GetArms() {
 		where := fmt.Sprintf("arm %d", at+1)
 
-		v.reference(id, where+"'s predicate", arm.GetPredicateId(), "predicate")
+		// An arm is chosen by the bytes of the occurrence in front of it or by
+		// which occurrence that is, and the two are checked differently
+		// because only one of them is a reference. A schedule names no node,
+		// so what there is to hold it to here is that it names an occurrence
+		// at all: an arm scheduled for none is not an arm selected by nothing
+		// but an arm nothing selects, and it would let a variant satisfy "two
+		// arms at least" while only one of them is ever taken.
+		switch selector := arm.GetSelector().(type) {
+		case *irpb.Arm_PredicateId:
+			v.reference(id, where+"'s predicate", selector.PredicateId, "predicate")
+		case *irpb.Arm_Schedule:
+			if len(selector.Schedule.GetOccurrenceNumbers()) == 0 {
+				v.fault(id, "%s is scheduled for no occurrence, so nothing ever takes it", where)
+			}
+		case nil:
+			v.fault(id, "%s is selected by nothing, and an arm chosen by nothing is not a choice a consumer can make", where)
+		}
 
 		switch body := arm.GetBody().(type) {
 		case *irpb.Arm_GroupId:

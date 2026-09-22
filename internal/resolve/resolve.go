@@ -168,11 +168,25 @@ type Alternative struct {
 	// name for the first alternative, and a redefining item's for the rest.
 	Name string
 
-	// Predicate is the strategy that selects it. It is required where the
-	// redefine has two or more alternatives — an arm chosen by nothing is not
-	// a thing an alternation can mean — and ignored where it has one, because
-	// nothing is being chosen.
+	// Predicate is the strategy that selects it by the bytes of the
+	// occurrence in front of it. It is required where the redefine has two or
+	// more alternatives and no [Alternative.Schedule] — an arm chosen by
+	// nothing is not a thing an alternation can mean — and ignored where it
+	// has one, because nothing is being chosen.
 	Predicate layoutmodel.Strategy
+
+	// Schedule is the occurrences this alternative is taken for, where it is
+	// selected by the position of an occurrence rather than by its bytes. It
+	// is nil on an alternative selected by bytes, which is what says which of
+	// the two kinds a variant is.
+	//
+	// Every alternative of one redefine carries the same kind of selector and
+	// a mixture is rejected (docs/ir/SPEC.md, "One kind of selector per
+	// variant"). On a redefine naming a single alternative it is ignored
+	// exactly as [Alternative.Predicate] is: nothing is being chosen, so the
+	// alternative's items stand where the cluster stood and there is no arm
+	// for a schedule to select.
+	Schedule *Schedule
 }
 
 // Resolve resolves record into one [Record] per combination of the alternatives
@@ -709,6 +723,13 @@ func (r *resolver) cluster(c cluster, in layoutmodel.Axes) []run {
 // The layout says which alternatives there are and what selects each one. Two or
 // more make a variant; one says every occurrence takes it, and resolves to that
 // alternative's items with no variant at all.
+//
+// An arm is selected in one of two ways, and which it is is a property of the
+// variant rather than of the arm: by the bytes of the occurrence in front of it,
+// or by which occurrence that is (docs/ir/SPEC.md, "An arm may be selected by
+// its position in the table"). The second kind is where the copybook is needed
+// for more than the arms' extents — the number of occurrences a table can hold
+// is the copybook's, and every coverage check is against it.
 func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 	redefined := c.members[0]
 	table := enclosingTable(redefined)
@@ -731,6 +752,30 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 	// so an arm needing more bytes is the layout this package rejects rather
 	// than one it pads.
 	extent := redefined.Total()
+
+	// The two checks a scheduled variant adds are made before the arms are
+	// walked, because both are about the variant rather than about any one arm
+	// and the walk below asks which kind of selector to read. They report and
+	// carry on rather than returning: an arm that does not fit its extent is
+	// worth saying beside a schedule that does not cover the table, and the
+	// `sound` flag is what keeps the node from being built out of either.
+	//
+	// Coverage waits on the selectors agreeing, and that order is the point.
+	// Over a mixed variant the coverage check reads an arm chosen by bytes as an
+	// arm scheduled for nothing, and every occurrence that arm was meant to take
+	// as one no arm covers — so it would bury the one fault the adopter has to
+	// fix under two it would not have if they fixed it.
+	sound := true
+	positional := false
+
+	if len(spec.Alternatives) > 1 {
+		sound = r.checkSelectors(c, table, spec)
+		positional = byPosition(spec)
+
+		if sound && positional && !r.checkCoverage(c, table, spec) {
+			sound = false
+		}
+	}
 
 	arms := make([]Arm, 0, len(spec.Alternatives))
 	targets := make([]*copybook.Item, 0, len(spec.Alternatives))
@@ -773,7 +818,7 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 			})
 			continue
 
-		case len(spec.Alternatives) > 1 && !alternative.Predicate.Predicate():
+		case len(spec.Alternatives) > 1 && !positional && !alternative.Predicate.Predicate():
 			r.faults.Fail(&ArmPredicateError{
 				Pos:       r.span(member.Field),
 				Record:    r.record.Name,
@@ -784,14 +829,24 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 			continue
 		}
 
-		// A redefine with one alternative chooses nothing, so its strategy is
+		// A redefine with one alternative chooses nothing, so its selector is
 		// ignored rather than compiled: there is no arm for a predicate to
 		// select and a target held to an arm's rules would be held to rules
-		// about a choice nobody is making.
+		// about a choice nobody is making. A schedule on one is ignored for
+		// the same reason and by the same rule.
 		var predicate *Predicate
+		var schedule *Schedule
 		var target *copybook.Item
 
-		if len(spec.Alternatives) > 1 {
+		switch {
+		case len(spec.Alternatives) == 1:
+		case positional:
+			// A schedule resolves to no node and dereferences nothing, so
+			// there is nothing here to compile and no target to hold to an
+			// arm's containment rule. What it needed from the copybook was
+			// the occurrence count, and that was settled above.
+			schedule = alternative.Schedule
+		default:
 			if predicate, target = r.armPredicate(c, table, alternative); predicate == nil {
 				continue
 			}
@@ -800,6 +855,7 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 		arms = append(arms, Arm{
 			Alternative: alternative.Name,
 			Predicate:   predicate,
+			Schedule:    schedule,
 			Body:        armBody(r.first(member, in), extent),
 		})
 		targets = append(targets, target)
@@ -834,13 +890,20 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 		return run{nodes: pad(r.first(member, in), c.extent())}
 	}
 
-	if len(arms) < len(spec.Alternatives) {
-		// A fault was already reported for the arms that are missing, and a
-		// variant short of them would be a second, less useful one.
+	if !sound || len(arms) < len(spec.Alternatives) {
+		// A fault was already reported — for the arms that are missing, or for
+		// the variant's selectors or its coverage — and a variant built over it
+		// would be a second, less useful one.
 		return r.base(c, in)
 	}
 
-	r.checkArmOverlap(c, table, arms, targets, spec)
+	// Overlap between two arms is a question about bytes, and a scheduled
+	// variant has none: whether two arms can both be taken for one occurrence
+	// was decided over 1..M by [resolver.checkCoverage], from the layout and
+	// the copybook rather than from a file.
+	if !positional {
+		r.checkArmOverlap(c, table, arms, targets, spec)
+	}
 
 	return run{nodes: pad(&Node{Kind: KindVariant, Arms: arms}, c.extent())}
 }
