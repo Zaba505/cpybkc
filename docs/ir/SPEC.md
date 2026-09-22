@@ -482,22 +482,31 @@ it into records cannot express it.
 ### A variant is chosen once per occurrence
 
 A **variant** node stands where a copybook overlays alternatives on one run of
-bytes inside a table. It carries an ordered list of **arms**, each naming the
-predicate that selects it and the group or field that is its body. Every arm
-begins at the variant's first byte, so the list is an order of evaluation and
-not of position; the variant itself is one item of the list containing it, in
-record order like any other (#90).
+bytes inside a table. It carries an ordered list of **arms**, each naming what
+selects it and the group or field that is its body. Every arm begins at the
+variant's first byte, so the list is an order of evaluation and not of position;
+the variant itself is one item of the list containing it, in record order like
+any other (#90).
 
-A consumer walking an occurrence and reaching a variant evaluates the arms'
-predicates and takes the one that matches, and the occurrence then holds that
-arm's items and none of the others' — the bytes the others describe are in the
-record all the same, and belong to whichever arm was selected (#90).
+A consumer walking an occurrence and reaching a variant takes the arm that
+selects that occurrence, and the occurrence then holds that arm's items and none
+of the others' — the bytes the others describe are in the record all the same,
+and belong to whichever arm was selected (#90).
 
-An arm is a pair of references and not a node of its own. Nothing points at one,
-so it needs no identity, and a kind for it would be a thirteenth a consumer
-switches over in order to reach two identifiers. A repetition is already carried
-that way — on the group or field it belongs to rather than as a node — and for
-the same reason ([The node kinds](#the-node-kinds)).
+An arm is selected in one of two ways, and which one it is is the arm's own. It
+carries either a **predicate** over the occurrence's bytes, which is [A
+predicate on an arm reads one
+occurrence](#a-predicate-on-an-arm-reads-one-occurrence), or a **schedule** of
+the occurrence numbers it is taken for, which is [An arm may be selected by its
+position in the table](#an-arm-may-be-selected-by-its-position-in-the-table)
+(#346).
+
+An arm is a selector and a reference, and not a node of its own. Nothing points
+at one, so it needs no identity, and a kind for it would be a thirteenth a
+consumer switches over in order to reach a body and what selects it. A
+repetition is already carried that way — on the group or field it belongs to
+rather than as a node — and for the same reason ([The node
+kinds](#the-node-kinds)).
 
 A variant **MUST** be contained, at any depth, in a group that repeats, and a
 producer **MUST NOT** emit one anywhere else. That is the whole of what the kind
@@ -541,17 +550,18 @@ fixed-length dataset](#a-variable-record-does-not-fit-a-fixed-length-dataset)).
 A consumer that wants a record's length and nothing else evaluates no arm at
 all.
 
-**Two arms at least, and a predicate on every one.** A producer **MUST NOT**
-emit a variant carrying fewer than two arms, or an arm carrying no predicate.
-Neither is a narrowing. A redefine every occurrence of which takes one
-alternative resolves to that alternative's items and no variant, the way a
-record-level redefine whose layout names one alternative resolves to one record
-node — the overlay an adopter wrote to read a packed field as bytes is that
-shape, and it reaches the IR as whichever item the layout named. And an arm
-carrying no predicate would match every occurrence, which under the overlap rule
-in [A predicate on an arm reads one
+**Two arms at least, and a selector on every one.** A producer **MUST NOT**
+emit a variant carrying fewer than two arms, or an arm carrying neither a
+predicate nor a schedule. Neither is a narrowing. A redefine every occurrence of
+which takes one alternative resolves to that alternative's items and no variant,
+the way a record-level redefine whose layout names one alternative resolves to
+one record node — the overlay an adopter wrote to read a packed field as bytes
+is that shape, and it reaches the IR as whichever item the layout named. And an
+arm carrying no selector would take every occurrence, which under the overlap
+rule in [A predicate on an arm reads one
 occurrence](#a-predicate-on-an-arm-reads-one-occurrence) leaves it the only arm,
-which is that same group again.
+which is that same group again — as does a schedule covering every occurrence
+the table can hold.
 
 A variant carries no names and no repetition. The alternation has no name in the
 copybook — the redefined item is the first arm and carries its own — so there is
@@ -1013,6 +1023,16 @@ the consumer is walking. What follows refuses a reference that has no occurrence
 to be read in; it is not about the word *repeats*, and [A predicate on an arm
 reads one occurrence](#a-predicate-on-an-arm-reads-one-occurrence) is where the
 fourth position's own rules are (#90).
+
+An arm's **schedule** is outside all of it too, and for a plainer reason: it is
+not a reference. It names no field, resolves to no node and dereferences
+nothing, so the arithmetic this section is about never runs against it, and the
+occurrence numbers it carries are positions in the table an arm is being chosen
+for rather than subscripts on a name. The widening this section refuses — a
+reference carrying an occurrence number — is refused still, and [An arm may be
+selected by its position in the
+table](#an-arm-may-be-selected-by-its-position-in-the-table) is where the
+distinction is argued (#346).
 
 The shared reason is not that the arithmetic is undefined. [Ordering and width,
 and no offset](#ordering-and-width-and-no-offset) settles what the sum reaches —
@@ -2384,6 +2404,13 @@ predicate on an arm reads one
 occurrence](#a-predicate-on-an-arm-reads-one-occurrence) is about the first, and
 that subsection says which of it the second keeps (#90).
 
+An arm is the one of the two that may also select on something that is not
+bytes. It carries a predicate **or** a schedule of occurrence numbers, and a
+schedule is a selector beside this set rather than a member of it — [An arm may
+be selected by its position in the
+table](#an-arm-may-be-selected-by-its-position-in-the-table) is that answer and
+the argument for putting it there (#346).
+
 A predicate **MUST** name its target as a field node identifier and **MUST NOT**
 name it as a field name. The record being discriminated is the record its
 transition admits: a producer **MUST** ensure the target is contained in that
@@ -2504,9 +2531,12 @@ a field of the record in the writer's hands, and comparing its bytes to a
 literal — or to a list of them — asks nothing of what the writer will be handed
 next.
 
-A third member is a breaking change under [Versioning and
+A third member is a change under [Versioning and
 compatibility](#versioning-and-compatibility), which is why the set is settled
-before the first release rather than grown afterwards.
+while `IR_VERSION_1` is being assembled rather than grown afterwards. One was
+proposed and refused while it was still open to be added: selecting an arm by
+its occurrence index, which is not a member here and is a selector on the arm
+instead (#346).
 
 ### A predicate always names a field
 
@@ -2593,9 +2623,16 @@ qualifier. Absent, it stays one optional reference on the transition, and the
 predicate node keeps the shape [The node kinds](#the-node-kinds) gives it — the
 identifier of the field it tests, and the test itself.
 
+**Selecting an arm by its occurrence index is not a member either**, and it is
+not refused — it is a selector carried on the arm beside the predicate, so that
+this section stays true of every predicate rather than acquiring a member with
+no target. [An arm may be selected by its position in the
+table](#an-arm-may-be-selected-by-its-position-in-the-table) is where that is
+argued and what it costs (#346).
+
 Settled now rather than left to the change that fixes the membership, because a
 member testing something other than a field's bytes is a new member of a closed
-set and costs a version under [Versioning and
+set and is governed by [Versioning and
 compatibility](#versioning-and-compatibility) — and because #17 fixes the schema
 against this answer, where a predicate carries a field reference that is always
 set rather than a reference beside a choice of what else a predicate might be
@@ -3149,11 +3186,14 @@ fixes the schema against the node shapes it already had (#17, #94).
 
 ### A predicate on an arm reads one occurrence
 
-An arm of a variant is selected by a predicate node — the same kind, and the
+An arm of a variant may be selected by a predicate node — the same kind, and the
 same closed set of tests, as the one selecting a transition. What differs is the
 bytes it reads and the rules binding its target, and both differences come from
 where it is evaluated: inside one occurrence of a group, with the record already
-admitted (#90).
+admitted (#90). Everything in this subsection binds an arm selected that way. An
+arm selected by its position carries no predicate and reads nothing, and is [An
+arm may be selected by its position in the
+table](#an-arm-may-be-selected-by-its-position-in-the-table)'s (#346).
 
 Its target **MUST** be contained, at any depth, in the innermost group that
 repeats and contains the variant — the group one occurrence of which the arm is
@@ -3248,6 +3288,174 @@ alternatives do not cover writes an arm for the residue, spelled as the test
 over the codes it covers — the set carries no member matching whatever is left,
 and [Discriminator predicates](#discriminator-predicates) is where that is
 settled (#22, #28).
+
+### An arm may be selected by its position in the table
+
+An arm **MAY** be selected by the **position** of the occurrence it is being
+chosen for rather than by that occurrence's bytes. Such an arm carries a
+**schedule**: **one or more** occurrence numbers, counted from one, in strictly
+ascending order. One number appears in one schedule of one variant and in no
+other, and the strictness of the order is what says so inside an arm as the
+uniqueness rule below says it across two. A producer **MUST NOT** emit an arm
+whose schedule carries no occurrence at all — that is not an arm selected by
+nothing but an arm nothing selects, and it would let a variant satisfy *two arms
+at least* while only one of them is ever taken. A producer **MAY** emit one
+under a fixed `OCCURS` and under **both** readings of an `OCCURS DEPENDING ON`,
+and `resolve` **MUST NOT** make the mechanism available under one reading and
+not the other (#346, discussion #340).
+
+The file that asks for it is the table whose entries carry roles rather than
+types — a count says how many entries arrived, entry one is the home address,
+entry two the work address, entry three the mailing address — and no byte of an
+entry says which it is. Every reading of that shape as a predicate is refused
+above, and each refusal is right where it stands: the count sits outside the
+occurrence and so selects one arm in all of them ([A predicate on an arm reads
+one occurrence](#a-predicate-on-an-arm-reads-one-occurrence)), an arm carries no
+guard because a register holds one value for the whole of a record's read, and
+the set admits nothing that tests neither. So the shape is not describable by
+narrowing a rule; what it needs is a second way to select an arm, and that is
+what a schedule is.
+
+**A selector beside the predicate, and not a third member of the predicate
+set.** [A predicate always names a field](#a-predicate-always-names-a-field) is
+not a rule to be qualified here: every member of the set names a field node and
+tests its bytes, the field reference on a predicate node is always set, and #17
+fixes the schema against that. A member testing an occurrence index names no
+field, so it would put an unset reference inside the predicate node and oblige
+every rule above that says *the target* to grow a qualifier — which is the
+argument that section already makes when it refuses *select on nothing at all*
+as a member and keeps it the absence of one.
+
+The set has a second reason to stay at two, and it is that a predicate is shared
+by two positions. A transition carries one and an arm carries one
+([Discriminator predicates](#discriminator-predicates)), and an occurrence index
+means nothing at a transition, which chooses a whole record and has no
+occurrence to be in. A member legal in one of a set's two positions is a
+condition the closed set has no way to state, and every consumer's switch over
+the set would carry it. Putting
+the choice on the **arm** — the one position where an occurrence exists — leaves
+the set at two, leaves every rule about a predicate's target true of every
+predicate, and puts the new thing where the new thing applies.
+
+**A schedule is not a reference, and [A reference names a field, not an
+occurrence of one](#a-reference-names-a-field-not-an-occurrence-of-one) is not
+widened.** That section refuses a reference that names a field in forty entries
+while carrying nothing that says which of the forty, and calls carrying one *an
+addition a consumer must understand in order to stay correct*. A schedule names
+no field, resolves to no node and dereferences nothing; the numbers it carries
+are positions in the table the arm is being chosen for, not subscripts on a
+name. There is no intention left to guess at, which is the same ground on which
+that section already admits an arm's predicate as a fourth position outside its
+rule.
+
+**One kind of selector per variant.** Every arm of one variant **MUST** carry
+the same kind, and `resolve` **MUST** reject a layout mixing them, naming the
+record, the repeating group, the variant and the arms of each kind. A consumer
+**MAY** therefore read the first arm's selector to know which kind the variant
+is. Two things decide this. Exhaustiveness and overlap are different questions
+for the two kinds — one is decided statically over 1..M and the other is a
+property of bytes — so a mixed variant would need both checks and a third rule
+saying which wins where a predicate matches an occurrence a schedule also
+covers. And the arm is the caller's under one kind and the descriptor's under
+the other ([What the descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies)), so a mixed
+variant would give one call two behaviours selected by a property of the layout
+the caller cannot see, which is the shape [A writer evaluates a predicate, it
+never inverts one](#a-writer-evaluates-a-predicate-it-never-inverts-one) refuses
+in as many words.
+
+**Exhaustiveness is `resolve`'s, and there is no read-time failure.** Let *M* be
+the repetition's declared maximum number of occurrences — the constant of a
+fixed `OCCURS`, and under an `OCCURS DEPENDING ON` the declared maximum under
+either reading ([An item after a table slides, and the other reading is a fixed
+table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
+The schedules of a variant's arms **MUST** cover every occurrence of 1..*M*
+exactly once, and `resolve` **MUST** reject a layout that leaves one uncovered,
+naming the record, the repeating group, the variant and the occurrence numbers
+with no arm; **MUST** reject an occurrence scheduled twice, naming the
+occurrence and the arm or arms that carry it, which is [When two match, and when
+none does](#when-two-match-and-when-none-does) at this scope and decided from
+the layout rather than from a file; **MUST** reject an arm whose schedule is
+empty, naming the arm; and **MUST** reject an occurrence number that is not in
+1..*M*, naming the number and the declared maximum. The first two are one
+question asked from both ends — every occurrence of 1..*M* is carried by exactly
+one arm — and they are separate diagnostics because they send an adopter to
+different places: one to the entry they forgot to describe, the other to the two
+descriptions they wrote for one entry.
+
+So a variant whose arms are scheduled cannot produce the *occurrence no arm
+matched* failure at all, and a consumer **MUST NOT** report one for it. That
+diagnostic stays exactly where it was for the byte-selected form, which can
+still meet an entry carrying a code its alternatives do not cover. Under a
+sliding `OCCURS DEPENDING ON` the occurrences beyond the count are not in the
+record and are not read; their arms are simply not taken, and that is not a
+failure either.
+
+**The structural lowering is an optimisation, not the feature.** Where the
+number of occurrences is a constant — a fixed `OCCURS`, or an `OCCURS DEPENDING
+ON` read `noodoslide`, where the repetition's count is the declared maximum as a
+constant — a schedule is a static fact and could be lowered into structure the
+IR already has: *M* members in record order, each carrying its arm's items and
+its slack, with no variant node at all. That lowering stays available to
+`resolve` as an optimisation, and it is not what makes the shape describable,
+because it is not equivalent to a schedule. It cannot express one that takes a
+single alternative for more than one occurrence —
+two unrolled members would carry one copybook name between them, and
+[Names](#names) forbids a producer inventing the difference — and it is not
+available at all under `odoslide`, where the count is a reference read at run
+time and there is nothing static to unroll. A mechanism available under one
+reading and not the other would make one copybook describable or not according
+to which compiler wrote the file, and which reading applies is a property of the
+extract that is already a mandatory statement in any layout carrying an `OCCURS
+DEPENDING ON`. It must not also decide whether the layout can be written.
+
+**What a consumer does** is less than the byte-selected form asks of it. The arm
+of occurrence *k* is a function of *k* and the descriptor alone, known before a
+byte is read, so a consumer evaluates nothing per occurrence and needs no second
+predicate evaluator for this kind. What it costs instead is holding the schedule
+while it walks, which is a comparison against numbers it already has. The shape
+a generator emits is its own like every other question about the call ([Also out
+of scope](#also-out-of-scope)) — but where the byte-selected form leaves a
+generator emitting a discriminant beside the arms in every element of the table,
+a scheduled variant need not, because nothing about an occurrence's arm is
+decided by data.
+
+**`IrVersion` stays at 1.** A selector beside the predicate is an addition to a
+closed set, and [While `IR_VERSION_1` is being
+assembled](#while-ir_version_1-is-being-assembled) is the rule it is added
+under — not an exception to [What breaks it](#what-breaks-it) but the
+enumerating that bullet waits on, and the same footing `CHARSET_NONE` was added
+on (#275, #347). This document states no justification of its own for that; the
+rule is stated once, there.
+
+It is the cheap shape of addition that rule is written for, the one a conforming
+consumer **must fail on** rather than silently default. An arm's predicate is a
+required reference today. A consumer that has never heard of a schedule reads
+that reference on a scheduled arm, finds no predicate node the identifier names,
+and **MUST** stop, because every reference **MUST** resolve to a node of a kind
+the referring position admits ([Identity, ordering and
+determinism](#identity-ordering-and-determinism)) — `cpybkc-gen-go` returns
+`unresolved` naming the arm's identifier. The worst outcome available to an old
+consumer is a refusal naming what it could not resolve, which is what advancing
+the version would have bought it, and it is why the permission is affordable
+here. A producer **MUST NOT** emit a schedule beside a predicate on one arm: an
+arm carrying both would resolve for an old consumer and read as the wrong
+alternative, which is exactly the silent misread the shape above avoids.
+
+**Ordering, so that two consumers agree.** A producer **MUST** emit each arm's
+schedule in strictly ascending order, so that an occurrence written twice inside
+one arm is not a descriptor a consumer has to have an opinion about, and
+**MUST** emit a scheduled variant's arms in ascending order of their first
+occurrence,
+which is [Identity, ordering and
+determinism](#identity-ordering-and-determinism) applied to a list that would
+otherwise have no canonical order. Every other rule of [A variant is chosen once
+per occurrence](#a-variant-is-chosen-once-per-occurrence) binds a scheduled
+variant unchanged — two arms at least, one constant extent across every arm, a
+slack node inside each arm covering the bytes its own items do not, and
+containment in a group that repeats. The extent rule is what keeps every
+occurrence of the enclosing group the same width, and nothing here is permitted
+to move it.
 
 ## Writing a file
 
@@ -3484,11 +3692,18 @@ it at the other. What a writer emits for that occurrence is the arm's items and
 the arm's slack, which come to the variant's width whichever arm it was, so no
 occurrence a writer emits is longer or shorter than another (#90).
 
+That paragraph binds an arm carrying a predicate. An arm carrying a **schedule**
+is neither evaluated nor inverted, because nothing in the occurrence's bytes
+decides it: the arm is the descriptor's rather than the caller's, and [What the
+descriptor determines, a writer
+supplies](#what-the-descriptor-determines-a-writer-supplies) is the rule it
+falls under instead (#346).
+
 ### What the descriptor determines, a writer supplies
 
 The rule above is narrower than *a writer never fills anything in*. A writer
 supplies a value exactly where the descriptor determines one and refuses where
-it determines a set. Inside a record the IR determines two; the framing bytes
+it determines a set. Inside a record the IR determines three; the framing bytes
 around one are the file node's and are determined there ([Where framing is
 consumed, and where it is
 emitted](#where-framing-is-consumed-and-where-it-is-emitted)).
@@ -3531,6 +3746,25 @@ non-sliding file, which carries no count reference for a writer to determine:
 its table is a fixed one and its count field is its caller's like every other
 field ([An item after a table slides, and the other reading is a fixed
 table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
+
+**A scheduled arm is determined**, and it is the one place this rule reaches a
+choice rather than a value. Where a variant's arms carry schedules ([An arm may
+be selected by its position in the
+table](#an-arm-may-be-selected-by-its-position-in-the-table)), the arm of
+occurrence *k* is a function of *k* and the descriptor alone: a writer **MUST**
+emit, for occurrence *k*, the items and the slack of the arm whose schedule
+contains *k*, and **MUST NOT** select it on anything its caller supplied. No
+choice among satisfying alternatives is being taken away from anybody, exactly
+as with a count — the descriptor names one arm and there is no second one that
+would also be right. Where a generator's call lets a caller name an arm at all,
+a writer **MUST** report a caller naming one the schedule does not assign to
+that occurrence rather than emitting it, naming the record, the repeating group,
+the occurrence and both arms. Picking is the shape being refused, for the reason
+the paragraph above refuses it: the record the writer's own reader recovers
+would not be the record its caller handed over. Whether the call offers such a
+name is the generator's ([Also out of scope](#also-out-of-scope)) — what is
+determined here is the bytes, and an occurrence carrying no discriminant at all
+is a shape this permits rather than one it requires (#346).
 
 Slack is determined by the record where the record was read, and here where it
 was not. A writer emits the bytes retained for a slack node ([Slack survives a
@@ -3661,9 +3895,13 @@ is a fact about the data that it cannot represent at all.
 
 The bullet above is the standing rule and it is not yet the rule this project
 follows. `Charset` gained `CHARSET_NONE` with `IrVersion` left at 1 (#275), and
-#346 adds one to the predicate set on the same footing. Each has argued its own
-case in a comment on the member it added, which is a rule being written one
-member at a time. It is written here instead, once (#347).
+#346 adds a second way for an arm to be selected on the same footing — a
+schedule beside the predicate, rather than a third member of the predicate set
+([An arm may be
+selected by its position in the
+table](#an-arm-may-be-selected-by-its-position-in-the-table)). Each has argued
+its own case in a comment on the member it added, which is a rule being written
+one member at a time. It is written here instead, once (#347).
 
 Until the event named below, a member **MAY** be added to a closed set of this
 schema without `IrVersion` advancing, within the limits the two shapes of
@@ -4284,14 +4522,14 @@ records offer them.
 
 | Section | Implemented by |
 |---|---|
-| [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve` |
+| [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve`; what an arm carries beside its body, widened from a predicate to a predicate or a schedule by #346 |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir`; what a binary item's width depends on, and the requirement that a descriptor say which staircase it was resolved under, by #293 |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331 |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323 |
-| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go`; reader and writer agreement re-derived from the transition order, and the writer's evaluation of the transitions ordered ahead of the one it took, by #333 |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323; whether an arm may be selected by its position in the table rather than by an occurrence's bytes, admitted by #346 as a selector beside the predicate and not as a third member, against discussion #340 |
+| [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go`; reader and writer agreement re-derived from the transition order, and the writer's evaluation of the transitions ordered ahead of the one it took, by #333; a scheduled arm made the descriptor's rather than the caller's by #346 |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir`; what a closed-set addition costs while `IR_VERSION_1` is being assembled, what ends that period and which shape of addition it permits, settled by #347 |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
 | [Reading a descriptor without generated code](#reading-a-descriptor-without-generated-code) | #19 `ir`, #57 `container` |
