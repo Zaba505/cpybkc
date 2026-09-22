@@ -1,0 +1,40 @@
+{
+  "records": [
+    {
+      "name": "VOP-DETAIL",
+      "value": {
+        "VOP-NOTE-COUNT": "0",
+        "VOP-NOTE": [],
+        "VOP-TAIL": "END0"
+      }
+    },
+    {
+      "name": "VOP-DETAIL",
+      "value": {
+        "VOP-NOTE-COUNT": "1",
+        "VOP-NOTE": [
+          {"VOP-KIND": "T", "VOP-NOTE-BODY": {"VOP-HEAD": "NB", "VOP-TEXT": "ODY1"}}
+        ],
+        "VOP-TAIL": "END1"
+      }
+    },
+    {
+      "name": "VOP-DETAIL",
+      "value": {
+        "VOP-NOTE-COUNT": "1",
+        "VOP-NOTE": [
+          {"VOP-KIND": "C", "VOP-NOTE-CODE": {"VOP-REF": "RF02"}}
+        ],
+        "VOP-TAIL": "END2"
+      }
+    },
+    {
+      "name": "VOP-DETAIL",
+      "value": {
+        "VOP-NOTE-COUNT": "0",
+        "VOP-NOTE": [],
+        "VOP-TAIL": "END3"
+      }
+    }
+  ]
+}

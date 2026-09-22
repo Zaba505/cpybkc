@@ -268,18 +268,19 @@ with four items in it.
 | [`variant-fixed`](variant-fixed) | A `REDEFINES` inside a repeating group: a table of address entries each choosing its own alternative, read `noodoslide` — a constant three entries, with the shorter alternative carrying a slack run of its own. |
 | [`variant-sliding`](variant-sliding) | The same copybook read `odoslide`, so a variable extent and a variant's arms are exercised together: three records of three entries, one and two, behind the record descriptor word the reading obliges. |
 | [`variant-no-arm`](variant-no-arm) | `variant-fixed`'s layout over a file whose second record carries an entry no arm covers, refused as such and not as a record type the layout is missing. |
+| [`variant-optional`](variant-optional) | A variant inside a table whose declared maximum is one: `OCCURS 0 TO 1 TIMES DEPENDING ON` holding a `REDEFINES`, and four records of no note, a note taking each arm, and no note again. |
 | [`schedule-fixed`](schedule-fixed) | A `REDEFINES` inside a repeating group whose alternative is chosen by the position of an entry and by no byte of the record, read `noodoslide` — a constant four entries over three roles, one arm taken for two of them. |
 | [`schedule-sliding`](schedule-sliding) | The same copybook and the same schedule read `odoslide`: three records, of four entries, one and three, so how many of the scheduled arms are reached is the count's and which position takes which arm is still the descriptor's. |
 | [`schedule-occurs`](schedule-occurs) | The same schedule over a fixed `OCCURS` with no count item at all, which is the third of the three tables the mechanism has to be available over. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Twenty-one are not derived from it — `float-ieee754-special`,
+it came from (#67). Twenty-two are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `batch-ordered`, `batch-disjoint`,
 `batch-ordered-missplit`, `batch-ordered-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
 `segmented-spanning`, `odo-sliding`, `odo-optional`,
 `sync-slack`, `alphanumeric-payload`, `variant-fixed`, `variant-sliding`,
-`variant-no-arm`, `schedule-fixed`, `schedule-sliding` and
+`variant-no-arm`, `variant-optional`, `schedule-fixed`, `schedule-sliding` and
 `schedule-occurs` — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
@@ -651,7 +652,7 @@ generator that had stopped reading charsets altogether.
 `REDEFINES` has no such row: an overlay states that one run of storage has two
 descriptions, and which description a given run carries is a fact about the
 adopter's data rather than about the bytes of any value. So `variant-fixed`,
-`variant-sliding` and `variant-no-arm` are authored against
+`variant-sliding`, `variant-no-arm` and `variant-optional` are authored against
 [`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *A variant is chosen once per
 occurrence* and *A predicate on an arm reads one occurrence* — the node kind and
 the rules of the predicate that selects an arm — and
@@ -710,6 +711,31 @@ every item behind the table, silently, at every record, and nothing in either
 file disagrees with it. `odo-sliding` covers the sliding reading in a counted run
 of records; what these two add is the fork itself, with a variant inside it,
 which is the shape an adopter arrived with (#340).
+
+`variant-optional` is that fork at a declared maximum of **one**, and it is the
+entry where the two halves of the corpus's `OCCURS DEPENDING ON` coverage meet:
+`odo-optional` varies a table's *presence* and holds no alternation,
+`variant-sliding` holds one and varies a table's *length*, and this is the
+intersection. It is worth an entry of its own rather than a fifth record of
+`variant-sliding` because the failure it catches is not a wrong read. A consumer
+that asks whether an item repeats by reading the copybook's declared maximum
+alone does not merely read this group unconditionally: the `REDEFINES` inside it
+is then a `REDEFINES` outside every table, which is two descriptions of the whole
+record rather than two arms of one occurrence — so such a consumer has no variant
+to take an arm of, and the copybook produces two record types where this
+descriptor has one. That is a difference in the *descriptor*, not in a value, and
+it is the reason a variant at this maximum had never been built at all (#372,
+#373).
+
+The rest is `variant-sliding`'s three rules met again at the maximum where they
+were unreachable. Both arms appear, one record each, so an arm chosen per record
+would read a coded entry's reference out of a text entry's head and body.
+`VOP-NOTE-CODE` is two bytes shorter than the run it redefines, so the coded
+entry carries a slack run the text entry has none of — and the two records that
+carry no entry at all carry neither. `VOP-TAIL` holds all of it to account: on
+those two records it begins at the byte after the count, so a consumer that read
+the group anyway runs off the end of a five-byte record rather than returning a
+wrong value, which is the framing reporting a fault the items could not.
 
 ### The scheduled entries cite the selector, not a discriminator, and no vector
 

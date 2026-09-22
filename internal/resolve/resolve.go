@@ -697,7 +697,7 @@ func (r *resolver) cluster(c cluster, in layoutmodel.Axes) []run {
 		return runs
 	}
 
-	if inTable(c.members[0]) {
+	if inTable(c.members[0], r.opts.Reading) {
 		return []run{r.variant(c, in)}
 	}
 
@@ -732,7 +732,7 @@ func (r *resolver) cluster(c cluster, in layoutmodel.Axes) []run {
 // is the copybook's, and every coverage check is against it.
 func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 	redefined := c.members[0]
-	table := enclosingTable(redefined)
+	table := enclosingTable(redefined, r.opts.Reading)
 
 	spec := r.redefine(redefined.Field)
 	if spec == nil {
@@ -1018,14 +1018,21 @@ func mergeSlack(nodes []*Node) []*Node {
 }
 
 // inTable reports whether item is contained, at any depth, in a group that
-// repeats. It is the whole of what decides which resolution a REDEFINES takes.
-func inTable(item *copybook.Item) bool { return enclosingTable(item) != nil }
+// repeats under reading. It is the whole of what decides which resolution a
+// REDEFINES takes.
+func inTable(item *copybook.Item, reading layoutmodel.Reading) bool {
+	return enclosingTable(item, reading) != nil
+}
 
-// enclosingTable returns the innermost group above item that repeats, or nil
-// where none does.
-func enclosingTable(item *copybook.Item) *copybook.Item {
+// enclosingTable returns the innermost group above item that repeats under
+// reading, or nil where none does.
+//
+// The reading is carried rather than read off the item because what repeats is
+// not the copybook's answer alone: [repeats] has the whole of why, and this is
+// where every site asking "is this item inside a table?" meets it.
+func enclosingTable(item *copybook.Item, reading layoutmodel.Reading) *copybook.Item {
 	for parent := item.Parent; parent != nil; parent = parent.Parent {
-		if parent.MaxOccurs > 1 {
+		if repeats(parent, reading) {
 			return parent
 		}
 	}

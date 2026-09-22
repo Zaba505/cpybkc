@@ -11,14 +11,26 @@ import (
 	"testing"
 
 	"github.com/Zaba505/cobol-go/copybook"
+
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
 // describeOf reads the shape of the first record of a copybook source, under the
-// dialect every other reader in this repository uses.
+// dialect every other reader in this repository uses and under no reading at
+// all — which is what `cpybkc init` holds and is therefore the answer most of
+// these are about.
 func describeOf(t *testing.T, src string) Shape {
 	t.Helper()
 
-	shape, err := Describe(recordOf(t, src), copybook.IBMEnterprise())
+	return describeUnder(t, src, layoutmodel.ReadingUnstated)
+}
+
+// describeUnder is the same with a reading stated, for the one question a
+// copybook does not answer on its own.
+func describeUnder(t *testing.T, src string, r layoutmodel.Reading) Shape {
+	t.Helper()
+
+	shape, err := Describe(recordOf(t, src), copybook.IBMEnterprise(), r)
 	if err != nil {
 		t.Fatalf("describing the record: %v", err)
 	}
@@ -202,7 +214,7 @@ func TestARecordWithNoTableReportsNone(t *testing.T) {
 func TestDescribingNoRecordIsRefused(t *testing.T) {
 	t.Parallel()
 
-	if _, err := Describe(nil, copybook.IBMEnterprise()); !errors.Is(err, ErrNilRecord) {
+	if _, err := Describe(nil, copybook.IBMEnterprise(), layoutmodel.ReadingUnstated); !errors.Is(err, ErrNilRecord) {
 		t.Errorf("describing nothing gave %v, want %v", err, ErrNilRecord)
 	}
 }
@@ -221,7 +233,7 @@ func TestDescribingNeedsNoLayout(t *testing.T) {
       10 LN-CARD REDEFINES LN-BODY PIC X(12).
 `
 
-	if _, err := Describe(recordOf(t, src), copybook.IBMEnterprise()); err != nil {
+	if _, err := Describe(recordOf(t, src), copybook.IBMEnterprise(), layoutmodel.ReadingUnstated); err != nil {
 		t.Fatalf("describing a record an unwritten layout would be refused for: %v", err)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/Zaba505/cobol-go/copybook"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
 // This file is the whole of what an `OCCURS DEPENDING ON` clause costs this
@@ -87,8 +88,8 @@ func (r *resolver) checkCounts(items, odo []*copybook.Item) {
 	for _, table := range odo {
 		count := table.DependingOn
 
-		switch group := enclosingTable(count); {
-		case count.MaxOccurs > 1 || group != nil:
+		switch group := enclosingTable(count, r.opts.Reading); {
+		case repeats(count, r.opts.Reading) || group != nil:
 			// docs/ir/SPEC.md, "A reference names a field, not an
 			// occurrence of one": a count with a value per occurrence of
 			// its enclosing group is a group whose occurrences are not all
@@ -241,28 +242,46 @@ func redefineBase(item *copybook.Item) *copybook.Item {
 	return item
 }
 
+// repeats reports whether item is a table under reading: a run of storage
+// carrying some number of occurrences of one description rather than one.
+//
+// It is the single answer to "does this item repeat?", and every site in this
+// package that asks the question asks it here (#373). Two different things make
+// an item a table and only one of them is the copybook's alone.
+//
+// A declared maximum above one is a table under both readings, because a fixed
+// `OCCURS n` is n occurrences whatever a layout says about anything. A
+// `DEPENDING ON` phrase is a table under `odoslide` alone: there the count read
+// at run time is what says how many occurrences a record carries — zero
+// included, one included — so a group declared `OCCURS 0 TO 1 TIMES DEPENDING
+// ON` is a group that is in a record or is absent from it. Under `noodoslide`
+// that same group is a fixed table of a single occurrence at a constant offset,
+// which is an ordinary item: everything inside it is where the copybook put it,
+// and no part of its position is read out of the record.
+//
+// So the declared maximum alone is the wrong test, and it is wrong in exactly
+// one place — a `DEPENDING ON` whose maximum is one, read `odoslide`. That is
+// the whole of what separates this from the expression it replaced, and it is
+// why the answer has to reach the reading at all.
+func repeats(item *copybook.Item, reading layoutmodel.Reading) bool {
+	return item.MaxOccurs > 1 || (item.DependingOn != nil && reading.Slides())
+}
+
 // repetitionOf reads an item's repetition under the layout's reading, nil where
 // the item does not repeat.
 //
-// The fork is here and in one line of [resolver.referenceCount], and nothing
-// else in this package asks which reading it is running under. Under `odoslide`
-// the count is the reference the copybook wrote and the bounds are the
-// copybook's own `OCCURS integer-1 TO integer-2`, carried for the one check
-// docs/ir/SPEC.md makes with them — a count outside them is malformed data — and
-// neither narrowed nor widened to what a layout would prefer. Under `noodoslide`
-// the same clause describes a fixed table at its declared maximum, so the
-// repetition is a constant, the bounds equal it as they do for any fixed table,
-// and the count field is left an ordinary field of the record with nothing
-// pointing at it.
+// The fork is [repeats], one line of [resolver.referenceCount] and this
+// function, and nothing else in this package asks which reading it is running
+// under. Under `odoslide` the count is the reference the copybook wrote and the
+// bounds are the copybook's own `OCCURS integer-1 TO integer-2`, carried for the
+// one check docs/ir/SPEC.md makes with them — a count outside them is malformed
+// data — and neither narrowed nor widened to what a layout would prefer. Under
+// `noodoslide` the same clause describes a fixed table at its declared maximum,
+// so the repetition is a constant, the bounds equal it as they do for any fixed
+// table, and the count field is left an ordinary field of the record with
+// nothing pointing at it.
 func (r *resolver) repetitionOf(item *copybook.Item) *Repetition {
-	// A table sliding on a count read at run time repeats whatever its declared
-	// maximum is, one included: `OCCURS 0 TO 1 TIMES DEPENDING ON` is a group
-	// that is there or is not, and a record whose count is zero does not carry
-	// it at all. So the test for whether an item repeats cannot be the declared
-	// maximum alone — under this reading it is the DEPENDING ON phrase that
-	// says a table is a table, and the maximum only says how long it may get.
-	sliding := item.DependingOn != nil && r.opts.Reading.Slides()
-	if item.MaxOccurs <= 1 && !sliding {
+	if !repeats(item, r.opts.Reading) {
 		return nil
 	}
 
@@ -270,7 +289,7 @@ func (r *resolver) repetitionOf(item *copybook.Item) *Repetition {
 		return &Repetition{Count: item.Occurs, Min: item.MinOccurs, Max: item.MaxOccurs}
 	}
 
-	if !sliding {
+	if !r.opts.Reading.Slides() {
 		// The other reading leaves a declared maximum of one a single
 		// occurrence at a constant position, which is an ordinary item and
 		// not a table of one.

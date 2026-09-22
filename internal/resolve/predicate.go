@@ -619,13 +619,17 @@ func (d byteDomain) admits(want []byte) bool {
 // The axes are a function rather than a value because the four encoding axes
 // are per item — an override reaching one item and not its sibling is what
 // [axesOf] folds — and the item is not known until the run is.
-func domainsOf(built *copybook.Layout, axes func(*copybook.Field) layoutmodel.Axes) domains {
+func domainsOf(
+	built *copybook.Layout,
+	axes func(*copybook.Field) layoutmodel.Axes,
+	reading layoutmodel.Reading,
+) domains {
 	if built == nil || axes == nil {
 		return nil
 	}
 
 	return func(run stretch) byteDomain {
-		item, ok := covering(built, run)
+		item, ok := covering(built, run, reading)
 		if !ok {
 			return nil
 		}
@@ -654,7 +658,7 @@ func domainsOf(built *copybook.Layout, axes func(*copybook.Field) layoutmodel.Ax
 // either of which a well-formed record may be — so the domain is the union of
 // the members' and reading one of them would be reading the wrong one half the
 // time.
-func covering(built *copybook.Layout, run stretch) (*copybook.Item, bool) {
+func covering(built *copybook.Layout, run stretch, reading layoutmodel.Reading) (*copybook.Item, bool) {
 	for _, item := range built.Items() {
 		if item.MinOccurs != item.MaxOccurs && item.Offset < run.end() {
 			return nil, false
@@ -672,7 +676,7 @@ func covering(built *copybook.Layout, run stretch) (*copybook.Item, bool) {
 			continue
 		}
 
-		if item.Occurs > 1 || item.MaxOccurs > 1 || enclosingTable(item) != nil {
+		if item.Occurs > 1 || repeats(item, reading) || enclosingTable(item, reading) != nil {
 			return nil, false
 		}
 

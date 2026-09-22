@@ -5,7 +5,11 @@
 
 package resolve
 
-import "github.com/Zaba505/cobol-go/copybook"
+import (
+	"github.com/Zaba505/cobol-go/copybook"
+
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
+)
 
 // Alternation is one run of a record's bytes that a REDEFINES describes more
 // than one way.
@@ -27,11 +31,41 @@ type Alternation struct {
 	// InTable reports the run standing inside a group that repeats, which is
 	// what makes it a variant chosen once per occurrence rather than one
 	// record type per alternative.
+	//
+	// It is answered under the reading [Describe] was handed, because what
+	// repeats is not the copybook's answer alone ([repeats]).
 	InTable bool
+
+	// Table is the innermost group above the run that repeats under either
+	// reading, or nil where none does. It is what a caller names beside
+	// [Alternation.InTable] and [Alternation.ReadingDecides]: both are about a
+	// group the adopter has to go and look at, and neither says which.
+	//
+	// It is the widest of the two answers on purpose. Under an unstated or
+	// non-sliding reading a group declared `OCCURS 0 TO 1 TIMES DEPENDING ON`
+	// is not a table and [Alternation.InTable] is false, and the group is
+	// still the one the question is about.
+	Table *copybook.Field
+
+	// ReadingDecides reports that [Alternation.InTable] was settled by the
+	// reading rather than by the copybook: the run stands inside a group
+	// carrying `OCCURS DEPENDING ON` whose declared maximum is one, which is a
+	// table under `odoslide` and a single occurrence at a constant offset
+	// under `noodoslide`.
+	//
+	// It is the one place a [Shape] is not a function of the copybook alone,
+	// and it is carried rather than left implicit because the two readings do
+	// not differ in some detail of the run: they differ in how many record
+	// types the copybook produces. A caller holding no reading — `cpybkc
+	// init`, which has none by construction — gets the answer
+	// [layoutmodel.Reading.Slides] calls safe and this flag saying the other
+	// reading would have given a different one, which is a thing to raise
+	// rather than a thing to resolve.
+	ReadingDecides bool
 }
 
-// Shape is what a copybook record decides on its own, before any layout has
-// said anything about it.
+// Shape is what a copybook record decides, before any layout has said what
+// selects any of it.
 //
 // It is the half of a record a layout cannot state and does not need to be
 // told: which runs of bytes carry more than one description, which of those are
@@ -39,6 +73,12 @@ type Alternation struct {
 // kind multiply out to, and whether the record's length depends on its own
 // data. A layout states the other half — what selects each of them — and
 // [Resolve] is where the two meet.
+//
+// One thing in it is *not* the copybook's alone, and it is marked rather than
+// hidden: a `REDEFINES` inside an `OCCURS DEPENDING ON` group whose declared
+// maximum is one is a variant under `odoslide` and a record type per
+// alternative under `noodoslide` ([Alternation.ReadingDecides]). That is why
+// [Describe] is handed a reading at all.
 type Shape struct {
 	// Alternations are the record's runs carrying more than one description,
 	// in containment order: outermost and earliest first.
@@ -93,10 +133,23 @@ type Shape struct {
 // The dialect is the caller's for [Resolve]'s reason: what a REDEFINES longer
 // than what it redefines means is a compiler's answer and not this package's.
 //
+// So is the reading, and a caller with none states [layoutmodel.ReadingUnstated]
+// rather than choosing one. That is not a default in disguise: it is the answer
+// [layoutmodel.Reading.Slides] documents as the one safe to compute — a fixed
+// table — and the one alternation it decides differently is reported as
+// [Alternation.ReadingDecides] so that a caller with no reading raises the
+// question instead of answering it. Refusing an unstated reading is [Resolve]'s
+// and stays there: a copybook a layout has not been written for yet is not a
+// copybook with a fault in it, and `init` exists to write that layout.
+//
 // It reports whatever `cobol-go` says is wrong with the record — a PICTURE it
 // cannot read, a level sequence that does not nest, a REDEFINES the dialect
 // refuses — and nothing of its own.
-func Describe(record *copybook.Field, dialect copybook.Dialect) (Shape, error) {
+func Describe(
+	record *copybook.Field,
+	dialect copybook.Dialect,
+	reading layoutmodel.Reading,
+) (Shape, error) {
 	if record == nil {
 		return Shape{}, ErrNilRecord
 	}
@@ -112,7 +165,7 @@ func Describe(record *copybook.Field, dialect copybook.Dialect) (Shape, error) {
 		shape.Tables = append(shape.Tables, table.Field)
 	}
 
-	shape.Alternations, shape.Combinations = describe(laid.Record)
+	shape.Alternations, shape.Combinations = describe(laid.Record, reading)
 
 	return shape, nil
 }
@@ -132,7 +185,7 @@ func Describe(record *copybook.Field, dialect copybook.Dialect) (Shape, error) {
 // The combination lists are in containment order — outermost and earliest first
 // — which is the order [Resolve] documents and the order docs/cli/SPEC.md, "How
 // a combination's record name is chosen", builds a name in.
-func describe(item *copybook.Item) ([]Alternation, [][]*copybook.Field) {
+func describe(item *copybook.Item, reading layoutmodel.Reading) ([]Alternation, [][]*copybook.Field) {
 	var alternations []Alternation
 
 	// One combination, chosen at nothing, is what an item with no alternation
@@ -145,12 +198,12 @@ func describe(item *copybook.Item) ([]Alternation, [][]*copybook.Field) {
 
 		switch {
 		case len(c.members) == 1:
-			nested, under := describe(c.members[0])
+			nested, under := describe(c.members[0], reading)
 
 			alternations = append(alternations, nested...)
 			choices = under
 
-		case inTable(c.members[0]):
+		case inTable(c.members[0], reading):
 			// A redefine inside a repeating group is chosen once per
 			// occurrence, so it multiplies nothing: it is one variant in
 			// every record type rather than a record type per alternative.
@@ -159,7 +212,7 @@ func describe(item *copybook.Item) ([]Alternation, [][]*copybook.Field) {
 			alternations = append(alternations, alternationOf(c, true))
 
 			for _, member := range c.members {
-				nested, _ := describe(member)
+				nested, _ := describe(member, reading)
 
 				alternations = append(alternations, nested...)
 			}
@@ -170,7 +223,7 @@ func describe(item *copybook.Item) ([]Alternation, [][]*copybook.Field) {
 			alternations = append(alternations, alternationOf(c, false))
 
 			for _, member := range c.members {
-				nested, under := describe(member)
+				nested, under := describe(member, reading)
 
 				alternations = append(alternations, nested...)
 
@@ -201,7 +254,30 @@ func alternationOf(c cluster, table bool) Alternation {
 		fields = append(fields, member.Field)
 	}
 
-	return Alternation{Item: c.members[0].Field, Alternatives: fields, InTable: table}
+	alternation := Alternation{
+		Item:           c.members[0].Field,
+		Alternatives:   fields,
+		InTable:        table,
+		ReadingDecides: readingDecides(c.members[0]),
+	}
+
+	if group := enclosingTable(c.members[0], layoutmodel.ODOSlide); group != nil {
+		alternation.Table = group.Field
+	}
+
+	return alternation
+}
+
+// readingDecides reports whether the two readings disagree about item standing
+// inside a table.
+//
+// Asking both is the whole of it, and it is asked rather than derived from the
+// enclosing group's clause so that there is one statement of what a table is
+// ([repeats]) and not a second one written out here in terms of `MaxOccurs` and
+// `DependingOn`. The two readings are the closed set the form admits, so there
+// is no third answer to ask for.
+func readingDecides(item *copybook.Item) bool {
+	return inTable(item, layoutmodel.ODOSlide) != inTable(item, layoutmodel.NoODOSlide)
 }
 
 // crossed multiplies the combinations found so far by the choices one cluster

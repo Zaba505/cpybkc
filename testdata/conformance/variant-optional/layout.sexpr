@@ -1,0 +1,52 @@
+;; A variant inside a table whose declared maximum is one: the group is present
+;; in a record or it is absent from it, and where it is present its one entry
+;; chooses its own alternative.
+;;
+;; The pair is with odo-optional and with variant-sliding at once. odo-optional
+;; varies a table's presence and holds no alternation; variant-sliding holds one
+;; and varies a table's length. This entry is the intersection, and it is the
+;; shape a consumer reaches only after it agrees that a maximum of one is a
+;; table: until then the REDEFINES inside the group is a REDEFINES outside every
+;; table, which is two descriptions of the whole record rather than one
+;; alternation chosen per occurrence. A reader built that way does not read this
+;; file wrongly -- it has no arm to take at all.
+
+;; The encoding profile. All four axes, always, with no default for any.
+;; ASCII rather than EBCDIC because the whole of this entry's claim is which
+;; bytes a record does and does not contain, and a reviewer checking a
+;; hand-computed byte string should be able to read it in a hex dump.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; VB, and not a free choice: the reading below makes the record's extent move
+;; with its own count, and a variable-extent record type is refused on a
+;; fixed-length dataset. The four records of this file are 5, 12, 12 and 5
+;; bytes.
+(framing
+  (recfm VB))
+
+(record DETAIL
+  (copybook "detail.cpy" VOP-DETAIL))
+
+;; `odoslide`, which is what makes the group's absence move VOP-TAIL and what
+;; makes the alternation inside it a variant. Under `noodoslide` the same
+;; copybook describes a different file *and* a different descriptor: the group
+;; always present, every record a fixed 12 bytes, and the REDEFINES two record
+;; types rather than two arms. Nothing in the bytes disagrees with the wrong
+;; reading, which is why this form is required rather than inferred.
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+;; Nothing selects the record type: every record in this file is a detail.
+(discriminate DETAIL single-record-type)
+
+;; The alternation, and what tells the two alternatives apart: a kind byte that
+;; sits inside the entry the choice is being made for.
+(discriminate-variant (item DETAIL VOP-NOTE VOP-NOTE-BODY)
+  (arm VOP-NOTE-BODY (equals (item DETAIL VOP-NOTE VOP-KIND) "T"))
+  (arm VOP-NOTE-CODE (equals (item DETAIL VOP-NOTE VOP-KIND) "C")))
+
+(sequence (* DETAIL))

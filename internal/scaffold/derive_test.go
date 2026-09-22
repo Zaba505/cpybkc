@@ -58,6 +58,17 @@ const (
                10  BLN-BODY  PIC X(12).
 `
 
+	// optional is the one shape whose record types a copybook does not decide
+	// on its own: a REDEFINES inside a group declared `OCCURS 0 TO 1 TIMES
+	// DEPENDING ON`, which is a variant under `odoslide` and a record type per
+	// alternative under `noodoslide` (#373).
+	optional = `       01  OPTION-RECORD.
+           05  OPT-COUNT  PIC 9(1).
+           05  OPT-GROUP  OCCURS 0 TO 1 TIMES DEPENDING ON OPT-COUNT.
+               10  OPT-BODY  PIC X(12).
+               10  OPT-CARD  REDEFINES OPT-BODY PIC X(12).
+`
+
 	// work is a member holding nothing but a level-77 item: it parses, and
 	// there is no record in it to write a `record` form over.
 	work = `       77  WORK-COUNT              PIC 9(4).
@@ -349,6 +360,62 @@ func TestANoteNamesTheCopybookTheLevelTheRedefinesAndTheRecordTypes(t *testing.T
 		if !strings.Contains(notes[0], want) {
 			t.Errorf("the note does not carry %q:\n%s", want, notes[0])
 		}
+	}
+}
+
+// TestANoteIsWrittenWhereTheReadingDecidesTheRecordTypes is the one part of a
+// scaffold that is not a function of the copybooks alone.
+//
+// `init` holds no reading — which compiler wrote the file is not in any copybook
+// — so the `record` forms it writes are one of the two answers, and the adopter
+// is told which beside the `copybook-reading` question the same copybook raises.
+// Saying nothing would leave them a file whose record forms silently disagree
+// with the reading they are about to state.
+func TestANoteIsWrittenWhereTheReadingDecidesTheRecordTypes(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("option.cpy", optional))
+
+	// Two notes, and the pair is the point: the first says how many record
+	// types the 01-level produced, and the second says that the number is the
+	// reading's answer rather than the copybook's.
+	notes := derived.Notes()
+	if len(notes) != 2 {
+		t.Fatalf("wrote %d notes, want the record-type count and the reading: %v", len(notes), notes)
+	}
+	if !strings.Contains(notes[0], "2 record types") {
+		t.Errorf("the first note does not count the record types:\n%s", notes[0])
+	}
+
+	for _, want := range []string{
+		"option.cpy", "OPTION-RECORD", "OPT-BODY", "OPT-GROUP", "odoslide", "noodoslide",
+	} {
+		if !strings.Contains(notes[1], want) {
+			t.Errorf("the note does not carry %q:\n%s", want, notes[1])
+		}
+	}
+
+	// The forms below it are the answer the note names: two record types, and
+	// no `discriminate-variant`, which is what `noodoslide` makes of the
+	// cluster.
+	if got := recordNames(derived); len(got) != 2 {
+		t.Errorf("the scaffold carries the record types %v, want two", got)
+	}
+	if rendered := string(derived.Bytes()); strings.Contains(rendered, "discriminate-variant") {
+		t.Errorf("a variant was raised over a cluster the scaffold resolved to record types:\n%s", rendered)
+	}
+}
+
+// TestNoSuchNoteIsWrittenForATableTheTwoReadingsAgreeAbout is the control: a
+// declared maximum above one is a table under both readings, so the record types
+// are the copybook's own and there is nothing to raise.
+func TestNoSuchNoteIsWrittenForATableTheTwoReadingsAgreeAbout(t *testing.T) {
+	t.Parallel()
+
+	wider := strings.Replace(optional, "OCCURS 0 TO 1 TIMES", "OCCURS 0 TO 4 TIMES", 1)
+
+	if notes := deriveOf(t, book("option.cpy", wider)).Notes(); len(notes) != 0 {
+		t.Errorf("wrote %d notes over a table both readings agree about: %v", len(notes), notes)
 	}
 }
 
