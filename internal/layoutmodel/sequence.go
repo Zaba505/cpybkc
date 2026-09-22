@@ -405,9 +405,15 @@ func (r *sequenceReader) branch(form layout.Form, kind ExpressionKind) (Expressi
 	}
 
 	// The count is checked against the subexpressions that were read rather than
-	// against the elements written, for [VariantArmCountError]'s reason: a `seq`
-	// of two one of which is malformed is reported against that subexpression
-	// and against this rule, and not twice against this one.
+	// against the elements written: a `seq` of two one of which is malformed is
+	// reported against that subexpression and against this rule, and not twice
+	// against this one.
+	//
+	// [VariantArmCountError] used to stand on the same sentence and no longer
+	// does: it counts the arms as the layout writes them, because a count
+	// derived from arms refused for reasons of their own contradicts those
+	// refusals in the same output (#342). Whether this rule should follow is
+	// that question asked of another form, and nothing here settles it.
 	if len(expression.Sub) < 2 {
 		r.Fail(&ExpressionFormError{Pos: form.Pos, Kind: kind, Found: subexpressions(len(expression.Sub))})
 

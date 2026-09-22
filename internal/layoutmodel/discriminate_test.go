@@ -438,6 +438,10 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			},
 		},
 		{
+			// One arm refused for a reason of its own: the refusal is reported
+			// against that arm and the arity rule stays silent, because two
+			// arms were written and a variant carrying one is not what the
+			// layout says (#342).
 			name: "an arm selected by nothing at all",
 			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)", strings.Join([]string{
 				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)",
@@ -446,9 +450,6 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			}, "\n")),
 			want: []string{
 				"layout.sexpr:5:25: an arm is selected by equals or one-of, and this is the symbol \"single-record-type\"",
-				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
-					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -461,9 +462,6 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			want: []string{
 				"layout.sexpr:5:3: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) names alternative " +
 					"\"PL-BODY-MOTOR\" twice, and names it first at layout.sexpr:4:3",
-				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
-					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -491,9 +489,6 @@ func TestReadDiscriminationRejects(t *testing.T) {
 				"layout.sexpr:4:33: the arm on \"PL-BODY-MOTOR\" tests (item POLICY PL-HEADER PL-KIND), which is " +
 					"outside \"PL-ENTRIES\", which is the outermost group the variant sits in; an arm's target sits " +
 					"inside the occurrence it is chosen for",
-				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
-					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -510,6 +505,53 @@ func TestReadDiscriminationRejects(t *testing.T) {
 				"layout.sexpr:5:33: the arm on \"PL-BODY-PROPERTY\" tests " +
 					"(item POLICY PL-ENTRIES PL-BODY-PROPERTY PL-KIND), which is inside the arm it selects; " +
 					"an arm's target sits inside the occurrence it is chosen for",
+			},
+		},
+		{
+			// Discussion #340's layout, which is where the contradiction was
+			// found: three arms were written and every one of them parsed, and
+			// deriving the arity fault from the three refusals told the adopter
+			// their variant carried no arms at all. The refusals name the three
+			// targets; nothing else is added (#342).
+			name: "every arm refused for a reason of its own",
+			source: oneRecord("ADDR", "(discriminate ADDR single-record-type)", strings.Join([]string{
+				"(discriminate-variant (item ADDR ADR-ENTRY ADR-HOME)",
+				"  (arm ADR-HOME (equals (item ADDR ADR-COUNT) \"1\"))",
+				"  (arm ADR-WORK (equals (item ADDR ADR-COUNT) \"2\"))",
+				"  (arm ADR-MAIL (equals (item ADDR ADR-COUNT) \"3\")))",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:4:25: the arm on \"ADR-HOME\" tests (item ADDR ADR-COUNT), which is outside " +
+					"\"ADR-ENTRY\", which is the outermost group the variant sits in; an arm's target sits " +
+					"inside the occurrence it is chosen for",
+				"layout.sexpr:5:25: the arm on \"ADR-WORK\" tests (item ADDR ADR-COUNT), which is outside " +
+					"\"ADR-ENTRY\", which is the outermost group the variant sits in; an arm's target sits " +
+					"inside the occurrence it is chosen for",
+				"layout.sexpr:6:25: the arm on \"ADR-MAIL\" tests (item ADDR ADR-COUNT), which is outside " +
+					"\"ADR-ENTRY\", which is the outermost group the variant sits in; an arm's target sits " +
+					"inside the occurrence it is chosen for",
+			},
+		},
+		{
+			// The fault this rule is about: too few arms as the layout writes
+			// them, with the count it wrote and nothing wrong with the one arm
+			// it did write.
+			name: "a variant one arm was written for",
+			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)", strings.Join([]string{
+				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)",
+				"  (arm PL-BODY-MOTOR (equals (item POLICY PL-ENTRIES PL-KIND) \"M\")))",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
+					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
+					"not a variant, and is written (take-alternative <item-ref> <name>)",
+			},
+		},
+		{
+			name: "a variant no arms were written for",
+			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)",
+				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR))"),
+			want: []string{
 				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 0 arms, and a " +
 					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
 					"not a variant, and is written (take-alternative <item-ref> <name>)",
@@ -730,6 +772,36 @@ func TestDiscriminationFaultsAreAssertable(t *testing.T) {
 
 				if fault.Alternative != "PL-BODY-MOTOR" || !strings.Contains(fault.Found, "rooted at record") {
 					t.Errorf("the fault is on %q, %s", fault.Alternative, fault.Found)
+				}
+			},
+		},
+		{
+			// The count is the arms the layout wrote. A caller reaching for it
+			// to say how many more are needed reads two arms here and not the
+			// one that could be made sense of (#342).
+			name: "an arm count counts the arms the layout wrote",
+			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)", strings.Join([]string{
+				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)",
+				"  (arm PL-BODY-MOTOR (equals (item POLICY PL-ENTRIES PL-KIND) \"M\")))",
+				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-PROPERTY)",
+				"  (arm PL-BODY-PROPERTY (equals (item POLICY PL-ENTRIES PL-KIND) \"P\"))",
+				"  (arm PL-BODY-FLEET    single-record-type))",
+			}, "\n")),
+			assert: func(t *testing.T, err error) {
+				var fault *VariantArmCountError
+				if !errors.As(err, &fault) {
+					t.Fatalf("no VariantArmCountError in %v", err)
+				}
+
+				if fault.Count != 1 || fault.Variant.Path[len(fault.Variant.Path)-1] != "PL-BODY-MOTOR" {
+					t.Errorf("the fault is on %s carrying %d arms, want (item POLICY PL-ENTRIES PL-BODY-MOTOR) carrying 1", fault.Variant, fault.Count)
+				}
+
+				// The second variant was written with two arms and one of them
+				// was refused, which is that arm's fault and not a shortage of
+				// arms, so exactly one variant is reported against this rule.
+				if got := strings.Count(err.Error(), " arms, and a variant carries at least two"); got != 1 {
+					t.Errorf("%d variants are reported as carrying too few arms, want 1:\n%v", got, err)
 				}
 			},
 		},

@@ -525,12 +525,26 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 		discriminator.Arms = append(discriminator.Arms, arm)
 	}
 
-	// The count is checked against the arms that were read rather than against
-	// the elements written, so a variant carrying two arms one of which is
-	// malformed is not also reported as a variant carrying one.
-	if len(discriminator.Arms) < 2 {
-		r.Fail(&VariantArmCountError{Pos: form.Pos, Variant: item, Count: len(discriminator.Arms)})
+	// The count is the arms the layout wrote, not the ones that survived being
+	// read. An arm refused for a reason of its own has been reported against
+	// that arm already, and a count derived from the refusals says the variant
+	// carries fewer arms than the adopter can see in the file — which
+	// contradicts the refusals standing above it and sends a reader who takes
+	// the last line first looking for arms that are there (#342). Counting what
+	// was written leaves this rule reporting only what it is about: a variant
+	// too few arms were written for.
+	written := len(form.Elements) - 1
+	if written < 2 {
+		r.Fail(&VariantArmCountError{Pos: form.Pos, Variant: item, Count: written})
 
+		return
+	}
+
+	// A variant an arm of which was refused is not carried into the model.
+	// [ReadDiscrimination] hands nothing back once anything has failed, so this
+	// changes no caller; what it keeps is [VariantDiscriminator.Arms]' own
+	// statement, that the arms are the ones the layout writes.
+	if len(discriminator.Arms) != written {
 		return
 	}
 
