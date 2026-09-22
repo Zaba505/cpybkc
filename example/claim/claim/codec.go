@@ -146,15 +146,15 @@ func (c *ClaimRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	for i0 := range c.ClmLine {
 		var occurrence1 []byte
 		if occurrence1, err = r.ReadBytes(26); err != nil {
-			return fmt.Errorf("CLAIM-RECORD: reading its bytes in occurrence %d of CLM-LINE: %w", i0, err)
+			return fmt.Errorf("CLAIM-RECORD: reading its bytes in occurrence %d of CLM-LINE: %w", i0+1, err)
 		}
 		entry2.Reset(occurrence1)
 		if c.ClmLine[i0].ClnKind, err = entry2.ReadAlphanumeric(1); err != nil {
-			return fmt.Errorf("CLAIM-RECORD: reading CLN-KIND in occurrence %d of CLM-LINE: %w", i0, err)
+			return fmt.Errorf("CLAIM-RECORD: reading CLN-KIND in occurrence %d of CLM-LINE: %w", i0+1, err)
 		}
 
 		if c.ClmLine[i0].ClnCharge, err = entry2.ReadPackedInt32(9); err != nil {
-			return fmt.Errorf("CLAIM-RECORD: reading CLN-CHARGE in occurrence %d of CLM-LINE: %w", i0, err)
+			return fmt.Errorf("CLAIM-RECORD: reading CLN-CHARGE in occurrence %d of CLM-LINE: %w", i0+1, err)
 		}
 
 		switch {
@@ -163,56 +163,56 @@ func (c *ClaimRecord) UnmarshalCOBOL(r *codec.Reader) error {
 			c.ClmLine[i0].ClnPharmacy = nil
 			c.ClmLine[i0].ClnFacility = nil
 			if c.ClmLine[i0].ClnProfessional.CprProvider, err = entry2.ReadAlphanumeric(10); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CPR-PROVIDER in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CPR-PROVIDER in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnProfessional.CprProcedure, err = entry2.ReadAlphanumeric(5); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CPR-PROCEDURE in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CPR-PROCEDURE in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnProfessional.CprModifier, err = entry2.ReadAlphanumeric(2); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CPR-MODIFIER in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CPR-MODIFIER in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnProfessional.CprUnits, err = entry2.ReadZonedInt32(3, codec.SignUnsigned); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CPR-UNITS in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CPR-UNITS in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 		case bytes.Equal(occurrence1[0:1], []byte("\xc4")):
 			c.ClmLine[i0].ClnPharmacy = fresh(c.ClmLine[i0].ClnPharmacy)
 			c.ClmLine[i0].ClnProfessional = nil
 			c.ClmLine[i0].ClnFacility = nil
 			if c.ClmLine[i0].ClnPharmacy.CphNdc, err = entry2.ReadAlphanumeric(11); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CPH-NDC in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CPH-NDC in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnPharmacy.CphDaysSupply, err = entry2.ReadZonedInt32(3, codec.SignUnsigned); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CPH-DAYS-SUPPLY in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CPH-DAYS-SUPPLY in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnPharmacy.slack[0], err = entry2.ReadBytes(6); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading the 6 bytes no item of it covers in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading the 6 bytes no item of it covers in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 		case (bytes.Equal(occurrence1[0:1], []byte("\xc6")) || bytes.Equal(occurrence1[0:1], []byte("\xc9"))):
 			c.ClmLine[i0].ClnFacility = fresh(c.ClmLine[i0].ClnFacility)
 			c.ClmLine[i0].ClnProfessional = nil
 			c.ClmLine[i0].ClnPharmacy = nil
 			if c.ClmLine[i0].ClnFacility.CfaFacility, err = entry2.ReadAlphanumeric(10); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CFA-FACILITY in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CFA-FACILITY in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnFacility.CfaRevenue, err = entry2.ReadAlphanumeric(4); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CFA-REVENUE in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CFA-REVENUE in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnFacility.CfaBillType, err = entry2.ReadAlphanumeric(3); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CFA-BILL-TYPE in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CFA-BILL-TYPE in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if c.ClmLine[i0].ClnFacility.CfaCoveredDays, err = entry2.ReadZonedInt32(3, codec.SignUnsigned); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: reading CFA-COVERED-DAYS in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: reading CFA-COVERED-DAYS in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 		default:
-			return fmt.Errorf("CLAIM-RECORD: the record type is one the layout describes and no arm of the alternation over CLN-PROFESSIONAL matches the entry in occurrence %d of CLM-LINE", i0)
+			return fmt.Errorf("CLAIM-RECORD: the record type is one the layout describes and no arm of the alternation over CLN-PROFESSIONAL matches the entry in occurrence %d of CLM-LINE", i0+1)
 		}
 	}
 
@@ -273,69 +273,69 @@ func (c *ClaimRecord) MarshalCOBOL(w *codec.Writer) error {
 	for i0 := range c.ClmLine {
 		entry2.Reset(entry2.Bytes())
 		if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnKind, 1); err != nil {
-			return fmt.Errorf("CLAIM-RECORD: writing CLN-KIND in occurrence %d of CLM-LINE: %w", i0, err)
+			return fmt.Errorf("CLAIM-RECORD: writing CLN-KIND in occurrence %d of CLM-LINE: %w", i0+1, err)
 		}
 
 		if err = entry2.WritePackedInt32(c.ClmLine[i0].ClnCharge, 9, codec.Signed); err != nil {
-			return fmt.Errorf("CLAIM-RECORD: writing CLN-CHARGE in occurrence %d of CLM-LINE: %w", i0, err)
+			return fmt.Errorf("CLAIM-RECORD: writing CLN-CHARGE in occurrence %d of CLM-LINE: %w", i0+1, err)
 		}
 
 		switch {
 		case c.ClmLine[i0].ClnProfessional != nil:
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnProfessional.CprProvider, 10); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CPR-PROVIDER in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CPR-PROVIDER in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnProfessional.CprProcedure, 5); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CPR-PROCEDURE in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CPR-PROCEDURE in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnProfessional.CprModifier, 2); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CPR-MODIFIER in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CPR-MODIFIER in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteZonedInt32(c.ClmLine[i0].ClnProfessional.CprUnits, 3, codec.SignUnsigned); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CPR-UNITS in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CPR-UNITS in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 		case c.ClmLine[i0].ClnPharmacy != nil:
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnPharmacy.CphNdc, 11); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CPH-NDC in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CPH-NDC in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteZonedInt32(c.ClmLine[i0].ClnPharmacy.CphDaysSupply, 3, codec.SignUnsigned); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CPH-DAYS-SUPPLY in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CPH-DAYS-SUPPLY in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			switch {
 			case c.ClmLine[i0].ClnPharmacy.slack[0] == nil:
 				if err = entry2.WriteBytes(zeroFill[:6]); err != nil {
-					return fmt.Errorf("CLAIM-RECORD: writing 6 zero bytes for slack this record carries none for in occurrence %d of CLM-LINE: %w", i0, err)
+					return fmt.Errorf("CLAIM-RECORD: writing 6 zero bytes for slack this record carries none for in occurrence %d of CLM-LINE: %w", i0+1, err)
 				}
 			case len(c.ClmLine[i0].ClnPharmacy.slack[0]) != 6:
-				return fmt.Errorf("CLAIM-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 6 bytes is %d in occurrence %d of CLM-LINE", len(c.ClmLine[i0].ClnPharmacy.slack[0]), i0)
+				return fmt.Errorf("CLAIM-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 6 bytes is %d in occurrence %d of CLM-LINE", len(c.ClmLine[i0].ClnPharmacy.slack[0]), i0+1)
 			default:
 				if err = entry2.WriteBytes(c.ClmLine[i0].ClnPharmacy.slack[0]); err != nil {
-					return fmt.Errorf("CLAIM-RECORD: writing the 6 bytes no item of it covers in occurrence %d of CLM-LINE: %w", i0, err)
+					return fmt.Errorf("CLAIM-RECORD: writing the 6 bytes no item of it covers in occurrence %d of CLM-LINE: %w", i0+1, err)
 				}
 			}
 		case c.ClmLine[i0].ClnFacility != nil:
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnFacility.CfaFacility, 10); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CFA-FACILITY in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CFA-FACILITY in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnFacility.CfaRevenue, 4); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CFA-REVENUE in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CFA-REVENUE in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteAlphanumeric(c.ClmLine[i0].ClnFacility.CfaBillType, 3); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CFA-BILL-TYPE in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CFA-BILL-TYPE in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 
 			if err = entry2.WriteZonedInt32(c.ClmLine[i0].ClnFacility.CfaCoveredDays, 3, codec.SignUnsigned); err != nil {
-				return fmt.Errorf("CLAIM-RECORD: writing CFA-COVERED-DAYS in occurrence %d of CLM-LINE: %w", i0, err)
+				return fmt.Errorf("CLAIM-RECORD: writing CFA-COVERED-DAYS in occurrence %d of CLM-LINE: %w", i0+1, err)
 			}
 		default:
-			return fmt.Errorf("CLAIM-RECORD: an occurrence holds exactly one arm of the alternation over CLN-PROFESSIONAL and this one holds none in occurrence %d of CLM-LINE", i0)
+			return fmt.Errorf("CLAIM-RECORD: an occurrence holds exactly one arm of the alternation over CLN-PROFESSIONAL and this one holds none in occurrence %d of CLM-LINE", i0+1)
 		}
 		matched3, holds3 := -1, -1
 		switch {
@@ -355,13 +355,13 @@ func (c *ClaimRecord) MarshalCOBOL(w *codec.Writer) error {
 			holds3 = 2
 		}
 		if matched3 < 0 {
-			return fmt.Errorf("CLAIM-RECORD: a writer reports an occurrence satisfying no arm's predicate rather than emitting it, and none of the alternation over CLN-PROFESSIONAL is satisfied in occurrence %d of CLM-LINE", i0)
+			return fmt.Errorf("CLAIM-RECORD: a writer reports an occurrence satisfying no arm's predicate rather than emitting it, and none of the alternation over CLN-PROFESSIONAL is satisfied in occurrence %d of CLM-LINE", i0+1)
 		}
 		if matched3 != holds3 {
-			return fmt.Errorf("CLAIM-RECORD: a writer evaluates the predicate of the arm its caller supplied and never derives a value satisfying one, and this occurrence holds arm %d of the alternation over CLN-PROFESSIONAL while its values satisfy the predicate of arm %d in occurrence %d of CLM-LINE", holds3, matched3, i0)
+			return fmt.Errorf("CLAIM-RECORD: a writer evaluates the predicate of the arm its caller supplied and never derives a value satisfying one, and this occurrence holds arm %d of the alternation over CLN-PROFESSIONAL while its values satisfy the predicate of arm %d in occurrence %d of CLM-LINE", holds3, matched3, i0+1)
 		}
 		if err = w.WriteBytes(entry2.Bytes()); err != nil {
-			return fmt.Errorf("CLAIM-RECORD: writing its bytes in occurrence %d of CLM-LINE: %w", i0, err)
+			return fmt.Errorf("CLAIM-RECORD: writing its bytes in occurrence %d of CLM-LINE: %w", i0+1, err)
 		}
 	}
 

@@ -144,19 +144,19 @@ func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 
 	for i0 := range x.LineItem {
 		if x.LineItem[i0].Sku, err = r.ReadAlphanumeric(8); err != nil {
-			return fmt.Errorf("ORDER-RECORD: reading SKU in occurrence %d of LINE-ITEM: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: reading SKU in occurrence %d of LINE-ITEM: %w", i0+1, err)
 		}
 
 		if x.LineItem[i0].Quantity, err = r.ReadBinaryInt16(4); err != nil {
-			return fmt.Errorf("ORDER-RECORD: reading QUANTITY in occurrence %d of LINE-ITEM: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: reading QUANTITY in occurrence %d of LINE-ITEM: %w", i0+1, err)
 		}
 
 		if x.LineItem[i0].slack[0], err = r.ReadBytes(1); err != nil {
-			return fmt.Errorf("ORDER-RECORD: reading the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: reading the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0+1, err)
 		}
 
 		if x.LineItem[i0].filler[0], err = r.ReadBytes(1); err != nil {
-			return fmt.Errorf("ORDER-RECORD: reading the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: reading the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0+1, err)
 		}
 	}
 
@@ -179,7 +179,7 @@ func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	x.Detail = resized(x.Detail, n1)
 	for i0 := range x.Detail {
 		if x.Detail[i0].DetailText, err = r.ReadAlphanumeric(10); err != nil {
-			return fmt.Errorf("ORDER-RECORD: reading DETAIL-TEXT in occurrence %d of DETAIL: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: reading DETAIL-TEXT in occurrence %d of DETAIL: %w", i0+1, err)
 		}
 	}
 
@@ -227,36 +227,36 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 
 	for i0 := range x.LineItem {
 		if err = w.WriteAlphanumeric(x.LineItem[i0].Sku, 8); err != nil {
-			return fmt.Errorf("ORDER-RECORD: writing SKU in occurrence %d of LINE-ITEM: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: writing SKU in occurrence %d of LINE-ITEM: %w", i0+1, err)
 		}
 
 		if err = w.WriteBinaryInt16(x.LineItem[i0].Quantity, 4, codec.Signed); err != nil {
-			return fmt.Errorf("ORDER-RECORD: writing QUANTITY in occurrence %d of LINE-ITEM: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: writing QUANTITY in occurrence %d of LINE-ITEM: %w", i0+1, err)
 		}
 
 		switch {
 		case x.LineItem[i0].slack[0] == nil:
 			if err = w.WriteBytes(zeroFill[:1]); err != nil {
-				return fmt.Errorf("ORDER-RECORD: writing 1 zero byte for slack this record carries none for in occurrence %d of LINE-ITEM: %w", i0, err)
+				return fmt.Errorf("ORDER-RECORD: writing 1 zero byte for slack this record carries none for in occurrence %d of LINE-ITEM: %w", i0+1, err)
 			}
 		case len(x.LineItem[i0].slack[0]) != 1:
-			return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 1 byte is %d in occurrence %d of LINE-ITEM", len(x.LineItem[i0].slack[0]), i0)
+			return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 1 byte is %d in occurrence %d of LINE-ITEM", len(x.LineItem[i0].slack[0]), i0+1)
 		default:
 			if err = w.WriteBytes(x.LineItem[i0].slack[0]); err != nil {
-				return fmt.Errorf("ORDER-RECORD: writing the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0, err)
+				return fmt.Errorf("ORDER-RECORD: writing the 1 byte no item of it covers in occurrence %d of LINE-ITEM: %w", i0+1, err)
 			}
 		}
 
 		switch {
 		case x.LineItem[i0].filler[0] == nil:
 			if err = w.WriteBytes(zeroFill[:1]); err != nil {
-				return fmt.Errorf("ORDER-RECORD: writing 1 zero byte for an item the copybook gives no data-name and this record carries none for in occurrence %d of LINE-ITEM: %w", i0, err)
+				return fmt.Errorf("ORDER-RECORD: writing 1 zero byte for an item the copybook gives no data-name and this record carries none for in occurrence %d of LINE-ITEM: %w", i0+1, err)
 			}
 		case len(x.LineItem[i0].filler[0]) != 1:
-			return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for an item of 1 byte the copybook gives no data-name is %d in occurrence %d of LINE-ITEM", len(x.LineItem[i0].filler[0]), i0)
+			return fmt.Errorf("ORDER-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for an item of 1 byte the copybook gives no data-name is %d in occurrence %d of LINE-ITEM", len(x.LineItem[i0].filler[0]), i0+1)
 		default:
 			if err = w.WriteBytes(x.LineItem[i0].filler[0]); err != nil {
-				return fmt.Errorf("ORDER-RECORD: writing the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0, err)
+				return fmt.Errorf("ORDER-RECORD: writing the 1 byte of an item the copybook gives no data-name in occurrence %d of LINE-ITEM: %w", i0+1, err)
 			}
 		}
 	}
@@ -288,7 +288,7 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 
 	for i0 := range x.Detail {
 		if err = w.WriteAlphanumeric(x.Detail[i0].DetailText, 10); err != nil {
-			return fmt.Errorf("ORDER-RECORD: writing DETAIL-TEXT in occurrence %d of DETAIL: %w", i0, err)
+			return fmt.Errorf("ORDER-RECORD: writing DETAIL-TEXT in occurrence %d of DETAIL: %w", i0+1, err)
 		}
 	}
 
@@ -318,7 +318,7 @@ func (x *TrailerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 
 	for i0 := range x.PrintedTotal {
 		if x.PrintedTotal[i0], err = r.ReadAlphanumeric(12); err != nil {
-			return fmt.Errorf("TRAILER-RECORD: reading PRINTED-TOTAL in occurrence %d of PRINTED-TOTAL: %w", i0, err)
+			return fmt.Errorf("TRAILER-RECORD: reading PRINTED-TOTAL in occurrence %d of PRINTED-TOTAL: %w", i0+1, err)
 		}
 	}
 
@@ -356,7 +356,7 @@ func (x *TrailerRecord) MarshalCOBOL(w *codec.Writer) error {
 
 	for i0 := range x.PrintedTotal {
 		if err = w.WriteAlphanumeric(x.PrintedTotal[i0], 12); err != nil {
-			return fmt.Errorf("TRAILER-RECORD: writing PRINTED-TOTAL in occurrence %d of PRINTED-TOTAL: %w", i0, err)
+			return fmt.Errorf("TRAILER-RECORD: writing PRINTED-TOTAL in occurrence %d of PRINTED-TOTAL: %w", i0+1, err)
 		}
 	}
 
@@ -462,7 +462,7 @@ func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	x.LeftItem = resized(x.LeftItem, n1)
 	for i0 := range x.LeftItem {
 		if x.LeftItem[i0].LeftText, err = r.ReadAlphanumeric(3); err != nil {
-			return fmt.Errorf("TABLE-RECORD: reading LEFT-TEXT in occurrence %d of LEFT-ITEM: %w", i0, err)
+			return fmt.Errorf("TABLE-RECORD: reading LEFT-TEXT in occurrence %d of LEFT-ITEM: %w", i0+1, err)
 		}
 	}
 
@@ -473,7 +473,7 @@ func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	x.RightItem = resized(x.RightItem, n2)
 	for i0 := range x.RightItem {
 		if x.RightItem[i0].RightText, err = r.ReadAlphanumeric(2); err != nil {
-			return fmt.Errorf("TABLE-RECORD: reading RIGHT-TEXT in occurrence %d of RIGHT-ITEM: %w", i0, err)
+			return fmt.Errorf("TABLE-RECORD: reading RIGHT-TEXT in occurrence %d of RIGHT-ITEM: %w", i0+1, err)
 		}
 	}
 
@@ -485,12 +485,12 @@ func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	for i0 := range x.Block {
 		n4 := int(x.PairCount)
 		if n4 < 0 || n4 > 4 {
-			return fmt.Errorf("TABLE-RECORD: BLOCK-ITEM occurs 0 to 4 times depending on PAIR-COUNT, and the record's count is %d in occurrence %d of BLOCK", n4, i0)
+			return fmt.Errorf("TABLE-RECORD: BLOCK-ITEM occurs 0 to 4 times depending on PAIR-COUNT, and the record's count is %d in occurrence %d of BLOCK", n4, i0+1)
 		}
 		x.Block[i0].BlockItem = resized(x.Block[i0].BlockItem, n4)
 		for i1 := range x.Block[i0].BlockItem {
 			if x.Block[i0].BlockItem[i1].BlockText, err = r.ReadAlphanumeric(1); err != nil {
-				return fmt.Errorf("TABLE-RECORD: reading BLOCK-TEXT in occurrence %d of BLOCK-ITEM in occurrence %d of BLOCK: %w", i1, i0, err)
+				return fmt.Errorf("TABLE-RECORD: reading BLOCK-TEXT in occurrence %d of BLOCK-ITEM in occurrence %d of BLOCK: %w", i1+1, i0+1, err)
 			}
 		}
 	}
@@ -550,12 +550,12 @@ func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 		{
 			n := len(x.Block[k0].BlockItem)
 			if n > 4 {
-				return fmt.Errorf("TABLE-RECORD: BLOCK-ITEM occurs 0 to 4 times depending on PAIR-COUNT, and the record holds %d occurrences of it in occurrence %d of BLOCK", n, k0)
+				return fmt.Errorf("TABLE-RECORD: BLOCK-ITEM occurs 0 to 4 times depending on PAIR-COUNT, and the record holds %d occurrences of it in occurrence %d of BLOCK", n, k0+1)
 			}
 			if count1 < 0 {
 				count1, from1 = n, "BLOCK-ITEM"
 			} else if n != count1 {
-				return fmt.Errorf("TABLE-RECORD: a writer reports rather than choosing between two numbers of occurrences, and PAIR-COUNT is the count of more than one item of this record: the caller supplied %d occurrences of %s and %d of BLOCK-ITEM in occurrence %d of BLOCK", count1, from1, n, k0)
+				return fmt.Errorf("TABLE-RECORD: a writer reports rather than choosing between two numbers of occurrences, and PAIR-COUNT is the count of more than one item of this record: the caller supplied %d occurrences of %s and %d of BLOCK-ITEM in occurrence %d of BLOCK", count1, from1, n, k0+1)
 			}
 		}
 	}
@@ -568,20 +568,20 @@ func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 
 	for i0 := range x.LeftItem {
 		if err = w.WriteAlphanumeric(x.LeftItem[i0].LeftText, 3); err != nil {
-			return fmt.Errorf("TABLE-RECORD: writing LEFT-TEXT in occurrence %d of LEFT-ITEM: %w", i0, err)
+			return fmt.Errorf("TABLE-RECORD: writing LEFT-TEXT in occurrence %d of LEFT-ITEM: %w", i0+1, err)
 		}
 	}
 
 	for i0 := range x.RightItem {
 		if err = w.WriteAlphanumeric(x.RightItem[i0].RightText, 2); err != nil {
-			return fmt.Errorf("TABLE-RECORD: writing RIGHT-TEXT in occurrence %d of RIGHT-ITEM: %w", i0, err)
+			return fmt.Errorf("TABLE-RECORD: writing RIGHT-TEXT in occurrence %d of RIGHT-ITEM: %w", i0+1, err)
 		}
 	}
 
 	for i0 := range x.Block {
 		for i1 := range x.Block[i0].BlockItem {
 			if err = w.WriteAlphanumeric(x.Block[i0].BlockItem[i1].BlockText, 1); err != nil {
-				return fmt.Errorf("TABLE-RECORD: writing BLOCK-TEXT in occurrence %d of BLOCK-ITEM in occurrence %d of BLOCK: %w", i1, i0, err)
+				return fmt.Errorf("TABLE-RECORD: writing BLOCK-TEXT in occurrence %d of BLOCK-ITEM in occurrence %d of BLOCK: %w", i1+1, i0+1, err)
 			}
 		}
 	}
@@ -609,11 +609,11 @@ func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	for i0 := range x.Entry {
 		var occurrence1 []byte
 		if occurrence1, err = r.ReadBytes(7); err != nil {
-			return fmt.Errorf("ENTRY-RECORD: reading its bytes in occurrence %d of ENTRY: %w", i0, err)
+			return fmt.Errorf("ENTRY-RECORD: reading its bytes in occurrence %d of ENTRY: %w", i0+1, err)
 		}
 		entry1.Reset(occurrence1)
 		if x.Entry[i0].EntryType, err = entry1.ReadAlphanumeric(1); err != nil {
-			return fmt.Errorf("ENTRY-RECORD: reading ENTRY-TYPE in occurrence %d of ENTRY: %w", i0, err)
+			return fmt.Errorf("ENTRY-RECORD: reading ENTRY-TYPE in occurrence %d of ENTRY: %w", i0+1, err)
 		}
 
 		switch {
@@ -621,24 +621,24 @@ func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 			x.Entry[i0].EntryDetail = fresh(x.Entry[i0].EntryDetail)
 			x.Entry[i0].EntrySummary = nil
 			if x.Entry[i0].EntryDetail.DetailSku, err = entry1.ReadAlphanumeric(4); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: reading DETAIL-SKU in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: reading DETAIL-SKU in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 
 			if x.Entry[i0].EntryDetail.DetailQty, err = entry1.ReadBinaryInt16(4); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: reading DETAIL-QTY in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: reading DETAIL-QTY in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 		case bytes.Equal(occurrence1[0:1], []byte("\xe2")):
 			x.Entry[i0].EntrySummary = fresh(x.Entry[i0].EntrySummary)
 			x.Entry[i0].EntryDetail = nil
 			if x.Entry[i0].EntrySummary.SummaryText, err = entry1.ReadAlphanumeric(4); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: reading SUMMARY-TEXT in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: reading SUMMARY-TEXT in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 
 			if x.Entry[i0].EntrySummary.slack[0], err = entry1.ReadBytes(2); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: reading the 2 bytes no item of it covers in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: reading the 2 bytes no item of it covers in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 		default:
-			return fmt.Errorf("ENTRY-RECORD: the record type is one the layout describes and no arm of the alternation over ENTRY-DETAIL matches the entry in occurrence %d of ENTRY", i0)
+			return fmt.Errorf("ENTRY-RECORD: the record type is one the layout describes and no arm of the alternation over ENTRY-DETAIL matches the entry in occurrence %d of ENTRY", i0+1)
 		}
 	}
 
@@ -671,37 +671,37 @@ func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 	for i0 := range x.Entry {
 		entry1.Reset(entry1.Bytes())
 		if err = entry1.WriteAlphanumeric(x.Entry[i0].EntryType, 1); err != nil {
-			return fmt.Errorf("ENTRY-RECORD: writing ENTRY-TYPE in occurrence %d of ENTRY: %w", i0, err)
+			return fmt.Errorf("ENTRY-RECORD: writing ENTRY-TYPE in occurrence %d of ENTRY: %w", i0+1, err)
 		}
 
 		switch {
 		case x.Entry[i0].EntryDetail != nil:
 			if err = entry1.WriteAlphanumeric(x.Entry[i0].EntryDetail.DetailSku, 4); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: writing DETAIL-SKU in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: writing DETAIL-SKU in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 
 			if err = entry1.WriteBinaryInt16(x.Entry[i0].EntryDetail.DetailQty, 4, codec.Signed); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: writing DETAIL-QTY in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: writing DETAIL-QTY in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 		case x.Entry[i0].EntrySummary != nil:
 			if err = entry1.WriteAlphanumeric(x.Entry[i0].EntrySummary.SummaryText, 4); err != nil {
-				return fmt.Errorf("ENTRY-RECORD: writing SUMMARY-TEXT in occurrence %d of ENTRY: %w", i0, err)
+				return fmt.Errorf("ENTRY-RECORD: writing SUMMARY-TEXT in occurrence %d of ENTRY: %w", i0+1, err)
 			}
 
 			switch {
 			case x.Entry[i0].EntrySummary.slack[0] == nil:
 				if err = entry1.WriteBytes(zeroFill[:2]); err != nil {
-					return fmt.Errorf("ENTRY-RECORD: writing 2 zero bytes for slack this record carries none for in occurrence %d of ENTRY: %w", i0, err)
+					return fmt.Errorf("ENTRY-RECORD: writing 2 zero bytes for slack this record carries none for in occurrence %d of ENTRY: %w", i0+1, err)
 				}
 			case len(x.Entry[i0].EntrySummary.slack[0]) != 2:
-				return fmt.Errorf("ENTRY-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d in occurrence %d of ENTRY", len(x.Entry[i0].EntrySummary.slack[0]), i0)
+				return fmt.Errorf("ENTRY-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d in occurrence %d of ENTRY", len(x.Entry[i0].EntrySummary.slack[0]), i0+1)
 			default:
 				if err = entry1.WriteBytes(x.Entry[i0].EntrySummary.slack[0]); err != nil {
-					return fmt.Errorf("ENTRY-RECORD: writing the 2 bytes no item of it covers in occurrence %d of ENTRY: %w", i0, err)
+					return fmt.Errorf("ENTRY-RECORD: writing the 2 bytes no item of it covers in occurrence %d of ENTRY: %w", i0+1, err)
 				}
 			}
 		default:
-			return fmt.Errorf("ENTRY-RECORD: an occurrence holds exactly one arm of the alternation over ENTRY-DETAIL and this one holds none in occurrence %d of ENTRY", i0)
+			return fmt.Errorf("ENTRY-RECORD: an occurrence holds exactly one arm of the alternation over ENTRY-DETAIL and this one holds none in occurrence %d of ENTRY", i0+1)
 		}
 		matched2, holds2 := -1, -1
 		switch {
@@ -717,13 +717,13 @@ func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 			holds2 = 1
 		}
 		if matched2 < 0 {
-			return fmt.Errorf("ENTRY-RECORD: a writer reports an occurrence satisfying no arm's predicate rather than emitting it, and none of the alternation over ENTRY-DETAIL is satisfied in occurrence %d of ENTRY", i0)
+			return fmt.Errorf("ENTRY-RECORD: a writer reports an occurrence satisfying no arm's predicate rather than emitting it, and none of the alternation over ENTRY-DETAIL is satisfied in occurrence %d of ENTRY", i0+1)
 		}
 		if matched2 != holds2 {
-			return fmt.Errorf("ENTRY-RECORD: a writer evaluates the predicate of the arm its caller supplied and never derives a value satisfying one, and this occurrence holds arm %d of the alternation over ENTRY-DETAIL while its values satisfy the predicate of arm %d in occurrence %d of ENTRY", holds2, matched2, i0)
+			return fmt.Errorf("ENTRY-RECORD: a writer evaluates the predicate of the arm its caller supplied and never derives a value satisfying one, and this occurrence holds arm %d of the alternation over ENTRY-DETAIL while its values satisfy the predicate of arm %d in occurrence %d of ENTRY", holds2, matched2, i0+1)
 		}
 		if err = w.WriteBytes(entry1.Bytes()); err != nil {
-			return fmt.Errorf("ENTRY-RECORD: writing its bytes in occurrence %d of ENTRY: %w", i0, err)
+			return fmt.Errorf("ENTRY-RECORD: writing its bytes in occurrence %d of ENTRY: %w", i0+1, err)
 		}
 	}
 
@@ -759,7 +759,7 @@ func (x *AddrRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	for i0 := range x.AdrEntry {
 		var occurrence1 []byte
 		if occurrence1, err = r.ReadBytes(8); err != nil {
-			return fmt.Errorf("ADDR-RECORD: reading its bytes in occurrence %d of ADR-ENTRY: %w", i0, err)
+			return fmt.Errorf("ADDR-RECORD: reading its bytes in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 		}
 		entry2.Reset(occurrence1)
 		switch i0 + 1 {
@@ -768,33 +768,33 @@ func (x *AddrRecord) UnmarshalCOBOL(r *codec.Reader) error {
 			x.AdrEntry[i0].AdrWork = nil
 			x.AdrEntry[i0].AdrMail = nil
 			if x.AdrEntry[i0].AdrHome.HomeStreet, err = entry2.ReadAlphanumeric(6); err != nil {
-				return fmt.Errorf("ADDR-RECORD: reading HOME-STREET in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: reading HOME-STREET in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 
 			if x.AdrEntry[i0].AdrHome.slack[0], err = entry2.ReadBytes(2); err != nil {
-				return fmt.Errorf("ADDR-RECORD: reading the 2 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: reading the 2 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 		case 2:
 			x.AdrEntry[i0].AdrWork = fresh(x.AdrEntry[i0].AdrWork)
 			x.AdrEntry[i0].AdrHome = nil
 			x.AdrEntry[i0].AdrMail = nil
 			if x.AdrEntry[i0].AdrWork.WorkCompany, err = entry2.ReadAlphanumeric(4); err != nil {
-				return fmt.Errorf("ADDR-RECORD: reading WORK-COMPANY in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: reading WORK-COMPANY in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 
 			if x.AdrEntry[i0].AdrWork.slack[0], err = entry2.ReadBytes(4); err != nil {
-				return fmt.Errorf("ADDR-RECORD: reading the 4 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: reading the 4 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 		case 3:
 			x.AdrEntry[i0].AdrMail = fresh(x.AdrEntry[i0].AdrMail)
 			x.AdrEntry[i0].AdrHome = nil
 			x.AdrEntry[i0].AdrWork = nil
 			if x.AdrEntry[i0].AdrMail.MailBox, err = entry2.ReadAlphanumeric(5); err != nil {
-				return fmt.Errorf("ADDR-RECORD: reading MAIL-BOX in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: reading MAIL-BOX in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 
 			if x.AdrEntry[i0].AdrMail.slack[0], err = entry2.ReadBytes(3); err != nil {
-				return fmt.Errorf("ADDR-RECORD: reading the 3 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: reading the 3 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 		}
 	}
@@ -844,85 +844,85 @@ func (x *AddrRecord) MarshalCOBOL(w *codec.Writer) error {
 		switch i0 + 1 {
 		case 1:
 			if x.AdrEntry[i0].AdrWork != nil {
-				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-WORK in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-WORK in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if x.AdrEntry[i0].AdrMail != nil {
-				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-MAIL in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-MAIL in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if x.AdrEntry[i0].AdrHome == nil {
-				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-HOME to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-HOME to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if err = entry2.WriteAlphanumeric(x.AdrEntry[i0].AdrHome.HomeStreet, 6); err != nil {
-				return fmt.Errorf("ADDR-RECORD: writing HOME-STREET in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: writing HOME-STREET in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 
 			switch {
 			case x.AdrEntry[i0].AdrHome.slack[0] == nil:
 				if err = entry2.WriteBytes(zeroFill[:2]); err != nil {
-					return fmt.Errorf("ADDR-RECORD: writing 2 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0, err)
+					return fmt.Errorf("ADDR-RECORD: writing 2 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 				}
 			case len(x.AdrEntry[i0].AdrHome.slack[0]) != 2:
-				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrHome.slack[0]), i0)
+				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrHome.slack[0]), i0+1)
 			default:
 				if err = entry2.WriteBytes(x.AdrEntry[i0].AdrHome.slack[0]); err != nil {
-					return fmt.Errorf("ADDR-RECORD: writing the 2 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+					return fmt.Errorf("ADDR-RECORD: writing the 2 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 				}
 			}
 		case 2:
 			if x.AdrEntry[i0].AdrHome != nil {
-				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-HOME in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if x.AdrEntry[i0].AdrMail != nil {
-				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-MAIL in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-MAIL in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if x.AdrEntry[i0].AdrWork == nil {
-				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-WORK to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-WORK to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if err = entry2.WriteAlphanumeric(x.AdrEntry[i0].AdrWork.WorkCompany, 4); err != nil {
-				return fmt.Errorf("ADDR-RECORD: writing WORK-COMPANY in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: writing WORK-COMPANY in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 
 			switch {
 			case x.AdrEntry[i0].AdrWork.slack[0] == nil:
 				if err = entry2.WriteBytes(zeroFill[:4]); err != nil {
-					return fmt.Errorf("ADDR-RECORD: writing 4 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0, err)
+					return fmt.Errorf("ADDR-RECORD: writing 4 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 				}
 			case len(x.AdrEntry[i0].AdrWork.slack[0]) != 4:
-				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 4 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrWork.slack[0]), i0)
+				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 4 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrWork.slack[0]), i0+1)
 			default:
 				if err = entry2.WriteBytes(x.AdrEntry[i0].AdrWork.slack[0]); err != nil {
-					return fmt.Errorf("ADDR-RECORD: writing the 4 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+					return fmt.Errorf("ADDR-RECORD: writing the 4 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 				}
 			}
 		case 3:
 			if x.AdrEntry[i0].AdrHome != nil {
-				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-HOME in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if x.AdrEntry[i0].AdrWork != nil {
-				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-WORK in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-WORK in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if x.AdrEntry[i0].AdrMail == nil {
-				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-MAIL to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-MAIL to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0+1)
 			}
 			if err = entry2.WriteAlphanumeric(x.AdrEntry[i0].AdrMail.MailBox, 5); err != nil {
-				return fmt.Errorf("ADDR-RECORD: writing MAIL-BOX in occurrence %d of ADR-ENTRY: %w", i0, err)
+				return fmt.Errorf("ADDR-RECORD: writing MAIL-BOX in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 			}
 
 			switch {
 			case x.AdrEntry[i0].AdrMail.slack[0] == nil:
 				if err = entry2.WriteBytes(zeroFill[:3]); err != nil {
-					return fmt.Errorf("ADDR-RECORD: writing 3 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0, err)
+					return fmt.Errorf("ADDR-RECORD: writing 3 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 				}
 			case len(x.AdrEntry[i0].AdrMail.slack[0]) != 3:
-				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 3 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrMail.slack[0]), i0)
+				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 3 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrMail.slack[0]), i0+1)
 			default:
 				if err = entry2.WriteBytes(x.AdrEntry[i0].AdrMail.slack[0]); err != nil {
-					return fmt.Errorf("ADDR-RECORD: writing the 3 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+					return fmt.Errorf("ADDR-RECORD: writing the 3 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 				}
 			}
 		}
 		if err = w.WriteBytes(entry2.Bytes()); err != nil {
-			return fmt.Errorf("ADDR-RECORD: writing its bytes in occurrence %d of ADR-ENTRY: %w", i0, err)
+			return fmt.Errorf("ADDR-RECORD: writing its bytes in occurrence %d of ADR-ENTRY: %w", i0+1, err)
 		}
 	}
 

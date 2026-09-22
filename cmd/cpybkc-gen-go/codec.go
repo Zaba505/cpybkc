@@ -200,7 +200,9 @@ type scope struct {
 	depth int
 
 	// suffix is what a diagnostic adds to say which occurrence of what it is
-	// about, and args are the loop variables it formats.
+	// about, and args are the expressions it formats — one per %d of the
+	// suffix, each of them [occurrenceNumber] of a loop variable rather than
+	// the variable itself.
 	suffix string
 	args   []string
 
@@ -216,11 +218,45 @@ func (s scope) in(item, variable string, rep *irpb.Repetition) scope {
 	// occurrence of BLOCK-ITEM in an occurrence of BLOCK, rather than the walk's
 	// own order down the tree.
 	s.suffix = fmt.Sprintf(" in occurrence %%d of %s", item) + s.suffix
-	s.args = append([]string{variable}, s.args...)
+	s.args = append([]string{occurrenceNumber(variable)}, s.args...)
 	s.depth++
 	s.table, s.tableMax = variable, declaredMax(rep)
 
 	return s
+}
+
+// occurrenceNumber is the Go expression a generated diagnostic formats to say
+// which occurrence of a table it is about, given the loop variable indexing
+// that table.
+//
+// **Occurrences are counted from one.** COBOL subscripts are one-based,
+// docs/layout/SPEC.md counts a schedule-variant's occurrences from one, the
+// generated record tests label the first entry of a table CLM-LINE(1), and the
+// operator reading one of these messages has the copybook open beside the file
+// — so a report naming entry zero of a table whose maximum is nine is off by
+// one against everything it will be held against. The loop variables this
+// generator emits count from zero, as Go's do.
+//
+// The two conventions meet here and nowhere else. Every `occurrence %d` in a
+// generated decoder, encoder, arm check and count check comes from
+// [scope.suffix], every argument filling one comes from [scope.in], and
+// [scope.in] takes it through this — so a fifth message cannot be added
+// counting from zero without first inventing a second way to name an
+// occurrence. The one other place the number appears in generated source is
+// the scheduled-arm switch, which switches on `<variable> + 1` for the same
+// reason: a schedule is written in the copybook's numbering.
+//
+// variable is a bare Go identifier — the loop variable [coder.decodeRepeated]
+// and its encoding twin emit — and not an expression. It has to be one here
+// and at the two other sites
+// that emit it, `for <variable> := range` and the subscript `[<variable>]`, so
+// an expression would already be a fault at those before it reached this. The
+// result is left unparenthesised because it is read: it lands in every
+// `occurrence %d` of every generated codec, and `(i0)+1` in source an adopter
+// opens costs more than the fault it would guard against, which the emitter
+// cannot produce.
+func occurrenceNumber(variable string) string {
+	return variable + "+1"
 }
 
 // declaredMax is the maximum number of occurrences a repetition declares, which

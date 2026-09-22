@@ -171,13 +171,13 @@ func (x *SummaryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 
 	for i0 := range x.Line {
 		if x.Line[i0].LineText, err = r.ReadAlphanumeric(3); err != nil {
-			return fmt.Errorf("SUMMARY-RECORD: reading LINE-TEXT in occurrence %d of LINE: %w", i0, err)
+			return fmt.Errorf("SUMMARY-RECORD: reading LINE-TEXT in occurrence %d of LINE: %w", i0+1, err)
 		}
 	}
 
 	for i0 := range x.Note {
 		if x.Note[i0].NoteText, err = r.ReadAlphanumeric(2); err != nil {
-			return fmt.Errorf("SUMMARY-RECORD: reading NOTE-TEXT in occurrence %d of NOTE: %w", i0, err)
+			return fmt.Errorf("SUMMARY-RECORD: reading NOTE-TEXT in occurrence %d of NOTE: %w", i0+1, err)
 		}
 	}
 
@@ -207,7 +207,7 @@ func (x *SummaryRecord) MarshalCOBOL(w *codec.Writer) error {
 	}
 	for i0 := range x.Line {
 		if err = w.WriteAlphanumeric(x.Line[i0].LineText, 3); err != nil {
-			return fmt.Errorf("SUMMARY-RECORD: writing LINE-TEXT in occurrence %d of LINE: %w", i0, err)
+			return fmt.Errorf("SUMMARY-RECORD: writing LINE-TEXT in occurrence %d of LINE: %w", i0+1, err)
 		}
 	}
 
@@ -216,7 +216,7 @@ func (x *SummaryRecord) MarshalCOBOL(w *codec.Writer) error {
 	}
 	for i0 := range x.Note {
 		if err = w.WriteAlphanumeric(x.Note[i0].NoteText, 2); err != nil {
-			return fmt.Errorf("SUMMARY-RECORD: writing NOTE-TEXT in occurrence %d of NOTE: %w", i0, err)
+			return fmt.Errorf("SUMMARY-RECORD: writing NOTE-TEXT in occurrence %d of NOTE: %w", i0+1, err)
 		}
 	}
 
