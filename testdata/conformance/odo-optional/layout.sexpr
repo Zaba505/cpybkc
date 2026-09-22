@@ -1,0 +1,41 @@
+;; A table whose declared maximum is one: the group is present in a record or
+;; it is absent from it, and nothing else in the file says which.
+;;
+;; The pair with odo-sliding is the entry's point. That entry varies a table's
+;; *length*; this one varies its *presence*, which is the same rule at the one
+;; maximum where a reader can mistake a table for an ordinary group -- the
+;; declared maximum is one, so a consumer that asks "does this repeat?" of the
+;; maximum alone answers no and reads the group unconditionally.
+
+;; The encoding profile. All four axes, always, with no default for any.
+;; ASCII rather than EBCDIC because the whole of this entry's claim is which
+;; bytes a record does and does not contain, and a reviewer checking a
+;; hand-computed byte string should be able to read it in a hex dump.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; VB, and not a free choice: the reading below makes the record's extent move
+;; with its own count, and a variable-extent record type is refused on a
+;; fixed-length dataset. The three records of this file are 5, 9 and 5 bytes.
+(framing
+  (recfm VB))
+
+(record DETAIL
+  (copybook "detail.cpy" OPT-DETAIL))
+
+;; `odoslide`, which is what makes the group's absence move OPT-TAIL. Under
+;; `noodoslide` the same copybook would describe a different file: the group
+;; always present, every record a fixed 9 bytes, and OPT-NOTE-COUNT an ordinary
+;; field beside it saying whether the note was filled in. Nothing in the bytes
+;; disagrees with the wrong reading, which is why this form is required rather
+;; than inferred.
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+;; Nothing selects the record type: every record in this file is a detail.
+(discriminate DETAIL single-record-type)
+
+(sequence (* DETAIL))

@@ -1,0 +1,32 @@
+{
+  "records": [
+    {
+      "name": "OPT-DETAIL",
+      "value": {
+        "OPT-NOTE-COUNT": "0",
+        "OPT-NOTE": [],
+        "OPT-TAIL": "END0"
+      }
+    },
+    {
+      "name": "OPT-DETAIL",
+      "value": {
+        "OPT-NOTE-COUNT": "1",
+        "OPT-NOTE": [
+          {
+            "OPT-TEXT": "NOTE"
+          }
+        ],
+        "OPT-TAIL": "END1"
+      }
+    },
+    {
+      "name": "OPT-DETAIL",
+      "value": {
+        "OPT-NOTE-COUNT": "0",
+        "OPT-NOTE": [],
+        "OPT-TAIL": "END2"
+      }
+    }
+  ]
+}

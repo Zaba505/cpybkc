@@ -262,6 +262,7 @@ with four items in it.
 | [`delimited-ascii-newline`](delimited-ascii-newline) | The delimited file an adopter on Linux has: ASCII, records ended by `0x0A`, two of them holding a binary count whose own bytes are `0x0A`. |
 | [`segmented-spanning`](segmented-spanning) | `RECFM=VBS`: a record laid into as few segments as the largest allows, and one laid into more than it allows a writer, both spanning. |
 | [`odo-sliding`](odo-sliding) | `OCCURS DEPENDING ON` under the sliding reading, in a counted run of records: two tables of different lengths, each with an item behind it. |
+| [`odo-optional`](odo-optional) | The same reading at the one declared maximum where a table can be mistaken for an ordinary group: `OCCURS 0 TO 1 TIMES DEPENDING ON`, so the group is present in a record or absent from it, and three records of none, one and none again. |
 | [`sync-slack`](sync-slack) | `SYNCHRONIZED` alignment: two runs of bytes no item covers, of different widths, each with items in front of it and behind it. |
 | [`alphanumeric-payload`](alphanumeric-payload) | A `PIC X` item that carries bytes rather than text: one `encoding-override` on the group they sit in, a status flag of `0x03`, a region byte of `0x93`, all 256 byte values in one item, and both pad bytes — beside text items still read as characters. |
 | [`variant-fixed`](variant-fixed) | A `REDEFINES` inside a repeating group: a table of address entries each choosing its own alternative, read `noodoslide` — a constant three entries, with the shorter alternative carrying a slack run of its own. |
@@ -272,11 +273,11 @@ with four items in it.
 | [`schedule-occurs`](schedule-occurs) | The same schedule over a fixed `OCCURS` with no count item at all, which is the third of the three tables the mechanism has to be available over. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Twenty are not derived from it — `float-ieee754-special`,
+it came from (#67). Twenty-one are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `batch-ordered`, `batch-disjoint`,
 `batch-ordered-missplit`, `batch-ordered-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
-`segmented-spanning`, `odo-sliding`,
+`segmented-spanning`, `odo-sliding`, `odo-optional`,
 `sync-slack`, `alphanumeric-payload`, `variant-fixed`, `variant-sliding`,
 `variant-no-arm`, `schedule-fixed`, `schedule-sliding` and
 `schedule-occurs` — and the subsections
@@ -517,6 +518,21 @@ resolved the table at its declared maximum, or at the first record's count,
 reads `DTL-TAIL` out of the wrong bytes. That is what
 [`packed-comp6`](packed-comp6) does for a one-byte overread, done for one whose
 size is data.
+
+`odo-optional` is the same two specs at a declared maximum of **one**, and it is
+a separate entry rather than a third record of `odo-sliding` because what it
+varies is not the table's length but whether the table is in the record at all.
+`OCCURS 0 TO 1 TIMES DEPENDING ON` is an ordinary sliding table by those
+sections, and nothing in either spec makes the declared maximum part of the test
+for whether an item repeats — but a maximum of one is the value at which a
+consumer asking that question of the maximum alone gets the wrong answer, reads
+the group unconditionally, and takes `OPT-TEXT` out of `OPT-TAIL`'s four bytes.
+Two of this entry's three records state a count of zero, so a consumer that did
+that runs off the end of a five-byte record rather than returning a wrong value
+— which is the framing reporting a fault the items could not. The value it
+writes for those two records is
+[`GRAMMAR.md`](../../docs/conformance/GRAMMAR.md)'s `table-none`, the empty
+array, which is the spelling that row already fixed for a count of zero.
 
 It is also the corpus's only entry with a register in it. The header's count
 governs the records that follow it rather than the record it sits in, which is
