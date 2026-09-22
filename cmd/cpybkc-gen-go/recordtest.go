@@ -29,7 +29,7 @@ const recordsTestFile = "records_test.go"
 // which is what the generated package may not be imported under.
 //
 // Two kinds, and both of them matter. The **locals** a case declares — `t`,
-// `in`, `r`, `record`, `out`, `w`, `want` — shadow the import from the point
+// `in`, `r`, `record`, `out`, `stale`, `w`, `want` — shadow the import from the point
 // they are declared, so `var record ledger.LedgerHeader` inside `package record`
 // would make the second `record.Encoding()` name the struct. The **packages**
 // the file imports — `bytes`, `testing`, `codec`, `big` — collide with it
@@ -41,7 +41,7 @@ const recordsTestFile = "records_test.go"
 // this generator has to be able to write tests for rather than one it may
 // refuse. Where the name is spent, [shadowAlias] is imported under instead.
 var caseIdentifiers = map[string]struct{}{
-	"t": {}, "in": {}, "r": {}, "record": {}, "out": {}, "w": {}, "want": {},
+	"t": {}, "in": {}, "r": {}, "record": {}, "out": {}, "stale": {}, "w": {}, "want": {},
 	"bytes": {}, "testing": {}, lastElement(codecImport): {}, lastElement(bigIntImport): {},
 }
 
@@ -58,8 +58,9 @@ const shadowAlias = "pkg"
 // recordTests is the source of [recordsTestFile] for this descriptor, or the
 // empty string where there is nothing for a case to be made out of.
 //
-// One case per record type and one per variant arm, in the order the node list
-// carries the records — which docs/ir/SPEC.md's "Identity, ordering and
+// One case per record type, one per variant arm, and one more per record whose
+// tables have a shorter form than its own case lays down — in the order the node
+// list carries the records, which docs/ir/SPEC.md's "Identity, ordering and
 // determinism" fixes as ascending identifier order, so the cases come out in a
 // producer's deterministic order rather than in one this generator invents.
 //
@@ -208,8 +209,18 @@ func restore(live, snapshot map[string]struct{}) {
 	maps.Copy(live, snapshot)
 }
 
-// recordCases is one record type's cases: one for the type and one per arm of an
-// alternation inside it.
+// recordCases is one record type's cases: one for the type, one per arm of an
+// alternation inside it, and — where the record has a shorter form than any of
+// those carry — one more holding every table that may be absent absent.
+//
+// The shortest case is laid out before it is named, and that order is the whole
+// of how a record with no such table contributes none. Whether a table may be
+// absent is not a fact about the copybook alone: a count a predicate pins holds
+// the number its literal states whatever this generator would otherwise choose,
+// so the question is only answered by choosing the counts, which is
+// [synth.chooseCounts]' job and not a second reading of the node list here. A
+// layout that emptied nothing came out as the record's own case again and is
+// dropped, and the name is spent only on a case that is kept.
 func recordCases(s *synth, node *irpb.Node, typ, alias string, used map[string]struct{}) ([]string, error) {
 	cases, err := s.cases(node.GetRecord(), typ, used)
 	if err != nil {
@@ -227,7 +238,30 @@ func recordCases(s *synth, node *irpb.Node, typ, alias string, used map[string]s
 		funcs = append(funcs, source)
 	}
 
-	return funcs, nil
+	shortest := generatedCase{arms: map[uint64]int{}, shortest: true}
+
+	if err := s.layOut(node, "record", shortest.arms, true); err != nil {
+		return nil, err
+	}
+
+	// On the count fields the layout actually wrote rather than on the ones
+	// [synth.chooseCounts] chose a number for. The two differ over a count
+	// declared inside an arm this case does not select: the number is chosen
+	// for it, because an occurrence's width is summed from the first arm
+	// whichever arm it holds, and no byte of it is laid down — so the record
+	// that came out is the record's own case again.
+	if len(s.absent) == 0 {
+		return funcs, nil
+	}
+
+	shortest.name = unique("Test"+typ+"AtItsShortestReadsBackTheBytesItWasReadFrom", used)
+
+	source, err := s.caseSource(node, typ, shortest, alias)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(funcs, source), nil
 }
 
 // testSource is the file the cases were written into: the generated-file
@@ -246,7 +280,9 @@ func testSource(funcs []string, needs map[string]struct{}, opts options, alias s
 	var b strings.Builder
 
 	doc := fmt.Sprintf(`The record tier of this package's generated tests: one case per record the
-layout describes, and one per arm of an alternation inside one.
+layout describes, one per arm of an alternation inside one, and one more per
+record carrying a table that may be absent, holding that record at its
+shortest.
 
 Each case carries the bytes it reads as a literal, decodes them, checks every
 field against the value the literal was laid out with, and writes the record
@@ -313,6 +349,12 @@ type generatedCase struct {
 	// arms is the arm index each variant takes, by the variant node's
 	// identifier. A variant this says nothing about takes its first arm.
 	arms map[uint64]int
+
+	// shortest says this is the case holding the record at its shortest: every
+	// table whose declared minimum is zero laid down empty, and the assertion
+	// that a writer derives the count from the occurrences rather than from the
+	// field. See [synth.countFor].
+	shortest bool
 }
 
 // cases is the cases one record produces: one for the record itself, and one
@@ -481,18 +523,38 @@ func (c *coder) variantsOf(id uint64, path map[uint64]int, found []variantAt) ([
 
 // testCase is one case, laid out and written.
 func (s *synth) testCase(node *irpb.Node, typ string, one generatedCase, alias string) (string, error) {
-	if err := s.layOut(node, "record", one.arms); err != nil {
+	if err := s.layOut(node, "record", one.arms, one.shortest); err != nil {
 		return "", err
 	}
 
+	return s.caseSource(node, typ, one, alias)
+}
+
+// caseSource is the case's source over bytes already laid out, which is how the
+// shortest case is written: it has to be laid out before it is known to be a
+// case at all. See [recordCases].
+func (s *synth) caseSource(node *irpb.Node, typ string, one generatedCase, alias string) (string, error) {
 	item := node.GetRecord().GetNames().GetOriginal()
+
+	subject := item
+	if one.shortest {
+		subject = item + " at its shortest, with every table of it that may be absent absent"
+	}
 
 	doc := wrapped(fmt.Sprintf(
 		"%s is %s: the bytes below, every field they decode into, and the same bytes written back.",
-		one.name, item))
+		one.name, subject))
 
 	if one.selects != "" {
 		doc += "\n\n" + wrapped(fmt.Sprintf("The alternation this case is for holds %s.", one.selects))
+	}
+
+	if one.shortest {
+		doc += "\n\n" + wrapped(
+			"The items behind an absent table are at the offsets the absence puts them, which is what this case covers and the case beside it — the same record with those tables filled — cannot.")
+		doc += "\n\n" + wrapped(fmt.Sprintf(
+			"It ends by leaving one occurrence in %s and writing the record again. The count a writer emits is the number of occurrences it was handed rather than the number the field holds, so the same bytes come back.",
+			joined(itemsOf(s.absent))))
 	}
 
 	var b strings.Builder
@@ -517,9 +579,79 @@ func (s *synth) testCase(node *irpb.Node, typ string, one generatedCase, alias s
 	b.WriteString("if err := record.MarshalCOBOL(w); err != nil {\nt.Fatalf(\"MarshalCOBOL: %v\", err)\n}\n\n")
 	b.WriteString("if !bytes.Equal(out.Bytes(), in) {\n")
 	b.WriteString("t.Errorf(\"the record does not write back the bytes it was read from\\n got: % x\\nwant: % x\", out.Bytes(), in)\n")
-	b.WriteString("}\n}")
+	b.WriteString("}\n")
+
+	b.WriteString(s.derivedCounts(alias))
+	b.WriteString("}")
 
 	return b.String(), nil
+}
+
+// derivedCounts is the half of a shortest case the case beside it cannot make:
+// the count fields set to a number the record does not hold, and the record
+// written out again.
+//
+// Empty for every other case, and deliberately. docs/ir/SPEC.md's *What the
+// descriptor determines, a writer supplies* makes an `OCCURS DEPENDING ON`
+// count the descriptor's — a writer emits the number of occurrences it was
+// handed, whatever the caller left in the field — and a case whose field and
+// occurrences agree is a case a writer that copied the field would also pass.
+// They agree in every case but this one, where the record holds none and the
+// field is set to one.
+func (s *synth) derivedCounts(alias string) string {
+	if len(s.absent) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+
+	b.WriteString("\n")
+
+	for _, one := range s.absent {
+		fmt.Fprintf(&b, "%s = %s\n", one.target, one.stored)
+	}
+
+	b.WriteString("\nvar stale bytes.Buffer\n\n")
+	fmt.Fprintf(&b, "w, err = codec.NewWriter(&stale, %s.%s())\n", alias, encodingFunc)
+	b.WriteString("if err != nil {\nt.Fatalf(\"codec.NewWriter: %v\", err)\n}\n\n")
+	b.WriteString("if err := record.MarshalCOBOL(w); err != nil {\nt.Fatalf(\"MarshalCOBOL: %v\", err)\n}\n\n")
+	b.WriteString("if !bytes.Equal(stale.Bytes(), in) {\n")
+	fmt.Fprintf(&b, "t.Errorf(%q, stale.Bytes(), in)\n",
+		countsAreDerived(s.absent)+"\n got: % x\nwant: % x")
+	b.WriteString("}\n")
+
+	return b.String()
+}
+
+// countsAreDerived is what the failure above says, naming the count fields the
+// case set and what the writer was supposed to do with them.
+func countsAreDerived(all []absence) string {
+	return joined(itemsOf(all)) + ": the record writes back the count left in the field rather than the occurrences it holds"
+}
+
+// itemsOf is the copybook's path to each of them, in the order the walk met
+// them.
+func itemsOf(all []absence) []string {
+	items := make([]string, 0, len(all))
+	for _, one := range all {
+		items = append(items, one.item)
+	}
+
+	return items
+}
+
+// joined is a list of copybook item names as a sentence reads them.
+func joined(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+	}
 }
 
 // byteLiteral is the case's bytes as source: a readable string where the charset is

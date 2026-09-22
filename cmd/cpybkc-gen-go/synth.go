@@ -54,6 +54,26 @@ type synth struct {
 	// what selects it.
 	arms map[uint64]int
 
+	// shortest says the case being laid out is the record at its shortest: the
+	// floor of one [synth.countFor] otherwise puts under a variable table is
+	// not applied, so a table whose declared minimum is zero is laid down with
+	// no occurrences at all. See [synth.countFor].
+	shortest bool
+
+	// emptied is the count fields this case chose zero occurrences for, by that
+	// field's identifier, and is populated only where [synth.shortest] is set.
+	emptied map[uint64]struct{}
+
+	// absent is the ones of those the walk actually laid a byte down for, as
+	// the decoded record spells them and in the order it met them, each with
+	// the value the case leaves in the field before writing the record back.
+	//
+	// It is what says whether there is a second case at all — a count declared
+	// inside an arm this case does not select is in [synth.emptied] and not
+	// here, and a record whose bytes no chosen count reached is the record's own
+	// case again. See [recordCases] and [synth.derivedCount].
+	absent []absence
+
 	// occurrence is which occurrence of the innermost table the walk is laying
 	// out, counted from one, and zero outside a table. It is what a scheduled
 	// arm is chosen by; see docs/ir/SPEC.md, "An arm may be selected by its
@@ -122,6 +142,31 @@ type synth struct {
 	// map cannot answer a question whose answer depends on order, and the
 	// transition a record's discriminator comes from is one.
 	order []*irpb.Node
+}
+
+// absence is one count field a shortest case laid a table down at zero
+// occurrences through: where the field sits in the decoded record, what the
+// copybook calls it, and the value the case stores into it before writing the
+// record back out.
+//
+// The stored value is the whole point of it. docs/ir/SPEC.md's *What the
+// descriptor determines, a writer supplies* makes the count the descriptor's
+// rather than the caller's, so a writer derives it from the occurrences it was
+// handed and ignores whatever the field held — and a case that never disagreed
+// with the field could not tell a writer that derives the count from one that
+// copies it. At zero occurrences the two answers differ by the whole of the
+// table, which is why this is asserted here rather than in the case that fills
+// one.
+type absence struct {
+	// target is the Go expression of the count field in the decoded record.
+	target string
+
+	// item is the copybook's path to it, which is what the failure names.
+	item string
+
+	// stored is the Go literal the case leaves in the field: one occurrence,
+	// over a table holding none.
+	stored string
 }
 
 // chunk is one item's bytes: what it wrote, and the comment column that says
@@ -246,11 +291,16 @@ func binaryValue(size irpb.BinarySize) (codec.BinarySize, error) {
 
 // layOut is one case: the record's bytes, the assertions over the record they
 // decode into, and nothing carried over from the case before.
-func (s *synth) layOut(node *irpb.Node, expr string, arms map[uint64]int) error {
+//
+// shortest says the record is to be laid out at its shortest — every variable
+// table at its declared minimum, with no floor of one under a minimum of zero.
+// See [synth.countFor], which is the one place the two differ.
+func (s *synth) layOut(node *irpb.Node, expr string, arms map[uint64]int, shortest bool) error {
 	record := node.GetRecord()
 
 	s.out.Reset()
 	s.runs, s.checks, s.arms, s.occurrence = nil, nil, arms, 0
+	s.shortest, s.emptied, s.absent = shortest, map[uint64]struct{}{}, nil
 
 	w, err := codec.NewWriter(&s.out, s.enc)
 	if err != nil {
@@ -277,13 +327,8 @@ func (s *synth) layOut(node *irpb.Node, expr string, arms map[uint64]int) error 
 // chooseCounts fixes the number of occurrences of every table whose length is
 // data, before a byte is written.
 //
-// The rule is the story's, and it is a rule rather than a number so that a
-// regenerated case is a diff somebody can read: **a variable table takes its
-// declared minimum, or one occurrence where that minimum is zero**. One
-// occurrence rather than none, so that every shape the record carries appears
-// in the literal at least once — a table nobody generates an occurrence of is a
-// table whose item widths nobody checks — and the minimum rather than the
-// maximum so that the literal stays short enough to read.
+// The rule is [synth.countFor]'s and is written down there, beside the line
+// that applies it.
 //
 // One count may size two tables (docs/ir/SPEC.md, "One count may size two
 // tables, and a writer refuses to choose"), and the generated writer reports a
@@ -350,8 +395,47 @@ func (s *synth) chooseCounts(rootID uint64) error {
 }
 
 // countFor is the number of occurrences one count field's tables are laid out
-// with: what a predicate pins it to where one does, and the story's rule
+// with: what a predicate pins it to where one does, and the rule below
 // otherwise.
+//
+// # The rule
+//
+// **A variable table takes its declared minimum, or one occurrence where that
+// minimum is zero.** It is a rule rather than a number so that a regenerated
+// case is a diff somebody can read: a count somebody picked moves when an
+// unrelated item is inserted, and the whole of the literal moves with it.
+//
+// Both halves of it are choices, and each is the one the literal is read for.
+//
+// The **minimum rather than the maximum**, because the literal is the artifact:
+// an adopter holds it against the file on their desk, and a table laid down at
+// its declared maximum is twelve occurrences of a group whose every item is the
+// same run repeated — pages of it, for a record whose items behind the table an
+// adopter wanted to check the offsets of. Every occurrence beyond the first
+// says the same thing about the layout as the first did.
+//
+// One occurrence **rather than none**, because a table laid down empty is a
+// table whose item widths no case checks: the items inside it are reached only
+// by walking an occurrence, so a record whose every table were empty would
+// exercise no occurrence at all. The floor is what keeps every shape the record
+// carries in the literal at least once.
+//
+// # Where the floor is not applied
+//
+// A floor of one is not a count the copybook wrote, and `OCCURS 0 TO 12
+// DEPENDING ON` laid down at one occurrence is a table an adopter never sees
+// absent. That is the one count at which a sliding table stops resembling a
+// fixed one — the item behind it moves onto bytes that would otherwise belong
+// to the table — so the record contributes a **second** case, the record at its
+// shortest, in which the floor is dropped and such a table is laid down empty.
+// The two are a pair: this one for the widths inside the table, that one for
+// the offsets behind it. See README.md, "Decided: a table that may be absent
+// gets a case at zero as well".
+//
+// The floor is dropped there and nothing else is. A table whose declared
+// minimum is above zero is laid down at that minimum by both cases, which is
+// why a record carrying no emptiable table contributes no second case: it has
+// no shorter form than its own case already carries.
 func (s *synth) countFor(id uint64, node *irpb.Node, uses []*irpb.VariableCount) (int, error) {
 	// A number the file tier chose because an earlier transition binds this
 	// field into a register a guard reads. It wins over the story's rule for
@@ -384,12 +468,24 @@ func (s *synth) countFor(id uint64, node *irpb.Node, uses []*irpb.VariableCount)
 		return number, nil
 	}
 
+	// The floor of one, except in the case that is there to show the record
+	// without it. One number per count field either way — the largest any of
+	// its tables asks for — because one count may size two tables and the
+	// generated writer refuses a caller who supplies two different numbers for
+	// one count rather than choosing between them.
 	chosen := 1
+	if s.shortest {
+		chosen = 0
+	}
 
 	for _, use := range uses {
 		if n := int(use.GetMinOccurrences()); n > chosen {
 			chosen = n
 		}
+	}
+
+	if s.shortest && chosen == 0 {
+		s.emptied[id] = struct{}{}
 	}
 
 	return chosen, nil
@@ -1034,6 +1130,15 @@ func (s *synth) field(id uint64, f *irpb.Field, target, item string) error {
 
 	s.runs = append(s.runs, chunk{body: body, note: note(item, at, pictureNote(f))})
 
+	if _, emptied := s.emptied[id]; emptied {
+		stored, err := s.derivedCount(f)
+		if err != nil {
+			return err
+		}
+
+		s.absent = append(s.absent, absence{target: target, item: item, stored: stored})
+	}
+
 	if !s.asserts(id) {
 		return nil
 	}
@@ -1046,6 +1151,37 @@ func (s *synth) field(id uint64, f *irpb.Field, target, item string) error {
 	s.checks = append(s.checks, check)
 
 	return nil
+}
+
+// derivedCount is the value a shortest case stores into a count field before it
+// writes the record back out: **one** occurrence, over a table holding none.
+//
+// One rather than the table's declared maximum because what is being shown is
+// that the field is not read at all, and the smallest number that disagrees
+// with the record shows it. One is a value every count field can hold — a field
+// counting a table declares at least one digit — where a declared maximum wide
+// enough to need two is not, so the number is also the one that needs no bound
+// checked against the picture.
+//
+// Nothing refuses it: the generated writer derives the count it emits from
+// `len()` of the tables and reports only a record holding *more* occurrences
+// than the copybook declared, which a record holding none does not.
+func (s *synth) derivedCount(f *irpb.Field) (string, error) {
+	value, err := s.number(f, big.NewInt(1))
+	if err != nil {
+		return "", err
+	}
+
+	switch v := value.(type) {
+	case int16, int32, int64, uint64:
+		return fmt.Sprintf("%d", v), nil
+	case *big.Int:
+		s.needs[bigIntImport] = struct{}{}
+
+		return "big.NewInt(" + v.String() + ")", nil
+	default:
+		return "", mistyped(f, value, "one of the integer types codec's accessors return")
+	}
 }
 
 // asserts is whether a case states the value one item holds.
