@@ -3293,11 +3293,16 @@ settled (#22, #28).
 
 An arm **MAY** be selected by the **position** of the occurrence it is being
 chosen for rather than by that occurrence's bytes. Such an arm carries a
-**schedule**: the occurrence numbers it is taken for, counted from one, in
-ascending order and each appearing once. A producer **MAY** emit one under a
-fixed `OCCURS` and under **both** readings of an `OCCURS DEPENDING ON`, and
-`resolve` **MUST NOT** make the mechanism available under one reading and not
-the other (#346, discussion #340).
+**schedule**: **one or more** occurrence numbers, counted from one, in strictly
+ascending order. One number appears in one schedule of one variant and in no
+other, and the strictness of the order is what says so inside an arm as the
+uniqueness rule below says it across two. A producer **MUST NOT** emit an arm
+whose schedule carries no occurrence at all — that is not an arm selected by
+nothing but an arm nothing selects, and it would let a variant satisfy *two arms
+at least* while only one of them is ever taken. A producer **MAY** emit one
+under a fixed `OCCURS` and under **both** readings of an `OCCURS DEPENDING ON`,
+and `resolve` **MUST NOT** make the mechanism available under one reading and
+not the other (#346, discussion #340).
 
 The file that asks for it is the table whose entries carry roles rather than
 types — a count says how many entries arrived, entry one is the home address,
@@ -3367,11 +3372,16 @@ table](#an-item-after-a-table-slides-and-the-other-reading-is-a-fixed-table)).
 The schedules of a variant's arms **MUST** cover every occurrence of 1..*M*
 exactly once, and `resolve` **MUST** reject a layout that leaves one uncovered,
 naming the record, the repeating group, the variant and the occurrence numbers
-with no arm; **MUST** reject two arms scheduling one occurrence, naming both
-arms and the occurrence, which is [When two match, and when none
-does](#when-two-match-and-when-none-does) at this scope and decided from the
-layout rather than from a file; and **MUST** reject an occurrence number that is
-not in 1..*M*, naming the number and the declared maximum.
+with no arm; **MUST** reject an occurrence scheduled twice, naming the
+occurrence and the arm or arms that carry it, which is [When two match, and when
+none does](#when-two-match-and-when-none-does) at this scope and decided from
+the layout rather than from a file; **MUST** reject an arm whose schedule is
+empty, naming the arm; and **MUST** reject an occurrence number that is not in
+1..*M*, naming the number and the declared maximum. The first two are one
+question asked from both ends — every occurrence of 1..*M* is carried by exactly
+one arm — and they are separate diagnostics because they send an adopter to
+different places: one to the entry they forgot to describe, the other to the two
+descriptions they wrote for one entry.
 
 So a variant whose arms are scheduled cannot produce the *occurrence no arm
 matched* failure at all, and a consumer **MUST NOT** report one for it. That
@@ -3433,8 +3443,11 @@ arm carrying both would resolve for an old consumer and read as the wrong
 alternative, which is exactly the silent misread the shape above avoids.
 
 **Ordering, so that two consumers agree.** A producer **MUST** emit each arm's
-schedule in ascending order, and **MUST** emit a scheduled variant's arms in
-ascending order of their first occurrence, which is [Identity, ordering and
+schedule in strictly ascending order, so that an occurrence written twice inside
+one arm is not a descriptor a consumer has to have an opinion about, and
+**MUST** emit a scheduled variant's arms in ascending order of their first
+occurrence,
+which is [Identity, ordering and
 determinism](#identity-ordering-and-determinism) applied to a list that would
 otherwise have no canonical order. Every other rule of [A variant is chosen once
 per occurrence](#a-variant-is-chosen-once-per-occurrence) binds a scheduled

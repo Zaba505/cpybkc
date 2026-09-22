@@ -1556,12 +1556,16 @@ in, and neither is reachable where the other belongs.
 
 The layout reader checks the halves that need no copybook. The variant reference
 **MUST** be rooted at a `record`. Every occurrence **MUST** be a positive
-number. No two arms **MAY** name one alternative, and no two **MAY** name one
-occurrence — the second is the overlap rule of the other form, decidable here
-from the layout alone because a number is a number whatever charset the file is
-in. Arms **MUST** be written in ascending order of their first occurrence, and
-each arm's occurrences in ascending order, so that two layouts describing one
-file are one text.
+number, and every arm **MUST** name at least one — the schema states that half
+as the `one-or-more` arity on the position, and an arm scheduled for nothing is
+an arm nothing selects. No two arms **MAY** name one alternative. And no
+occurrence **MAY** be named twice by one variant, whether by two arms or twice
+within one arm: that is the overlap rule of the other form, decidable here from
+the layout alone because a number is a number whatever charset the file is in.
+Arms **MUST** be written in ascending order of their first occurrence, and each
+arm's occurrences in **strictly** ascending order, which is what leaves a
+duplicate inside an arm unambiguously a diagnostic and what makes two layouts
+describing one file one text.
 
 Everything else needs the copybook and is `resolve`'s: that each name is an
 alternative the copybook declares at that position, that the group containing
