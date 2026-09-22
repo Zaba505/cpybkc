@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "files": [
+    "claim/codec.go",
+    "claim/doc.go",
+    "claim/file.go",
+    "claim/file_test.go",
+    "claim/records.go",
+    "claim/records_test.go",
+    "graph/graph.md"
+  ]
+}
