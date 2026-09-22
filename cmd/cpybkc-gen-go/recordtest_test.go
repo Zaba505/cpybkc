@@ -145,8 +145,17 @@ func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 
 	source := written(t, out)[recordsTestFile]
 
-	// Six records, one of which — ENTRY-RECORD — carries an alternation of two
-	// arms, and one of which — SHAPE-RECORD — no transition admits.
+	// Seven records, one of which — ENTRY-RECORD — carries an alternation of
+	// two arms, and two of which — SHAPE-RECORD and ADDR-RECORD — no
+	// transition admits.
+	//
+	// ADDR-RECORD's alternation adds no case of its own, and that is the one
+	// place a schedule changes this criterion. Its three arms are not paths a
+	// record picks between: the schedule assigns one to each occurrence of
+	// ADR-ENTRY, so the record's own case already holds every one of them, and
+	// a case per arm would be the same record laid out again. What the
+	// criterion is *for* — a discriminator no case covers — has nothing to
+	// cover here, because a scheduled arm has no discriminator to spell.
 	for _, name := range []string{
 		"func TestOrderRecordReadsBackTheBytesItWasReadFrom(",
 		"func TestTrailerRecordReadsBackTheBytesItWasReadFrom(",
@@ -155,13 +164,14 @@ func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 		"func TestEntryRecordReadsBackTheBytesItWasReadFrom(",
 		"func TestEntryRecordHoldingEntrySummaryReadsBackTheBytesItWasReadFrom(",
 		"func TestShapeRecordReadsBackTheBytesItWasReadFrom(",
+		"func TestAddrRecordReadsBackTheBytesItWasReadFrom(",
 	} {
 		if !strings.Contains(source, name) {
 			t.Errorf("no case is named %s", strings.TrimSuffix(strings.TrimPrefix(name, "func "), "("))
 		}
 	}
 
-	if got, want := strings.Count(source, "\nfunc Test"), 7; got != want {
+	if got, want := strings.Count(source, "\nfunc Test"), 8; got != want {
 		t.Errorf("the record tier carries %d cases, and the descriptor asks for %d", got, want)
 	}
 }

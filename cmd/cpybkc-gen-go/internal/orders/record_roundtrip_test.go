@@ -874,3 +874,343 @@ func TestTheRetainedBytesAreACopyAndNotAWindow(t *testing.T) {
 
 	assertBytes(t, out.Bytes(), first)
 }
+
+// addrSlack is the bytes no item of the entry at that occurrence covers.
+//
+// A different run per occurrence, and none of them a space or a zero, so that a
+// writer emitting a run under the wrong entry — or filling one it did not
+// read — is a failure rather than a coincidence. Their lengths differ too,
+// because each is the tail its own arm's items stop short of and the three arms
+// are three widths.
+func addrSlack(occurrence int) []byte {
+	switch occurrence {
+	case 1:
+		return []byte{0x91, 0x92}
+	case 2:
+		return []byte{0xa1, 0xa2, 0xa3, 0xa4}
+	default:
+		return []byte{0xb1, 0xb2, 0xb3}
+	}
+}
+
+// addrBytes is one ADDR-RECORD holding that many entries: discussion #340's
+// shape, where entry one is the home address, entry two the work address and
+// entry three the mailing address, and no byte of an entry says which it is.
+//
+// Every entry is eight bytes whichever arm it holds, which is the extent rule a
+// variant is held to whatever selects its arms, and the arms differ in how much
+// of those eight their items cover.
+func addrBytes(tb testing.TB, entries int) []byte {
+	tb.Helper()
+
+	return laidOut(tb, Encoding(), func(w *codec.Writer) error {
+		if err := w.WriteZonedInt32(int32(entries), 1, codec.SignUnsigned); err != nil {
+			return err
+		}
+
+		for i := range entries {
+			text, width := "PO 88", 5
+
+			switch i + 1 {
+			case 1:
+				text, width = "12 OAK", 6
+			case 2:
+				text, width = "ACME", 4
+			}
+
+			if err := w.WriteAlphanumeric(text, width); err != nil {
+				return err
+			}
+
+			if err := w.WriteBytes(addrSlack(i + 1)); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// held is the arm an occurrence of ADR-ENTRY holds, as the copybook names it,
+// or the empty string where it holds none.
+func held(x *AddrRecord, at int) string {
+	entry := x.AdrEntry[at]
+
+	switch {
+	case entry.AdrHome != nil:
+		return "ADR-HOME"
+	case entry.AdrWork != nil:
+		return "ADR-WORK"
+	case entry.AdrMail != nil:
+		return "ADR-MAIL"
+	default:
+		return ""
+	}
+}
+
+// retained is the run an occurrence of ADR-ENTRY kept for the slack node of the
+// arm it holds.
+func retained(x *AddrRecord, at int) []byte {
+	entry := x.AdrEntry[at]
+
+	switch {
+	case entry.AdrHome != nil:
+		return entry.AdrHome.slack[0]
+	case entry.AdrWork != nil:
+		return entry.AdrWork.slack[0]
+	case entry.AdrMail != nil:
+		return entry.AdrMail.slack[0]
+	default:
+		return nil
+	}
+}
+
+// TestATableOfScheduledVariantsWritesBackTheBytesItWasReadFrom is
+// docs/ir/SPEC.md's "An arm may be selected by its position in the table" over
+// a whole record, on both sides at once.
+//
+// Reading, the arm of occurrence k is the one whose schedule contains k, which
+// is known before a byte of the entry is read. Writing, that same arm is the
+// descriptor's rather than the caller's. The criterion over the two is #51's
+// unchanged — decode then encode reproduces the original bytes — and the run
+// each entry retains is its own, which is what says the slack is per occurrence
+// and not per arm.
+func TestATableOfScheduledVariantsWritesBackTheBytesItWasReadFrom(t *testing.T) {
+	t.Parallel()
+
+	for _, entries := range []int{2, 3} {
+		want := addrBytes(t, entries)
+
+		var x AddrRecord
+
+		assertBytes(t, roundTrip(t, Encoding(), &x, want), want)
+
+		if len(x.AdrEntry) != entries {
+			t.Fatalf("ADR-ENTRY: got %d occurrences, want %d", len(x.AdrEntry), entries)
+		}
+
+		for i := range entries {
+			if got, want := held(&x, i), []string{"ADR-HOME", "ADR-WORK", "ADR-MAIL"}[i]; got != want {
+				t.Errorf("occurrence %d of ADR-ENTRY holds %s, and the schedule assigns %s", i+1, got, want)
+			}
+
+			if got := retained(&x, i); !bytes.Equal(got, addrSlack(i+1)) {
+				t.Errorf("occurrence %d of ADR-ENTRY retained % x, want % x", i+1, got, addrSlack(i+1))
+			}
+		}
+	}
+}
+
+// TestAScheduledArmIsChosenByNoByteOfTheOccurrence is the half of the rule that
+// is invisible in a passing round trip: nothing in an entry selects its arm.
+//
+// The whole of the first entry is overwritten with bytes no predicate anywhere
+// in this descriptor admits, and the record still reads as the home address,
+// because the schedule said so before the read began. A generator that had
+// reached for a discriminant would fail here.
+func TestAScheduledArmIsChosenByNoByteOfTheOccurrence(t *testing.T) {
+	t.Parallel()
+
+	in := addrBytes(t, 3)
+
+	for at := 1; at < 9; at++ {
+		in[at] = 0xff
+	}
+
+	var x AddrRecord
+
+	r, err := codec.NewReader(bytes.NewReader(in), Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewReader: %v", err)
+	}
+
+	if err := x.UnmarshalCOBOL(r); err != nil {
+		t.Fatalf("UnmarshalCOBOL reported an entry no arm matched, and a scheduled variant has no such failure: %v", err)
+	}
+
+	if got := held(&x, 0); got != "ADR-HOME" {
+		t.Errorf("occurrence 1 of ADR-ENTRY holds %s, and the schedule assigns ADR-HOME whatever its bytes are", got)
+	}
+}
+
+// TestAnOccurrenceBeyondASlidingCountTakesNoArmAndIsNotAFailure is the third
+// thing docs/ir/SPEC.md says about a schedule: the occurrences past the count
+// are not in the record and are not read, and their arms are simply not taken.
+//
+// ADR-ENTRY declares up to three occurrences and the schedule covers all three,
+// so a record carrying two leaves ADR-MAIL assigned to nothing that exists.
+// That is not the "occurrence no arm matched" failure and not any other.
+func TestAnOccurrenceBeyondASlidingCountTakesNoArmAndIsNotAFailure(t *testing.T) {
+	t.Parallel()
+
+	var x AddrRecord
+
+	want := addrBytes(t, 2)
+
+	assertBytes(t, roundTrip(t, Encoding(), &x, want), want)
+
+	if len(x.AdrEntry) != 2 {
+		t.Fatalf("ADR-ENTRY: got %d occurrences, want 2", len(x.AdrEntry))
+	}
+
+	for i := range x.AdrEntry {
+		if x.AdrEntry[i].AdrMail != nil {
+			t.Errorf("occurrence %d of ADR-ENTRY holds ADR-MAIL, which the schedule assigns to occurrence 3", i+1)
+		}
+	}
+}
+
+// TestAWriterEmitsTheArmTheScheduleAssignsAndReportsACallerNamingAnother is
+// docs/ir/SPEC.md's "What the descriptor determines, a writer supplies" at the
+// one place it reaches a choice rather than a value.
+//
+// The generated call still lets a caller name an arm — there is a pointer per
+// arm and nothing else there could be — so the rule that bites is the one about
+// what happens when they name the wrong one: it is reported, naming the record,
+// the repeating group, the occurrence and both arms, and never picked between.
+// Picking would hand back a record the writer's own reader does not recover.
+func TestAWriterEmitsTheArmTheScheduleAssignsAndReportsACallerNamingAnother(t *testing.T) {
+	t.Parallel()
+
+	work := func() *struct {
+		WorkCompany string
+		slack       [1][]byte
+	} {
+		return &struct {
+			WorkCompany string
+			slack       [1][]byte
+		}{WorkCompany: "ACME", slack: [1][]byte{addrSlack(2)}}
+	}
+
+	for name, tc := range map[string]struct {
+		break_ func(*AddrRecord)
+		says   []string
+	}{
+		"an arm the schedule assigns to another occurrence, beside the one it assigns": {
+			break_: func(x *AddrRecord) { x.AdrEntry[0].AdrWork = work() },
+			says:   []string{"the schedule assigns ADR-HOME to this occurrence", "the record holds ADR-WORK"},
+		},
+		"an arm the schedule assigns to another occurrence, instead of the one it assigns": {
+			break_: func(x *AddrRecord) {
+				x.AdrEntry[0].AdrHome, x.AdrEntry[0].AdrWork = nil, work()
+			},
+			says: []string{"the schedule assigns ADR-HOME to this occurrence", "the record holds ADR-WORK"},
+		},
+		"an occurrence holding no arm at all": {
+			break_: func(x *AddrRecord) { x.AdrEntry[0].AdrHome = nil },
+			says:   []string{"the schedule assigns ADR-HOME to this occurrence", "holds no arm"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var x AddrRecord
+
+			r, err := codec.NewReader(bytes.NewReader(addrBytes(t, 3)), Encoding())
+			if err != nil {
+				t.Fatalf("codec.NewReader: %v", err)
+			}
+
+			if err := x.UnmarshalCOBOL(r); err != nil {
+				t.Fatalf("UnmarshalCOBOL: %v", err)
+			}
+
+			tc.break_(&x)
+
+			var out bytes.Buffer
+
+			w, err := codec.NewWriter(&out, Encoding())
+			if err != nil {
+				t.Fatalf("codec.NewWriter: %v", err)
+			}
+
+			err = x.MarshalCOBOL(w)
+			if err == nil {
+				t.Fatal("MarshalCOBOL picked an arm for an occurrence the schedule had already assigned one to")
+			}
+
+			// The record, the repeating group and the occurrence, beside the
+			// two arms each case names for itself.
+			for _, want := range append([]string{"ADDR-RECORD", "occurrence 0 of ADR-ENTRY"}, tc.says...) {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the report reads %q and does not say %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestARecordTheCallerBuiltEmitsTheScheduledArmsSlackAsZeroBytes is the two
+// determined things of a scheduled entry taken together: the arm is the
+// schedule's, and the slack of a record nobody read is zero.
+//
+// A caller that builds an ADDR-RECORD out of nothing supplies the arm the
+// schedule assigns each occurrence and no run for the bytes its items do not
+// cover, and what comes out is a record this package's own reader walks.
+func TestARecordTheCallerBuiltEmitsTheScheduledArmsSlackAsZeroBytes(t *testing.T) {
+	t.Parallel()
+
+	var x AddrRecord
+
+	x.AdrEntry = make([]struct {
+		AdrHome *struct {
+			HomeStreet string
+			slack      [1][]byte
+		}
+		AdrWork *struct {
+			WorkCompany string
+			slack       [1][]byte
+		}
+		AdrMail *struct {
+			MailBox string
+			slack   [1][]byte
+		}
+	}, 2)
+
+	x.AdrEntry[0].AdrHome = &struct {
+		HomeStreet string
+		slack      [1][]byte
+	}{HomeStreet: "12 OAK"}
+
+	x.AdrEntry[1].AdrWork = &struct {
+		WorkCompany string
+		slack       [1][]byte
+	}{WorkCompany: "ACME"}
+
+	var out bytes.Buffer
+
+	w, err := codec.NewWriter(&out, Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewWriter: %v", err)
+	}
+
+	if err := x.MarshalCOBOL(w); err != nil {
+		t.Fatalf("MarshalCOBOL: %v", err)
+	}
+
+	want := laidOut(t, Encoding(), func(w *codec.Writer) error {
+		if err := w.WriteZonedInt32(2, 1, codec.SignUnsigned); err != nil {
+			return err
+		}
+
+		if err := w.WriteAlphanumeric("12 OAK", 6); err != nil {
+			return err
+		}
+
+		if err := w.WriteBytes([]byte{0, 0}); err != nil {
+			return err
+		}
+
+		if err := w.WriteAlphanumeric("ACME", 4); err != nil {
+			return err
+		}
+
+		return w.WriteBytes([]byte{0, 0, 0, 0})
+	})
+
+	assertBytes(t, out.Bytes(), want)
+
+	var back AddrRecord
+
+	assertBytes(t, roundTrip(t, Encoding(), &back, want), want)
+}

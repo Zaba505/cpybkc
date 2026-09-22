@@ -53,6 +53,8 @@ var (
 	_ codec.Marshaler   = (*TableRecord)(nil)
 	_ codec.Unmarshaler = (*EntryRecord)(nil)
 	_ codec.Marshaler   = (*EntryRecord)(nil)
+	_ codec.Unmarshaler = (*AddrRecord)(nil)
+	_ codec.Marshaler   = (*AddrRecord)(nil)
 	_ codec.Unmarshaler = (*ShapeRecord)(nil)
 	_ codec.Marshaler   = (*ShapeRecord)(nil)
 )
@@ -722,6 +724,205 @@ func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 		}
 		if err = w.WriteBytes(entry1.Bytes()); err != nil {
 			return fmt.Errorf("ENTRY-RECORD: writing its bytes in occurrence %d of ENTRY: %w", i0, err)
+		}
+	}
+
+	return nil
+}
+
+// UnmarshalCOBOL reads one ADDR-RECORD out of r, in the order docs/ir/SPEC.md
+// resolved its items, and retains the bytes of every slack node it carries and
+// of every item the copybook gives no data-name.
+//
+// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
+// of the file in hand, and Encoding is what this descriptor resolved.
+func (x *AddrRecord) UnmarshalCOBOL(r *codec.Reader) error {
+	var err error
+
+	// entry2 reads one occurrence of ADR-ENTRY, which carries a variant and so is read
+	// whole before it is walked. It is built here rather than inside the loop
+	// over those occurrences, and rewound onto each occurrence's bytes there.
+	var entry2 *codec.Reader
+	if entry2, err = codec.NewBytesReader(nil, r.Encoding()); err != nil {
+		return fmt.Errorf("ADDR-RECORD: building the decoder the occurrences of ADR-ENTRY are read through: %w", err)
+	}
+
+	if x.AdrCount, err = r.ReadZonedInt32(1, codec.SignUnsigned); err != nil {
+		return fmt.Errorf("ADDR-RECORD: reading ADR-COUNT: %w", err)
+	}
+
+	n1 := int(x.AdrCount)
+	if n1 < 2 || n1 > 3 {
+		return fmt.Errorf("ADDR-RECORD: ADR-ENTRY occurs 2 to 3 times depending on ADR-COUNT, and the record's count is %d", n1)
+	}
+	x.AdrEntry = resized(x.AdrEntry, n1)
+	for i0 := range x.AdrEntry {
+		var occurrence1 []byte
+		if occurrence1, err = r.ReadBytes(8); err != nil {
+			return fmt.Errorf("ADDR-RECORD: reading its bytes in occurrence %d of ADR-ENTRY: %w", i0, err)
+		}
+		entry2.Reset(occurrence1)
+		switch i0 + 1 {
+		case 1:
+			x.AdrEntry[i0].AdrHome = fresh(x.AdrEntry[i0].AdrHome)
+			x.AdrEntry[i0].AdrWork = nil
+			x.AdrEntry[i0].AdrMail = nil
+			if x.AdrEntry[i0].AdrHome.HomeStreet, err = entry2.ReadAlphanumeric(6); err != nil {
+				return fmt.Errorf("ADDR-RECORD: reading HOME-STREET in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+
+			if x.AdrEntry[i0].AdrHome.slack[0], err = entry2.ReadBytes(2); err != nil {
+				return fmt.Errorf("ADDR-RECORD: reading the 2 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+		case 2:
+			x.AdrEntry[i0].AdrWork = fresh(x.AdrEntry[i0].AdrWork)
+			x.AdrEntry[i0].AdrHome = nil
+			x.AdrEntry[i0].AdrMail = nil
+			if x.AdrEntry[i0].AdrWork.WorkCompany, err = entry2.ReadAlphanumeric(4); err != nil {
+				return fmt.Errorf("ADDR-RECORD: reading WORK-COMPANY in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+
+			if x.AdrEntry[i0].AdrWork.slack[0], err = entry2.ReadBytes(4); err != nil {
+				return fmt.Errorf("ADDR-RECORD: reading the 4 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+		case 3:
+			x.AdrEntry[i0].AdrMail = fresh(x.AdrEntry[i0].AdrMail)
+			x.AdrEntry[i0].AdrHome = nil
+			x.AdrEntry[i0].AdrWork = nil
+			if x.AdrEntry[i0].AdrMail.MailBox, err = entry2.ReadAlphanumeric(5); err != nil {
+				return fmt.Errorf("ADDR-RECORD: reading MAIL-BOX in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+
+			if x.AdrEntry[i0].AdrMail.slack[0], err = entry2.ReadBytes(3); err != nil {
+				return fmt.Errorf("ADDR-RECORD: reading the 3 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// MarshalCOBOL writes this ADDR-RECORD into w, in the order docs/ir/SPEC.md
+// resolved its items, emitting the bytes retained for every slack node and
+// every unnamed item it carries, and zero bytes for one it does not.
+//
+// It is codec's Marshaler. Two values are the descriptor's rather than the
+// caller's and are supplied rather than taken from the record: an OCCURS
+// DEPENDING ON count is emitted as the number of occurrences written, and
+// slack — and the bytes of an item the copybook gives no data-name — is
+// emitted as what was retained for it. Everything else is the caller's,
+// including the value a discriminator tests — a writer evaluates a predicate
+// and never inverts one.
+//
+// The arm of a table whose entries are chosen by their position is the
+// descriptor's too. The schedule assigns one arm to each occurrence, so that
+// arm is written whatever the record holds, and a caller that filled in
+// another is reported rather than picked between.
+func (x *AddrRecord) MarshalCOBOL(w *codec.Writer) error {
+	var err error
+
+	// entry2 lays out one occurrence of ADR-ENTRY, which carries a variant and so is
+	// laid out whole, so that it is the width every other occurrence of it is
+	// whichever arm the schedule assigned it.
+	// It is built here rather than inside the loop over those occurrences, and
+	// rewound onto its own buffer there.
+	var entry2 *codec.Writer
+	if entry2, err = codec.NewBytesWriter(nil, w.Encoding()); err != nil {
+		return fmt.Errorf("ADDR-RECORD: building the encoder the occurrences of ADR-ENTRY are written through: %w", err)
+	}
+
+	count1 := len(x.AdrEntry)
+	if count1 < 2 || count1 > 3 {
+		return fmt.Errorf("ADDR-RECORD: ADR-ENTRY occurs 2 to 3 times depending on ADR-COUNT, and the record holds %d occurrences of it", count1)
+	}
+	if err = w.WriteZonedInt32(int32(count1), 1, codec.SignUnsigned); err != nil {
+		return fmt.Errorf("ADDR-RECORD: writing ADR-COUNT: %w", err)
+	}
+
+	for i0 := range x.AdrEntry {
+		entry2.Reset(entry2.Bytes())
+		switch i0 + 1 {
+		case 1:
+			if x.AdrEntry[i0].AdrWork != nil {
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-WORK in occurrence %d of ADR-ENTRY", i0)
+			}
+			if x.AdrEntry[i0].AdrMail != nil {
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-HOME to this occurrence while the record holds ADR-MAIL in occurrence %d of ADR-ENTRY", i0)
+			}
+			if x.AdrEntry[i0].AdrHome == nil {
+				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-HOME to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+			}
+			if err = entry2.WriteAlphanumeric(x.AdrEntry[i0].AdrHome.HomeStreet, 6); err != nil {
+				return fmt.Errorf("ADDR-RECORD: writing HOME-STREET in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+
+			switch {
+			case x.AdrEntry[i0].AdrHome.slack[0] == nil:
+				if err = entry2.WriteBytes(zeroFill[:2]); err != nil {
+					return fmt.Errorf("ADDR-RECORD: writing 2 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0, err)
+				}
+			case len(x.AdrEntry[i0].AdrHome.slack[0]) != 2:
+				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrHome.slack[0]), i0)
+			default:
+				if err = entry2.WriteBytes(x.AdrEntry[i0].AdrHome.slack[0]); err != nil {
+					return fmt.Errorf("ADDR-RECORD: writing the 2 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+				}
+			}
+		case 2:
+			if x.AdrEntry[i0].AdrHome != nil {
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+			}
+			if x.AdrEntry[i0].AdrMail != nil {
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-WORK to this occurrence while the record holds ADR-MAIL in occurrence %d of ADR-ENTRY", i0)
+			}
+			if x.AdrEntry[i0].AdrWork == nil {
+				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-WORK to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+			}
+			if err = entry2.WriteAlphanumeric(x.AdrEntry[i0].AdrWork.WorkCompany, 4); err != nil {
+				return fmt.Errorf("ADDR-RECORD: writing WORK-COMPANY in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+
+			switch {
+			case x.AdrEntry[i0].AdrWork.slack[0] == nil:
+				if err = entry2.WriteBytes(zeroFill[:4]); err != nil {
+					return fmt.Errorf("ADDR-RECORD: writing 4 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0, err)
+				}
+			case len(x.AdrEntry[i0].AdrWork.slack[0]) != 4:
+				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 4 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrWork.slack[0]), i0)
+			default:
+				if err = entry2.WriteBytes(x.AdrEntry[i0].AdrWork.slack[0]); err != nil {
+					return fmt.Errorf("ADDR-RECORD: writing the 4 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+				}
+			}
+		case 3:
+			if x.AdrEntry[i0].AdrHome != nil {
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+			}
+			if x.AdrEntry[i0].AdrWork != nil {
+				return fmt.Errorf("ADDR-RECORD: a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns ADR-MAIL to this occurrence while the record holds ADR-WORK in occurrence %d of ADR-ENTRY", i0)
+			}
+			if x.AdrEntry[i0].AdrMail == nil {
+				return fmt.Errorf("ADDR-RECORD: the schedule assigns ADR-MAIL to this occurrence and the record holds no arm of the alternation over ADR-HOME in occurrence %d of ADR-ENTRY", i0)
+			}
+			if err = entry2.WriteAlphanumeric(x.AdrEntry[i0].AdrMail.MailBox, 5); err != nil {
+				return fmt.Errorf("ADDR-RECORD: writing MAIL-BOX in occurrence %d of ADR-ENTRY: %w", i0, err)
+			}
+
+			switch {
+			case x.AdrEntry[i0].AdrMail.slack[0] == nil:
+				if err = entry2.WriteBytes(zeroFill[:3]); err != nil {
+					return fmt.Errorf("ADDR-RECORD: writing 3 zero bytes for slack this record carries none for in occurrence %d of ADR-ENTRY: %w", i0, err)
+				}
+			case len(x.AdrEntry[i0].AdrMail.slack[0]) != 3:
+				return fmt.Errorf("ADDR-RECORD: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 3 bytes is %d in occurrence %d of ADR-ENTRY", len(x.AdrEntry[i0].AdrMail.slack[0]), i0)
+			default:
+				if err = entry2.WriteBytes(x.AdrEntry[i0].AdrMail.slack[0]); err != nil {
+					return fmt.Errorf("ADDR-RECORD: writing the 3 bytes no item of it covers in occurrence %d of ADR-ENTRY: %w", i0, err)
+				}
+			}
+		}
+		if err = w.WriteBytes(entry2.Bytes()); err != nil {
+			return fmt.Errorf("ADDR-RECORD: writing its bytes in occurrence %d of ADR-ENTRY: %w", i0, err)
 		}
 	}
 

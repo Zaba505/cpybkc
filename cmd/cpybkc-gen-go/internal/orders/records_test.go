@@ -512,6 +512,86 @@ func TestEntryRecordHoldingEntrySummaryReadsBackTheBytesItWasReadFrom(t *testing
 	}
 }
 
+// TestAddrRecordReadsBackTheBytesItWasReadFrom is ADDR-RECORD: the bytes
+// below, every field they decode into, and the same bytes written back.
+func TestAddrRecordReadsBackTheBytesItWasReadFrom(t *testing.T) {
+	t.Parallel()
+
+	in := []byte{
+		0xf2,                               // ADR-COUNT @0 9(1)
+		0xc2, 0xc2, 0xc2, 0xc2, 0xc2, 0xc2, // ADR-ENTRY(1).ADR-HOME.HOME-STREET @1 X(6)
+		0xa7, 0xa8, // ADR-ENTRY(1).ADR-HOME.(slack) @7 2 bytes no item covers
+		0xd1, 0xd1, 0xd1, 0xd1, // ADR-ENTRY(2).ADR-WORK.WORK-COMPANY @9 X(4)
+		0xad, 0xae, 0xaf, 0xb0, // ADR-ENTRY(2).ADR-WORK.(slack) @13 4 bytes no item covers
+	}
+
+	r, err := codec.NewReader(bytes.NewReader(in), orders.Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewReader: %v", err)
+	}
+
+	var record orders.AddrRecord
+
+	if err := record.UnmarshalCOBOL(r); err != nil {
+		t.Fatalf("UnmarshalCOBOL: %v", err)
+	}
+
+	if record.AdrCount != 2 {
+		t.Errorf("ADR-COUNT: got %d, want %d", record.AdrCount, 2)
+	}
+
+	if len(record.AdrEntry) != 2 {
+		t.Fatalf("ADR-ENTRY: got %d occurrences, want %d", len(record.AdrEntry), 2)
+	}
+
+	if record.AdrEntry[0].AdrHome == nil {
+		t.Fatalf("ADR-ENTRY(1).ADR-HOME: the record holds no arm, and the schedule assigns this one to this occurrence")
+	}
+
+	if record.AdrEntry[0].AdrWork != nil {
+		t.Errorf("ADR-ENTRY(1).ADR-WORK: the record holds this arm, and the schedule assigns another to this occurrence")
+	}
+
+	if record.AdrEntry[0].AdrMail != nil {
+		t.Errorf("ADR-ENTRY(1).ADR-MAIL: the record holds this arm, and the schedule assigns another to this occurrence")
+	}
+
+	if record.AdrEntry[0].AdrHome.HomeStreet != "BBBBBB" {
+		t.Errorf("ADR-ENTRY(1).ADR-HOME.HOME-STREET: got %q, want %q", record.AdrEntry[0].AdrHome.HomeStreet, "BBBBBB")
+	}
+
+	if record.AdrEntry[1].AdrHome != nil {
+		t.Errorf("ADR-ENTRY(2).ADR-HOME: the record holds this arm, and the schedule assigns another to this occurrence")
+	}
+
+	if record.AdrEntry[1].AdrWork == nil {
+		t.Fatalf("ADR-ENTRY(2).ADR-WORK: the record holds no arm, and the schedule assigns this one to this occurrence")
+	}
+
+	if record.AdrEntry[1].AdrMail != nil {
+		t.Errorf("ADR-ENTRY(2).ADR-MAIL: the record holds this arm, and the schedule assigns another to this occurrence")
+	}
+
+	if record.AdrEntry[1].AdrWork.WorkCompany != "JJJJ" {
+		t.Errorf("ADR-ENTRY(2).ADR-WORK.WORK-COMPANY: got %q, want %q", record.AdrEntry[1].AdrWork.WorkCompany, "JJJJ")
+	}
+
+	var out bytes.Buffer
+
+	w, err := codec.NewWriter(&out, orders.Encoding())
+	if err != nil {
+		t.Fatalf("codec.NewWriter: %v", err)
+	}
+
+	if err := record.MarshalCOBOL(w); err != nil {
+		t.Fatalf("MarshalCOBOL: %v", err)
+	}
+
+	if !bytes.Equal(out.Bytes(), in) {
+		t.Errorf("the record does not write back the bytes it was read from\n got: % x\nwant: % x", out.Bytes(), in)
+	}
+}
+
 // TestShapeRecordReadsBackTheBytesItWasReadFrom is SHAPE-RECORD: the bytes
 // below, every field they decode into, and the same bytes written back.
 func TestShapeRecordReadsBackTheBytesItWasReadFrom(t *testing.T) {

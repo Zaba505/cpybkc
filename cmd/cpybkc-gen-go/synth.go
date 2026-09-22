@@ -49,8 +49,16 @@ type synth struct {
 
 	// arms is the arm each variant takes in the case being laid out, by the
 	// variant node's identifier. A variant the map says nothing about takes its
-	// first arm.
+	// first arm. A variant whose arms are scheduled is in it nowhere: its arm
+	// is the descriptor's rather than the case's, and [synth.occurrence] is
+	// what selects it.
 	arms map[uint64]int
+
+	// occurrence is which occurrence of the innermost table the walk is laying
+	// out, counted from one, and zero outside a table. It is what a scheduled
+	// arm is chosen by; see docs/ir/SPEC.md, "An arm may be selected by its
+	// position in the table".
+	occurrence int
 
 	// shift moves every value this generator derives for itself along by that
 	// many positions, and is zero for every case that needs no re-picking.
@@ -242,7 +250,7 @@ func (s *synth) layOut(node *irpb.Node, expr string, arms map[uint64]int) error 
 	record := node.GetRecord()
 
 	s.out.Reset()
-	s.runs, s.checks, s.arms = nil, nil, arms
+	s.runs, s.checks, s.arms, s.occurrence = nil, nil, arms, 0
 
 	w, err := codec.NewWriter(&s.out, s.enc)
 	if err != nil {
@@ -555,6 +563,35 @@ func (s *synth) armLiterals(id uint64) error {
 				return err
 			}
 		case *irpb.Node_Variant:
+			positional, err := scheduled(kind.Variant)
+			if err != nil {
+				return err
+			}
+
+			// A scheduled arm requires no literal of anything: it is chosen by
+			// which occurrence it is in, and no byte of the occurrence says so.
+			// Every arm of it is reached — each in the occurrences its schedule
+			// carries — so an alternation nested inside any of them is walked,
+			// where the byte-selected form walks only the arm this case takes.
+			if positional {
+				for _, a := range kind.Variant.GetArms() {
+					body, err := s.armBody(a)
+					if err != nil {
+						return err
+					}
+
+					if body.GetGroup() == nil {
+						continue
+					}
+
+					if err := s.armLiterals(body.GetId()); err != nil {
+						return err
+					}
+				}
+
+				continue
+			}
+
 			chosen, err := s.chosenArm(memberID, kind.Variant)
 			if err != nil {
 				return err
@@ -641,12 +678,39 @@ func (s *synth) chosenArm(id uint64, v *irpb.Variant) (int, error) {
 			"a producer must not emit a variant carrying fewer than two arms; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
 	}
 
+	positional, err := scheduled(v)
+	if err != nil {
+		return 0, err
+	}
+
+	if positional {
+		return s.scheduledArm(v)
+	}
+
 	chosen := s.arms[id]
 	if chosen < 0 || chosen >= len(v.GetArms()) {
 		chosen = 0
 	}
 
 	return chosen, nil
+}
+
+// scheduledArm is the arm the schedule assigns the occurrence being laid out,
+// which is not a choice this file makes and not one a case can vary.
+func (s *synth) scheduledArm(v *irpb.Variant) (int, error) {
+	if s.occurrence < 1 {
+		return 0, malformed("a scheduled variant sits outside a group that repeats",
+			"an arm selected by its position is selected by which occurrence of a table it is in; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
+	}
+
+	for i, a := range v.GetArms() {
+		if slices.Contains(a.GetSchedule().GetOccurrenceNumbers(), uint32(s.occurrence)) {
+			return i, nil
+		}
+	}
+
+	return 0, malformed(fmt.Sprintf("no arm of a variant is scheduled for occurrence %d", s.occurrence),
+		"the schedules of a variant's arms cover every occurrence exactly once; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
 }
 
 // walkGroup lays out one occurrence of the group id, member by member, in the
@@ -768,7 +832,15 @@ func (s *synth) walkNested(id uint64, g *irpb.Group, expr, item string) error {
 		return s.walkGroup(id, target, qualify(item, cobol))
 	}
 
+	// Restored rather than cleared, because a table inside a table is walked
+	// from inside an occurrence of the outer one and an arm scheduled in that
+	// outer table is still being laid out when the inner walk returns.
+	outer := s.occurrence
+	defer func() { s.occurrence = outer }()
+
 	for i := range n {
+		s.occurrence = i + 1
+
 		if err := s.walkGroup(id, fmt.Sprintf("%s[%d]", target, i),
 			fmt.Sprintf("%s(%d)", qualify(item, cobol), i+1)); err != nil {
 			return err
@@ -784,6 +856,17 @@ func (s *synth) walkVariant(id uint64, v *irpb.Variant, expr, item string) error
 	chosen, err := s.chosenArm(id, v)
 	if err != nil {
 		return err
+	}
+
+	// What selected the arm, in the words the assertion is read in. A
+	// byte-selected variant is chosen by the entry's own bytes; a scheduled one
+	// by which occurrence of the table the entry is, which is a fact about the
+	// layout rather than about anything in the record.
+	selects, another := "its bytes select this one", "its bytes select another"
+
+	if v.GetArms()[0].GetSchedule() != nil {
+		selects = "the schedule assigns this one to this occurrence"
+		another = "the schedule assigns another to this occurrence"
 	}
 
 	var (
@@ -812,7 +895,7 @@ func (s *synth) walkVariant(id uint64, v *irpb.Variant, expr, item string) error
 			if s.only == nil {
 				s.checks = append(s.checks, fmt.Sprintf(
 					"if %s == nil {\nt.Fatalf(%q)\n}", at,
-					qualify(item, originalOf(arm))+": the record holds no arm, and its bytes select this one"))
+					qualify(item, originalOf(arm))+": the record holds no arm, and "+selects))
 			}
 
 			continue
@@ -821,7 +904,7 @@ func (s *synth) walkVariant(id uint64, v *irpb.Variant, expr, item string) error
 		if s.only == nil {
 			s.checks = append(s.checks, fmt.Sprintf(
 				"if %s != nil {\nt.Errorf(%q)\n}", expr+"."+name,
-				qualify(item, originalOf(arm))+": the record holds this arm, and its bytes select another"))
+				qualify(item, originalOf(arm))+": the record holds this arm, and "+another))
 		}
 	}
 

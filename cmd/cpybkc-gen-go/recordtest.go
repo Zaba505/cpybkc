@@ -433,7 +433,23 @@ func (c *coder) variantsOf(id uint64, path map[uint64]int, found []variantAt) ([
 				return nil, err
 			}
 		case *irpb.Node_Variant:
-			found = append(found, variantAt{id: memberID, path: path})
+			positional, err := scheduled(kind.Variant)
+			if err != nil {
+				return nil, err
+			}
+
+			// A scheduled variant contributes no case of its own. Its arms are
+			// not alternatives a record picks between: the schedule assigns one
+			// to each occurrence of the table, so the record's own case already
+			// holds every one of them, each in the occurrences it is assigned.
+			// A case per arm would be the same record laid out again.
+			//
+			// An alternation nested inside one of those arms is still reached,
+			// and it is reached without a selection, because the arm containing
+			// it is taken whatever this case chooses elsewhere.
+			if !positional {
+				found = append(found, variantAt{id: memberID, path: path})
+			}
 
 			for i, a := range kind.Variant.GetArms() {
 				body, err := c.armBody(a)
@@ -445,8 +461,12 @@ func (c *coder) variantsOf(id uint64, path map[uint64]int, found []variantAt) ([
 					continue
 				}
 
-				inner := map[uint64]int{memberID: i}
-				maps.Copy(inner, path)
+				inner := path
+
+				if !positional {
+					inner = map[uint64]int{memberID: i}
+					maps.Copy(inner, path)
+				}
 
 				found, err = c.variantsOf(body.GetId(), inner, found)
 				if err != nil {

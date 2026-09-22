@@ -103,6 +103,15 @@ type subCodec struct {
 	// item is the repeating group one occurrence of which it reads or writes,
 	// as the copybook names it, for the diagnostic its construction makes.
 	item string
+
+	// checks is whether an occurrence it lays out carries a variant the writer
+	// has to hold its own bytes against, which is a byte-selected one. It is
+	// what the declaration's comment says the buffer is *for*, and a table
+	// whose arms are all scheduled is buffered for the other half of the reason
+	// — one width per occurrence whichever arm it holds — and for that half
+	// only. Read on the encode side; the decode side buffers for one reason and
+	// says so.
+	checks bool
 }
 
 // countUse is one repeating item naming a count field: where its occurrences
@@ -172,6 +181,20 @@ type scope struct {
 	occurrence uint64
 	occExpr    string
 
+	// table is the Go loop variable counting the occurrences of the innermost
+	// group that repeats and contains the walk, and tableMax is that
+	// repetition's declared maximum number of occurrences. Both are empty
+	// outside a table.
+	//
+	// They are what a scheduled arm is chosen on. The arm of occurrence k is a
+	// function of k and the descriptor alone (docs/ir/SPEC.md, "An arm may be
+	// selected by its position in the table"), so the generated code needs the
+	// occurrence's *number* rather than its bytes — which is the one thing the
+	// byte-selected form never asks for, and the reason this is carried here
+	// beside the buffer that form reads.
+	table    string
+	tableMax uint32
+
 	// depth is the nesting of loops and buffers, which is what makes a
 	// generated temporary unique.
 	depth int
@@ -186,16 +209,33 @@ type scope struct {
 	dir direction
 }
 
-// in is s one occurrence of item deep, indexed by variable.
-func (s scope) in(item, variable string) scope {
+// in is s one occurrence of item deep, indexed by variable and repeated as rep
+// declares.
+func (s scope) in(item, variable string, rep *irpb.Repetition) scope {
 	// Innermost first, because that is the order the sentence reads in: an
 	// occurrence of BLOCK-ITEM in an occurrence of BLOCK, rather than the walk's
 	// own order down the tree.
 	s.suffix = fmt.Sprintf(" in occurrence %%d of %s", item) + s.suffix
 	s.args = append([]string{variable}, s.args...)
 	s.depth++
+	s.table, s.tableMax = variable, declaredMax(rep)
 
 	return s
+}
+
+// declaredMax is the maximum number of occurrences a repetition declares, which
+// is the constant of a fixed OCCURS and the declared maximum of an OCCURS
+// DEPENDING ON under either reading. It is the M a schedule is checked against;
+// see docs/ir/SPEC.md, "An arm may be selected by its position in the table".
+func declaredMax(rep *irpb.Repetition) uint32 {
+	switch count := rep.GetCount().(type) {
+	case *irpb.Repetition_Constant:
+		return count.Constant
+	case *irpb.Repetition_Variable:
+		return count.Variable.GetMaxOccurrences()
+	default:
+		return 0
+	}
 }
 
 // codecMethods is the source of [codecFile] for this descriptor, or the empty
@@ -420,7 +460,13 @@ func (c *coder) subWriters() string {
 
 	for _, sub := range c.subs {
 		line(&b, "// %s lays out one occurrence of %s, which carries a variant and so is", sub.name, sub.item)
-		line(&b, "// laid out whole before the arm chosen for it is checked against its bytes.")
+
+		if sub.checks {
+			line(&b, "// laid out whole before the arm chosen for it is checked against its bytes.")
+		} else {
+			line(&b, "// laid out whole, so that it is the width every other occurrence of it is")
+			line(&b, "// whichever arm the schedule assigned it.")
+		}
 		line(&b, "// It is built here rather than inside the loop over those occurrences, and")
 		line(&b, "// rewound onto its own buffer there.")
 		line(&b, "var %s *codec.Writer", sub.name)
@@ -452,7 +498,7 @@ func (c *coder) marshal(name string, record *irpb.Record) (string, error) {
 		return "", err
 	}
 
-	doc := commentLines(fmt.Sprintf(`MarshalCOBOL writes this %s into w, in the order docs/ir/SPEC.md
+	text := fmt.Sprintf(`MarshalCOBOL writes this %s into w, in the order docs/ir/SPEC.md
 resolved its items, emitting the bytes retained for every slack node and
 every unnamed item it carries, and zero bytes for one it does not.
 
@@ -462,7 +508,28 @@ DEPENDING ON count is emitted as the number of occurrences written, and
 slack — and the bytes of an item the copybook gives no data-name — is
 emitted as what was retained for it. Everything else is the caller's,
 including the value a discriminator tests — a writer evaluates a predicate
-and never inverts one.`, record.GetNames().GetOriginal()))
+and never inverts one.`, record.GetNames().GetOriginal())
+
+	// The one thing beside those two that is the descriptor's, and the only one
+	// of the three that is a choice rather than a value. It is said here rather
+	// than left to be read off the switch, because a caller looking at the
+	// struct sees a pointer per arm and has no way to tell from it that filling
+	// one in is not how the arm gets picked.
+	positional, err := c.schedules(record.GetRootId())
+	if err != nil {
+		return "", err
+	}
+
+	if positional {
+		text += `
+
+The arm of a table whose entries are chosen by their position is the
+descriptor's too. The schedule assigns one arm to each occurrence, so that
+arm is written whatever the record holds, and a caller that filled in
+another is reported rather than picked between.`
+	}
+
+	doc := commentLines(text)
 
 	return doc + fmt.Sprintf("func (%s *%s) MarshalCOBOL(w *codec.Writer) error {\n%s\nreturn nil\n}",
 		c.receiver, name, c.prologue(c.subWriters()+body.String())), nil
@@ -690,7 +757,7 @@ func (c *coder) decodeRepeated(b *strings.Builder, rep *irpb.Repetition, expr, i
 			"a repetition carries a constant count or an OCCURS DEPENDING ON one; an item that does not repeat carries no repetition at all")
 	}
 
-	if err := body(expr+"["+index+"]", s.in(item, index)); err != nil {
+	if err := body(expr+"["+index+"]", s.in(item, index, rep)); err != nil {
 		return err
 	}
 
@@ -727,6 +794,42 @@ func (c *coder) decodeVariant(b *strings.Builder, v *irpb.Variant, expr string, 
 	}
 
 	c.fresh = true
+
+	// The two kinds of selector are two shapes of switch, and they are meant to
+	// be told apart on the page. A byte-selected variant switches on tests over
+	// the occurrence's bytes and ends in the default that reports an entry no
+	// arm matched; a scheduled one switches on the occurrence's *number* and
+	// ends without one, because [covers] has already established that the arms
+	// carry every occurrence of the table between them. docs/ir/SPEC.md, "An
+	// arm may be selected by its position in the table", requires that absence:
+	// a consumer MUST NOT report "occurrence no arm matched" for a scheduled
+	// variant, and the byte-selected form keeps it unchanged.
+	if arms[0].schedule != nil {
+		line(b, "switch %s + 1 {", s.table)
+
+		for i, arm := range arms {
+			line(b, "case %s:", arm.occurrences())
+			line(b, "%s = %s(%s)", arm.expr, freshHelper, arm.expr)
+
+			for j, other := range arms {
+				if j != i {
+					line(b, "%s = nil", other.expr)
+				}
+			}
+
+			if arm.group != 0 {
+				if err := c.decodeGroup(b, arm.group, arm.expr, s); err != nil {
+					return err
+				}
+			} else if err := c.decodeField(b, arm.field, "*"+arm.expr, s); err != nil {
+				return err
+			}
+		}
+
+		line(b, "}")
+
+		return nil
+	}
 
 	line(b, "switch {")
 
@@ -914,7 +1017,12 @@ func (c *coder) encodeMembers(b *strings.Builder, id uint64, expr string, s scop
 
 	sub := fmt.Sprintf("entry%d", c.counter)
 
-	c.subs = append(c.subs, subCodec{name: sub, item: group.GetNames().GetOriginal()})
+	checks, err := c.checksArms(id)
+	if err != nil {
+		return err
+	}
+
+	c.subs = append(c.subs, subCodec{name: sub, item: group.GetNames().GetOriginal(), checks: checks})
 
 	// Rewound onto the bytes it laid the occurrence before this one into, which
 	// truncates them and keeps the capacity they reached. Those bytes have
@@ -976,7 +1084,7 @@ func (c *coder) encodeRepeated(b *strings.Builder, rep *irpb.Repetition, expr, i
 
 	line(b, "for %s := range %s {", index, expr)
 
-	if err := body(expr+"["+index+"]", s.in(item, index)); err != nil {
+	if err := body(expr+"["+index+"]", s.in(item, index, rep)); err != nil {
 		return err
 	}
 
@@ -1107,9 +1215,12 @@ func (c *coder) encodeCount(b *strings.Builder, f *irpb.Field, target string, us
 				line(b, "for %s := range %s {", loop.variable, loop.over)
 			}
 
+			// No repetition, because these loops exist for a diagnostic's
+			// sake rather than for a walk: nothing of the record is emitted
+			// inside them, so there is no arm here for a schedule to choose.
 			at := s
 			for _, loop := range use.loops {
-				at = at.in(loop.item, loop.variable)
+				at = at.in(loop.item, loop.variable, nil)
 			}
 
 			line(b, "{")
@@ -1183,6 +1294,10 @@ func (c *coder) encodeVariant(b *strings.Builder, v *irpb.Variant, expr string, 
 		return err
 	}
 
+	if arms[0].schedule != nil {
+		return c.encodeScheduled(b, arms, s)
+	}
+
 	line(b, "switch {")
 
 	for _, arm := range arms {
@@ -1200,6 +1315,59 @@ func (c *coder) encodeVariant(b *strings.Builder, v *irpb.Variant, expr string, 
 	line(b, "default:")
 	line(b, "%s", failf(s, fmt.Sprintf(
 		"an occurrence holds exactly one arm of the alternation over %s and this one holds none", arms[0].item)))
+	line(b, "}")
+
+	return nil
+}
+
+// encodeScheduled writes, for each occurrence, the arm the schedule assigns it.
+//
+// This is the one place [What the descriptor determines, a writer supplies]
+// reaches a choice rather than a value. The arm of occurrence k is the
+// descriptor's, so the switch is over k and not over which pointer the caller
+// filled in — and because the generated call still lets a caller name an arm,
+// by leaving a pointer of one behind, docs/ir/SPEC.md requires that a caller
+// naming one the schedule does not assign is *reported* rather than emitted,
+// picked between, or quietly overwritten. That report names the record, the
+// repeating group, the occurrence and both arms.
+//
+// The switch carries no default for the reason [coder.decodeVariant]'s does
+// not: [covers] has established that the arms carry every occurrence of the
+// table between them, and the number of occurrences a caller supplies is held
+// to the repetition's declared bounds before this is reached.
+func (c *coder) encodeScheduled(b *strings.Builder, arms []arm, s scope) error {
+	line(b, "switch %s + 1 {", s.table)
+
+	for i, arm := range arms {
+		line(b, "case %s:", arm.occurrences())
+
+		for j, other := range arms {
+			if j == i {
+				continue
+			}
+
+			line(b, "if %s != nil {", other.expr)
+			line(b, "%s", failf(s, fmt.Sprintf(
+				"a writer emits the arm the schedule assigns and never the one its caller named, and the schedule assigns %s to this occurrence while the record holds %s",
+				arm.item, other.item)))
+			line(b, "}")
+		}
+
+		line(b, "if %s == nil {", arm.expr)
+		line(b, "%s", failf(s, fmt.Sprintf(
+			"the schedule assigns %s to this occurrence and the record holds no arm of the alternation over %s",
+			arm.item, arms[0].item)))
+		line(b, "}")
+
+		if arm.group != 0 {
+			if err := c.encodeGroup(b, arm.group, arm.expr, s); err != nil {
+				return err
+			}
+		} else if err := c.encodeField(b, arm.field, "*"+arm.expr, s); err != nil {
+			return err
+		}
+	}
+
 	line(b, "}")
 
 	return nil
@@ -1234,6 +1402,21 @@ func (c *coder) checkArms(b *strings.Builder, id uint64, expr string, s scope) e
 
 		variant := member.GetVariant()
 		if variant == nil {
+			continue
+		}
+
+		// A scheduled variant owes this nothing. There is no predicate to
+		// evaluate, and the arm that was emitted was the descriptor's rather
+		// than the caller's — [coder.encodeScheduled] has already reported a
+		// caller who named another. docs/ir/SPEC.md, "A writer evaluates a
+		// predicate, it never inverts one", is about the arm the caller
+		// supplied, and under a schedule the caller supplies none.
+		positional, err := scheduled(variant)
+		if err != nil {
+			return err
+		}
+
+		if positional {
 			continue
 		}
 
@@ -1292,8 +1475,15 @@ type arm struct {
 	item string
 
 	// match is the Go expression that is true when the occurrence's bytes
-	// satisfy the arm's predicate.
+	// satisfy the arm's predicate. It is empty on a scheduled arm, which no
+	// byte of an occurrence chooses.
 	match string
+
+	// schedule is the occurrence numbers, counted from one, this arm is taken
+	// for, and is nil on an arm selected by bytes. Exactly one of it and match
+	// is set, which is the choice docs/ir/SPEC.md's "An arm may be selected by
+	// its position in the table" puts on the arm.
+	schedule []uint32
 
 	// group is the identifier of the arm's body where it is a group, and field
 	// is the body where it is an elementary item. Exactly one is set.
@@ -1306,6 +1496,11 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 	if len(v.GetArms()) < 2 {
 		return nil, malformed(fmt.Sprintf("a variant carries %d arms", len(v.GetArms())),
 			"a producer must not emit a variant carrying fewer than two arms; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
+	}
+
+	positional, err := scheduled(v)
+	if err != nil {
+		return nil, err
 	}
 
 	out := make([]arm, 0, len(v.GetArms()))
@@ -1325,12 +1520,15 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 			return nil, err
 		}
 
-		match, err := c.armMatch(a, s)
-		if err != nil {
+		one := arm{expr: expr + "." + name, item: originalOf(body)}
+
+		if positional {
+			if one.schedule, err = armSchedule(a, one.item); err != nil {
+				return nil, err
+			}
+		} else if one.match, err = c.armMatch(a, s); err != nil {
 			return nil, err
 		}
-
-		one := arm{expr: expr + "." + name, item: originalOf(body), match: match}
 
 		switch kind := body.GetKind().(type) {
 		case *irpb.Node_Group:
@@ -1342,7 +1540,143 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 		out = append(out, one)
 	}
 
+	if positional {
+		if err := covers(out, s); err != nil {
+			return nil, err
+		}
+	}
+
 	return out, nil
+}
+
+// scheduled is whether a variant's arms are chosen by their position in the
+// table rather than by the bytes of the occurrence in front of them.
+//
+// The first arm's selector is read, which docs/ir/SPEC.md's "An arm may be
+// selected by its position in the table" permits, and the rest are held against
+// it: every arm of one variant carries the same kind, and a variant mixing them
+// is a descriptor `resolve` rejects. It is re-checked here for the reason the
+// two-arm minimum is re-checked — this generator refuses a malformed descriptor
+// rather than emitting from one, whatever produced it — and because a mixed
+// variant would otherwise emit a switch over occurrence numbers whose arms are
+// half selected by bytes nothing evaluates.
+func scheduled(v *irpb.Variant) (bool, error) {
+	if len(v.GetArms()) == 0 {
+		return false, nil
+	}
+
+	positional := v.GetArms()[0].GetSchedule() != nil
+
+	for at, a := range v.GetArms() {
+		if (a.GetSchedule() != nil) == positional {
+			continue
+		}
+
+		return false, malformed(
+			fmt.Sprintf("arm %d of a variant is selected by %s and its first arm by %s", at+1, selectorOf(a), selectorOf(v.GetArms()[0])),
+			"every arm of one variant carries the same kind of selector; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+	}
+
+	return positional, nil
+}
+
+// selectorOf names an arm's kind of selector for a diagnostic.
+func selectorOf(a *irpb.Arm) string {
+	if a.GetSchedule() != nil {
+		return "its position in the table"
+	}
+
+	return "a predicate"
+}
+
+// armSchedule is the occurrence numbers a scheduled arm is taken for, checked
+// against what a producer owes them.
+//
+// Counted from one, at least one of them, and strictly ascending: the first two
+// are what makes an arm one something selects, and the third is what says inside
+// one arm what [covers] says across two. All three are docs/ir/SPEC.md's "An arm
+// may be selected by its position in the table".
+func armSchedule(a *irpb.Arm, item string) ([]uint32, error) {
+	numbers := a.GetSchedule().GetOccurrenceNumbers()
+
+	if len(numbers) == 0 {
+		return nil, malformed(fmt.Sprintf("the arm over %s is scheduled for no occurrence at all", item),
+			"a producer must emit at least one occurrence number on a scheduled arm; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+	}
+
+	for at := 1; at < len(numbers); at++ {
+		if numbers[at] > numbers[at-1] {
+			continue
+		}
+
+		return nil, malformed(fmt.Sprintf("the arm over %s is scheduled for occurrence %d after occurrence %d", item, numbers[at], numbers[at-1]),
+			"a producer must emit an arm's schedule in strictly ascending order; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+	}
+
+	return numbers, nil
+}
+
+// covers holds a scheduled variant's arms to the table they sit in: every
+// occurrence of 1..M carried by exactly one of them, for M the repetition's
+// declared maximum.
+//
+// It is what lets the emitted switch carry no default. The arm of occurrence k
+// is a function of k and the descriptor alone, so a switch over the occurrence
+// number is total once this has passed, and docs/ir/SPEC.md forbids reporting
+// the byte-selected form's "occurrence no arm matched" for a scheduled variant
+// at all. Checking it here rather than trusting `resolve` is what keeps that
+// absence a fact this generator established rather than one it assumed.
+func covers(arms []arm, s scope) error {
+	if s.table == "" || s.tableMax == 0 {
+		return malformed("a scheduled variant sits outside a group that repeats",
+			"an arm selected by its position is selected by which occurrence of a table it is in; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
+	}
+
+	taken := make(map[uint32]string, s.tableMax)
+
+	for _, one := range arms {
+		for _, n := range one.schedule {
+			if n < 1 || n > s.tableMax {
+				return malformed(fmt.Sprintf("the arm over %s is scheduled for occurrence %d of a table of %d", one.item, n, s.tableMax),
+					"an occurrence number lies in 1..M, for M the repetition's declared maximum; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+			}
+
+			if held, twice := taken[n]; twice {
+				return malformed(fmt.Sprintf("occurrence %d is scheduled for %s and for %s", n, held, one.item),
+					"the schedules of a variant's arms cover every occurrence exactly once; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+			}
+
+			taken[n] = one.item
+		}
+	}
+
+	var missing []string
+
+	for n := uint32(1); n <= s.tableMax; n++ {
+		if _, held := taken[n]; !held {
+			missing = append(missing, strconv.FormatUint(uint64(n), 10))
+		}
+	}
+
+	if len(missing) != 0 {
+		return malformed(fmt.Sprintf("no arm of the alternation over %s is scheduled for occurrence %s of %d",
+			arms[0].item, strings.Join(missing, ", "), s.tableMax),
+			"the schedules of a variant's arms cover every occurrence exactly once; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+	}
+
+	return nil
+}
+
+// occurrences is the `case` of a switch over occurrence numbers that a
+// scheduled arm is taken for.
+func (a arm) occurrences() string {
+	out := make([]string, 0, len(a.schedule))
+
+	for _, n := range a.schedule {
+		out = append(out, strconv.FormatUint(uint64(n), 10))
+	}
+
+	return strings.Join(out, ", ")
 }
 
 // armMatch is the Go expression testing an arm's predicate against the bytes of
@@ -1580,6 +1914,103 @@ func (c *coder) buffers(id uint64) bool {
 	}
 
 	return false
+}
+
+// checksArms is whether an occurrence of the group id carries a variant a
+// writer has to hold its own bytes against, which is a byte-selected one.
+//
+// It walks what [coder.checkArms] walks and answers what that will find, so
+// that the buffer's declaration can say what it is for before the walk that
+// fills it has run. A group whose variants are all scheduled answers false:
+// there is no predicate to evaluate, and the arm that was written was the
+// descriptor's rather than the caller's.
+func (c *coder) checksArms(id uint64) (bool, error) {
+	members, err := c.flattened(id)
+	if err != nil {
+		return false, err
+	}
+
+	for _, memberID := range members {
+		member, ok := c.nodes[memberID]
+		if !ok {
+			return false, unresolved(memberID)
+		}
+
+		variant := member.GetVariant()
+		if variant == nil {
+			continue
+		}
+
+		positional, err := scheduled(variant)
+		if err != nil {
+			return false, err
+		}
+
+		if !positional {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// schedules is whether a record carries a variant whose arms are chosen by
+// their position in the table, at any depth and inside an arm of another.
+func (c *coder) schedules(id uint64) (bool, error) {
+	members, err := c.flattened(id)
+	if err != nil {
+		return false, err
+	}
+
+	for _, memberID := range members {
+		member, ok := c.nodes[memberID]
+		if !ok {
+			return false, unresolved(memberID)
+		}
+
+		switch kind := member.GetKind().(type) {
+		case *irpb.Node_Group:
+			held, err := c.schedules(memberID)
+			if err != nil {
+				return false, err
+			}
+
+			if held {
+				return true, nil
+			}
+		case *irpb.Node_Variant:
+			positional, err := scheduled(kind.Variant)
+			if err != nil {
+				return false, err
+			}
+
+			if positional {
+				return true, nil
+			}
+
+			for _, a := range kind.Variant.GetArms() {
+				body, err := c.armBody(a)
+				if err != nil {
+					return false, err
+				}
+
+				if body.GetGroup() == nil {
+					continue
+				}
+
+				held, err := c.schedules(body.GetId())
+				if err != nil {
+					return false, err
+				}
+
+				if held {
+					return true, nil
+				}
+			}
+		}
+	}
+
+	return false, nil
 }
 
 // line writes one statement of the generated body. Indentation is gofmt's:
