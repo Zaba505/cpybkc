@@ -245,6 +245,16 @@ func (s scope) in(item, variable string, rep *irpb.Repetition) scope {
 // occurrence. The one other place the number appears in generated source is
 // the scheduled-arm switch, which switches on `<variable> + 1` for the same
 // reason: a schedule is written in the copybook's numbering.
+//
+// variable is a bare Go identifier — the loop variable [coder.decodeRepeated]
+// and its encoding twin emit — and not an expression. It has to be one here
+// and at the two other sites
+// that emit it, `for <variable> := range` and the subscript `[<variable>]`, so
+// an expression would already be a fault at those before it reached this. The
+// result is left unparenthesised because it is read: it lands in every
+// `occurrence %d` of every generated codec, and `(i0)+1` in source an adopter
+// opens costs more than the fault it would guard against, which the emitter
+// cannot produce.
 func occurrenceNumber(variable string) string {
 	return variable + "+1"
 }
