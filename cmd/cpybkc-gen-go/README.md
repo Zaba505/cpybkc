@@ -147,7 +147,7 @@ describes — `codec.go` carries
 Beside them, [the generated tests](#the-generated-tests) come in two tiers.
 `records_test.go` is the record tier, and it covers `records.go` and `codec.go`
 together — a struct and the two methods that fill it are one thing to a case:
-one case per record type and per variant arm, each decoding a synthesized
+one case per record type and per arm of a `REDEFINES` chosen by bytes, each decoding a synthesized
 literal, asserting every exported field against a value written out beside it,
 and encoding it back byte for byte. `file_test.go` is the file tier and covers
 `file.go`: the framing around a record and the order records come in, with a
@@ -552,6 +552,63 @@ Decoding fills exactly one of them, per occurrence, and leaves the others nil.
 Encoding writes the one that is non-nil; an occurrence holding none, or more
 than one, is an error naming the record, the table and which occurrence it was.
 
+### A table whose entries are chosen by position
+
+Some tables carry roles rather than types: a count says how many entries
+arrived, entry one is the home address, entry two the work address, entry three
+the mailing address, and **no byte of an entry says which it is**. `ir/SPEC.md`'s
+*An arm may be selected by its position in the table* is how a layout says that,
+and an arm written that way carries a **schedule** — the occurrence numbers it is
+taken for — in place of a predicate.
+
+The struct is the same one as above. There is a pointer per arm and no
+discriminant beside them, exactly as for a `REDEFINES` chosen by bytes:
+
+```go
+	AdrEntry []struct {
+		// AdrHome is ADR-HOME — a group of 2 members.
+		AdrHome *struct{ ... }
+
+		// AdrWork is ADR-WORK — a group of 2 members.
+		AdrWork *struct{ ... }
+
+		// AdrMail is ADR-MAIL — a group of 2 members.
+		AdrMail *struct{ ... }
+	}
+```
+
+That is this generator's choice and `ir/SPEC.md` leaves it open — a scheduled
+occurrence carrying no discriminant is a shape it permits rather than requires.
+The choice is to keep **one** shape for both kinds of selector, because the two
+differ in how an arm is *chosen* and not in what an occurrence *holds*, and a
+second shape would mean an adopter whose layout gained a schedule got a
+different struct for the same copybook. Each arm's doc comment says which
+occurrences it is scheduled for, because that is the one thing the pointers
+cannot show you.
+
+What differs is the two methods, and it differs on both sides:
+
+- **Decoding** takes, for occurrence *k*, the arm whose schedule contains *k*.
+  It evaluates no predicate and reads no discriminating bytes — the arm is known
+  before the entry is read. And it **never** reports *no arm matched*: the
+  schedules are checked against the table when the package is generated, so
+  every occurrence has an arm and there is no such failure to report. A
+  `REDEFINES` chosen by bytes keeps that diagnostic unchanged, and the two are
+  told apart in the generated source rather than by accident: a scheduled
+  variant switches on the occurrence number and carries no `default`, a
+  byte-selected one switches on tests over the entry's bytes and does.
+- **Encoding** emits, for occurrence *k*, the items and the slack of the arm the
+  schedule assigns, and selects it on nothing you supplied. Because the call
+  still lets you name an arm — you fill in a pointer — naming one the schedule
+  does not assign to that occurrence is **reported**, naming the record, the
+  table, the occurrence and both arms. It is not picked between, for the reason
+  two disagreeing counts are not: the record this writer's own reader recovers
+  would not be the record you handed over.
+
+Under a sliding `OCCURS DEPENDING ON` the occurrences past the count are not in
+the record and are not read. Their arms are simply not taken, and that is not a
+failure either.
+
 ## Decoding and encoding
 
 Every record type gets two methods, and they are `codec`'s own interfaces:
@@ -620,8 +677,9 @@ you pass your own, exactly as you would for a descriptor holding no item.
 
 ### What the writer supplies, and what it refuses to
 
-`ir/SPEC.md`'s *What the descriptor determines, a writer supplies* makes exactly
-two values the descriptor's rather than yours.
+`ir/SPEC.md`'s *What the descriptor determines, a writer supplies* makes two
+values the descriptor's rather than yours, and — for [a table whose entries are
+chosen by position](#a-table-whose-entries-are-chosen-by-position) — one choice.
 
 An **`OCCURS DEPENDING ON` count** is emitted as the number of occurrences
 written, whatever you left in the count field: the field's value *is* that
@@ -637,11 +695,18 @@ as zero bytes only where the record carries none, because its caller built it
 rather than read it. A retained run whose length is not the slack node's is
 reported rather than truncated or padded.
 
+A **scheduled arm** is the third, and it is the one place this rule reaches a
+choice rather than a value: the arm of occurrence *k* is a function of *k* and
+the layout alone, so it is written whatever your record holds, and an arm you
+filled in that the schedule does not assign to that occurrence is reported. The
+section above says what that report names.
+
 Everything else is yours, including the value a discriminator tests. A writer
 *evaluates* a predicate against the record it is about to emit and never derives
 a satisfying value to store into the predicate's target — see `ir/SPEC.md`'s
 *A writer evaluates a predicate, it never inverts one*, which is why that field
-is still a field you fill.
+is still a field you fill. A scheduled arm is not an exception to it: there is
+no predicate on such an arm to invert, and nothing you supplied selected it.
 
 ### A table counted by a register
 
@@ -1268,6 +1333,15 @@ exercised by some case. A discriminator that no case covers is one whose
 spelling you find out about from a production file, and a set-membership
 predicate is exactly where a literal goes wrong one value at a time — the arm
 nobody generates a case for is the arm nobody reads.
+
+The count is one case per record type plus one per arm **beyond the first**,
+because the record's own case takes the first. [A table whose entries are chosen
+by position](#a-table-whose-entries-are-chosen-by-position) adds none at all,
+and that is the one place a schedule changes this: its arms are not paths a
+record picks between, so the record's own case already holds every one of them,
+each in the occurrences its schedule assigns. A case per arm would be the same
+record laid out again, and there is no discriminator spelling to find out about
+from a production file, because a scheduled arm has none.
 
 ### Decided: the file tier covers by predicate, not by edge
 

@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -611,7 +612,7 @@ func (e *emitter) armFields(v *irpb.Variant, in string) ([]armField, error) {
 		}
 
 		fields = append(fields, armField{
-			decl:  armNote(decl, names, i),
+			decl:  armNote(decl, names, i, v.GetArms()[i].GetSchedule().GetOccurrenceNumbers()),
 			name:  name,
 			cobol: namedBy(namesOf(body)),
 		})
@@ -671,7 +672,16 @@ func (e *emitter) armBody(arm *irpb.Arm) (*irpb.Node, error) {
 
 // armNote is an arm's declaration with the sentence that says it is one, added
 // beneath the doc comment the member itself produced.
-func armNote(decl string, names []string, i int) string {
+//
+// schedule is the occurrences the arm is taken for where the layout chooses it
+// by its position, and is empty where it is chosen by the occurrence's bytes.
+// What it adds is the half of the call shape the struct cannot show. This
+// generator emits a pointer per arm under both kinds of selector and no
+// discriminant under either — docs/ir/SPEC.md leaves the call to the generator,
+// and a scheduled occurrence carrying none is a shape it permits — so a caller
+// looking at three pointers has nothing in front of them saying that filling
+// one in is not how the arm is chosen. This says it.
+func armNote(decl string, names []string, i int, schedule []uint32) string {
 	others := make([]string, 0, len(names)-1)
 
 	for j, name := range names {
@@ -680,9 +690,25 @@ func armNote(decl string, names []string, i int) string {
 		}
 	}
 
-	note := commentLines(fmt.Sprintf(
-		"It is one alternative over one run of bytes, beside %s: exactly one of\nthem is non-nil in an occurrence, and it is the one the record holds.\nSee docs/ir/SPEC.md, \"A variant is chosen once per occurrence\".",
-		english(others)))
+	what := "It is one alternative over one run of bytes, beside %s: exactly one of\nthem is non-nil in an occurrence, and it is the one the record holds.\nSee docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"."
+
+	if len(schedule) != 0 {
+		occurrences := make([]string, 0, len(schedule))
+
+		for _, n := range schedule {
+			occurrences = append(occurrences, strconv.FormatUint(uint64(n), 10))
+		}
+
+		word := "occurrence"
+		if len(occurrences) > 1 {
+			word = "occurrences"
+		}
+
+		what = "It is one alternative over one run of bytes, beside %s: exactly one of\nthem is non-nil in an occurrence, and it is the one the record holds.\n\nThe layout says which of them, and no byte of an occurrence does: this arm\nis " +
+			word + " " + english(occurrences) + " of the table, and a writer emits the arm the schedule\nassigns whatever this record holds — a caller that filled in another is\nreported rather than picked between.\nSee docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"."
+	}
+
+	note := commentLines(fmt.Sprintf(what, english(others)))
 
 	// The doc comment is the run of lines opening the declaration that are
 	// comments; the declaration itself begins at the first line that is not,

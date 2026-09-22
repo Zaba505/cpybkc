@@ -190,6 +190,90 @@ type EntryRecord struct {
 	}
 }
 
+// AddrRecord is the ADDR-RECORD record, as docs/ir/SPEC.md resolved it.
+type AddrRecord struct {
+	// AdrCount is ADR-COUNT — numeric, DISPLAY, 1 digit, unsigned, 1 byte.
+	AdrCount int32
+
+	// AdrEntry is ADR-ENTRY — a group of 1 member, OCCURS 2 TO 3 DEPENDING ON ADR-COUNT.
+	AdrEntry []struct {
+		// AdrHome is ADR-HOME — a group of 2 members.
+		//
+		// It is one alternative over one run of bytes, beside AdrWork and AdrMail: exactly one of
+		// them is non-nil in an occurrence, and it is the one the record holds.
+		//
+		// The layout says which of them, and no byte of an occurrence does: this arm
+		// is occurrence 1 of the table, and a writer emits the arm the schedule
+		// assigns whatever this record holds — a caller that filled in another is
+		// reported rather than picked between.
+		// See docs/ir/SPEC.md, "An arm may be selected by its position in the table".
+		AdrHome *struct {
+			// HomeStreet is HOME-STREET — alphanumeric, DISPLAY, 6 bytes.
+			HomeStreet string
+
+			// slack is the bytes retained for the slack nodes among this item's
+			// members, in the order those nodes occupy the record: one run each, as
+			// they stood when the record was read, and one set of them per occurrence
+			// of this struct. A nil run is one the record does not carry; an empty run
+			// is a run of no bytes, and the two are not the same.
+			//
+			// They travel with the record and there is nothing here for a caller to do.
+			// See docs/ir/SPEC.md, "Slack survives a read".
+			slack [1][]byte
+		}
+
+		// AdrWork is ADR-WORK — a group of 2 members.
+		//
+		// It is one alternative over one run of bytes, beside AdrHome and AdrMail: exactly one of
+		// them is non-nil in an occurrence, and it is the one the record holds.
+		//
+		// The layout says which of them, and no byte of an occurrence does: this arm
+		// is occurrence 2 of the table, and a writer emits the arm the schedule
+		// assigns whatever this record holds — a caller that filled in another is
+		// reported rather than picked between.
+		// See docs/ir/SPEC.md, "An arm may be selected by its position in the table".
+		AdrWork *struct {
+			// WorkCompany is WORK-COMPANY — alphanumeric, DISPLAY, 4 bytes.
+			WorkCompany string
+
+			// slack is the bytes retained for the slack nodes among this item's
+			// members, in the order those nodes occupy the record: one run each, as
+			// they stood when the record was read, and one set of them per occurrence
+			// of this struct. A nil run is one the record does not carry; an empty run
+			// is a run of no bytes, and the two are not the same.
+			//
+			// They travel with the record and there is nothing here for a caller to do.
+			// See docs/ir/SPEC.md, "Slack survives a read".
+			slack [1][]byte
+		}
+
+		// AdrMail is ADR-MAIL — a group of 2 members.
+		//
+		// It is one alternative over one run of bytes, beside AdrHome and AdrWork: exactly one of
+		// them is non-nil in an occurrence, and it is the one the record holds.
+		//
+		// The layout says which of them, and no byte of an occurrence does: this arm
+		// is occurrence 3 of the table, and a writer emits the arm the schedule
+		// assigns whatever this record holds — a caller that filled in another is
+		// reported rather than picked between.
+		// See docs/ir/SPEC.md, "An arm may be selected by its position in the table".
+		AdrMail *struct {
+			// MailBox is MAIL-BOX — alphanumeric, DISPLAY, 5 bytes.
+			MailBox string
+
+			// slack is the bytes retained for the slack nodes among this item's
+			// members, in the order those nodes occupy the record: one run each, as
+			// they stood when the record was read, and one set of them per occurrence
+			// of this struct. A nil run is one the record does not carry; an empty run
+			// is a run of no bytes, and the two are not the same.
+			//
+			// They travel with the record and there is nothing here for a caller to do.
+			// See docs/ir/SPEC.md, "Slack survives a read".
+			slack [1][]byte
+		}
+	}
+}
+
 // ShapeRecord is the SHAPE-RECORD record, as docs/ir/SPEC.md resolved it.
 type ShapeRecord struct {
 	// Tally is TALLY — numeric, COMP-6, 5 digits, unsigned, 3 bytes.

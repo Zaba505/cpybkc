@@ -35,13 +35,19 @@ other framings; [`../README.md`](../README.md) says which is which. Both carry
 writes, for the file tier of the generated tests.
 
 `records_test.go` and `file_test.go` **are** output and are pinned like every
-other file here: the first is one case per record type and per variant arm, each
+other file here: the first is one case per record type and per arm of a
+`REDEFINES` chosen by bytes — a scheduled variant adds none, because its own
+record's case already holds every arm of it — each
 carrying that record's bytes as a literal, and the second one case per path
 through the automaton, carrying a whole file with the record descriptor word in
 front of each record. `SHAPE-RECORD` is in the descriptor for it — no transition admits that
 record, and it is where COMP-6, COMP-2, COMP-5 and the two USAGEs beside INDEX
 that the IR derives no logical value for get a case the compiler and `go test
--race` actually run.
+-race` actually run. `ADDR-RECORD` is the other record no transition admits, and
+it is discussion #340's shape: a table whose entries are chosen by their
+position rather than by anything in their bytes. What a schedule changes is a
+record's own two methods, so the automaton has nothing to say about it and is
+left alone.
 
 Regenerate it whenever the emitter changes: the failure prints the whole of both
 sides, so the new bytes come out of the test's own output.

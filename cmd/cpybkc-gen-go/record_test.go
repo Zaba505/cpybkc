@@ -134,9 +134,12 @@ func TestARecordCarryingSlackHoldsARunForEveryNodeOfIt(t *testing.T) {
 	// the runs its group's slack nodes need.
 	for want, times := range map[string]int{
 		// One among ORDER-RECORD's own members, one among the members of the
-		// group that repeats, and one inside the arm of the variant that is
-		// shorter than its sibling.
-		slackField + " [1][]byte": 3,
+		// group that repeats, one inside the arm of the variant that is
+		// shorter than its sibling, and one inside each of ADDR-RECORD's three
+		// scheduled arms — a scheduled arm carries its own slack exactly as a
+		// byte-selected one does, and carries it per occurrence, because the
+		// struct holding it is the table's element type.
+		slackField + " [1][]byte": 6,
 
 		// SYNC-RECORD carries two: the alignment gap ahead of its binary item
 		// and the tail its items stop short of.
@@ -1409,6 +1412,38 @@ func ordersDescriptor() *irpb.Descriptor {
 			alphanumeric(71, "SUMMARY-TEXT", 4),
 			slack(72, 2),
 
+			// Discussion #340's shape: a table whose entries carry roles
+			// rather than types. A count says how many entries arrived, entry
+			// one is the home address, entry two the work address and entry
+			// three the mailing address, and no byte of an entry says which it
+			// is. The arms are chosen by their position rather than by a
+			// predicate, and each carries the slack that makes all three cover
+			// the same eight bytes.
+			//
+			// The repetition declares two to three occurrences rather than one
+			// to three so that the golden shows both halves of a schedule at
+			// once: the arm changing with the occurrence, and a sliding count
+			// stopping short of the declared maximum, where occurrence three is
+			// not read and ADR-MAIL is simply not taken.
+			//
+			// No transition admits it, for SHAPE-RECORD's reason and no other:
+			// what a schedule changes is a record's own decode and encode
+			// methods, and the automaton above is untouched by it.
+			record(100, "ADDR-RECORD", 101),
+			group(101, "ADDR-RECORD", nil, 102, 103),
+			zoned(102, "ADR-COUNT", 1, 1, 0, false),
+			group(103, "ADR-ENTRY", depending(102, 2, 3), 104),
+			variant(104, scheduledArm(105, 1), scheduledArm(108, 2), scheduledArm(111, 3)),
+			group(105, "ADR-HOME", nil, 106, 107),
+			alphanumeric(106, "HOME-STREET", 6),
+			slack(107, 2),
+			group(108, "ADR-WORK", nil, 109, 110),
+			alphanumeric(109, "WORK-COMPANY", 4),
+			slack(110, 4),
+			group(111, "ADR-MAIL", nil, 112, 113),
+			alphanumeric(112, "MAIL-BOX", 5),
+			slack(113, 3),
+
 			// The item shapes the five records above do not reach, so that
 			// every Go type this generator's table gives an item is one the
 			// compiler and `go test -race` see: COMP-6, COMP-2, a COMP-5 item
@@ -1512,6 +1547,16 @@ func variant(id uint64, arms ...*irpb.Arm) *irpb.Node {
 func armOf(predicate, body uint64) *irpb.Arm {
 	return &irpb.Arm{
 		Selector: &irpb.Arm_PredicateId{PredicateId: predicate},
+		Body:     &irpb.Arm_GroupId{GroupId: body},
+	}
+}
+
+// scheduledArm is one alternative of a variant chosen by its position in the
+// table: the occurrences it is taken for, counted from one, and the group that
+// is its body.
+func scheduledArm(body uint64, occurrences ...uint32) *irpb.Arm {
+	return &irpb.Arm{
+		Selector: &irpb.Arm_Schedule{Schedule: &irpb.Schedule{OccurrenceNumbers: occurrences}},
 		Body:     &irpb.Arm_GroupId{GroupId: body},
 	}
 }
