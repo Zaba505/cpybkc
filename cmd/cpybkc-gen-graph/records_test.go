@@ -764,7 +764,7 @@ func TestAContainmentOrderThatDoesNotSayWhatItSaysIsRefused(t *testing.T) {
 		"an arm with no body at all": {
 			nodes: []*irpb.Node{
 				groupNode(105, "HEADER-RECORD", 400),
-				variantNode(400, &irpb.Arm{PredicateId: 60}, armAt(61, 401)),
+				variantNode(400, &irpb.Arm{Selector: &irpb.Arm_PredicateId{PredicateId: 60}}, armAt(61, 401)),
 				fieldNode(401, "OTHER-ARM", 2),
 				equalPredicate(60, 401, "\xc1"),
 				equalPredicate(61, 401, "\xc3"),
@@ -1028,11 +1028,17 @@ func variantNode(id uint64, arms ...*irpb.Arm) *irpb.Node {
 }
 
 func armAt(predicate, field uint64) *irpb.Arm {
-	return &irpb.Arm{PredicateId: predicate, Body: &irpb.Arm_FieldId{FieldId: field}}
+	return &irpb.Arm{
+		Selector: &irpb.Arm_PredicateId{PredicateId: predicate},
+		Body:     &irpb.Arm_FieldId{FieldId: field},
+	}
 }
 
 func armGroupAt(predicate, group uint64) *irpb.Arm {
-	return &irpb.Arm{PredicateId: predicate, Body: &irpb.Arm_GroupId{GroupId: group}}
+	return &irpb.Arm{
+		Selector: &irpb.Arm_PredicateId{PredicateId: predicate},
+		Body:     &irpb.Arm_GroupId{GroupId: group},
+	}
 }
 
 // variableAutomaton is the descriptor the item tables are pinned to: two

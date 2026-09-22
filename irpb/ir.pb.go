@@ -1769,7 +1769,7 @@ func (x *Variant) GetArms() []*Arm {
 	return nil
 }
 
-// Arm is one alternative of a variant: the predicate that selects it and the
+// Arm is one alternative of a variant: the selector that chooses it and the
 // item that is its body.
 //
 // A repeated message on Variant rather than a thirteenth node kind. Nothing
@@ -1779,16 +1779,29 @@ func (x *Variant) GetArms() []*Arm {
 // as a node of its own.
 type Arm struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The Predicate node that selects this arm. Always set, unlike a transition's
-	// — an arm chosen by nothing is not a thing an alternation can mean — and
-	// pointing at the same message a transition's predicate reference does. One
-	// closed set of tests, not a second set for arms.
+	// How this arm is chosen: by the bytes of the occurrence in front of it, or
+	// by which occurrence that is. A conforming producer sets exactly one.
 	//
-	// Where it is evaluated is what differs: inside one occurrence of the group
-	// that repeats, with the record already admitted, so its target MUST be
-	// contained in that occurrence. See docs/ir/SPEC.md, "A predicate on an arm
-	// reads one occurrence".
-	PredicateId uint64 `protobuf:"varint,1,opt,name=predicate_id,json=predicateId,proto3" json:"predicate_id,omitempty"`
+	// A choice rather than two fields either of which may be absent, because an
+	// arm carrying both is the one descriptor an old consumer misreads in
+	// silence. It has never heard of a schedule, so it reads the predicate
+	// reference, resolves it, evaluates it against the occurrence's bytes and
+	// takes the arm — in occurrences the schedule beside it assigned to another
+	// arm, and with no reference left unresolved for anything to notice.
+	// docs/ir/SPEC.md, "An arm may be selected by its position in the table",
+	// forbids emitting both for that reason; a oneof is that rule made unsayable
+	// rather than only stated.
+	//
+	// Every arm of one variant MUST carry the same member, so a consumer MAY read
+	// the first arm's to know which kind the variant is, and resolve rejects a
+	// variant mixing them. Exhaustiveness, overlap and ordering differ per member
+	// and are that same section's; nothing here carries them.
+	//
+	// Types that are valid to be assigned to Selector:
+	//
+	//	*Arm_PredicateId
+	//	*Arm_Schedule
+	Selector isArm_Selector `protobuf_oneof:"selector"`
 	// The arm's body. Two kinds are admitted here and the reference says which,
 	// rather than leaving a consumer to dereference an untyped identifier and
 	// find out.
@@ -1832,11 +1845,29 @@ func (*Arm) Descriptor() ([]byte, []int) {
 	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{10}
 }
 
+func (x *Arm) GetSelector() isArm_Selector {
+	if x != nil {
+		return x.Selector
+	}
+	return nil
+}
+
 func (x *Arm) GetPredicateId() uint64 {
 	if x != nil {
-		return x.PredicateId
+		if x, ok := x.Selector.(*Arm_PredicateId); ok {
+			return x.PredicateId
+		}
 	}
 	return 0
+}
+
+func (x *Arm) GetSchedule() *Schedule {
+	if x != nil {
+		if x, ok := x.Selector.(*Arm_Schedule); ok {
+			return x.Schedule
+		}
+	}
+	return nil
 }
 
 func (x *Arm) GetBody() isArm_Body {
@@ -1864,6 +1895,55 @@ func (x *Arm) GetFieldId() uint64 {
 	return 0
 }
 
+type isArm_Selector interface {
+	isArm_Selector()
+}
+
+type Arm_PredicateId struct {
+	// The Predicate node that selects this arm. Set on every arm of a variant
+	// selected by bytes, unlike a transition's — an arm chosen by nothing is
+	// not a thing an alternation can mean — and pointing at the same message a
+	// transition's predicate reference does. One closed set of tests, not a
+	// second set for arms.
+	//
+	// Where it is evaluated is what differs: inside one occurrence of the group
+	// that repeats, with the record already admitted, so its target MUST be
+	// contained in that occurrence. See docs/ir/SPEC.md, "A predicate on an arm
+	// reads one occurrence".
+	PredicateId uint64 `protobuf:"varint,1,opt,name=predicate_id,json=predicateId,proto3,oneof"`
+}
+
+type Arm_Schedule struct {
+	// The occurrences this arm is taken for, where the arm is selected by its
+	// position in the table rather than by bytes. See docs/ir/SPEC.md, "An arm
+	// may be selected by its position in the table", for what a schedule means
+	// and what resolve proves about one.
+	//
+	// Adding it does not advance IrVersion. What permits that is
+	// docs/ir/SPEC.md, "While IR_VERSION_1 is being assembled", which is the
+	// one statement of the rule and the whole of the argument for it; this
+	// comment cites it rather than restating it (#347).
+	//
+	// It is the cheap shape that rule is for — the one a conforming consumer
+	// must fail on — and what an old consumer does is written here because the
+	// rule asks for it. A consumer that has never heard of a schedule reads
+	// this arm's predicate reference, which a scheduled arm does not set, and
+	// dereferences what it reads. There is no node the identifier names, so it
+	// stops: every reference MUST resolve to a node of a kind the referring
+	// position admits, and cpybkc-gen-go returns unresolved naming the arm's
+	// identifier. Zero is an ordinary identifier here and not a sentinel (see
+	// Node.id), so the other reachable outcome is a node that exists and is not
+	// a Predicate, which that same obligation refuses as a malformed
+	// descriptor. Both are refusals naming what could not be used, which is
+	// what advancing the version would have bought, and is why the permission
+	// is affordable for this addition.
+	Schedule *Schedule `protobuf:"bytes,4,opt,name=schedule,proto3,oneof"`
+}
+
+func (*Arm_PredicateId) isArm_Selector() {}
+
+func (*Arm_Schedule) isArm_Selector() {}
+
 type isArm_Body interface {
 	isArm_Body()
 }
@@ -1879,6 +1959,75 @@ type Arm_FieldId struct {
 func (*Arm_GroupId) isArm_Body() {}
 
 func (*Arm_FieldId) isArm_Body() {}
+
+// Schedule is the occurrences of a table that one arm is taken for: the
+// selector of an arm chosen by position rather than by the bytes in front of
+// it.
+//
+// A message of its own because protobuf admits no repeated member of a oneof,
+// and the choice is the point — see Arm.selector. It resolves to no node and
+// dereferences nothing: the numbers are positions in the table the arm is being
+// chosen for, not subscripts on a name, which is why docs/ir/SPEC.md's "A
+// reference names a field, not an occurrence of one" is not widened by it.
+type Schedule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The occurrence numbers this arm is taken for, counted from one, in strictly
+	// ascending order.
+	//
+	// A producer MUST emit at least one. An arm whose schedule carries no
+	// occurrence is not an arm selected by nothing but an arm nothing selects,
+	// and it would let a variant satisfy "two arms at least" while only one of
+	// them is ever taken. A producer MUST emit them in strictly ascending order,
+	// which is what says inside one arm what the uniqueness rule says across two.
+	//
+	// Coverage is decided from the layout and not from a file: the schedules of a
+	// variant's arms MUST cover 1..M exactly once, for M the repetition's
+	// declared maximum, and resolve rejects an uncovered occurrence, one
+	// scheduled twice, an empty schedule and a number outside 1..M. A scheduled
+	// variant therefore cannot produce the "occurrence no arm matched" failure at
+	// all. All of that is docs/ir/SPEC.md, "An arm may be selected by its
+	// position in the table"; none of it is carried here.
+	OccurrenceNumbers []uint32 `protobuf:"varint,1,rep,packed,name=occurrence_numbers,json=occurrenceNumbers,proto3" json:"occurrence_numbers,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *Schedule) Reset() {
+	*x = Schedule{}
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Schedule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Schedule) ProtoMessage() {}
+
+func (x *Schedule) ProtoReflect() protoreflect.Message {
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Schedule.ProtoReflect.Descriptor instead.
+func (*Schedule) Descriptor() ([]byte, []int) {
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *Schedule) GetOccurrenceNumbers() []uint32 {
+	if x != nil {
+		return x.OccurrenceNumbers
+	}
+	return nil
+}
 
 // Field is an elementary item.
 type Field struct {
@@ -1904,7 +2053,7 @@ type Field struct {
 
 func (x *Field) Reset() {
 	*x = Field{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[11]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1916,7 +2065,7 @@ func (x *Field) String() string {
 func (*Field) ProtoMessage() {}
 
 func (x *Field) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[11]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1929,7 +2078,7 @@ func (x *Field) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Field.ProtoReflect.Descriptor instead.
 func (*Field) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{11}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Field) GetWidth() uint32 {
@@ -2019,7 +2168,7 @@ type Encoding struct {
 
 func (x *Encoding) Reset() {
 	*x = Encoding{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[12]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2031,7 +2180,7 @@ func (x *Encoding) String() string {
 func (*Encoding) ProtoMessage() {}
 
 func (x *Encoding) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[12]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2044,7 +2193,7 @@ func (x *Encoding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Encoding.ProtoReflect.Descriptor instead.
 func (*Encoding) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{12}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Encoding) GetCharset() Charset {
@@ -2111,7 +2260,7 @@ type Picture struct {
 
 func (x *Picture) Reset() {
 	*x = Picture{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[13]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2123,7 +2272,7 @@ func (x *Picture) String() string {
 func (*Picture) ProtoMessage() {}
 
 func (x *Picture) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[13]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2136,7 +2285,7 @@ func (x *Picture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Picture.ProtoReflect.Descriptor instead.
 func (*Picture) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{13}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Picture) GetCategory() Category {
@@ -2197,7 +2346,7 @@ type Slack struct {
 
 func (x *Slack) Reset() {
 	*x = Slack{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[14]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2209,7 +2358,7 @@ func (x *Slack) String() string {
 func (*Slack) ProtoMessage() {}
 
 func (x *Slack) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[14]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2222,7 +2371,7 @@ func (x *Slack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Slack.ProtoReflect.Descriptor instead.
 func (*Slack) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{14}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Slack) GetWidth() uint32 {
@@ -2247,7 +2396,7 @@ type Repetition struct {
 
 func (x *Repetition) Reset() {
 	*x = Repetition{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[15]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2259,7 +2408,7 @@ func (x *Repetition) String() string {
 func (*Repetition) ProtoMessage() {}
 
 func (x *Repetition) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[15]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2272,7 +2421,7 @@ func (x *Repetition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Repetition.ProtoReflect.Descriptor instead.
 func (*Repetition) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{15}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Repetition) GetCount() isRepetition_Count {
@@ -2368,7 +2517,7 @@ type VariableCount struct {
 
 func (x *VariableCount) Reset() {
 	*x = VariableCount{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[16]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2380,7 +2529,7 @@ func (x *VariableCount) String() string {
 func (*VariableCount) ProtoMessage() {}
 
 func (x *VariableCount) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[16]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2393,7 +2542,7 @@ func (x *VariableCount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VariableCount.ProtoReflect.Descriptor instead.
 func (*VariableCount) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{16}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *VariableCount) GetCount() isVariableCount_Count {
@@ -2478,7 +2627,7 @@ type Names struct {
 
 func (x *Names) Reset() {
 	*x = Names{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[17]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2490,7 +2639,7 @@ func (x *Names) String() string {
 func (*Names) ProtoMessage() {}
 
 func (x *Names) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[17]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2503,7 +2652,7 @@ func (x *Names) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Names.ProtoReflect.Descriptor instead.
 func (*Names) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{17}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Names) GetOriginal() string {
@@ -2574,7 +2723,7 @@ type Predicate struct {
 
 func (x *Predicate) Reset() {
 	*x = Predicate{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[18]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2586,7 +2735,7 @@ func (x *Predicate) String() string {
 func (*Predicate) ProtoMessage() {}
 
 func (x *Predicate) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[18]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2599,7 +2748,7 @@ func (x *Predicate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Predicate.ProtoReflect.Descriptor instead.
 func (*Predicate) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{18}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Predicate) GetFieldId() uint64 {
@@ -2667,7 +2816,7 @@ type BytesEqual struct {
 
 func (x *BytesEqual) Reset() {
 	*x = BytesEqual{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[19]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2679,7 +2828,7 @@ func (x *BytesEqual) String() string {
 func (*BytesEqual) ProtoMessage() {}
 
 func (x *BytesEqual) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[19]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2692,7 +2841,7 @@ func (x *BytesEqual) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BytesEqual.ProtoReflect.Descriptor instead.
 func (*BytesEqual) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{19}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *BytesEqual) GetValue() []byte {
@@ -2732,7 +2881,7 @@ type BytesOneOf struct {
 
 func (x *BytesOneOf) Reset() {
 	*x = BytesOneOf{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2744,7 +2893,7 @@ func (x *BytesOneOf) String() string {
 func (*BytesOneOf) ProtoMessage() {}
 
 func (x *BytesOneOf) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[20]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2757,7 +2906,7 @@ func (x *BytesOneOf) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BytesOneOf.ProtoReflect.Descriptor instead.
 func (*BytesOneOf) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{20}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BytesOneOf) GetValues() [][]byte {
@@ -2791,7 +2940,7 @@ type State struct {
 
 func (x *State) Reset() {
 	*x = State{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2803,7 +2952,7 @@ func (x *State) String() string {
 func (*State) ProtoMessage() {}
 
 func (x *State) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[21]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2816,7 +2965,7 @@ func (x *State) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use State.ProtoReflect.Descriptor instead.
 func (*State) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{21}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *State) GetAccepts() bool {
@@ -2884,7 +3033,7 @@ type Transition struct {
 
 func (x *Transition) Reset() {
 	*x = Transition{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2896,7 +3045,7 @@ func (x *Transition) String() string {
 func (*Transition) ProtoMessage() {}
 
 func (x *Transition) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[22]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2909,7 +3058,7 @@ func (x *Transition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transition.ProtoReflect.Descriptor instead.
 func (*Transition) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{22}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Transition) GetRecordId() uint64 {
@@ -2964,7 +3113,7 @@ type Register struct {
 
 func (x *Register) Reset() {
 	*x = Register{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2976,7 +3125,7 @@ func (x *Register) String() string {
 func (*Register) ProtoMessage() {}
 
 func (x *Register) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[23]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2989,7 +3138,7 @@ func (x *Register) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Register.ProtoReflect.Descriptor instead.
 func (*Register) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{23}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Register) GetKind() RegisterKind {
@@ -3022,7 +3171,7 @@ type Binding struct {
 
 func (x *Binding) Reset() {
 	*x = Binding{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3034,7 +3183,7 @@ func (x *Binding) String() string {
 func (*Binding) ProtoMessage() {}
 
 func (x *Binding) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[24]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3047,7 +3196,7 @@ func (x *Binding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Binding.ProtoReflect.Descriptor instead.
 func (*Binding) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{24}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Binding) GetRegisterId() uint64 {
@@ -3119,7 +3268,7 @@ type Decrement struct {
 
 func (x *Decrement) Reset() {
 	*x = Decrement{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3131,7 +3280,7 @@ func (x *Decrement) String() string {
 func (*Decrement) ProtoMessage() {}
 
 func (x *Decrement) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[25]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3144,7 +3293,7 @@ func (x *Decrement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Decrement.ProtoReflect.Descriptor instead.
 func (*Decrement) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{25}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{26}
 }
 
 // Guard reads a register and decides whether the transition carrying it is
@@ -3176,7 +3325,7 @@ type Guard struct {
 
 func (x *Guard) Reset() {
 	*x = Guard{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3188,7 +3337,7 @@ func (x *Guard) String() string {
 func (*Guard) ProtoMessage() {}
 
 func (x *Guard) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[26]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3201,7 +3350,7 @@ func (x *Guard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Guard.ProtoReflect.Descriptor instead.
 func (*Guard) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{26}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Guard) GetRegisterId() uint64 {
@@ -3286,7 +3435,7 @@ type Literal struct {
 
 func (x *Literal) Reset() {
 	*x = Literal{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3298,7 +3447,7 @@ func (x *Literal) String() string {
 func (*Literal) ProtoMessage() {}
 
 func (x *Literal) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[27]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3311,7 +3460,7 @@ func (x *Literal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Literal.ProtoReflect.Descriptor instead.
 func (*Literal) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{27}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *Literal) GetValue() isLiteral_Value {
@@ -3369,7 +3518,7 @@ type LiteralSet struct {
 
 func (x *LiteralSet) Reset() {
 	*x = LiteralSet{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3381,7 +3530,7 @@ func (x *LiteralSet) String() string {
 func (*LiteralSet) ProtoMessage() {}
 
 func (x *LiteralSet) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[28]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3394,7 +3543,7 @@ func (x *LiteralSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LiteralSet.ProtoReflect.Descriptor instead.
 func (*LiteralSet) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{28}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *LiteralSet) GetValues() []*Literal {
@@ -3414,7 +3563,7 @@ type GreaterThanZero struct {
 
 func (x *GreaterThanZero) Reset() {
 	*x = GreaterThanZero{}
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[29]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3426,7 +3575,7 @@ func (x *GreaterThanZero) String() string {
 func (*GreaterThanZero) ProtoMessage() {}
 
 func (x *GreaterThanZero) ProtoReflect() protoreflect.Message {
-	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[29]
+	mi := &file_cpybkc_ir_v1_ir_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3439,7 +3588,7 @@ func (x *GreaterThanZero) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GreaterThanZero.ProtoReflect.Descriptor instead.
 func (*GreaterThanZero) Descriptor() ([]byte, []int) {
-	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{29}
+	return file_cpybkc_ir_v1_ir_proto_rawDescGZIP(), []int{30}
 }
 
 var File_cpybkc_ir_v1_ir_proto protoreflect.FileDescriptor
@@ -3495,12 +3644,17 @@ const file_cpybkc_ir_v1_ir_proto_rawDesc = "" +
 	"repetition\x18\x03 \x01(\v2\x18.cpybkc.ir.v1.RepetitionR\n" +
 	"repetition\"0\n" +
 	"\aVariant\x12%\n" +
-	"\x04arms\x18\x01 \x03(\v2\x11.cpybkc.ir.v1.ArmR\x04arms\"j\n" +
-	"\x03Arm\x12!\n" +
-	"\fpredicate_id\x18\x01 \x01(\x04R\vpredicateId\x12\x1b\n" +
-	"\bgroup_id\x18\x02 \x01(\x04H\x00R\agroupId\x12\x1b\n" +
-	"\bfield_id\x18\x03 \x01(\x04H\x00R\afieldIdB\x06\n" +
-	"\x04body\"\x92\x02\n" +
+	"\x04arms\x18\x01 \x03(\v2\x11.cpybkc.ir.v1.ArmR\x04arms\"\xae\x01\n" +
+	"\x03Arm\x12#\n" +
+	"\fpredicate_id\x18\x01 \x01(\x04H\x00R\vpredicateId\x124\n" +
+	"\bschedule\x18\x04 \x01(\v2\x16.cpybkc.ir.v1.ScheduleH\x00R\bschedule\x12\x1b\n" +
+	"\bgroup_id\x18\x02 \x01(\x04H\x01R\agroupId\x12\x1b\n" +
+	"\bfield_id\x18\x03 \x01(\x04H\x01R\afieldIdB\n" +
+	"\n" +
+	"\bselectorB\x06\n" +
+	"\x04body\"9\n" +
+	"\bSchedule\x12-\n" +
+	"\x12occurrence_numbers\x18\x01 \x03(\rR\x11occurrenceNumbers\"\x92\x02\n" +
 	"\x05Field\x12\x14\n" +
 	"\x05width\x18\x01 \x01(\rR\x05width\x122\n" +
 	"\bencoding\x18\x02 \x01(\v2\x16.cpybkc.ir.v1.EncodingR\bencoding\x12)\n" +
@@ -3674,7 +3828,7 @@ func file_cpybkc_ir_v1_ir_proto_rawDescGZIP() []byte {
 }
 
 var file_cpybkc_ir_v1_ir_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
-var file_cpybkc_ir_v1_ir_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_cpybkc_ir_v1_ir_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_cpybkc_ir_v1_ir_proto_goTypes = []any{
 	(IrVersion)(0),          // 0: cpybkc.ir.v1.IrVersion
 	(DelimiterPlacement)(0), // 1: cpybkc.ir.v1.DelimiterPlacement
@@ -3698,25 +3852,26 @@ var file_cpybkc_ir_v1_ir_proto_goTypes = []any{
 	(*Group)(nil),           // 19: cpybkc.ir.v1.Group
 	(*Variant)(nil),         // 20: cpybkc.ir.v1.Variant
 	(*Arm)(nil),             // 21: cpybkc.ir.v1.Arm
-	(*Field)(nil),           // 22: cpybkc.ir.v1.Field
-	(*Encoding)(nil),        // 23: cpybkc.ir.v1.Encoding
-	(*Picture)(nil),         // 24: cpybkc.ir.v1.Picture
-	(*Slack)(nil),           // 25: cpybkc.ir.v1.Slack
-	(*Repetition)(nil),      // 26: cpybkc.ir.v1.Repetition
-	(*VariableCount)(nil),   // 27: cpybkc.ir.v1.VariableCount
-	(*Names)(nil),           // 28: cpybkc.ir.v1.Names
-	(*Predicate)(nil),       // 29: cpybkc.ir.v1.Predicate
-	(*BytesEqual)(nil),      // 30: cpybkc.ir.v1.BytesEqual
-	(*BytesOneOf)(nil),      // 31: cpybkc.ir.v1.BytesOneOf
-	(*State)(nil),           // 32: cpybkc.ir.v1.State
-	(*Transition)(nil),      // 33: cpybkc.ir.v1.Transition
-	(*Register)(nil),        // 34: cpybkc.ir.v1.Register
-	(*Binding)(nil),         // 35: cpybkc.ir.v1.Binding
-	(*Decrement)(nil),       // 36: cpybkc.ir.v1.Decrement
-	(*Guard)(nil),           // 37: cpybkc.ir.v1.Guard
-	(*Literal)(nil),         // 38: cpybkc.ir.v1.Literal
-	(*LiteralSet)(nil),      // 39: cpybkc.ir.v1.LiteralSet
-	(*GreaterThanZero)(nil), // 40: cpybkc.ir.v1.GreaterThanZero
+	(*Schedule)(nil),        // 22: cpybkc.ir.v1.Schedule
+	(*Field)(nil),           // 23: cpybkc.ir.v1.Field
+	(*Encoding)(nil),        // 24: cpybkc.ir.v1.Encoding
+	(*Picture)(nil),         // 25: cpybkc.ir.v1.Picture
+	(*Slack)(nil),           // 26: cpybkc.ir.v1.Slack
+	(*Repetition)(nil),      // 27: cpybkc.ir.v1.Repetition
+	(*VariableCount)(nil),   // 28: cpybkc.ir.v1.VariableCount
+	(*Names)(nil),           // 29: cpybkc.ir.v1.Names
+	(*Predicate)(nil),       // 30: cpybkc.ir.v1.Predicate
+	(*BytesEqual)(nil),      // 31: cpybkc.ir.v1.BytesEqual
+	(*BytesOneOf)(nil),      // 32: cpybkc.ir.v1.BytesOneOf
+	(*State)(nil),           // 33: cpybkc.ir.v1.State
+	(*Transition)(nil),      // 34: cpybkc.ir.v1.Transition
+	(*Register)(nil),        // 35: cpybkc.ir.v1.Register
+	(*Binding)(nil),         // 36: cpybkc.ir.v1.Binding
+	(*Decrement)(nil),       // 37: cpybkc.ir.v1.Decrement
+	(*Guard)(nil),           // 38: cpybkc.ir.v1.Guard
+	(*Literal)(nil),         // 39: cpybkc.ir.v1.Literal
+	(*LiteralSet)(nil),      // 40: cpybkc.ir.v1.LiteralSet
+	(*GreaterThanZero)(nil), // 41: cpybkc.ir.v1.GreaterThanZero
 }
 var file_cpybkc_ir_v1_ir_proto_depIdxs = []int32{
 	0,  // 0: cpybkc.ir.v1.Descriptor.version:type_name -> cpybkc.ir.v1.IrVersion
@@ -3725,49 +3880,50 @@ var file_cpybkc_ir_v1_ir_proto_depIdxs = []int32{
 	18, // 3: cpybkc.ir.v1.Node.record:type_name -> cpybkc.ir.v1.Record
 	19, // 4: cpybkc.ir.v1.Node.group:type_name -> cpybkc.ir.v1.Group
 	20, // 5: cpybkc.ir.v1.Node.variant:type_name -> cpybkc.ir.v1.Variant
-	22, // 6: cpybkc.ir.v1.Node.field:type_name -> cpybkc.ir.v1.Field
-	25, // 7: cpybkc.ir.v1.Node.slack:type_name -> cpybkc.ir.v1.Slack
-	29, // 8: cpybkc.ir.v1.Node.predicate:type_name -> cpybkc.ir.v1.Predicate
-	32, // 9: cpybkc.ir.v1.Node.state:type_name -> cpybkc.ir.v1.State
-	33, // 10: cpybkc.ir.v1.Node.transition:type_name -> cpybkc.ir.v1.Transition
-	34, // 11: cpybkc.ir.v1.Node.register:type_name -> cpybkc.ir.v1.Register
-	35, // 12: cpybkc.ir.v1.Node.binding:type_name -> cpybkc.ir.v1.Binding
-	37, // 13: cpybkc.ir.v1.Node.guard:type_name -> cpybkc.ir.v1.Guard
+	23, // 6: cpybkc.ir.v1.Node.field:type_name -> cpybkc.ir.v1.Field
+	26, // 7: cpybkc.ir.v1.Node.slack:type_name -> cpybkc.ir.v1.Slack
+	30, // 8: cpybkc.ir.v1.Node.predicate:type_name -> cpybkc.ir.v1.Predicate
+	33, // 9: cpybkc.ir.v1.Node.state:type_name -> cpybkc.ir.v1.State
+	34, // 10: cpybkc.ir.v1.Node.transition:type_name -> cpybkc.ir.v1.Transition
+	35, // 11: cpybkc.ir.v1.Node.register:type_name -> cpybkc.ir.v1.Register
+	36, // 12: cpybkc.ir.v1.Node.binding:type_name -> cpybkc.ir.v1.Binding
+	38, // 13: cpybkc.ir.v1.Node.guard:type_name -> cpybkc.ir.v1.Guard
 	14, // 14: cpybkc.ir.v1.File.unframed:type_name -> cpybkc.ir.v1.Unframed
 	15, // 15: cpybkc.ir.v1.File.descriptor_word:type_name -> cpybkc.ir.v1.DescriptorWord
 	16, // 16: cpybkc.ir.v1.File.segmented:type_name -> cpybkc.ir.v1.Segmented
 	17, // 17: cpybkc.ir.v1.File.delimited:type_name -> cpybkc.ir.v1.Delimited
 	1,  // 18: cpybkc.ir.v1.Delimited.placement:type_name -> cpybkc.ir.v1.DelimiterPlacement
-	28, // 19: cpybkc.ir.v1.Record.names:type_name -> cpybkc.ir.v1.Names
-	28, // 20: cpybkc.ir.v1.Group.names:type_name -> cpybkc.ir.v1.Names
-	26, // 21: cpybkc.ir.v1.Group.repetition:type_name -> cpybkc.ir.v1.Repetition
+	29, // 19: cpybkc.ir.v1.Record.names:type_name -> cpybkc.ir.v1.Names
+	29, // 20: cpybkc.ir.v1.Group.names:type_name -> cpybkc.ir.v1.Names
+	27, // 21: cpybkc.ir.v1.Group.repetition:type_name -> cpybkc.ir.v1.Repetition
 	21, // 22: cpybkc.ir.v1.Variant.arms:type_name -> cpybkc.ir.v1.Arm
-	23, // 23: cpybkc.ir.v1.Field.encoding:type_name -> cpybkc.ir.v1.Encoding
-	7,  // 24: cpybkc.ir.v1.Field.usage:type_name -> cpybkc.ir.v1.Usage
-	24, // 25: cpybkc.ir.v1.Field.picture:type_name -> cpybkc.ir.v1.Picture
-	28, // 26: cpybkc.ir.v1.Field.names:type_name -> cpybkc.ir.v1.Names
-	26, // 27: cpybkc.ir.v1.Field.repetition:type_name -> cpybkc.ir.v1.Repetition
-	3,  // 28: cpybkc.ir.v1.Encoding.charset:type_name -> cpybkc.ir.v1.Charset
-	4,  // 29: cpybkc.ir.v1.Encoding.sign_convention:type_name -> cpybkc.ir.v1.SignConvention
-	5,  // 30: cpybkc.ir.v1.Encoding.byte_order:type_name -> cpybkc.ir.v1.ByteOrder
-	6,  // 31: cpybkc.ir.v1.Encoding.float_format:type_name -> cpybkc.ir.v1.FloatFormat
-	2,  // 32: cpybkc.ir.v1.Encoding.binary_size:type_name -> cpybkc.ir.v1.BinarySize
-	8,  // 33: cpybkc.ir.v1.Picture.category:type_name -> cpybkc.ir.v1.Category
-	9,  // 34: cpybkc.ir.v1.Picture.sign_position:type_name -> cpybkc.ir.v1.SignPosition
-	27, // 35: cpybkc.ir.v1.Repetition.variable:type_name -> cpybkc.ir.v1.VariableCount
-	30, // 36: cpybkc.ir.v1.Predicate.bytes_equal:type_name -> cpybkc.ir.v1.BytesEqual
-	31, // 37: cpybkc.ir.v1.Predicate.bytes_one_of:type_name -> cpybkc.ir.v1.BytesOneOf
-	10, // 38: cpybkc.ir.v1.Register.kind:type_name -> cpybkc.ir.v1.RegisterKind
-	36, // 39: cpybkc.ir.v1.Binding.decrement:type_name -> cpybkc.ir.v1.Decrement
-	38, // 40: cpybkc.ir.v1.Guard.equals:type_name -> cpybkc.ir.v1.Literal
-	39, // 41: cpybkc.ir.v1.Guard.one_of:type_name -> cpybkc.ir.v1.LiteralSet
-	40, // 42: cpybkc.ir.v1.Guard.greater_than_zero:type_name -> cpybkc.ir.v1.GreaterThanZero
-	38, // 43: cpybkc.ir.v1.LiteralSet.values:type_name -> cpybkc.ir.v1.Literal
-	44, // [44:44] is the sub-list for method output_type
-	44, // [44:44] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	22, // 23: cpybkc.ir.v1.Arm.schedule:type_name -> cpybkc.ir.v1.Schedule
+	24, // 24: cpybkc.ir.v1.Field.encoding:type_name -> cpybkc.ir.v1.Encoding
+	7,  // 25: cpybkc.ir.v1.Field.usage:type_name -> cpybkc.ir.v1.Usage
+	25, // 26: cpybkc.ir.v1.Field.picture:type_name -> cpybkc.ir.v1.Picture
+	29, // 27: cpybkc.ir.v1.Field.names:type_name -> cpybkc.ir.v1.Names
+	27, // 28: cpybkc.ir.v1.Field.repetition:type_name -> cpybkc.ir.v1.Repetition
+	3,  // 29: cpybkc.ir.v1.Encoding.charset:type_name -> cpybkc.ir.v1.Charset
+	4,  // 30: cpybkc.ir.v1.Encoding.sign_convention:type_name -> cpybkc.ir.v1.SignConvention
+	5,  // 31: cpybkc.ir.v1.Encoding.byte_order:type_name -> cpybkc.ir.v1.ByteOrder
+	6,  // 32: cpybkc.ir.v1.Encoding.float_format:type_name -> cpybkc.ir.v1.FloatFormat
+	2,  // 33: cpybkc.ir.v1.Encoding.binary_size:type_name -> cpybkc.ir.v1.BinarySize
+	8,  // 34: cpybkc.ir.v1.Picture.category:type_name -> cpybkc.ir.v1.Category
+	9,  // 35: cpybkc.ir.v1.Picture.sign_position:type_name -> cpybkc.ir.v1.SignPosition
+	28, // 36: cpybkc.ir.v1.Repetition.variable:type_name -> cpybkc.ir.v1.VariableCount
+	31, // 37: cpybkc.ir.v1.Predicate.bytes_equal:type_name -> cpybkc.ir.v1.BytesEqual
+	32, // 38: cpybkc.ir.v1.Predicate.bytes_one_of:type_name -> cpybkc.ir.v1.BytesOneOf
+	10, // 39: cpybkc.ir.v1.Register.kind:type_name -> cpybkc.ir.v1.RegisterKind
+	37, // 40: cpybkc.ir.v1.Binding.decrement:type_name -> cpybkc.ir.v1.Decrement
+	39, // 41: cpybkc.ir.v1.Guard.equals:type_name -> cpybkc.ir.v1.Literal
+	40, // 42: cpybkc.ir.v1.Guard.one_of:type_name -> cpybkc.ir.v1.LiteralSet
+	41, // 43: cpybkc.ir.v1.Guard.greater_than_zero:type_name -> cpybkc.ir.v1.GreaterThanZero
+	39, // 44: cpybkc.ir.v1.LiteralSet.values:type_name -> cpybkc.ir.v1.Literal
+	45, // [45:45] is the sub-list for method output_type
+	45, // [45:45] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_cpybkc_ir_v1_ir_proto_init() }
@@ -3796,33 +3952,35 @@ func file_cpybkc_ir_v1_ir_proto_init() {
 		(*File_Delimited)(nil),
 	}
 	file_cpybkc_ir_v1_ir_proto_msgTypes[10].OneofWrappers = []any{
+		(*Arm_PredicateId)(nil),
+		(*Arm_Schedule)(nil),
 		(*Arm_GroupId)(nil),
 		(*Arm_FieldId)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[15].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[16].OneofWrappers = []any{
 		(*Repetition_Constant)(nil),
 		(*Repetition_Variable)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[16].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[17].OneofWrappers = []any{
 		(*VariableCount_FieldId)(nil),
 		(*VariableCount_RegisterId)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[17].OneofWrappers = []any{}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[18].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[18].OneofWrappers = []any{}
+	file_cpybkc_ir_v1_ir_proto_msgTypes[19].OneofWrappers = []any{
 		(*Predicate_BytesEqual)(nil),
 		(*Predicate_BytesOneOf)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[22].OneofWrappers = []any{}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[24].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[23].OneofWrappers = []any{}
+	file_cpybkc_ir_v1_ir_proto_msgTypes[25].OneofWrappers = []any{
 		(*Binding_FieldId)(nil),
 		(*Binding_Decrement)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[26].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[27].OneofWrappers = []any{
 		(*Guard_Equals)(nil),
 		(*Guard_OneOf)(nil),
 		(*Guard_GreaterThanZero)(nil),
 	}
-	file_cpybkc_ir_v1_ir_proto_msgTypes[27].OneofWrappers = []any{
+	file_cpybkc_ir_v1_ir_proto_msgTypes[28].OneofWrappers = []any{
 		(*Literal_BytesValue)(nil),
 		(*Literal_Integer)(nil),
 	}
@@ -3832,7 +3990,7 @@ func file_cpybkc_ir_v1_ir_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cpybkc_ir_v1_ir_proto_rawDesc), len(file_cpybkc_ir_v1_ir_proto_rawDesc)),
 			NumEnums:      11,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

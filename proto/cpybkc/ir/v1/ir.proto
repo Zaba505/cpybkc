@@ -369,7 +369,7 @@ message Variant {
   repeated Arm arms = 1;
 }
 
-// Arm is one alternative of a variant: the predicate that selects it and the
+// Arm is one alternative of a variant: the selector that chooses it and the
 // item that is its body.
 //
 // A repeated message on Variant rather than a thirteenth node kind. Nothing
@@ -378,16 +378,61 @@ message Variant {
 // repetition is already carried this way, on the item it belongs to rather than
 // as a node of its own.
 message Arm {
-  // The Predicate node that selects this arm. Always set, unlike a transition's
-  // — an arm chosen by nothing is not a thing an alternation can mean — and
-  // pointing at the same message a transition's predicate reference does. One
-  // closed set of tests, not a second set for arms.
+  // How this arm is chosen: by the bytes of the occurrence in front of it, or
+  // by which occurrence that is. A conforming producer sets exactly one.
   //
-  // Where it is evaluated is what differs: inside one occurrence of the group
-  // that repeats, with the record already admitted, so its target MUST be
-  // contained in that occurrence. See docs/ir/SPEC.md, "A predicate on an arm
-  // reads one occurrence".
-  uint64 predicate_id = 1;
+  // A choice rather than two fields either of which may be absent, because an
+  // arm carrying both is the one descriptor an old consumer misreads in
+  // silence. It has never heard of a schedule, so it reads the predicate
+  // reference, resolves it, evaluates it against the occurrence's bytes and
+  // takes the arm — in occurrences the schedule beside it assigned to another
+  // arm, and with no reference left unresolved for anything to notice.
+  // docs/ir/SPEC.md, "An arm may be selected by its position in the table",
+  // forbids emitting both for that reason; a oneof is that rule made unsayable
+  // rather than only stated.
+  //
+  // Every arm of one variant MUST carry the same member, so a consumer MAY read
+  // the first arm's to know which kind the variant is, and resolve rejects a
+  // variant mixing them. Exhaustiveness, overlap and ordering differ per member
+  // and are that same section's; nothing here carries them.
+  oneof selector {
+    // The Predicate node that selects this arm. Set on every arm of a variant
+    // selected by bytes, unlike a transition's — an arm chosen by nothing is
+    // not a thing an alternation can mean — and pointing at the same message a
+    // transition's predicate reference does. One closed set of tests, not a
+    // second set for arms.
+    //
+    // Where it is evaluated is what differs: inside one occurrence of the group
+    // that repeats, with the record already admitted, so its target MUST be
+    // contained in that occurrence. See docs/ir/SPEC.md, "A predicate on an arm
+    // reads one occurrence".
+    uint64 predicate_id = 1;
+
+    // The occurrences this arm is taken for, where the arm is selected by its
+    // position in the table rather than by bytes. See docs/ir/SPEC.md, "An arm
+    // may be selected by its position in the table", for what a schedule means
+    // and what resolve proves about one.
+    //
+    // Adding it does not advance IrVersion. What permits that is
+    // docs/ir/SPEC.md, "While IR_VERSION_1 is being assembled", which is the
+    // one statement of the rule and the whole of the argument for it; this
+    // comment cites it rather than restating it (#347).
+    //
+    // It is the cheap shape that rule is for — the one a conforming consumer
+    // must fail on — and what an old consumer does is written here because the
+    // rule asks for it. A consumer that has never heard of a schedule reads
+    // this arm's predicate reference, which a scheduled arm does not set, and
+    // dereferences what it reads. There is no node the identifier names, so it
+    // stops: every reference MUST resolve to a node of a kind the referring
+    // position admits, and cpybkc-gen-go returns unresolved naming the arm's
+    // identifier. Zero is an ordinary identifier here and not a sentinel (see
+    // Node.id), so the other reachable outcome is a node that exists and is not
+    // a Predicate, which that same obligation refuses as a malformed
+    // descriptor. Both are refusals naming what could not be used, which is
+    // what advancing the version would have bought, and is why the permission
+    // is affordable for this addition.
+    Schedule schedule = 4;
+  }
 
   // The arm's body. Two kinds are admitted here and the reference says which,
   // rather than leaving a consumer to dereference an untyped identifier and
@@ -396,6 +441,35 @@ message Arm {
     uint64 group_id = 2;
     uint64 field_id = 3;
   }
+}
+
+// Schedule is the occurrences of a table that one arm is taken for: the
+// selector of an arm chosen by position rather than by the bytes in front of
+// it.
+//
+// A message of its own because protobuf admits no repeated member of a oneof,
+// and the choice is the point — see Arm.selector. It resolves to no node and
+// dereferences nothing: the numbers are positions in the table the arm is being
+// chosen for, not subscripts on a name, which is why docs/ir/SPEC.md's "A
+// reference names a field, not an occurrence of one" is not widened by it.
+message Schedule {
+  // The occurrence numbers this arm is taken for, counted from one, in strictly
+  // ascending order.
+  //
+  // A producer MUST emit at least one. An arm whose schedule carries no
+  // occurrence is not an arm selected by nothing but an arm nothing selects,
+  // and it would let a variant satisfy "two arms at least" while only one of
+  // them is ever taken. A producer MUST emit them in strictly ascending order,
+  // which is what says inside one arm what the uniqueness rule says across two.
+  //
+  // Coverage is decided from the layout and not from a file: the schedules of a
+  // variant's arms MUST cover 1..M exactly once, for M the repetition's
+  // declared maximum, and resolve rejects an uncovered occurrence, one
+  // scheduled twice, an empty schedule and a number outside 1..M. A scheduled
+  // variant therefore cannot produce the "occurrence no arm matched" failure at
+  // all. All of that is docs/ir/SPEC.md, "An arm may be selected by its
+  // position in the table"; none of it is carried here.
+  repeated uint32 occurrence_numbers = 1;
 }
 
 // Field is an elementary item.

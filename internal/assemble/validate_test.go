@@ -517,7 +517,7 @@ func TestAVariantCarriesArmsAndEachArmCarriesBoth(t *testing.T) {
 	t.Run("an arm with no body", func(t *testing.T) {
 		d := valid()
 		node(t, d, 3).Kind = &irpb.Node_Variant{Variant: &irpb.Variant{
-			Arms: []*irpb.Arm{{PredicateId: 6}},
+			Arms: []*irpb.Arm{{Selector: &irpb.Arm_PredicateId{PredicateId: 6}}},
 		}}
 		d.Nodes = append(d.GetNodes(), &irpb.Node{Id: 6, Kind: &irpb.Node_Predicate{
 			Predicate: &irpb.Predicate{

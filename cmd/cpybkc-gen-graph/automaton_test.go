@@ -625,7 +625,10 @@ func TestAReferenceInThisHalfOfTheAutomatonThatDoesNotResolveIsRefused(t *testin
 				equalPredicate(50, 900, "\xc8"), fieldNode(900, "ELSEWHERE", 1),
 				recordOf(200, 205, "VARIED-RECORD"), groupNode(205, "VARIED-RECORD", 206),
 				{Id: 206, Kind: &irpb.Node_Variant{Variant: &irpb.Variant{
-					Arms: []*irpb.Arm{{PredicateId: 50, Body: &irpb.Arm_GroupId{GroupId: 207}}},
+					Arms: []*irpb.Arm{{
+						Selector: &irpb.Arm_PredicateId{PredicateId: 50},
+						Body:     &irpb.Arm_GroupId{GroupId: 207},
+					}},
 				}}},
 				edgeNode(30, 200, 2, predicateAt(50), nil, nil),
 			},

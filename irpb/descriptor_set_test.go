@@ -202,22 +202,7 @@ func TestDynamicDecodeLeavesNothingUndescribed(t *testing.T) {
 func newDynamicDescriptor(t *testing.T) *dynamicpb.Message {
 	t.Helper()
 
-	irBinpb, err := irpb.MarshalFileDescriptorSet()
-	if err != nil {
-		t.Fatalf("marshal the published set: %v", err)
-	}
-
-	var set descriptorpb.FileDescriptorSet
-	if err := proto.Unmarshal(irBinpb, &set); err != nil {
-		t.Fatalf("decode the published set: %v", err)
-	}
-
-	files, err := protodesc.NewFiles(&set)
-	if err != nil {
-		t.Fatalf("build a type registry from the published set: %v", err)
-	}
-
-	desc, err := files.FindDescriptorByName(descriptorFullName)
+	desc, err := newPublishedFiles(t).FindDescriptorByName(descriptorFullName)
 	if err != nil {
 		t.Fatalf("find %s in the published set: %v", descriptorFullName, err)
 	}
