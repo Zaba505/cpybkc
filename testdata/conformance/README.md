@@ -30,9 +30,14 @@ unstated rule becomes a coordinated migration (#194).
 Beside it is [`docs/conformance/GRAMMAR.md`](../../docs/conformance/GRAMMAR.md),
 the value language as a table of a value against the exact text it is written
 as. That is where a writer for a new language is checked before any entry here
-is run, and it is where the constructs no entry covers — a slack node, `INDEX`,
-`POINTER`, `NATIONAL` and both edited categories — are written
-down (#197).
+is run, and it is where the constructs no entry covers — `INDEX`, `POINTER`,
+`NATIONAL`, both edited categories, and a group whose every byte is slack — are
+written down (#197). That list is shorter than it was, and GRAMMAR.md says which
+row each departure left behind: a slack node left it for [`sync-slack`](sync-slack),
+a variant arm for [`variant-fixed`](variant-fixed) and
+[`variant-sliding`](variant-sliding), and an arm chosen by the position of an
+occurrence for [`schedule-fixed`](schedule-fixed) and its two neighbours. No row
+retires for any of them.
 
 What stays here is the corpus rather than the format: why it exists, why every
 entry is hand-authored, which entries there are and what each was derived from,
@@ -262,15 +267,19 @@ with four items in it.
 | [`variant-fixed`](variant-fixed) | A `REDEFINES` inside a repeating group: a table of address entries each choosing its own alternative, read `noodoslide` — a constant three entries, with the shorter alternative carrying a slack run of its own. |
 | [`variant-sliding`](variant-sliding) | The same copybook read `odoslide`, so a variable extent and a variant's arms are exercised together: three records of three entries, one and two, behind the record descriptor word the reading obliges. |
 | [`variant-no-arm`](variant-no-arm) | `variant-fixed`'s layout over a file whose second record carries an entry no arm covers, refused as such and not as a record type the layout is missing. |
+| [`schedule-fixed`](schedule-fixed) | A `REDEFINES` inside a repeating group whose alternative is chosen by the position of an entry and by no byte of the record, read `noodoslide` — a constant four entries over three roles, one arm taken for two of them. |
+| [`schedule-sliding`](schedule-sliding) | The same copybook and the same schedule read `odoslide`: three records, of four entries, one and three, so how many of the scheduled arms are reached is the count's and which position takes which arm is still the descriptor's. |
+| [`schedule-occurs`](schedule-occurs) | The same schedule over a fixed `OCCURS` with no count item at all, which is the third of the three tables the mechanism has to be available over. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Seventeen are not derived from it — `float-ieee754-special`,
+it came from (#67). Twenty are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `batch-ordered`, `batch-disjoint`,
 `batch-ordered-missplit`, `batch-ordered-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
 `segmented-spanning`, `odo-sliding`,
-`sync-slack`, `alphanumeric-payload`, `variant-fixed`, `variant-sliding` and
-`variant-no-arm` — and the subsections
+`sync-slack`, `alphanumeric-payload`, `variant-fixed`, `variant-sliding`,
+`variant-no-arm`, `schedule-fixed`, `schedule-sliding` and
+`schedule-occurs` — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
 question about the entries that *are* derived from it.
@@ -685,6 +694,110 @@ every item behind the table, silently, at every record, and nothing in either
 file disagrees with it. `odo-sliding` covers the sliding reading in a counted run
 of records; what these two add is the fork itself, with a variant inside it,
 which is the shape an adopter arrived with (#340).
+
+### The scheduled entries cite the selector, not a discriminator, and no vector
+
+`schedule-fixed`, `schedule-sliding` and `schedule-occurs` are the variant
+entries' other half, and they are authored against the section that adds the
+second way an arm is chosen —
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *An arm may be selected by its
+position in the table*, with *What the descriptor determines, a writer supplies*
+for the writing direction — and
+[`docs/layout/SPEC.md`](../../docs/layout/SPEC.md)'s *A schedule for a redefine
+chosen by position*, which is where a layout writes one down. `codec/SPEC.md`
+has no row for any of it, for the reason the byte-selected entries give: which
+description a redefined run carries is a fact about the adopter's data. The
+bytes of their items are still `codec/SPEC.md`'s, which is what each entry cites
+beside them.
+
+The file they are about is the one discussion #340 arrived with. A count says
+how many address entries arrived, entry one is the home address, entries two and
+three are work addresses, entry four is the mailing address, and **no byte of an
+entry says which of the three it is**. Every reading of that as a predicate is
+refused where it stands — the count sits outside an occurrence and so would
+choose one arm for all of them, an arm carries no guard, and the strategies
+admit nothing that tests neither — so the alternative is settled by where an
+entry sits. `variant-fixed` and its neighbours cover the form that ships with a
+kind byte; these three cover the form that has none.
+
+Three rules are what they are for, and two of them are invisible in the
+byte-selected entries.
+
+**The arm varies per occurrence with nothing in the record to select it.** A
+consumer that went looking for a discriminating item finds none, and one that
+took a single arm for the whole table reads a work entry's desk out of a home
+entry's state. What it has to hold instead is the schedule, which is a
+comparison against numbers it already has.
+
+**One alternative is taken for more than one occurrence.** `ADR-WORK` is
+scheduled for entries two and three, which is the shape the structural lowering
+cannot express and the reason a schedule is a selector rather than an unrolling:
+the two members positions two and three would unroll into would carry one
+copybook name between them, and *Names* forbids a producer inventing the
+difference. An entry whose arms were
+one-to-one with the positions would pass for an implementation that unrolled the
+table.
+
+**The occurrence no arm matched failure is not reachable.** For the
+byte-selected form it is an outcome, and
+[`variant-no-arm`](variant-no-arm) is the file that produces it. For a schedule
+it is decided before any byte is read: `resolve` rejects a layout leaving an
+occurrence uncovered, so no file can meet one, and a consumer reporting it for a
+scheduled variant is wrong. There is therefore no `schedule-no-arm` beside
+`variant-no-arm`, and the absence is the claim rather than a gap.
+`schedule-sliding`'s second record is the nearest thing to a positive statement
+of it: the count is one, so the arms scheduled for occurrences two, three and
+four are not taken, those occurrences are not in the record, and nothing fails.
+
+The pair of readings is the fourth thing and the fixed table is the fifth, and
+between them they cost two entries rather than a second copybook.
+`schedule-fixed` and `schedule-sliding` are one copybook read both ways, exactly
+as `variant-fixed` and `variant-sliding` are: the descriptors differ in the
+table's repetition and in nothing about the variant, and the framing follows
+from that. `schedule-occurs` drops the `OCCURS DEPENDING ON` altogether, so the
+four is the copybook's own constant and there is no count item and no
+`copybook-reading` statement. All three carry the same schedule, which is what
+says the mechanism does not depend on how a table's length is decided — a
+mechanism available under one reading and not the other would make a copybook
+describable or not according to which compiler wrote the file it arrived with.
+
+**Slack is retained per occurrence, and which occurrences have it is the
+descriptor's.** `ADR-WORK` is three bytes shorter than the run it redefines, so
+every entry scheduled to it carries a slack run and the two that are not carry
+none. In `schedule-fixed` and `schedule-occurs` those runs are at the same two
+offsets in every record, which is `sync-slack`'s arrangement reached from the
+other direction — there the descriptor puts them in every record because the
+items are aligned, here because the schedule says which positions are work
+entries. In `schedule-sliding` the count decides how many of them a record has:
+the first record has two, the second none, the third two, and a consumer that
+paired the runs back up by counting them against the declared maximum is wrong
+at the second record. `ADR-TAIL` sits behind the table and holds it to account,
+under `recfm F` and behind the record descriptor word alike.
+
+Those runs are written down here as well as laid into `input.bin`, for the
+reason `sync-slack`'s are: `input.bin` is the one member of an entry a diff
+cannot show, so a claim about its bytes is a claim nobody reviewing a change can
+check unless it is also in text.
+
+| | run in entry 2 (3 bytes) | run in entry 3 (3 bytes) |
+|---|---|---|
+| `schedule-fixed`, record `END1` | `a1 b2 c3` | `d4 e5 f6` |
+| `schedule-fixed`, record `END2` | `8a 9b ac` | `bd ce df` |
+| `schedule-sliding`, record `END1` | `a1 b2 c3` | `d4 e5 f6` |
+| `schedule-sliding`, record `END2` | *no entry 2* | *no entry 3* |
+| `schedule-sliding`, record `END3` | `8a 9b ac` | `bd ce df` |
+| `schedule-occurs`, record `END1` | `a1 b2 c3` | `d4 e5 f6` |
+| `schedule-occurs`, record `END2` | `8a 9b ac` | `bd ce df` |
+
+Every one of them is above `0x7f`, so none is a space, a zero or a character a
+text conversion would leave alone, and a generator that filled a run instead of
+keeping it is visible to somebody holding a written file against this one. What
+the round trip states by itself is the weaker claim `sync-slack` states: the
+records went back through the writer, the writer emitted a run of exactly each
+node's width, and the file it produced reads back as the same records. That the
+bytes are the *same* bytes is not something a values document can see, by
+construction ([*Slack is not a
+value*](../../docs/conformance/SPEC.md#slack-is-not-a-value)).
 
 ### No row of Appendix A is deliberately absent, and two once were
 

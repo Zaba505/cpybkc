@@ -1,0 +1,35 @@
+;; The same schedule over a table that is not an OCCURS DEPENDING ON at all.
+;; The copybook writes OCCURS 4 TIMES, so the repetition is a constant taken
+;; from the copybook rather than from a reading, and the layout carries no
+;; copybook-reading statement because there is nothing for one to settle.
+;;
+;; That is the third of the three tables a schedule has to be available over. A
+;; mechanism available under a fixed OCCURS and one reading of an OCCURS
+;; DEPENDING ON but not the other would make a copybook describable or not
+;; according to which compiler wrote the file it came with, and the three
+;; entries together are what says it is available over all three.
+;;
+;; Every record of this file holds four entries, so it holds two work entries
+;; and two slack runs, and it holds them at the same two offsets in every
+;; record. The pair is where that stops being true.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 33))
+
+(record ADDRESS
+  (copybook "address.cpy" ADR-RECORD))
+
+(discriminate ADDRESS (equals (item ADDRESS ADR-TYPE) "A"))
+
+(schedule-variant (item ADDRESS ADR-ENTRY ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2 3)
+  (arm ADR-MAIL 4))
+
+(sequence (* ADDRESS))

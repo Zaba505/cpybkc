@@ -1,0 +1,41 @@
+;; schedule-fixed's copybook, read the other way: the table slides, so the item
+;; behind it moves with the count and the record's extent is data rather than a
+;; constant. A fixed-length dataset could not carry such a record at all, which
+;; is why this one is framed, and the record descriptor word is the whole of the
+;; difference the framing makes to the bytes.
+;;
+;; The schedule is the same text as schedule-fixed's, and that is the claim.
+;; Which reading applies is a property of the extract rather than of the
+;; copybook, and it must not also decide whether the copybook can be described:
+;; a schedule is available under both readings, and the descriptors differ in
+;; the table's repetition and in nothing about the variant.
+;;
+;; What the count does here is decide how many of the scheduled arms are taken.
+;; The second record holds one entry, so only the arm scheduled for occurrence
+;; one is reached and the record carries no slack run at all; the third holds
+;; three, so two of them are work entries and the record carries two. Which
+;; runs a record has is therefore the count's, while which occurrence takes
+;; which arm stays the descriptor's.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm VB))
+
+(record ADDRESS
+  (copybook "address.cpy" ADR-RECORD))
+
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+(discriminate ADDRESS (equals (item ADDRESS ADR-TYPE) "A"))
+
+(schedule-variant (item ADDRESS ADR-ENTRY ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2 3)
+  (arm ADR-MAIL 4))
+
+(sequence (* ADDRESS))
