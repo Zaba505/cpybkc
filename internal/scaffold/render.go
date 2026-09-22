@@ -228,6 +228,14 @@ func (s *Scaffold) discriminators(out *strings.Builder) {
 
 // variantDiscriminators raises one `discriminate-variant` per redefine inside a
 // repeating group, with the variant and its arms filled in.
+//
+// The form raised is the one whose subject is computable (docs/cli/SPEC.md,
+// "What a copybook decides, and what only the adopter can"), and the other two
+// spellings a redefine inside a table takes are named in the comment above it
+// rather than raised beside it. Which of the three applies is a reading of the
+// file, not of the copybook: the arms are the same names whichever is written,
+// and a scaffold that guessed would put a predicate over bytes that decide
+// nothing one keystroke away from being believed (#340, #353).
 func (s *Scaffold) variantDiscriminators(out *strings.Builder) {
 	if len(s.variants) == 0 {
 		return
@@ -239,6 +247,16 @@ func (s *Scaffold) variantDiscriminators(out *strings.Builder) {
 		"than once per record, so it is a variant with an arm per alternative and",
 		"never an alternative child. Which names are alternatives there is the",
 		"copybook's; what selects each one is yours.",
+		"",
+		"Where no byte of an entry says which alternative it is and the entry's",
+		"position decides -- entry 1 is the home address, entry 2 the work one --",
+		"the alternative is scheduled rather than discriminated. Say so with",
+		"schedule-variant instead of writing a predicate over bytes that decide",
+		"nothing:",
+		"",
+		"  (schedule-variant <item-ref>",
+		"    (arm <name> <occurrence> ...)",
+		"    (arm <name> <occurrence> ...))",
 		"",
 		"Where every occurrence of the table takes one of them -- the others are",
 		"storage the copybook declares and the file never carries -- nothing is",
