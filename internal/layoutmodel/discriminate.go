@@ -532,7 +532,7 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 	// contradicts the refusals standing above it and sends a reader who takes
 	// the last line first looking for arms that are there (#342). Counting what
 	// was written leaves this rule reporting only what it is about: a variant
-	// too few arms were written for.
+	// written with too few arms.
 	written := len(form.Elements) - 1
 	if written < 2 {
 		r.Fail(&VariantArmCountError{Pos: form.Pos, Variant: item, Count: written})

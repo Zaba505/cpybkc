@@ -974,8 +974,8 @@ type VariantArmCountError struct {
 
 	// Count is how many arms the layout wrote, whether or not each of them
 	// could be read. A variant whose second arm is malformed carries two by
-	// this count and is reported against that arm alone; a variant one arm was
-	// written for carries one, and is what this fault is about.
+	// this count and is reported against that arm alone; a variant written with
+	// one arm carries one, and is what this fault is about.
 	Count int
 }
 

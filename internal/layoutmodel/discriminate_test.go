@@ -536,7 +536,7 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			// The fault this rule is about: too few arms as the layout writes
 			// them, with the count it wrote and nothing wrong with the one arm
 			// it did write.
-			name: "a variant one arm was written for",
+			name: "a variant written with one arm",
 			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)", strings.Join([]string{
 				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR)",
 				"  (arm PL-BODY-MOTOR (equals (item POLICY PL-ENTRIES PL-KIND) \"M\")))",
@@ -548,7 +548,7 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			},
 		},
 		{
-			name: "a variant no arms were written for",
+			name: "a variant written with no arms",
 			source: oneRecord("POLICY", "(discriminate POLICY single-record-type)",
 				"(discriminate-variant (item POLICY PL-ENTRIES PL-BODY-MOTOR))"),
 			want: []string{
