@@ -102,7 +102,7 @@ option go_package = "github.com/Zaba505/cpybkc/irpb";
 // enumerated, and until the first v1.0.0 release one MAY gain a member with
 // this left where it is. What that permits, what it requires of the addition
 // and what it costs an adopter who pinned an earlier release are
-// docs/ir/SPEC.md, "While IR_VERSION_1 is being assembled", which is the one
+// docs/ir/SPEC.md's "While IR_VERSION_1 is being assembled", which is the one
 // statement of it rather than a note per member (#347).
 //
 // It does not advance for a new field a consumer ignoring it still handles the
