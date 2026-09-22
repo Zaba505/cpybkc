@@ -1,0 +1,22 @@
+{
+  "layout": "claim.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "claim",
+      "options": {
+        "package_name": "claim",
+        "receiver": "c",
+        "import_path": "github.com/Zaba505/cpybkc/example/claim/claim"
+      }
+    },
+    {
+      "name": "graph",
+      "out": "graph",
+      "options": {
+        "format": "mermaid",
+        "records": "all"
+      }
+    }
+  ]
+}

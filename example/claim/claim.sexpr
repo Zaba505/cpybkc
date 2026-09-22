@@ -1,0 +1,96 @@
+;; A claims extract on a variable-length dataset: one record type, every record
+;; a claim, and inside each claim a counted table of line items whose body is
+;; described three ways.
+;;
+;; What is hard about it, and why it is a worked example of its own, is in
+;; README.md beside this file. In short: the REDEFINES in `claim.cpy` is inside
+;; a group that repeats, so it is not resolved away into record types the way
+;; `ledger/`'s are. It stays a variant, chosen once per line, and this file is
+;; where what chooses it is written.
+
+;; The encoding profile. All four axes, always, with no default for any.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; The dataset. VB rather than FB, and not a free choice: the reading below
+;; makes a claim's extent move with the number of lines it carried, and a
+;; variable-extent record type is refused on a fixed-length dataset -- see
+;; docs/layout/SPEC.md, "`lrecl` and `blksize` describe the dataset, not the
+;; stream". So the two statements stand or fall together, which is the whole of
+;; why a reading is not a detail of the copybook.
+(framing
+  (recfm VB)
+  (lrecl 512))
+
+;; The record type. One, because this file is a flat extract of claims with no
+;; header and no trailer, and because what the example is here to show happens
+;; inside a record rather than between records -- `ledger/` is the example of a
+;; file whose record types have to be told apart, and `policy/` of a file that
+;; has eleven of them.
+(record CLAIM-RECORD (copybook "claim.cpy" CLAIM-RECORD))
+
+;; How `CLM-LINE OCCURS 1 TO 9 TIMES DEPENDING ON CLM-LINE-COUNT` is read, and
+;; the one statement in this layout that no copybook could have made: it is a
+;; property of the compiler that wrote the file, and both readings are ordinary.
+;;
+;; `odoslide`, because the file this describes is one IBM Enterprise COBOL
+;; wrote, which slides unconditionally and has no directive to name. Under it
+;; the table is a repetition whose count is read out of CLM-LINE-COUNT, and
+;; CLM-TOTAL-CHARGE and CLM-STATUS begin thirty-two bytes on from wherever the
+;; last line ended -- a different offset in a claim of two lines and a claim of
+;; nine.
+;;
+;; `noodoslide` would describe a different file out of the same copybook: nine
+;; line items always present, CLM-LINE-COUNT an ordinary field beside them
+;; saying how many are meant, and every claim the same 266 bytes. Nothing in
+;; the bytes disagrees with the wrong reading, which is why there is no default
+;; and why this form is required rather than inferred.
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+;; What selects the record type. Nothing does: every record in the extract is a
+;; claim, so there is nothing for a predicate to test and `single-record-type`
+;; says so. Writing it is what makes that a statement rather than a gap --
+;; every `record` form is named by exactly one `discriminate`, this one
+;; included.
+(discriminate CLAIM-RECORD single-record-type)
+
+;; And the variant. `CLN-PROFESSIONAL` is described three ways inside a group
+;; that repeats, so the choice is made once per line rather than once per
+;; record: three descriptions over nine lines are not three record types, and
+;; an `alternative` child -- what `ledger/` writes for its record-level
+;; redefines -- cannot say this at all.
+;;
+;; The arms' target is `CLN-KIND`, which opens the line and so sits inside the
+;; occurrence being chosen for. That is required and it is the mirror of the
+;; rule a record's discriminator obeys: a target outside the table would read
+;; the same bytes for every line and choose the same arm nine times, which is a
+;; choice made once per record and a record's to make.
+;;
+;; Three arms for three alternatives, because this extract carries all three.
+;; A layout names what a real extract carries: were the file professional lines
+;; only, the copybook's other two descriptions would be storage nothing fills,
+;; and the form to write would be `(take-alternative … CLN-PROFESSIONAL)` --
+;; not a two-armed variant with a predicate invented to tell a line apart from
+;; a kind of line the file never holds.
+;;
+;; `CLN-PROFESSIONAL` is the redefined item and also an arm, which is ordinary:
+;; the base description is the first alternative over those bytes, not a
+;; declaration standing in front of the real ones. A professional line is what
+;; a claim carries most of, so it is what the copybook describes first.
+;;
+;; A facility line arrives under two codes -- `F` outpatient, `I` inpatient --
+;; and they select one description, so the arm is `one-of` rather than two arms
+;; naming one alternative, which is refused.
+(discriminate-variant (item CLAIM-RECORD CLM-LINE CLN-PROFESSIONAL)
+  (arm CLN-PROFESSIONAL (equals (item CLAIM-RECORD CLM-LINE CLN-KIND) "P"))
+  (arm CLN-PHARMACY     (equals (item CLAIM-RECORD CLM-LINE CLN-KIND) "D"))
+  (arm CLN-FACILITY     (one-of (item CLAIM-RECORD CLM-LINE CLN-KIND) "F" "I")))
+
+;; The order they may appear in. One or more claims and nothing else, so `+`
+;; rather than `*`: an extract of no claims is not a file this describes.
+(sequence
+  (+ CLAIM-RECORD))

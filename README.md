@@ -191,13 +191,13 @@ byte for byte, so the path an adopter takes — write a layout, generate, look a
 the graph, read a file — is one this repository runs on every pull request rather
 than one it describes.
 
-Both projects here run **two** generators, `go` and `graph` — which is what makes
-them the place the plugin contract's central equality can be tested rather than
+All three projects here run **two** generators, `go` and `graph` — which is what
+makes them the place the plugin contract's central equality can be tested rather than
 only stated: every generator in a run, and `--emit-ir`, is handed the same
 descriptor bytes. With one generator there is no second set of bytes for that to
 hold between.
 
-They are hard in two different directions, because a worked example is what an
+They are hard in three different directions, because a worked example is what an
 adopter reads to find out whether their own file is describable.
 
 [`example/ledger/`](example/ledger/) is the one to read first, and it is **deep**:
@@ -214,6 +214,16 @@ extract has when it is merged into one table — mostly empty, and wider than th
 fields it holds, because a key repeated per record type cannot be collapsed.
 [`example/policy/README.md`](example/policy/README.md) says what it teaches that
 the ledger cannot.
+
+[`example/claim/`](example/claim/) is **inside a record**: one record type, and a
+counted table of line items whose body one copybook describes three ways. A
+`REDEFINES` inside a repeating group is chosen once per occurrence rather than
+once per record, so it is the one alternation that survives into the IR instead
+of resolving into record types, and this is the example of the
+`discriminate-variant` that settles it — with an arm shorter than the run it
+redefines, its slack surviving a round trip per occurrence, and the
+`OCCURS DEPENDING ON` reading a counted table obliges a layout to state.
+[`example/claim/README.md`](example/claim/README.md) is where the file shape is.
 
 ## The companion Dagger module
 
