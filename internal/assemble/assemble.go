@@ -458,7 +458,9 @@ func (a *assembler) fill(s *scope, node *resolve.Node) {
 // consumer to dereference an untyped identifier and find out, which is what the
 // schema's oneof is for.
 func (a *assembler) arm(s *scope, arm resolve.Arm) *irpb.Arm {
-	built := &irpb.Arm{PredicateId: a.allocatePredicate(s, arm.Predicate)}
+	built := &irpb.Arm{Selector: &irpb.Arm_PredicateId{
+		PredicateId: a.allocatePredicate(s, arm.Predicate),
+	}}
 
 	if arm.Body == nil {
 		return built

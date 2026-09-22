@@ -1510,7 +1510,10 @@ func variant(id uint64, arms ...*irpb.Arm) *irpb.Node {
 // armOf is one alternative of a variant: the predicate that selects it and the
 // group that is its body.
 func armOf(predicate, body uint64) *irpb.Arm {
-	return &irpb.Arm{PredicateId: predicate, Body: &irpb.Arm_GroupId{GroupId: body}}
+	return &irpb.Arm{
+		Selector: &irpb.Arm_PredicateId{PredicateId: predicate},
+		Body:     &irpb.Arm_GroupId{GroupId: body},
+	}
 }
 
 // equals is a predicate node satisfied when a field's bytes are the literal,
