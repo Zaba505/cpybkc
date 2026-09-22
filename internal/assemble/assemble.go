@@ -451,16 +451,18 @@ func (a *assembler) fill(s *scope, node *resolve.Node) {
 	}
 }
 
-// arm fills one arm of a variant: the predicate that selects it, and the group
-// or field that is its body.
+// arm fills one arm of a variant: the selector that chooses it, and the group or
+// field that is its body.
 //
-// The body reference says which of the two kinds it is rather than leaving a
-// consumer to dereference an untyped identifier and find out, which is what the
-// schema's oneof is for.
+// Both are a oneof, and for the same reason on each side: the reference says
+// which of the two kinds it is rather than leaving a consumer to dereference an
+// untyped identifier and find out. On the selector it does one thing more —
+// `resolve` has proved the arm carries exactly one of the two, and the choice is
+// what makes an arm carrying both unsayable rather than only forbidden, which is
+// the one descriptor an old consumer would misread in silence.
 func (a *assembler) arm(s *scope, arm resolve.Arm) *irpb.Arm {
-	built := &irpb.Arm{Selector: &irpb.Arm_PredicateId{
-		PredicateId: a.allocatePredicate(s, arm.Predicate),
-	}}
+	built := &irpb.Arm{}
+	a.selector(s, arm, built)
 
 	if arm.Body == nil {
 		return built
@@ -476,6 +478,38 @@ func (a *assembler) arm(s *scope, arm resolve.Arm) *irpb.Arm {
 	}
 
 	return built
+}
+
+// selector is how one arm is chosen: the predicate node that tests the bytes of
+// the occurrence in front of it, or the schedule of occurrences it is taken for.
+//
+// A schedule resolves to no node, so nothing is allocated for one and nothing
+// points at it. The numbers are positions in the table the arm is being chosen
+// for rather than subscripts on a name, which is why carrying them inline
+// widens no rule about what a reference may name (docs/ir/SPEC.md, "An arm may
+// be selected by its position in the table").
+//
+// The occurrences are narrowed to the schema's uint32 here and nowhere else.
+// Every one of them is in 1..M for M the enclosing table's declared maximum,
+// which `resolve` proved over the copybook before this ran, so the narrowing
+// cannot lose a number that survived to be emitted.
+//
+// It sets the member on the arm rather than returning one, because the type a
+// member of that choice satisfies is the schema's own and unexported: naming it
+// in a signature is not something a consumer of the generated package can do.
+func (a *assembler) selector(s *scope, arm resolve.Arm, built *irpb.Arm) {
+	if arm.Schedule == nil {
+		built.Selector = &irpb.Arm_PredicateId{PredicateId: a.allocatePredicate(s, arm.Predicate)}
+
+		return
+	}
+
+	occurrences := make([]uint32, 0, len(arm.Schedule.Occurrences))
+	for _, occurrence := range arm.Schedule.Occurrences {
+		occurrences = append(occurrences, uint32(occurrence))
+	}
+
+	built.Selector = &irpb.Arm_Schedule{Schedule: &irpb.Schedule{OccurrenceNumbers: occurrences}}
 }
 
 // repetition is what an item that repeats carries, and nil for one that does

@@ -632,69 +632,152 @@ func TestATableTakingOneAlternativeResolvesToItsItems(t *testing.T) {
 }
 
 // A layout may say that a redefine inside a table is settled by the position of
-// an occurrence, and this build reads it, checks it and stops there.
+// an occurrence, and this is the shape discussion #340 is about: a count, a
+// table of three entries, and one alternative per entry with no byte of an entry
+// saying which it is.
 //
-// What the run must not do is call the layout wrong. The schedule below says
-// exactly which alternative every entry takes, so
-// [github.com/Zaba505/cpybkc/internal/resolve.UndiscriminatedRedefineError]'s
-// "nothing says which alternative of ADR-HOME to read" would be false — and it
-// is advice, so an adopter following it would rewrite a correct layout as
-// something else (#353).
-func TestAScheduledVariantIsNotResolvedAndSaysSoAboutItself(t *testing.T) {
+// It is asserted under both readings of the OCCURS DEPENDING ON, because a
+// mechanism available under one reading and not the other would make one
+// copybook describable or not according to which compiler wrote the file (#346,
+// docs/ir/SPEC.md, "An arm may be selected by its position in the table"). The
+// declared maximum is the same three under either, which is what makes the
+// answer the same.
+func TestAScheduledVariantResolvesUnderBothReadings(t *testing.T) {
+	t.Parallel()
+
+	for _, reading := range []string{"odoslide", "noodoslide"} {
+		t.Run(reading, func(t *testing.T) {
+			t.Parallel()
+
+			dir := scheduledAddresses(t, reading)
+
+			run, err := project.Load(filepath.Join(dir, manifest.Name))
+			if err != nil {
+				t.Fatalf("the project does not resolve:\n%s", diag.Render(err))
+			}
+
+			if got := variants(run.Descriptor); got != 1 {
+				t.Fatalf("the descriptor carries %d variant nodes, want 1: the table's entries carry roles", got)
+			}
+
+			arms := scheduledArms(t, run.Descriptor)
+
+			want := map[string][]uint32{
+				"ADR-HOME": {1},
+				"ADR-WORK": {2},
+				"ADR-MAIL": {3},
+			}
+
+			if len(arms) != len(want) {
+				t.Fatalf("the variant has %d arms, want %d: one per alternative the layout names", len(arms), len(want))
+			}
+
+			for alternative, occurrences := range want {
+				if got, ok := arms[alternative]; !ok {
+					t.Errorf("no arm holds %s", alternative)
+				} else if !slices.Equal(got, occurrences) {
+					t.Errorf("the arm %s is scheduled for %v, want %v", alternative, got, occurrences)
+				}
+			}
+
+			// Every alternative's items are in the record once, which is what
+			// says the variant carries all three rather than one of them.
+			fields := fieldNames(run.Descriptor)
+
+			for _, name := range []string{"ADR-H-LINE", "ADR-W-COMPANY", "ADR-M-LINE"} {
+				if fields[name] != 1 {
+					t.Errorf("%s stands %d times in the record, want once", name, fields[name])
+				}
+			}
+		})
+	}
+}
+
+// The arms of a scheduled variant agree on one constant extent and each carries
+// its own slack, which is the rule that keeps every occurrence of the enclosing
+// group the same width. Nothing about selecting an arm by position relaxes it.
+//
+// ADR-MAIL is the short alternative: six bytes of a run the copybook gave eight,
+// so the two it does not describe are a slack node inside its arm rather than
+// bytes the entry behind it slides over.
+func TestAScheduledArmCarriesItsOwnSlack(t *testing.T) {
+	t.Parallel()
+
+	dir := scheduledAddresses(t, "odoslide")
+
+	run, err := project.Load(filepath.Join(dir, manifest.Name))
+	if err != nil {
+		t.Fatalf("the project does not resolve:\n%s", diag.Render(err))
+	}
+
+	nodes := make(map[uint64]*irpb.Node, len(run.Descriptor.GetNodes()))
+	for _, node := range run.Descriptor.GetNodes() {
+		nodes[node.GetId()] = node
+	}
+
+	for _, node := range run.Descriptor.GetNodes() {
+		variant := node.GetVariant()
+		if variant == nil {
+			continue
+		}
+
+		for _, arm := range variant.GetArms() {
+			body, ok := arm.GetBody().(*irpb.Arm_GroupId)
+			if !ok {
+				t.Fatalf("an arm's body is not a group: %v", arm.GetBody())
+			}
+
+			group := nodes[body.GroupId].GetGroup()
+
+			if got := extentOf(nodes, nodes[body.GroupId]); got != 8 {
+				t.Errorf("the arm %s covers %d bytes, want the variant's 8",
+					group.GetNames().GetOriginal(), got)
+			}
+		}
+	}
+}
+
+// A schedule that leaves an occurrence of the table to no arm is the diagnostic
+// the whole form waits on the copybook for.
+//
+// It is checked here or never: a schedule is read statically, so a scheduled
+// variant cannot produce the "occurrence no arm matched" failure at read time at
+// all, and the entry nothing describes would be one an adopter reads with
+// nothing to say so.
+func TestAScheduleWithAHoleInItIsRejectedAgainstTheCopybook(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 
-	write(t, filepath.Join(dir, "addr.cpy"), fixed(
-		"01  ADDR-REC.",
-		"    05  ADR-COUNT         PIC X(2).",
-		"    05  ADR-ENTRY OCCURS 3 TIMES.",
-		"        10  ADR-HOME.",
-		"            15  ADR-H-LINE     PIC X(8).",
-		"        10  ADR-WORK REDEFINES ADR-HOME.",
-		"            15  ADR-W-COMPANY  PIC X(4).",
-		"            15  ADR-W-LINE     PIC X(4).",
-		"        10  ADR-TAG           PIC X(1).",
-	))
-
-	write(t, filepath.Join(dir, "addr.sexpr"), `(encoding
-  (charset ascii) (sign-convention ascii-zone-37)
-  (byte-order big-endian) (float-format ieee-754))
-(framing (recfm F) (lrecl 29))
-(record ADDR (copybook "addr.cpy" ADDR-REC))
-(discriminate ADDR single-record-type)
-(schedule-variant (item ADDR ADR-ENTRY ADR-HOME)
-  (arm ADR-HOME 1 3)
-  (arm ADR-WORK 2))
-(sequence (* ADDR))
-`)
+	write(t, filepath.Join(dir, "addr.cpy"), addressCopybook)
+	write(t, filepath.Join(dir, "addr.sexpr"), addressLayout("odoslide", `(schedule-variant (item ADDR ADR-ENTRY ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2))`))
 	write(t, filepath.Join(dir, manifest.Name), `{"layout": "addr.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
 
 	run, err := project.Load(filepath.Join(dir, manifest.Name))
 	if err == nil {
-		t.Fatalf("the project resolved a schedule nothing lowers: %v", run.Descriptor)
+		t.Fatalf("the project resolved a schedule that covers two of three entries: %v", run.Descriptor)
 	}
 
-	var fault *project.ScheduledVariantError
+	var fault *resolve.ScheduleCoverageError
 	if !errors.As(err, &fault) {
-		t.Fatalf("no ScheduledVariantError in:\n%s", diag.Render(err))
+		t.Fatalf("no ScheduleCoverageError in:\n%s", diag.Render(err))
 	}
 
-	if got := fault.Variant.Name(); got != "ADR-HOME" {
-		t.Errorf("the fault is on %s, want (item ADDR ADR-ENTRY ADR-HOME)", fault.Variant)
+	if !slices.Equal(fault.Occurrences, []int64{3}) {
+		t.Errorf("the fault names occurrences %v, want just the third", fault.Occurrences)
 	}
 
 	rendered := diag.Render(err)
 
-	if !strings.Contains(rendered, "is not resolved by this build") {
-		t.Errorf("the diagnostic does not say the construct is unresolved:\n%s", rendered)
+	for _, want := range []string{"ADDR", "ADR-ENTRY", "ADR-HOME"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the diagnostic does not name %s:\n%s", want, rendered)
+		}
 	}
 
-	if strings.Contains(rendered, "nothing says which alternative") {
-		t.Errorf("the diagnostic tells the adopter their layout says nothing, and it says this:\n%s", rendered)
-	}
-
-	// The span is the layout's own, which is what an adopter opens.
+	// The span is stated, which is what an adopter opens.
 	for _, diagnostic := range diag.Diagnostics(err) {
 		if !diagnostic.Spans[0].Stated() {
 			t.Errorf("a fault carries no span: %s", diagnostic.Message)
@@ -702,13 +785,133 @@ func TestAScheduledVariantIsNotResolvedAndSaysSoAboutItself(t *testing.T) {
 	}
 }
 
+// addressCopybook is discussion #340's shape: a count, a table of three entries
+// whose body is described three ways, and a byte behind the body that says
+// nothing about which way.
+var addressCopybook = fixed(
+	"01  ADDR-REC.",
+	"    05  ADR-COUNT         PIC 9(2).",
+	"    05  ADR-ENTRY OCCURS 1 TO 3 TIMES DEPENDING ON ADR-COUNT.",
+	"        10  ADR-HOME.",
+	"            15  ADR-H-LINE     PIC X(8).",
+	"        10  ADR-WORK REDEFINES ADR-HOME.",
+	"            15  ADR-W-COMPANY  PIC X(4).",
+	"            15  ADR-W-LINE     PIC X(4).",
+	"        10  ADR-MAIL REDEFINES ADR-HOME.",
+	"            15  ADR-M-LINE     PIC X(6).",
+	"        10  ADR-TAG           PIC X(1).",
+)
+
+// addressLayout is the layout over addressCopybook, under one reading and with
+// one discrimination form for the redefine inside the table.
+func addressLayout(reading, discrimination string) string {
+	return `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm VB) (lrecl 512))
+(record ADDR (copybook "addr.cpy" ADDR-REC))
+(copybook-reading (occurs-depending-on ` + reading + `))
+(discriminate ADDR single-record-type)
+` + discrimination + `
+(sequence (* ADDR))
+`
+}
+
+// scheduledAddresses writes discussion #340's shape with one alternative per
+// entry and hands back the directory holding it.
+func scheduledAddresses(t *testing.T, reading string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "addr.cpy"), addressCopybook)
+	write(t, filepath.Join(dir, "addr.sexpr"), addressLayout(reading, `(schedule-variant (item ADDR ADR-ENTRY ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2)
+  (arm ADR-MAIL 3))`))
+	write(t, filepath.Join(dir, manifest.Name), `{"layout": "addr.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	return dir
+}
+
+// scheduledArms is every arm of every variant a descriptor carries, keyed by the
+// copybook name of the arm's body and holding the occurrences it is scheduled
+// for.
+func scheduledArms(t *testing.T, d *irpb.Descriptor) map[string][]uint32 {
+	t.Helper()
+
+	nodes := make(map[uint64]*irpb.Node, len(d.GetNodes()))
+	for _, node := range d.GetNodes() {
+		nodes[node.GetId()] = node
+	}
+
+	found := make(map[string][]uint32)
+
+	for _, node := range d.GetNodes() {
+		variant := node.GetVariant()
+		if variant == nil {
+			continue
+		}
+
+		for _, arm := range variant.GetArms() {
+			schedule, ok := arm.GetSelector().(*irpb.Arm_Schedule)
+			if !ok {
+				t.Fatalf("an arm is selected by %T, want a schedule", arm.GetSelector())
+			}
+
+			body, ok := arm.GetBody().(*irpb.Arm_GroupId)
+			if !ok {
+				t.Fatalf("an arm's body is not a group: %v", arm.GetBody())
+			}
+
+			found[nodes[body.GroupId].GetGroup().GetNames().GetOriginal()] = schedule.Schedule.GetOccurrenceNumbers()
+		}
+	}
+
+	return found
+}
+
+// extentOf is the bytes a node covers, summed over the tree below it.
+func extentOf(nodes map[uint64]*irpb.Node, node *irpb.Node) int {
+	switch kind := node.GetKind().(type) {
+	case *irpb.Node_Field:
+		return int(kind.Field.GetWidth()) * occurrences(kind.Field.GetRepetition())
+	case *irpb.Node_Slack:
+		return int(kind.Slack.GetWidth())
+	case *irpb.Node_Group:
+		total := 0
+		for _, member := range kind.Group.GetMemberIds() {
+			total += extentOf(nodes, nodes[member])
+		}
+
+		return total * occurrences(kind.Group.GetRepetition())
+	}
+
+	return 0
+}
+
+// occurrences is how many times a repetition stands: the constant where there
+// is one, and once otherwise.
+//
+// A count read out of the record answers once here and that is not a gap. An
+// item under an arm may not carry one at all — an arm's extent has to be a
+// constant — so the only repetition this ever meets below one is a constant.
+func occurrences(repetition *irpb.Repetition) int {
+	if constant, ok := repetition.GetCount().(*irpb.Repetition_Constant); ok {
+		return int(constant.Constant)
+	}
+
+	return 1
+}
+
 // A schedule naming an item the copybook does not declare is one fault and not
 // two.
 //
-// The reference is what the adopter has to fix, and "this build does not lower
-// one" is not something they can act on until the layout names an item at all —
-// so it is a second message on one line saying the half of it that is not
-// theirs.
+// The reference is what the adopter has to fix, and "nothing says which
+// alternative of this redefine to read" is not something they can act on until
+// the layout names an item at all — it is a second message on one line saying
+// the half of it that is not theirs, and it is advice, so following it would
+// have them rewrite a schedule they wrote correctly.
 func TestAScheduleOnAnItemThatIsNotThereReportsTheReferenceAlone(t *testing.T) {
 	t.Parallel()
 
@@ -749,8 +952,11 @@ func TestAScheduleOnAnItemThatIsNotThereReportsTheReferenceAlone(t *testing.T) {
 		t.Fatalf("no UnknownItemError in:\n%s", diag.Render(err))
 	}
 
-	var unresolved *project.ScheduledVariantError
-	if errors.As(err, &unresolved) {
+	// Nothing beside it: "this redefine is undiscriminated" would be the second
+	// message, and it is not one the adopter can act on until the layout names
+	// an item at all.
+	var undiscriminated *resolve.UndiscriminatedRedefineError
+	if errors.As(err, &undiscriminated) {
 		t.Errorf("the reference that does not resolve is reported twice over:\n%s", diag.Render(err))
 	}
 }

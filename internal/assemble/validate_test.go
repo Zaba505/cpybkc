@@ -528,6 +528,29 @@ func TestAVariantCarriesArmsAndEachArmCarriesBoth(t *testing.T) {
 
 		refused(t, d, "names no body")
 	})
+
+	// A schedule names no node, so the reference check has nothing to make of
+	// one and what is left to hold it to is that it names an occurrence at all.
+	t.Run("an arm scheduled for nothing", func(t *testing.T) {
+		d := valid()
+		node(t, d, 3).Kind = &irpb.Node_Variant{Variant: &irpb.Variant{
+			Arms: []*irpb.Arm{{
+				Selector: &irpb.Arm_Schedule{Schedule: &irpb.Schedule{}},
+				Body:     &irpb.Arm_FieldId{FieldId: 4},
+			}},
+		}}
+
+		refused(t, d, "is scheduled for no occurrence")
+	})
+
+	t.Run("an arm selected by nothing", func(t *testing.T) {
+		d := valid()
+		node(t, d, 3).Kind = &irpb.Node_Variant{Variant: &irpb.Variant{
+			Arms: []*irpb.Arm{{Body: &irpb.Arm_FieldId{FieldId: 4}}},
+		}}
+
+		refused(t, d, "is selected by nothing")
+	})
 }
 
 // TestAPredicateCarriesATestOverBytes holds the closed set of two to being

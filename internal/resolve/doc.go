@@ -66,8 +66,8 @@
 //     redefined item's storage that the alternative does not occupy.
 //   - Inside one, at any depth, the alternative is chosen once per occurrence
 //     and there is no record per occurrence for it to become, so it resolves to
-//     a variant node instead: an ordered list of arms, each naming the predicate
-//     that selects it and the item that is its body (docs/ir/SPEC.md, "A variant
+//     a variant node instead: an ordered list of arms, each naming the selector
+//     that chooses it and the item that is its body (docs/ir/SPEC.md, "A variant
 //     is chosen once per occurrence").
 //
 // Which alternatives a variant has and what selects each one is a layout's to
@@ -75,6 +75,23 @@
 // inferred. A [Redefine] naming a single alternative is the overlay an adopter
 // wrote to read one item two ways: every occurrence takes it, and no variant is
 // emitted at all.
+//
+// An arm is selected in one of two ways, and which it is is a property of the
+// variant rather than of the arm: by the bytes of the occurrence in front of it,
+// or by which occurrence that is (docs/ir/SPEC.md, "An arm may be selected by
+// its position in the table"). The second is for the table whose entries carry
+// roles rather than types — entry one is the home address, entry two the work
+// address — where there is no byte to test. Every arm of one variant carries the
+// same kind and a mixture is refused.
+//
+// The second kind is also where this package does more than lay bytes out,
+// because the number of occurrences a table can hold is the copybook's. A
+// [Schedule] is checked statically against it: the arms of one variant cover
+// 1..M exactly once, for M the enclosing table's declared maximum under either
+// reading of an OCCURS DEPENDING ON. That check is made here or nowhere — a
+// scheduled variant cannot produce the "occurrence no arm matched" failure at
+// read time at all, so a schedule with a hole in it would be an entry an adopter
+// reads with nothing describing it and nothing to say so.
 //
 // # The encoding is per field, and no default survives
 //

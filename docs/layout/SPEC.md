@@ -2115,7 +2115,12 @@ arm's target outside the
 innermost repeating group containing the variant, or inside an arm that does not
 also contain it; two arms of one variant whose predicates can both match one
 occurrence; a `take-alternative` naming an item the copybook does not redefine,
-or an alternative it does not declare over those bytes; and a redefine inside a
+or an alternative it does not declare over those bytes; a variant mixing an arm
+chosen by the position of an occurrence with one chosen by its bytes; a schedule
+whose arms do not cover 1..*M* exactly once, for *M* the table's declared
+maximum under either reading — an occurrence no arm is scheduled for, an
+occurrence two arms are or one arm is twice, an arm scheduled for no occurrence
+at all, and an occurrence number outside 1..*M*; and a redefine inside a
 repeating group that no `discriminate-variant`, `schedule-variant` or
 `take-alternative` names.
 
