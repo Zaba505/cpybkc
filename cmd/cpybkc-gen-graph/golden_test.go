@@ -138,9 +138,18 @@ const countedGolden = "counted"
 // `records=none`, and the pair is the option: two files that differ by the
 // section, over one descriptor, so that "the tables are omitted entirely" is a
 // diff rather than a claim.
+// [scheduledGolden] is the arms' own: one record of discussion #340's shape,
+// whose variant is chosen by which occurrence of the table the reader is in
+// rather than by any byte of that occurrence, beside one record chosen the
+// other way. Both are held in one document because what tells a variant's arms
+// apart is the presence column and nothing else — they have no names of their
+// own — so "an arm's schedule reads differently from an arm's predicate" is
+// something a reviewer sees side by side rather than something they would have
+// to open two files to compare.
 const (
 	variableGolden  = "variable"
 	noRecordsGolden = "counted-records-none"
+	scheduledGolden = "scheduled"
 )
 
 // golden is one checked-in document: the descriptor it is drawn from, and the
@@ -165,8 +174,9 @@ type golden struct {
 // something.
 func goldens() map[string]golden {
 	all := map[string]golden{
-		countedGolden:  {descriptor: countedAutomaton},
-		variableGolden: {descriptor: variableAutomaton},
+		countedGolden:   {descriptor: countedAutomaton},
+		variableGolden:  {descriptor: variableAutomaton},
+		scheduledGolden: {descriptor: scheduledAutomaton},
 		noRecordsGolden: {
 			descriptor: countedAutomaton,
 			opts:       []string{optFlag, recordsOption + "=" + recordsNone},

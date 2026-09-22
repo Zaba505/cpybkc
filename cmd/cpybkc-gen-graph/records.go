@@ -249,13 +249,28 @@ const notAnItem = "—"
 //
 // One column for two facts because they are one question asked of two kinds of
 // row. An item that repeats is present as many times as its count says; an arm
-// of a variant is present when its predicate holds and not otherwise. A row that
-// is neither is present once, always, and says so rather than leaving a cell
-// blank.
+// of a variant is present when its predicate holds and not otherwise, or, where
+// the variant is chosen by position rather than by bytes, in the occurrences of
+// the table its schedule assigns it. A row that is neither is present once,
+// always, and says so rather than leaving a cell blank.
 type presence struct {
 	// chosen is the predicate selecting this row where it is an arm of a
-	// variant, and carries nothing where it is not.
+	// variant chosen by the bytes of the occurrence in front of it, and carries
+	// nothing where it is not.
 	chosen predicate
+
+	// scheduled is the occurrences this row is taken for where it is an arm of
+	// a variant chosen by its position in the table instead, and carries
+	// nothing where it is not.
+	//
+	// A second member beside [presence.chosen] rather than a phrase folded into
+	// it, because the two are not one thing said two ways: a predicate is a
+	// test of bytes a reader checks against their own copybook, and a schedule
+	// is a fact about position that no byte of the record carries. At most one
+	// of them is ever carried — an arm carries one selector, and every arm of
+	// one variant carries the same kind, which [oneKindOfSelector] holds them to
+	// — so the pair is the schema's own choice, kept a choice here.
+	scheduled armSchedule
 
 	// repeats is whether the item repeats at all.
 	repeats bool
@@ -296,6 +311,10 @@ func (p presence) phrase(esc func(string) string) string {
 		said = append(said, p.chosen.phrase(esc))
 	}
 
+	if p.scheduled.carried {
+		said = append(said, p.scheduled.phrase())
+	}
+
 	switch {
 	case !p.repeats:
 	case p.by == "":
@@ -316,6 +335,49 @@ func (p presence) phrase(esc func(string) string) string {
 	}
 
 	return strings.Join(said, ", ")
+}
+
+// armSchedule is an arm's selector where the layout chooses the arm by its
+// position in the table rather than by the bytes of the occurrence in front of
+// it: the occurrences of the enclosing table the arm is taken for.
+//
+// The numbers rather than a word meaning "by position", because what a reader
+// checks against their own layout is which occurrence holds which alternative,
+// and "chosen positionally" answers nothing they came with. See
+// docs/ir/SPEC.md, "An arm may be selected by its position in the table".
+type armSchedule struct {
+	// carried is whether the arm is selected this way at all.
+	carried bool
+
+	// occurrences are the occurrence numbers the arm is taken for, counted from
+	// one and in strictly ascending order — both of which [itemWalk.selector]
+	// holds the descriptor to before this is built.
+	occurrences []uint32
+}
+
+// phrase is the schedule as a cell states it.
+//
+// No escaping function, unlike every other phrase on this row: these are
+// decimal numbers this generator formatted, not text a copybook supplied, so
+// there is nothing here a notation's escaping could have to protect itself
+// from.
+func (s armSchedule) phrase() string {
+	printed := make([]string, 0, len(s.occurrences))
+
+	for _, n := range s.occurrences {
+		printed = append(printed, strconv.FormatUint(uint64(n), 10))
+	}
+
+	// The singular where the arm is taken for one occurrence, for the reason
+	// [presence.phrase] spells `occurs 1 time` in the singular: a column a
+	// reader is scanning that says "occurrences 2" reads as a generator that did
+	// not consider the case.
+	said := "occurrences"
+	if len(printed) == 1 {
+		said = "occurrence"
+	}
+
+	return "in " + said + " " + english(printed) + " of the table"
 }
 
 // readRecords is one table per record the automaton admits, in the order the
@@ -581,6 +643,14 @@ func (w *itemWalk) variant(id uint64, v *irpb.Variant, path []element, at span, 
 			"a producer MUST NOT emit a variant carrying fewer than two arms; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
 	}
 
+	// Taken here, before a single row is appended, so that a variant whose arms
+	// disagree about what chooses them is reported rather than drawn half-way —
+	// the first few arms carrying a test of bytes and the rest a position, in
+	// one column a reader would take for one question.
+	if err := oneKindOfSelector(id, arms); err != nil {
+		return span{}, err
+	}
+
 	if w.open[id] {
 		return span{}, cyclic(id)
 	}
@@ -641,11 +711,9 @@ func (w *itemWalk) variant(id uint64, v *irpb.Variant, path []element, at span, 
 	return extent, nil
 }
 
-// arm is one alternative: the predicate that selects it, and the rows of its
-// body.
+// arm is one alternative: what selects it, and the rows of its body.
 func (w *itemWalk) arm(id uint64, a *irpb.Arm, path []element, at span) (span, error) {
-	chosen, err := predicateResolved(w.nodes, a.GetPredicateId(), w.record,
-		fmt.Sprintf("the predicate selecting an arm of variant %d", id))
+	chosen, err := w.selector(id, a)
 	if err != nil {
 		return span{}, err
 	}
@@ -660,16 +728,129 @@ func (w *itemWalk) arm(id uint64, a *irpb.Arm, path []element, at span) (span, e
 			return span{}, unresolved(body.GroupId, fmt.Sprintf("the group an arm of variant %d is", id))
 		}
 
-		return w.member(body.GroupId, path, at, presence{chosen: chosen})
+		return w.member(body.GroupId, path, at, chosen)
 	case *irpb.Arm_FieldId:
 		if _, ok := w.nodes.field(body.FieldId); !ok {
 			return span{}, unresolved(body.FieldId, fmt.Sprintf("the field an arm of variant %d is", id))
 		}
 
-		return w.member(body.FieldId, path, at, presence{chosen: chosen})
+		return w.member(body.FieldId, path, at, chosen)
 	default:
 		return span{}, malformed(fmt.Sprintf("an arm of variant %d has no body", id),
 			"an arm names the item that is its body, and the reference says which kind it is; see docs/ir/SPEC.md, \"A variant is chosen once per occurrence\"")
+	}
+}
+
+// selector is the presence an arm's rows start from: what chooses the arm,
+// resolved.
+//
+// The member of the choice is read, and never the predicate reference on its
+// own. That is what keeps this off node zero: a scheduled arm sets no predicate
+// reference, `GetPredicateId` on one answers the zero a scalar with implicit
+// presence defaults to, and zero is an ordinary identifier in this schema rather
+// than a sentinel — so resolving it would dereference whichever node carries it,
+// which in a descriptor this project writes is the File node. docs/ir/SPEC.md's
+// Arm.selector describes that misread as the thing an old consumer does and
+// MUST stop on; this consumer has heard of a schedule, so it reads which member
+// is set instead of finding out the expensive way.
+func (w *itemWalk) selector(id uint64, a *irpb.Arm) (presence, error) {
+	switch selector := a.GetSelector().(type) {
+	case *irpb.Arm_PredicateId:
+		chosen, err := predicateResolved(w.nodes, selector.PredicateId, w.record,
+			fmt.Sprintf("the predicate selecting an arm of variant %d", id))
+		if err != nil {
+			return presence{}, err
+		}
+
+		return presence{chosen: chosen}, nil
+	case *irpb.Arm_Schedule:
+		// A schedule resolves to no node, so what there is to check is the two
+		// things a producer owes the numbers themselves. Both are checked for
+		// the reason the one-of predicate's are: a cell reading "in occurrences
+		//  of the table" or one naming occurrence 2 after occurrence 5 is a
+		// table nobody can act on, and drawing it would present a producer bug
+		// as a layout.
+		numbers := selector.Schedule.GetOccurrenceNumbers()
+
+		if len(numbers) == 0 {
+			return presence{}, malformed(
+				fmt.Sprintf("an arm of variant %d is scheduled for no occurrence at all", id),
+				scheduleRule)
+		}
+
+		for which := 1; which < len(numbers); which++ {
+			if numbers[which] > numbers[which-1] {
+				continue
+			}
+
+			return presence{}, malformed(
+				fmt.Sprintf("an arm of variant %d is scheduled for occurrence %d after occurrence %d",
+					id, numbers[which], numbers[which-1]),
+				scheduleRule)
+		}
+
+		return presence{scheduled: armSchedule{carried: true, occurrences: numbers}}, nil
+	default:
+		return presence{}, malformed(
+			fmt.Sprintf("an arm of variant %d says nothing about what selects it", id),
+			"an arm carries the predicate that selects it or the schedule that does; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+	}
+}
+
+// scheduleRule is the `note:` line the two refusals about a schedule's numbers
+// carry.
+//
+// One sentence for the pair because they are one requirement broken two ways:
+// at least one occurrence and strictly ascending are both what makes a schedule
+// a thing that selects an arm, and a reader holding a producer that emitted
+// neither is looking at the same bug.
+const scheduleRule = "a producer MUST emit at least one occurrence number on a scheduled arm, in strictly ascending order; " +
+	"see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\""
+
+// oneKindOfSelector refuses a variant whose arms are not all chosen the same
+// way.
+//
+// The first arm's selector is the variant's, which docs/ir/SPEC.md's "An arm may
+// be selected by its position in the table" permits — a consumer MAY read the
+// first arm's to know which kind the variant is — and every other arm is held
+// against it. A mixed variant is a descriptor `resolve` refuses to emit, and it
+// is re-checked here for the reason the two-arm minimum is: this generator
+// refuses a malformed descriptor rather than drawing from one, whatever produced
+// it. Drawing one would put two different questions in a single column, half the
+// arms saying which bytes select them and half saying which occurrence does,
+// over a table that cannot be both.
+func oneKindOfSelector(id uint64, arms []*irpb.Arm) error {
+	first := selectorOf(arms[0])
+
+	for which, a := range arms {
+		kind := selectorOf(a)
+		if kind == first {
+			continue
+		}
+
+		return malformed(
+			fmt.Sprintf("arm %d of variant %d is selected by %s and its first arm by %s", which, id, kind, first),
+			"every arm of one variant carries the same kind of selector; see docs/ir/SPEC.md, \"An arm may be selected by its position in the table\"")
+	}
+
+	return nil
+}
+
+// selectorOf names the kind of an arm's selector, for the comparison above and
+// for the diagnostic it writes.
+//
+// An arm carrying neither is named too, rather than being left to the comparison
+// to pass silently: a variant all of whose arms carry nothing agrees with itself
+// here and is refused by [itemWalk.selector] with the diagnostic that says so,
+// and one where only some do is refused here naming what the others carry.
+func selectorOf(a *irpb.Arm) string {
+	switch a.GetSelector().(type) {
+	case *irpb.Arm_PredicateId:
+		return "a predicate"
+	case *irpb.Arm_Schedule:
+		return "its position in the table"
+	default:
+		return "nothing"
 	}
 }
 
