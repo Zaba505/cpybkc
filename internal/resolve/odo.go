@@ -255,7 +255,14 @@ func redefineBase(item *copybook.Item) *copybook.Item {
 // and the count field is left an ordinary field of the record with nothing
 // pointing at it.
 func (r *resolver) repetitionOf(item *copybook.Item) *Repetition {
-	if item.MaxOccurs <= 1 {
+	// A table sliding on a count read at run time repeats whatever its declared
+	// maximum is, one included: `OCCURS 0 TO 1 TIMES DEPENDING ON` is a group
+	// that is there or is not, and a record whose count is zero does not carry
+	// it at all. So the test for whether an item repeats cannot be the declared
+	// maximum alone — under this reading it is the DEPENDING ON phrase that
+	// says a table is a table, and the maximum only says how long it may get.
+	sliding := item.DependingOn != nil && r.opts.Reading.Slides()
+	if item.MaxOccurs <= 1 && !sliding {
 		return nil
 	}
 
@@ -263,7 +270,10 @@ func (r *resolver) repetitionOf(item *copybook.Item) *Repetition {
 		return &Repetition{Count: item.Occurs, Min: item.MinOccurs, Max: item.MaxOccurs}
 	}
 
-	if !r.opts.Reading.Slides() {
+	if !sliding {
+		// The other reading leaves a declared maximum of one a single
+		// occurrence at a constant position, which is an ordinary item and
+		// not a table of one.
 		return &Repetition{Count: item.MaxOccurs, Min: item.MaxOccurs, Max: item.MaxOccurs}
 	}
 

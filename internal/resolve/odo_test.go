@@ -699,3 +699,133 @@ func TestASlidingTableInsideAnArmIsStillRefused(t *testing.T) {
 		t.Fatalf("resolving under noodoslide, where the same arm is a fixed table: %v", err)
 	}
 }
+
+// optional is the shape this file had no case for until #372: a table whose
+// declared maximum is *one*, so that the group it describes is present in a
+// record or is not present at all.
+//
+// It is an ordinary `OCCURS DEPENDING ON` and not a special form. What made it
+// worth a case of its own is that the declared maximum is the number every other
+// test here varies, and one is the value at which "does this item repeat?"
+// stops being answerable from the maximum alone.
+const optional = `01 R.
+   05 N PIC 9(1).
+   05 OPT OCCURS 0 TO 1 TIMES DEPENDING ON N.
+      10 OPT-A PIC X(4).
+      10 OPT-B PIC X(3).
+   05 TRAILER PIC X(5).
+`
+
+// TestATableWhoseDeclaredMaximumIsOneStillSlides is #372: a group declared
+// `OCCURS 0 TO 1 TIMES DEPENDING ON` is a table like any other under `odoslide`,
+// and the record that states a count of zero does not carry it.
+//
+// The bug this pins was that the repetition was dropped entirely, which left the
+// group indistinguishable from one carrying no OCCURS clause — so a consumer read
+// it unconditionally and every item behind it moved.
+func TestATableWhoseDeclaredMaximumIsOneStillSlides(t *testing.T) {
+	t.Parallel()
+
+	record := slid(t, optional)
+
+	repetition := record.Find("OPT").Repetition
+	if repetition == nil || !repetition.Reference() {
+		t.Fatalf("the table's repetition is %+v, want a count read out of the record", repetition)
+	}
+	if repetition.DependingOn.Name != "N" {
+		t.Errorf("the count is read from %s, want N", repetition.DependingOn.Name)
+	}
+
+	// The bounds are the copybook's own, carried for the one check
+	// docs/ir/SPEC.md makes with them. A maximum of one does not make the
+	// minimum of zero uninteresting: it is the whole of the construct.
+	if repetition.Min != 0 || repetition.Max != 1 {
+		t.Errorf("the declared bounds are %d to %d, want the copybook's 0 to 1", repetition.Min, repetition.Max)
+	}
+}
+
+// TestAGroupOccurringZeroTimesIsNotInTheRecord is the extent half of the same
+// fact, which is what a consumer reading the record actually meets.
+//
+// TRAILER is behind the table, so where it begins is the sum of the widths ahead
+// of it — and at a count of zero that sum does not include the group at all.
+func TestAGroupOccurringZeroTimesIsNotInTheRecord(t *testing.T) {
+	t.Parallel()
+
+	record := slid(t, optional)
+	count := countOf(t, record, "OPT")
+
+	absent, err := record.At(Counts{count: 0})
+	if err != nil {
+		t.Fatalf("reading the record at no occurrences: %v", err)
+	}
+	present, err := record.At(Counts{count: 1})
+	if err != nil {
+		t.Fatalf("reading the record at one occurrence: %v", err)
+	}
+
+	// N is one byte, the group is seven, TRAILER is five.
+	if got, want := absent.Extent(), 1+5; got != want {
+		t.Errorf("a record whose count is zero is %d bytes, want %d — the group is not in it", got, want)
+	}
+	if got, want := present.Extent(), 1+7+5; got != want {
+		t.Errorf("a record whose count is one is %d bytes, want %d", got, want)
+	}
+}
+
+// TestTheOtherReadingLeavesAMaximumOfOneAnOrdinaryGroup is the fork met at this
+// maximum, and it is why the fix above is scoped to the sliding reading rather
+// than to the presence of a DEPENDING ON phrase.
+//
+// Under `noodoslide` the clause describes a fixed table at its declared maximum,
+// and a fixed table of one occurrence is an ordinary group at a constant offset
+// with an ordinary field beside it. Giving it a repetition of one would make a
+// group into a table of one for a reading that never varies it.
+func TestTheOtherReadingLeavesAMaximumOfOneAnOrdinaryGroup(t *testing.T) {
+	t.Parallel()
+
+	records, err := reading(t, optional, layoutmodel.NoODOSlide)
+	if err != nil {
+		t.Fatalf("resolving under noodoslide: %v", err)
+	}
+	record := records[0]
+
+	if node := record.Find("OPT"); node == nil || node.Repetition != nil {
+		t.Errorf("under noodoslide OPT carries the repetition %+v, want none at all", node.Repetition)
+	}
+	if node := record.Find("N"); node == nil || node.Kind != KindField || node.Repetition != nil {
+		t.Errorf("under noodoslide N resolved to %+v, want an ordinary field", node)
+	}
+
+	// The group is always there under this reading, so the record is the one
+	// width a fixed-length dataset requires of it.
+	if got, want := record.Extent(), 1+7+5; got != want {
+		t.Errorf("under noodoslide the record is %d bytes, want a constant %d", got, want)
+	}
+}
+
+// TestATableWhoseBoundsAreOneToOneIsStillAReference is the neighbouring maximum,
+// and it is here because the rule is about the declared maximum rather than about
+// the minimum of zero that makes the construct useful.
+//
+// `OCCURS 1 TO 1 TIMES DEPENDING ON` admits exactly one count, so a consumer that
+// read it unconditionally would land on the right bytes. What it would not do is
+// report a record whose count is not one, which is malformed data the bounds are
+// carried to catch.
+func TestATableWhoseBoundsAreOneToOneIsStillAReference(t *testing.T) {
+	t.Parallel()
+
+	record := slid(t, `01 R.
+   05 N PIC 9(1).
+   05 ONE OCCURS 1 TO 1 TIMES DEPENDING ON N PIC X(4).
+   05 TRAILER PIC X(5).
+`)
+
+	repetition := record.Find("ONE").Repetition
+	if repetition == nil || !repetition.Reference() {
+		t.Fatalf("the table's repetition is %+v, want a count read out of the record", repetition)
+	}
+	if repetition.Min != 1 || repetition.Max != 1 {
+		t.Errorf("the declared bounds are %d to %d, want the copybook's 1 to 1", repetition.Min, repetition.Max)
+	}
+}
