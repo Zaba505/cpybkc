@@ -222,6 +222,20 @@ func TestAVariantMixingSelectorsIsRejected(t *testing.T) {
 	}
 
 	namesAll(t, mixed.Diagnostic().Message, "R", "ADR-ENTRY", "ADR-HOME")
+
+	// And nothing beside it. Coverage reads an arm chosen by bytes as an arm
+	// scheduled for nothing, and the occurrence it was meant to take as one no
+	// arm covers — two faults the adopter would not have once they had fixed
+	// the one they do have.
+	var empty *EmptyScheduleError
+	if errors.As(err, &empty) {
+		t.Errorf("the arm chosen by bytes is also reported as scheduled for nothing: %v", err)
+	}
+
+	var uncovered *ScheduleCoverageError
+	if errors.As(err, &uncovered) {
+		t.Errorf("the occurrence that arm was to take is also reported as uncovered: %v", err)
+	}
 }
 
 // TestAnOccurrenceNoArmIsScheduledForIsRejected is the check the whole form

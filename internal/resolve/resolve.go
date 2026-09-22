@@ -759,6 +759,12 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 	// carry on rather than returning: an arm that does not fit its extent is
 	// worth saying beside a schedule that does not cover the table, and the
 	// `sound` flag is what keeps the node from being built out of either.
+	//
+	// Coverage waits on the selectors agreeing, and that order is the point.
+	// Over a mixed variant the coverage check reads an arm chosen by bytes as an
+	// arm scheduled for nothing, and every occurrence that arm was meant to take
+	// as one no arm covers — so it would bury the one fault the adopter has to
+	// fix under two it would not have if they fixed it.
 	sound := true
 	positional := false
 
@@ -766,7 +772,7 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 		sound = r.checkSelectors(c, table, spec)
 		positional = byPosition(spec)
 
-		if positional && !r.checkCoverage(c, table, spec) {
+		if sound && positional && !r.checkCoverage(c, table, spec) {
 			sound = false
 		}
 	}
