@@ -75,8 +75,14 @@
 ;; into a member of the set above, which is why the two sorts are not one.
 (sort strategy predicate (symbol single-record-type))
 
-;; One alternative of a variant, and what selects it.
+;; One alternative of a variant, and the predicate selecting it.
 (sort variant-arm (form arm))
+
+;; One alternative of a variant, and the occurrences it is taken for. A variant
+;; is settled by testing bytes or by position and never by both, which is why
+;; this is a sort of its own rather than a second shape of the one above: two
+;; forms put the half of that rule that is structural in the schema.
+(sort scheduled-arm (form arm))
 
 ;; What a rename may name: an item inside a record, or a record itself. A record
 ;; is admitted here and nowhere else, because a record's top-level item is the
@@ -249,6 +255,28 @@
 (form arm (in variant-arm)
   (argument alternative symbol exactly-one)
   (argument predicate predicate exactly-one))
+
+;; A redefine inside a repeating group whose entries carry roles rather than
+;; types: no byte of an entry says which alternative it is, and the occurrence's
+;; position decides. Each arm names one alternative and the occurrences it is
+;; taken for, counted from one.
+;;
+;; That the schedule covers every occurrence the table can hold exactly once is
+;; `resolve`'s, because the number of occurrences is the copybook's. So are the
+;; rules this schema shares with `discriminate-variant`. What relates two forms
+;; — that no variant is named by both, and that two arms name neither one
+;; alternative nor one occurrence — is the layout reader's.
+(form schedule-variant (in top-level) (arity zero-or-more) (layer discrimination)
+  (argument variant item-ref exactly-one)
+  (argument arm scheduled-arm two-or-more))
+
+;; `arm` again, in the position a schedule takes. It is the same tag in a
+;; different sort and not the arm above, the way `one-of` is a strategy in one
+;; sort and a `when`'s value in another: there is no predicate on it, because a
+;; scheduled arm tests nothing.
+(form arm (in scheduled-arm)
+  (argument alternative symbol exactly-one)
+  (argument occurrence positive-number one-or-more))
 
 ;;; Sequencing ----------------------------------------------------------------
 

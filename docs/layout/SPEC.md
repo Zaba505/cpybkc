@@ -308,6 +308,7 @@ diagnostic naming the tag and its position.
 | `rename` | 0..n | record definitions |
 | `discriminate` | one per `record` | discrimination |
 | `discriminate-variant` | one per variant | discrimination |
+| `schedule-variant` | one per variant | discrimination |
 | `sequence` | 1 | sequencing |
 
 ### An item reference
@@ -1101,6 +1102,15 @@ minus the one member the second scope has no use for; what differs between the
 scopes is what the item reference **MUST** satisfy, and that difference is
 stated where each scope is.
 
+A variant is the one of the two that may also be settled without testing
+anything. Where a table's entries carry roles rather than types — entry one the
+home address, entry two the work address — the alternative is decided by the
+occurrence's **position**, and
+[`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position) is where
+that is written. It carries no strategy and is not a third scope for the set
+below; it is the second of the two ways a variant may be settled, and a variant
+is settled by exactly one of them (#346, discussion #340).
+
 ### Three strategies, and the set is closed for v1
 
 | Strategy | Written | What it says |
@@ -1306,6 +1316,17 @@ record types agree on every byte and differ only in how long they are, and
 [`ir/SPEC.md`](../ir/SPEC.md#a-record-told-apart-only-by-its-length) states that
 as an exclusion rather than leaving it to be found.
 
+**Position *inside a table* is not a strategy either, and it is not refused.**
+An alternative taken by occurrence one and another by occurrence two is chosen
+by where the entry sits rather than by anything in its bytes, so no strategy
+here could express it and none is added: it is written as a
+[`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position) instead, a
+form of its own carrying occurrence numbers and no test at all
+([`ir/SPEC.md`](../ir/SPEC.md#an-arm-may-be-selected-by-its-position-in-the-table),
+#346). It reaches a variant and nothing else, because an occurrence is the only
+place a position of that kind exists; a *record*'s position in the stream is the
+next paragraph's and is settled differently.
+
 **Position is the sequencing expression's, not a strategy's.** A record type
 that is a file's first is written as the first thing
 [`sequence`](#sequencing)'s expression admits, and `resolve` compiles a start
@@ -1449,11 +1470,12 @@ value that is the same in every occurrence selects a record rather than an arm �
 so the exemption a counted run of records relies on has no counterpart here, and
 two overlapping arms are always a diagnostic.
 
-One `discriminate-variant` **MUST** name each variant, and two naming one item
-is a diagnostic like a second `discriminate` on one record. A variant that
-nothing names is a diagnostic too, and it is `resolve`'s: a redefine inside a
-repeating group is a fact about a copybook, and nothing in the layout says one
-is there.
+Exactly one form **MUST** name each variant, and it is this one or a
+[`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position) — two forms
+naming one item is a diagnostic like a second `discriminate` on one record,
+whether the two are of one tag or of both (#346). A variant that nothing names
+is a diagnostic too, and it is `resolve`'s: a redefine inside a repeating group
+is a fact about a copybook, and nothing in the layout says one is there.
 
 ```
 ;; Each entry of a policy carries its own kind and a body redefined two ways.
@@ -1469,6 +1491,98 @@ carries one strategy, this names an item and carries an ordered list of them. A
 single form taking either would make the arity rule — one per `record` — a rule
 about which of two shapes was written, and the schema could not state even the
 half of it that it states today.
+
+### A schedule for a redefine chosen by position
+
+```
+(schedule-variant <item-ref>
+  (arm <name> <occurrence> …)
+  (arm <name> <occurrence> …)
+  …)
+```
+
+Some tables carry roles rather than types. A count says how many entries
+arrived, entry one is the home address, entry two the work address, entry three
+the mailing address, and no byte of an entry says which it is — so there is
+nothing for a strategy to test, and the alternative is decided by where the
+entry sits. This form is where that is written, and it is the second of the two
+ways a variant is settled (#346, discussion #340).
+
+The argument names the **variant**, exactly as
+[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table) does:
+an item reference to the item the copybook redefines. Each `arm` names one
+alternative and the occurrences it is taken for, counted from one.
+
+| Position | Sort | Arity | What it says |
+|---|---|---|---|
+| variant | item reference | 1 | the redefined item, inside a repeating group |
+| `arm` | `(arm <name> <occurrence> …)` | 2..n | an alternative, and the occurrences it is taken for |
+
+An arm takes **one or more** occurrences, because a schedule that takes one
+alternative for several entries is the shape that has nowhere else to go: the
+alternative to this form is unrolling the table into one member per occurrence,
+and two unrolled members taking one alternative would carry one copybook name
+between them, which
+[`ir/SPEC.md`](../ir/SPEC.md#an-arm-may-be-selected-by-its-position-in-the-table)
+refuses a producer inventing the difference for.
+
+**It is available whichever way the table's count is read.** A layout stating
+`odoslide` and one stating `noodoslide` may both carry this form
+([The `OCCURS DEPENDING ON` reading is one
+statement per layout](#the-occurs-depending-on-reading-is-one-statement-per-layout)).
+Which reading applies is a property of the extract rather than of the copybook,
+and it must not also decide whether the copybook can be described; the argument
+is `ir/SPEC.md`'s and is made where the mechanism is.
+
+**A variant is scheduled or discriminated, never both.** No variant **MAY** be
+named by a `schedule-variant` and a `discriminate-variant`, and within this form
+there is no arm carrying a predicate: a variant whose arms were selected two
+different ways would need both the static check below and the byte-overlap check
+the other form carries, and a writer would then take an arm from its caller for
+one entry and from the descriptor for the next. That is the whole reason the two
+are separate forms rather than a second shape of `arm` inside one —
+[`ir/SPEC.md`](../ir/SPEC.md#an-arm-may-be-selected-by-its-position-in-the-table)
+makes the argument, and two forms let the schema state the half of it that is
+structural instead of leaving all of it to the reader, which is the same trade
+[A discriminator for a redefine inside a
+table](#a-discriminator-for-a-redefine-inside-a-table) makes when it refuses to
+be a second spelling of `discriminate`. The tag says which as well: nothing here
+discriminates anything, so nothing here is spelled `discriminate-`.
+
+`arm` is the same tag in a different sort, as
+[`one-of`](#three-strategies-and-the-set-is-closed-for-v1) already is in a
+strategy and in a `when`. Which one is written is decided by the form it sits
+in, and neither is reachable where the other belongs.
+
+The layout reader checks the halves that need no copybook. The variant reference
+**MUST** be rooted at a `record`. Every occurrence **MUST** be a positive
+number. No two arms **MAY** name one alternative, and no two **MAY** name one
+occurrence — the second is the overlap rule of the other form, decidable here
+from the layout alone because a number is a number whatever charset the file is
+in. Arms **MUST** be written in ascending order of their first occurrence, and
+each arm's occurrences in ascending order, so that two layouts describing one
+file are one text.
+
+Everything else needs the copybook and is `resolve`'s: that each name is an
+alternative the copybook declares at that position, that the group containing
+them repeats, and — the check this form exists to make possible — that the
+schedule covers every occurrence the table can hold, exactly once, from one to
+the repetition's declared maximum. A schedule leaving an entry uncovered is
+rejected there, naming the record, the repeating group, the variant and the
+occurrence numbers with no arm. Because that check is static, an entry matching
+no arm is not a failure a consumer can meet at read time for this form, which is
+the one thing it takes away from the byte-selected one
+([`ir/SPEC.md`](../ir/SPEC.md#an-arm-may-be-selected-by-its-position-in-the-table)).
+
+```
+;; Each entry of the table has a role rather than a type: entry 1 is the home
+;; address, entry 2 the work address, entry 3 the mailing address, and nothing
+;; in an entry's bytes says which of the three it is.
+(schedule-variant (item ADDR ADR-ENTRY ADR-HOME)
+  (arm ADR-HOME 1)
+  (arm ADR-WORK 2)
+  (arm ADR-MAIL 3))
+```
 
 ### Literals
 
@@ -1784,13 +1898,24 @@ comment, a reordering — leaves the version alone, because nothing a generator 
 a reader can observe has changed.
 
 Version 1 is the format as it first ships, and it stands at 1 while that version
-is being assembled. There is nothing to advance *from*: the number exists so
-that a consumer holding a schema can refuse one it does not understand, and no
-consumer holds a schema that was never released. A change to what a layout may
-say, made before the first release, is the settling this section asks for rather
-than an exception to it, and it is the standing
-[`ir/SPEC.md`](../ir/SPEC.md#the-version-field) gives its own closed sets under
-`IR_VERSION_1` (#28).
+is being assembled. A change to what a layout may say, made before the first
+release, is the settling this section asks for rather than an exception to it,
+and it is the standing [`ir/SPEC.md`](../ir/SPEC.md#the-version-field) gives its
+own closed sets under `IR_VERSION_1` (#28). What ends the period is not defined
+twice here: [`ir/SPEC.md`](../ir/SPEC.md#while-ir_version_1-is-being-assembled)
+names the event, the project's first `v1.0.0` release, and *the first release*
+means that in this document too (#347).
+
+What a consumer has in the meantime is not nothing. `layout-schema.sexpr` has
+been a release asset since `v0.0.1`, so an adopter does hold a schema while the
+period is open, and the declarations a release added are a diff of two assets
+they already have — the same poorer signal
+[`ir/SPEC.md`](../ir/SPEC.md#while-ir_version_1-is-being-assembled) offers for
+the IR over the same period, and for the same reason. `schedule-variant` is
+added on those terms (#346): a change to what a layout may say, made while
+version 1 is being settled, leaving the number where it is. Pinning the cpybkc
+that reads the layouts a generator writes is what closes the gap until
+`v1.0.0`.
 
 The version is not this document's. A spec carries no version number
 ([CONVENTIONS.md](../CONVENTIONS.md)); what is versioned is the interface, and
@@ -2285,7 +2410,7 @@ and neither is a second profile.
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
-| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323 |
+| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |
