@@ -948,7 +948,8 @@ func (e *TakeAlternativeFormError) Error() string {
 	)
 }
 
-// VariantArmCountError is a variant discriminator carrying fewer than two arms.
+// VariantArmCountError is a variant discriminator written with fewer than two
+// arms.
 //
 // A variant is an alternation, and an alternation with one arm is the redefine
 // every occurrence of which takes one alternative — which docs/ir/SPEC.md
@@ -958,6 +959,12 @@ func (e *TakeAlternativeFormError) Error() string {
 // may say it, as `(take-alternative <item-ref> <name>)`, and an adopter who
 // wrote one arm here meant that rather than a variant nothing chooses among
 // (docs/layout/SPEC.md, "Every occurrence of a table takes one alternative").
+//
+// It is about the arms as the layout writes them and never about the arms that
+// could be read. An arm refused for a reason of its own — a malformed form, a
+// target outside the occurrence, an alternative named twice — is reported
+// against that arm, and this rule stays silent rather than restating the
+// refusal as a shortage of arms (#342).
 type VariantArmCountError struct {
 	// Pos is the `discriminate-variant` form.
 	Pos layout.Pos
@@ -965,9 +972,10 @@ type VariantArmCountError struct {
 	// Variant is the item it names.
 	Variant ItemRef
 
-	// Count is how many arms it carries. It counts the arms that were read, so
-	// a variant whose second arm is malformed is reported against that arm and
-	// against this rule, and not twice against this one.
+	// Count is how many arms the layout wrote, whether or not each of them
+	// could be read. A variant whose second arm is malformed carries two by
+	// this count and is reported against that arm alone; a variant written with
+	// one arm carries one, and is what this fault is about.
 	Count int
 }
 
