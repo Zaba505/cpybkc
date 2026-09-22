@@ -53,6 +53,10 @@ func renderDiscrimination(d *Discrimination) string {
 		}
 	}
 
+	for _, taken := range d.Taken {
+		lines = append(lines, fmt.Sprintf("%s take-alternative %s: %s", taken.Pos, taken.Redefine, taken.Alternative))
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -174,6 +178,56 @@ func TestReadDiscriminationModelsTheLayer(t *testing.T) {
 					"(item POLICY PL-ENTRIES PL-TRAILER PL-KIND) \"M\"",
 				"  layout.sexpr:5:3 arm PL-BODY-PROPERTY: layout.sexpr:5:25 equals " +
 					"(item POLICY PL-ENTRIES PL-TRAILER PL-KIND) \"P\"",
+			},
+		},
+		{
+			// The ordinary mainframe shape: the item that gets redefined is not
+			// in the data at all, only the redefinition is, and the layout says
+			// so with no arms and no predicate because nothing is chosen.
+			name: "a redefine every occurrence of which takes one alternative",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-WORK)",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:2:1 discriminate ADDR",
+				"  layout.sexpr:2:20 single-record-type, which lowers into no predicate",
+				"layout.sexpr:3:1 take-alternative (item ADDR ADR-ENTRY ADR-HOME): ADR-WORK",
+			},
+		},
+		{
+			// The other direction of the same statement: what the file carries
+			// is the redefined item and none of the redefinitions, so the name
+			// beside the reference is the reference's own last name.
+			name: "a redefine every occurrence of which takes the item it redefines",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-HOME)",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:2:1 discriminate ADDR",
+				"  layout.sexpr:2:20 single-record-type, which lowers into no predicate",
+				"layout.sexpr:3:1 take-alternative (item ADDR ADR-ENTRY ADR-HOME): ADR-HOME",
+			},
+		},
+		{
+			// Two redefines in one table are two statements, and each is its
+			// own: one takes an alternative and the other is told apart.
+			name: "a taken alternative beside a variant in one record",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-WORK)",
+				"(discriminate-variant (item ADDR ADR-ENTRY ADR-NOTE)",
+				"  (arm ADR-NOTE (equals (item ADDR ADR-ENTRY ADR-KIND) \"N\"))",
+				"  (arm ADR-MEMO (equals (item ADDR ADR-ENTRY ADR-KIND) \"M\")))",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:2:1 discriminate ADDR",
+				"  layout.sexpr:2:20 single-record-type, which lowers into no predicate",
+				"layout.sexpr:4:1 discriminate-variant (item ADDR ADR-ENTRY ADR-NOTE)",
+				"  layout.sexpr:5:3 arm ADR-NOTE: layout.sexpr:5:17 equals (item ADDR ADR-ENTRY ADR-KIND) \"N\"",
+				"  layout.sexpr:6:3 arm ADR-MEMO: layout.sexpr:6:17 equals (item ADDR ADR-ENTRY ADR-KIND) \"M\"",
+				"layout.sexpr:3:1 take-alternative (item ADDR ADR-ENTRY ADR-HOME): ADR-WORK",
 			},
 		},
 		{
@@ -394,7 +448,7 @@ func TestReadDiscriminationRejects(t *testing.T) {
 				"layout.sexpr:5:25: an arm is selected by equals or one-of, and this is the symbol \"single-record-type\"",
 				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
 					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant",
+					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -409,7 +463,7 @@ func TestReadDiscriminationRejects(t *testing.T) {
 					"\"PL-BODY-MOTOR\" twice, and names it first at layout.sexpr:4:3",
 				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
 					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant",
+					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -439,7 +493,7 @@ func TestReadDiscriminationRejects(t *testing.T) {
 					"inside the occurrence it is chosen for",
 				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 1 arms, and a " +
 					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant",
+					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -458,7 +512,7 @@ func TestReadDiscriminationRejects(t *testing.T) {
 					"an arm's target sits inside the occurrence it is chosen for",
 				"layout.sexpr:3:1: the variant at (item POLICY PL-ENTRIES PL-BODY-MOTOR) carries 0 arms, and a " +
 					"variant carries at least two; a redefine every occurrence of which takes one alternative is " +
-					"not a variant",
+					"not a variant, and is written (take-alternative <item-ref> <name>)",
 			},
 		},
 		{
@@ -470,8 +524,8 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			}, "\n")),
 			want: []string{
 				"layout.sexpr:3:23: (item POLICY PL-BODY-MOTOR) names an item directly under record \"POLICY\"'s " +
-					"top-level item, and a variant sits inside a group that repeats; a redefine whose alternatives " +
-					"are whole record types is told apart by discriminate",
+					"top-level item, and a redefine inside a repeating group sits deeper than that; a redefine " +
+					"whose alternatives are whole record types is told apart by discriminate",
 			},
 		},
 		{
@@ -487,6 +541,85 @@ func TestReadDiscriminationRejects(t *testing.T) {
 			want: []string{
 				"layout.sexpr:6:1: (item POLICY PL-ENTRIES PL-BODY-MOTOR) is discriminated twice, and is " +
 					"discriminated first at layout.sexpr:3:1; a variant carries exactly one discriminator",
+			},
+		},
+		{
+			name: "a taken alternative with no alternative",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME))",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:3:1: a taken alternative is written (take-alternative <item-ref> <name>), " +
+					"and this has no value",
+			},
+		},
+		{
+			name: "a taken alternative whose alternative is not a name",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) \"ADR-WORK\")",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:3:50: a taken alternative is written (take-alternative <item-ref> <name>), " +
+					"and this has text",
+			},
+		},
+		{
+			name: "a taken alternative rooted at a record nobody defines",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item PARTY PA-ENTRY PA-HOME) PA-WORK)",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:3:19: form \"take-alternative\" names record \"PARTY\", and the layout defines " +
+					"no record of that name",
+			},
+		},
+		{
+			// The floor is the same one a variant discriminator's reference
+			// stands on: no copybook can make a name directly under the
+			// top-level item a redefine inside a group that repeats.
+			name: "a taken alternative that cannot be inside a group that repeats",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-HOME) ADR-WORK)",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:3:19: (item ADDR ADR-HOME) names an item directly under record \"ADDR\"'s " +
+					"top-level item, and a redefine inside a repeating group sits deeper than that; a redefine " +
+					"whose alternatives are whole record types is told apart by discriminate",
+			},
+		},
+		{
+			// The pair that disagrees about what the redefine is: one says
+			// every occurrence takes one alternative and the other tells two
+			// apart, and the order they were written in would decide.
+			name: "a redefine both taken and discriminated",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-WORK)",
+				"(discriminate-variant (item ADDR ADR-ENTRY ADR-HOME)",
+				"  (arm ADR-HOME (equals (item ADDR ADR-ENTRY ADR-KIND) \"H\"))",
+				"  (arm ADR-WORK (equals (item ADDR ADR-ENTRY ADR-KIND) \"W\")))",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:4:1: (item ADDR ADR-ENTRY ADR-HOME) is named by \"discriminate-variant\" and is " +
+					"already named by \"take-alternative\" at layout.sexpr:3:1; exactly one form names a redefine " +
+					"inside a repeating group",
+			},
+		},
+		{
+			name: "one redefine taken twice",
+			source: oneRecord("ADDR", strings.Join([]string{
+				"(discriminate ADDR single-record-type)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-WORK)",
+				"(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-HOME)",
+			}, "\n")),
+			want: []string{
+				"layout.sexpr:4:1: (item ADDR ADR-ENTRY ADR-HOME) is named by \"take-alternative\" and is " +
+					"already named by \"take-alternative\" at layout.sexpr:3:1; exactly one form names a redefine " +
+					"inside a repeating group",
 			},
 		},
 	}

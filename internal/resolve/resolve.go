@@ -822,11 +822,16 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 		if len(arms) == 0 {
 			return r.base(c, in)
 		}
+		//
+		// It contributes no record-level alternative, and that is the half of
+		// this branch a layout could not reach before there was a form for it.
+		// A record's alternatives are the REDEFINES *outside* a repeating group
+		// (see [option]), and they are what a `record` form's `alternative`
+		// children have to match; carrying this one up would demand a child
+		// naming an item inside a table, which docs/layout/SPEC.md's "Which
+		// alternative a record is" makes a diagnostic in as many words.
 		member := c.find(spec.Alternatives[0].Name)
-		return run{
-			nodes:        pad(r.first(member, in), c.extent()),
-			alternatives: []*copybook.Field{member.Field},
-		}
+		return run{nodes: pad(r.first(member, in), c.extent())}
 	}
 
 	if len(arms) < len(spec.Alternatives) {

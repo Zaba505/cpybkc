@@ -834,13 +834,19 @@ func (e *VariantFormError) Error() string {
 	)
 }
 
-// VariantDepthError is a variant reference that cannot name one.
+// VariantDepthError is a reference that cannot name a redefine inside a
+// repeating group.
 //
-// A variant sits inside a group that repeats. A reference carrying a single name
-// names an item directly under the record's top-level item, whose only ancestor
-// is that item — and a record does not repeat, so no copybook can make such a
-// reference name a variant. A redefine at that depth is told apart by an
+// Such a redefine sits inside a group that repeats. A reference carrying a
+// single name names an item directly under the record's top-level item, whose
+// only ancestor is that item — and a record does not repeat, so no copybook can
+// make such a reference name one. A redefine at that depth is told apart by an
 // ordinary `discriminate`, because its alternatives are whole record types.
+//
+// Every form naming a redefine inside a repeating group stands on this floor,
+// which is why the message names neither a variant nor a tag: the three forms
+// (docs/layout/SPEC.md, "The top-level forms") say different things about one
+// and the same shape.
 type VariantDepthError struct {
 	// Pos is the reference.
 	Pos layout.Pos
@@ -852,8 +858,9 @@ type VariantDepthError struct {
 // Error implements the error interface.
 func (e *VariantDepthError) Error() string {
 	return fmt.Sprintf(
-		"%s: %s names an item directly under record %s's top-level item, and a variant sits inside a group "+
-			"that repeats; a redefine whose alternatives are whole record types is told apart by discriminate",
+		"%s: %s names an item directly under record %s's top-level item, and a redefine inside a repeating "+
+			"group sits deeper than that; a redefine whose alternatives are whole record types is told apart "+
+			"by discriminate",
 		e.Pos, e.Variant, quote(e.Variant.Record),
 	)
 }
@@ -883,11 +890,74 @@ func (e *DuplicateVariantError) Error() string {
 	)
 }
 
+// RedefineNamedTwiceError is two forms of different tags naming one redefine
+// inside a repeating group.
+//
+// Exactly one form names each redefine inside a repeating group, whether the two
+// are of one tag or of two (docs/layout/SPEC.md, "A discriminator for a redefine
+// inside a table"). Two of one tag are the pair above; this is the pair that
+// disagrees about what the redefine *is* — one saying every occurrence takes one
+// alternative and the other telling two apart — and that disagreement is worse
+// than the duplicate, because the order the forms were written in would be left
+// deciding whether there is a variant there at all.
+type RedefineNamedTwiceError struct {
+	// Pos is the second form.
+	Pos layout.Pos
+
+	// Tag is its tag.
+	Tag string
+
+	// First is the form before it, and FirstTag is that form's tag. Both are
+	// named for [DuplicateOverrideError]'s reason: either is a perfectly good
+	// statement on its own, and what an adopter has to decide is which of the
+	// two they meant.
+	First    layout.Pos
+	FirstTag string
+
+	// Redefine is the item both name.
+	Redefine ItemRef
+}
+
+// Error implements the error interface.
+func (e *RedefineNamedTwiceError) Error() string {
+	return fmt.Sprintf(
+		"%s: %s is named by %s and is already named by %s at %s; exactly one form names a redefine "+
+			"inside a repeating group",
+		e.Pos, e.Redefine, quote(e.Tag), quote(e.FirstTag), e.First,
+	)
+}
+
+// TakeAlternativeFormError is a `take-alternative` that is not
+// `(take-alternative <item-ref> <name>)`.
+//
+// A reference that is written and wrong is an [ItemReferenceError]; this is the
+// form carrying the wrong things in the two positions it has.
+type TakeAlternativeFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *TakeAlternativeFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a taken alternative is written (take-alternative <item-ref> <name>), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
 // VariantArmCountError is a variant discriminator carrying fewer than two arms.
 //
 // A variant is an alternation, and an alternation with one arm is the redefine
 // every occurrence of which takes one alternative — which docs/ir/SPEC.md
 // resolves to that alternative's items with no variant at all.
+//
+// That statement has a spelling of its own and the message names it: a layout
+// may say it, as `(take-alternative <item-ref> <name>)`, and an adopter who
+// wrote one arm here meant that rather than a variant nothing chooses among
+// (docs/layout/SPEC.md, "Every occurrence of a table takes one alternative").
 type VariantArmCountError struct {
 	// Pos is the `discriminate-variant` form.
 	Pos layout.Pos
@@ -905,7 +975,8 @@ type VariantArmCountError struct {
 func (e *VariantArmCountError) Error() string {
 	return fmt.Sprintf(
 		"%s: the variant at %s carries %d arms, and a variant carries at least two; "+
-			"a redefine every occurrence of which takes one alternative is not a variant",
+			"a redefine every occurrence of which takes one alternative is not a variant, "+
+			"and is written (take-alternative <item-ref> <name>)",
 		e.Pos, e.Variant, e.Count,
 	)
 }

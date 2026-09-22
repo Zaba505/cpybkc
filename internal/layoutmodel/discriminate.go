@@ -13,12 +13,14 @@ import (
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
-// The tags this layer reads. `discriminate` and `discriminate-variant` are the
-// top-level forms; the rest stand inside them. `record` is read for its name
-// alone, because a rule counting one form against another needs both.
+// The tags this layer reads. `discriminate`, `discriminate-variant` and
+// `take-alternative` are the top-level forms; the rest stand inside them.
+// `record` is read for its name alone, because a rule counting one form against
+// another needs both.
 const (
 	tagDiscriminate        = "discriminate"
 	tagDiscriminateVariant = "discriminate-variant"
+	tagTakeAlternative     = "take-alternative"
 	tagArm                 = "arm"
 	tagEquals              = "equals"
 	tagOneOf               = "one-of"
@@ -243,12 +245,38 @@ type Arm struct {
 	Predicate Strategy
 }
 
-// Discrimination is a layout's discrimination layer: every `discriminate` form,
-// and every `discriminate-variant` beside them.
+// TakenAlternative is one `take-alternative` form: a redefine inside a repeating
+// group every occurrence of which takes one alternative.
 //
-// The two are the two scopes a discriminator is written in — a record, and an
-// alternative inside one occurrence of a table — and the strategies are one
-// closed set lowering into both.
+// It carries no strategy and no arms because nothing is chosen. The statement
+// resolves to the named alternative's items with no variant node at all
+// (docs/ir/SPEC.md, "A variant is chosen once per occurrence"), which is why it
+// is a form of its own and not a `discriminate-variant` carrying one arm
+// (docs/layout/SPEC.md, "Every occurrence of a table takes one alternative").
+type TakenAlternative struct {
+	// Pos is the `take-alternative` form.
+	Pos layout.Pos
+
+	// Redefine is the item the copybook redefines — the first alternative, the
+	// one every REDEFINES of it names.
+	Redefine ItemRef
+
+	// Alternative is the name the copybook gives the alternative every
+	// occurrence takes. It **MAY** be [TakenAlternative.Redefine]'s own last
+	// name, where what the file carries is the redefined item and none of the
+	// redefinitions. That it is an alternative the copybook declares over those
+	// bytes is `resolve`'s (#31, #35).
+	Alternative string
+}
+
+// Discrimination is a layout's discrimination layer: every `discriminate` form,
+// and every `discriminate-variant` and `take-alternative` beside them.
+//
+// The first two are the two scopes a discriminator is written in — a record, and
+// an alternative inside one occurrence of a table — and the strategies are one
+// closed set lowering into both. The third discriminates nothing: it is the
+// redefine inside a table that is not a variant, and it is read here because
+// exactly one form names each redefine and there is nowhere else to count that.
 type Discrimination struct {
 	// Records are the record discriminators, in the order the layout writes
 	// them. On a value handed back there is exactly one per `record` form the
@@ -258,6 +286,11 @@ type Discrimination struct {
 	// Variants are the variant discriminators, in the order the layout writes
 	// them, and no two of them name one item.
 	Variants []VariantDiscriminator
+
+	// Taken are the redefines every occurrence of which takes one alternative,
+	// in the order the layout writes them. No two of them name one item, and
+	// none names an item a [Discrimination.Variants] entry names.
+	Taken []TakenAlternative
 }
 
 // ReadDiscrimination reads the discrimination layer out of a parsed layout.
@@ -267,7 +300,8 @@ type Discrimination struct {
 // worse than none.
 //
 // What it enforces is what a declaration cannot state and a copybook is not
-// needed for: that every `record` is named by exactly one `discriminate`, that a
+// needed for: that every `record` is named by exactly one `discriminate`, that
+// exactly one form names each redefine inside a repeating group, that a
 // discriminator tests an item of the record it discriminates, that an arm's
 // target stands where an arm's target may stand, and that two arms of one
 // variant do not name one alternative or one literal. Everything else about
@@ -288,6 +322,8 @@ func ReadDiscrimination(file *layout.File) (*Discrimination, error) {
 			read.discriminate(discrimination, form)
 		case tagDiscriminateVariant:
 			read.variant(discrimination, form)
+		case tagTakeAlternative:
+			read.taken(discrimination, form)
 		}
 	}
 
@@ -374,9 +410,23 @@ type discriminationReader struct {
 	// second `discriminate` on one record reportable against the first.
 	discriminated map[string]layout.Pos
 
-	// variants is the same for `discriminate-variant`, keyed by the variant
-	// reference's identity.
-	variants map[string]layout.Pos
+	// named is where each redefine inside a repeating group was first named and
+	// by which form, keyed by the reference's identity.
+	//
+	// Exactly one form names each redefine, whether the two are of one tag or of
+	// two (docs/layout/SPEC.md, "A discriminator for a redefine inside a
+	// table"), so the tag is kept beside the position: two discriminators are
+	// one diagnostic and a discriminator beside a taken alternative is another,
+	// because the second pair disagrees about whether there is a variant there
+	// at all.
+	named map[string]namedRedefine
+}
+
+// namedRedefine is a form that named a redefine inside a repeating group: where
+// it was written, and which form it was.
+type namedRedefine struct {
+	pos layout.Pos
+	tag string
 }
 
 // discriminate reads one `discriminate` form.
@@ -487,30 +537,95 @@ func (r *discriminationReader) variant(into *Discrimination, form layout.Form) {
 	into.Variants = append(into.Variants, discriminator)
 }
 
-// variantItem holds the item a `discriminate-variant` names to what a variant
-// reference can be checked against without a copybook.
+// variantItem holds the item a form naming a redefine inside a repeating group
+// names to what such a reference can be checked against without a copybook.
+//
+// All three forms stand on the same two rules — a record the layout defines, and
+// a path deep enough for the item to be inside a group that repeats — and on the
+// one that counts them against each other. Only what each form says about the
+// redefine differs, and none of that is here.
 func (r *discriminationReader) variantItem(form layout.Form, item ItemRef) {
 	if !slices.ContainsFunc(r.records, func(record recordDefinition) bool { return record.name == item.Record }) {
 		r.Fail(&UnknownRecordError{Pos: item.Pos, Record: item.Record, Form: form.Tag})
 	}
 
-	if first, already := r.variants[item.identity()]; already {
-		r.Fail(&DuplicateVariantError{Pos: form.Pos, First: first, Variant: item})
-	} else {
-		if r.variants == nil {
-			r.variants = make(map[string]layout.Pos)
-		}
+	r.name(form, item)
 
-		r.variants[item.identity()] = form.Pos
-	}
-
-	// A variant sits inside a group that repeats. A reference carrying one name
-	// names an item directly under the record's top-level item, whose only
-	// ancestor is that item — and a record does not repeat, so no copybook can
-	// make such a reference name a variant.
+	// A redefine one of these forms names sits inside a group that repeats. A
+	// reference carrying one name names an item directly under the record's
+	// top-level item, whose only ancestor is that item — and a record does not
+	// repeat, so no copybook can make such a reference name one.
 	if len(item.Path) < 2 {
 		r.Fail(&VariantDepthError{Pos: item.Pos, Variant: item})
 	}
+}
+
+// name records that form named the redefine at item, and reports a second form
+// naming one redefine.
+//
+// Which diagnostic that is follows from the two tags. Two variant
+// discriminators are two statements of which arm an occurrence takes, and the
+// order they were written in would decide the answer; a variant discriminator
+// beside a taken alternative is two statements about whether there is a variant
+// there at all, which is the larger disagreement and says so.
+func (r *discriminationReader) name(form layout.Form, item ItemRef) {
+	first, already := r.named[item.identity()]
+	if !already {
+		if r.named == nil {
+			r.named = make(map[string]namedRedefine)
+		}
+
+		r.named[item.identity()] = namedRedefine{pos: form.Pos, tag: form.Tag}
+
+		return
+	}
+
+	if first.tag == form.Tag && form.Tag == tagDiscriminateVariant {
+		r.Fail(&DuplicateVariantError{Pos: form.Pos, First: first.pos, Variant: item})
+
+		return
+	}
+
+	r.Fail(&RedefineNamedTwiceError{
+		Pos:      form.Pos,
+		Tag:      form.Tag,
+		First:    first.pos,
+		FirstTag: first.tag,
+		Redefine: item,
+	})
+}
+
+// taken reads one `take-alternative` form.
+//
+// It is the third of the three things a layout says about a redefine inside a
+// repeating group, and the only one that says there is no variant. What it
+// carries is the redefine and the one alternative every occurrence takes; that
+// the copybook declares that alternative over those bytes is `resolve`'s, like
+// every other name a layout writes.
+func (r *discriminationReader) taken(into *Discrimination, form layout.Form) {
+	if len(form.Elements) != 2 {
+		r.Fail(&TakeAlternativeFormError{Pos: form.Pos, Found: count(len(form.Elements))})
+
+		return
+	}
+
+	item, err := readItemRef(form.Elements[0])
+	if err != nil {
+		r.Fail(err)
+
+		return
+	}
+
+	r.variantItem(form, item)
+
+	name, ok := form.Elements[1].(layout.Symbol)
+	if !ok {
+		r.Fail(&TakeAlternativeFormError{Pos: form.Elements[1].Position(), Found: describe(form.Elements[1])})
+
+		return
+	}
+
+	into.Taken = append(into.Taken, TakenAlternative{Pos: form.Pos, Redefine: item, Alternative: name.Value})
 }
 
 // arm reads one `(arm <name> <predicate>)`.
