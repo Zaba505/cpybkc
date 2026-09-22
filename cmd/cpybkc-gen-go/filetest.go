@@ -1542,7 +1542,12 @@ func (t *filetest) record(one *laid, at int, taken step, edge transition, sites 
 		return unresolved(edge.node.GetRecordId())
 	}
 
-	if err := s.layOut(node, t.holder(at), map[uint64]int{}); err != nil {
+	// Never at its shortest. A record of a file is laid out to be read back
+	// through the automaton, and a table's extent at the file tier is what the
+	// registers the automaton bound say it is; the shortest form is the record
+	// tier's second case, over a record laid out on its own. See
+	// [synth.countFor].
+	if err := s.layOut(node, t.holder(at), map[uint64]int{}, false); err != nil {
 		return err
 	}
 

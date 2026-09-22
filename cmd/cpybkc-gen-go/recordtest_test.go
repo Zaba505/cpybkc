@@ -134,6 +134,11 @@ func TestTheGeneratedCasesCarryNoHelperVariableOrFixture(t *testing.T) {
 // a discriminator no case covers is one whose spelling an adopter finds out
 // about from a production file. The count is one per record plus one per arm
 // beyond the first, because the record's own case is what takes the first.
+//
+// One more per record with a **shorter form** than its own case lays down: a
+// table whose declared minimum is zero is laid down at one occurrence by every
+// case above, and zero is the count at which a sliding table stops resembling a
+// fixed one. See [synth.countFor].
 func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 	t.Parallel()
 
@@ -165,13 +170,36 @@ func TestEveryRecordAndEveryVariantArmGetsACase(t *testing.T) {
 		"func TestEntryRecordHoldingEntrySummaryReadsBackTheBytesItWasReadFrom(",
 		"func TestShapeRecordReadsBackTheBytesItWasReadFrom(",
 		"func TestAddrRecordReadsBackTheBytesItWasReadFrom(",
+
+		// The two records carrying a table that may be absent: DETAIL is
+		// `OCCURS 0 TO 12 DEPENDING ON DETAIL-COUNT`, and TABLE-RECORD's four
+		// tables are all sized from PAIR-COUNT, which declares no minimum
+		// either.
+		"func TestOrderRecordAtItsShortestReadsBackTheBytesItWasReadFrom(",
+		"func TestTableRecordAtItsShortestReadsBackTheBytesItWasReadFrom(",
 	} {
 		if !strings.Contains(source, name) {
 			t.Errorf("no case is named %s", strings.TrimSuffix(strings.TrimPrefix(name, "func "), "("))
 		}
 	}
 
-	if got, want := strings.Count(source, "\nfunc Test"), 8; got != want {
+	// ADDR-RECORD gains none, and it is the control: ADR-ENTRY declares two to
+	// three occurrences, so the record has no shorter form than its own case
+	// already lays down and a second case would be the same record again.
+	for _, name := range []string{
+		"func TestTrailerRecordAtItsShortest",
+		"func TestSyncRecordAtItsShortest",
+		"func TestEntryRecordAtItsShortest",
+		"func TestShapeRecordAtItsShortest",
+		"func TestAddrRecordAtItsShortest",
+	} {
+		if strings.Contains(source, name) {
+			t.Errorf("a case is named %s, and that record carries no table that may be absent",
+				strings.TrimPrefix(name, "func "))
+		}
+	}
+
+	if got, want := strings.Count(source, "\nfunc Test"), 10; got != want {
 		t.Errorf("the record tier carries %d cases, and the descriptor asks for %d", got, want)
 	}
 }
@@ -608,5 +636,126 @@ func TestACountFieldADiscriminatorPinsIsLaidOutAtTheLiteralsOwnNumber(t *testing
 
 	if !strings.Contains(source, "if len(record.Run) != 3 {") {
 		t.Errorf("the table is not laid out with the occurrences its discriminated count states:\n%s", source)
+	}
+
+	// And no case at zero, although RUN declares a minimum of none. The
+	// number is the literal's, not this generator's, so the record has no
+	// shorter form to lay down — which is why whether a table may be absent is
+	// answered by choosing the counts rather than by reading the node list.
+	if strings.Contains(source, "func TestRunRecordAtItsShortest") {
+		t.Errorf("a case lays RUN down at no occurrences, and a predicate pins its count to three:\n%s", source)
+	}
+}
+
+// noteRecord is a table whose declared minimum the case hands it, with an item
+// **behind** the table so that the table's extent moves that item.
+//
+// That item is the point of the shape. A table read at the wrong presence lands
+// past where the record ends or short of it, and what says so is the item behind
+// it reading as something else — so the two cases over this record hold
+// NOTE-TRAILER at two different offsets, and the value each asserts is derived
+// from the offset it is at.
+func noteRecord(minimum uint32) *irpb.Descriptor {
+	return &irpb.Descriptor{Version: supportedIRVersion, Nodes: []*irpb.Node{
+		record(1, "NOTE-RECORD", 2),
+		group(2, "NOTE-RECORD", nil, 3, 4, 6),
+		zoned(3, "NOTE-COUNT", 1, 1, 0, false),
+		group(4, "NOTE", depending(3, minimum, 4), 5),
+		alphanumeric(5, "NOTE-TEXT", 4),
+		alphanumeric(6, "NOTE-TRAILER", 3),
+	}}
+}
+
+// TestATableThatMayBeAbsentIsLaidDownAbsentByACaseOfItsOwn is the coverage a
+// floor of one leaves out.
+//
+// [synth.countFor] lays a variable table down at its declared minimum or at one
+// occurrence where that minimum is zero, so `OCCURS 0 TO 4 DEPENDING ON` laid
+// down at one is a table no case shows absent. Zero is the count at which a
+// sliding table stops resembling a fixed one — the item behind it moves onto
+// bytes that would otherwise belong to the table — so the record contributes a
+// second case holding it empty.
+func TestATableThatMayBeAbsentIsLaidDownAbsentByACaseOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, noteRecord(0), out, options{packageName: "note", importPath: "example.com/note"}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsTestFile]
+
+	if !strings.Contains(source, "func TestNoteRecordAtItsShortestReadsBackTheBytesItWasReadFrom(t *testing.T) {") {
+		t.Fatalf("NOTE may be absent and no case lays it down absent:\n%s", source)
+	}
+
+	// The count field and the table, both at none. The count is asserted so
+	// that a decoder reading the wrong field for it fails here, and the table's
+	// length so that the case states what it holds before the item behind it
+	// says where it ended.
+	for _, want := range []string{
+		`t.Errorf("NOTE-COUNT: got %d, want %d", record.NoteCount, 0)`,
+		"if len(record.Note) != 0 {",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("the empty case does not assert %s:\n%s", want, source)
+		}
+	}
+
+	// The item behind the table, at the two offsets the two cases put it. One
+	// occurrence of NOTE is four bytes, so the absence moves NOTE-TRAILER from
+	// five to one — and a decoder that read the table anyway would land on
+	// bytes NOTE-TRAILER's assertion names.
+	for _, want := range []string{"NOTE-TRAILER @5 X(3)", "NOTE-TRAILER @1 X(3)"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("no case annotates %s, which is where the item behind the table sits:\n%s", want, source)
+		}
+	}
+
+	// The write side's own gap. Nothing in a case whose count field and
+	// occurrences agree can tell a writer that derives the count from one that
+	// copies the field, and at no occurrences the two answers differ by the
+	// whole of the table.
+	for _, want := range []string{
+		"record.NoteCount = 1",
+		"if !bytes.Equal(stale.Bytes(), in) {",
+		`t.Errorf("NOTE-COUNT: the record writes back the count left in the field rather than the occurrences it holds`,
+		`want: % x", stale.Bytes(), in)`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("the empty case does not carry %q:\n%s", want, source)
+		}
+	}
+}
+
+// TestATableWhoseDeclaredMinimumIsAboveZeroGetsNoCaseOfItsOwn is the other half
+// of the rule.
+//
+// A second case is there to show a table **absent**, and a table declaring two
+// occurrences has no absent state to show: the record's own case already lays it
+// down at the fewest the copybook admits, and a second one would be the same
+// record laid out again.
+func TestATableWhoseDeclaredMinimumIsAboveZeroGetsNoCaseOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	out := t.TempDir()
+
+	if err := generate(io.Discard, noteRecord(2), out, options{packageName: "note", importPath: "example.com/note"}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	source := written(t, out)[recordsTestFile]
+
+	if strings.Contains(source, "func TestNoteRecordAtItsShortest") {
+		t.Errorf("NOTE declares two occurrences and a case lays it down at fewer:\n%s", source)
+	}
+
+	if got, want := strings.Count(source, "\nfunc Test"), 1; got != want {
+		t.Errorf("the record tier carries %d cases, and the descriptor asks for %d:\n%s", got, want, source)
+	}
+
+	if !strings.Contains(source, "if len(record.Note) != 2 {") {
+		t.Errorf("NOTE is not laid down at its declared minimum:\n%s", source)
 	}
 }

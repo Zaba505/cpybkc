@@ -147,7 +147,9 @@ describes — `codec.go` carries
 Beside them, [the generated tests](#the-generated-tests) come in two tiers.
 `records_test.go` is the record tier, and it covers `records.go` and `codec.go`
 together — a struct and the two methods that fill it are one thing to a case:
-one case per record type and per arm of a `REDEFINES` chosen by bytes, each decoding a synthesized
+one case per record type, one per arm of a `REDEFINES` chosen by bytes, and one
+more per record carrying [a table that may be absent](#decided-a-table-that-may-be-absent-gets-a-case-at-zero-as-well),
+each decoding a synthesized
 literal, asserting every exported field against a value written out beside it,
 and encoding it back byte for byte. `file_test.go` is the file tier and covers
 `file.go`: the framing around a record and the order records come in, with a
@@ -1266,7 +1268,10 @@ The rule, in the order it is applied:
   cannot read back.
 - **A variable table takes its declared minimum**, or one occurrence where that
   minimum is zero — so every shape in the record appears at least once, and the
-  literal stays short enough to read. Where one count sizes two tables the
+  literal stays short enough to read. The floor of one is dropped in exactly one
+  case, [the record at its shortest](#decided-a-table-that-may-be-absent-gets-a-case-at-zero-as-well),
+  which is what shows such a table absent.
+  Where one count sizes two tables the
   number chosen is the largest any of them asks for, and a count whose tables
   cannot agree on one is refused rather than emitted as a case that cannot pass.
   A table inside an **arm** counts towards that number whichever arm the case
@@ -1368,6 +1373,54 @@ record picks between, so the record's own case already holds every one of them,
 each in the occurrences its schedule assigns. A case per arm would be the same
 record laid out again, and there is no discriminator spelling to find out about
 from a production file, because a scheduled arm has none.
+
+One thing beyond a discriminator path adds a case, and the section below is the
+whole of it.
+
+### Decided: a table that may be absent gets a case at zero as well
+
+A record carrying a table whose declared minimum is **zero** contributes one
+more case: the record **at its shortest**, with every such table laid down
+empty, beside the case that fills it.
+
+It is a second case rather than a different number in the first, and that is the
+decision. [The rule above](#where-a-cases-values-come-from) lays a variable table
+down at one occurrence where its minimum is zero, and the floor is not an
+oversight — a table laid down empty is a table whose item widths no case checks,
+because the items inside it are reached only by walking an occurrence. Changing
+the one to a zero would buy the absent case by giving up the present one. Both
+are wanted, so there are two cases.
+
+What the second one buys is the count at which a sliding table stops resembling
+a fixed one. At one occurrence, and at every count above it, the item behind the
+table is where a reader that treats the table as fixed would also put it; at
+**zero** it moves onto bytes that would otherwise belong to the table, and a
+decoder that read the table anyway lands past where the record ends. So the case
+asserts the count field as zero, the table as no occurrences, and every item
+behind it at the offset the absence puts it — which is why a table read at the
+wrong presence fails on the item behind it rather than on the table.
+
+It is also the only case that can say anything about **which number a writer
+emits for a count**. `ir/SPEC.md`'s [*What the descriptor determines, a writer
+supplies*](#what-the-writer-supplies-and-what-it-refuses-to) makes the count the
+descriptor's: a writer emits the number of occurrences it was handed and ignores
+whatever you left in the field. Every other case leaves the two agreeing, so a
+writer that copied the field would pass them all. This one sets each count field
+to one, over a table holding none, and writes the record again — and the bytes
+come back unchanged.
+
+A table whose declared minimum is **above** zero gains no such case. It has no
+absent state to lay down: the record's own case already holds it at the fewest
+occurrences the copybook admits, and a second one would be the same record
+again. Neither does a count a **predicate pins** — the number is the literal's,
+not this generator's — or a table counted by a **register**, which
+[the record tier already lays down empty](#a-table-counted-by-a-register).
+
+The axis does not multiply with the arms. The shortest case is laid out over the
+**first** arm of every alternation, like the record's own case, because the two
+axes are about different things: an arm is a discriminator spelling, an extent
+is not, and a shortest case per arm would double the file to say the same
+sentence about offsets once per literal.
 
 ### Decided: the file tier covers by predicate, not by edge
 

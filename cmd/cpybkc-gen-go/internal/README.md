@@ -18,8 +18,9 @@ fail its golden test, which is the right answer.
 
 Two kinds of `_test.go` file sit in each of them, and the `// Code generated …
 DO NOT EDIT.` header is what tells them apart. `records_test.go` and
-`file_test.go` are **output**: the first is one case per record and per variant
-arm, the second one case per path through the automaton, each carrying the bytes
+`file_test.go` are **output**: the first is one case per record, one per variant
+arm and one more per record carrying a table that may be absent, the second one
+case per path through the automaton, each carrying the bytes
 it reads as a literal, and `written` pins both byte for byte like every other
 generated file. Everything else — `file_roundtrip_test.go` in all seven,
 `record_roundtrip_test.go` in `orders`, and the four `file_reuse_test.go` — is
