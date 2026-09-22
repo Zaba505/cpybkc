@@ -154,6 +154,13 @@ func (e *ArmPredicateError) Diagnostic() diag.Diagnostic {
 // every occurrence takes it, and resolves to its items with no variant at all.
 // Naming none says nothing, which leaves the alternation unresolved in exactly
 // the way naming the item was meant to settle.
+//
+// The advice is writable, which is what keeps it advice. A layout says that
+// every occurrence takes one alternative as `(take-alternative <item-ref>
+// <name>)` and two or more as a `discriminate-variant` with an arm apiece
+// (docs/layout/SPEC.md, "Every occurrence of a table takes one alternative"),
+// so the message names a spelling the format has rather than one it assumes
+// (#341).
 type ArmCountError struct {
 	// Pos is the redefined item's entry in the copybook.
 	Pos diag.Span
@@ -185,8 +192,9 @@ func (e *ArmCountError) Diagnostic() diag.Diagnostic {
 // layout says nothing about.
 //
 // The one thing a layout says about a redefine is which alternative to read, and
-// inside a repeating group that is a `discriminate-variant` form. Reading the
-// copybook's own first alternative instead would be a default, and a default
+// inside a repeating group it says it with one of three forms — a
+// `discriminate-variant`, a `schedule-variant` or a `take-alternative`. Reading
+// the copybook's own first alternative instead would be a default, and a default
 // here is a record read as the wrong alternative in every entry of the table
 // with nothing in the file to disagree with it.
 type UndiscriminatedRedefineError struct {

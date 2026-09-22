@@ -309,6 +309,7 @@ diagnostic naming the tag and its position.
 | `discriminate` | one per `record` | discrimination |
 | `discriminate-variant` | one per variant | discrimination |
 | `schedule-variant` | one per variant | discrimination |
+| `take-alternative` | one per redefine taking one alternative | discrimination |
 | `sequence` | 1 | sequencing |
 
 ### An item reference
@@ -1111,6 +1112,14 @@ that is written. It carries no strategy and is not a third scope for the set
 below; it is the second of the two ways a variant may be settled, and a variant
 is settled by exactly one of them (#346, discussion #340).
 
+A redefine inside a table that is **not** a variant carries no strategy either,
+and is neither of those forms. Where every occurrence takes one alternative
+there is nothing to choose between, so there is no variant to settle and no
+scope for a strategy to run in;
+[`take-alternative`](#every-occurrence-of-a-table-takes-one-alternative) is
+where that is said, and it is the third and last thing a layout says about a
+redefine inside a repeating group (#341).
+
 ### Three strategies, and the set is closed for v1
 
 | Strategy | Written | What it says |
@@ -1427,6 +1436,17 @@ consumer, with a diagnostic distinguishable from a record no transition matched,
 and an adopter whose entries carry a code the alternatives do not cover writes
 an arm for it.
 
+**A layout may say that every occurrence of a table takes one alternative, and
+this is not the form it says it in.** It is written as a
+[`take-alternative`](#every-occurrence-of-a-table-takes-one-alternative), which
+names the redefine and the one alternative and carries no arms at all — the
+ordinary case where only one of a copybook's overlaid descriptions is ever in
+the data, and the case this form's own arity refuses (#341, discussion #340).
+The two-arm floor below stands because of it: one arm carrying a predicate
+would be a test on bytes that decide nothing, and one arm carrying none would
+be the default arm the paragraph above refuses, so a variant with one arm is
+neither spelling of a statement that has a spelling of its own.
+
 **An arm's target sits inside the occurrence, which is the mirror of the rule
 above and not an exception to it.** The target **MUST** be contained, at any
 depth, in the innermost repeating group containing the variant — the entry the
@@ -1470,12 +1490,14 @@ value that is the same in every occurrence selects a record rather than an arm �
 so the exemption a counted run of records relies on has no counterpart here, and
 two overlapping arms are always a diagnostic.
 
-Exactly one form **MUST** name each variant, and it is this one or a
-[`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position) — two forms
-naming one item is a diagnostic like a second `discriminate` on one record,
-whether the two are of one tag or of both (#346). A variant that nothing names
-is a diagnostic too, and it is `resolve`'s: a redefine inside a repeating group
-is a fact about a copybook, and nothing in the layout says one is there.
+Exactly one form **MUST** name each redefine inside a repeating group, and it is
+this one, a [`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position)
+or a [`take-alternative`](#every-occurrence-of-a-table-takes-one-alternative) —
+two forms naming one item is a diagnostic like a second `discriminate` on one
+record, whether the two are of one tag or of two (#346, #341). A redefine that
+nothing names is a diagnostic too, and it is `resolve`'s: a redefine inside a
+repeating group is a fact about a copybook, and nothing in the layout says one
+is there.
 
 ```
 ;; Each entry of a policy carries its own kind and a body redefined two ways.
@@ -1587,6 +1609,82 @@ the one thing it takes away from the byte-selected one
   (arm ADR-WORK 2)
   (arm ADR-MAIL 3))
 ```
+
+### Every occurrence of a table takes one alternative
+
+```
+(take-alternative <item-ref> <name>)
+```
+
+A redefine inside a repeating group is not always a choice. In a
+mainframe-produced file the item that gets redefined is routinely not in the
+data at all — only one of the redefinitions ever arrives, and the base exists to
+declare the storage they share — so a copybook writing `ADR-HOME` redefined once
+by `ADR-WORK` inside a table describes a file every entry of which is an
+`ADR-WORK`. This form is where that is written (#341, discussion #340).
+
+The argument names the redefine, exactly as the two forms above do: an item
+reference to the item the copybook redefines. The name beside it is the one
+alternative every occurrence takes, by the name the copybook gives it — which
+**MAY** be the redefined item's own, where what the file carries is the base and
+none of the redefinitions.
+
+| Position | Sort | Arity | What it says |
+|---|---|---|---|
+| redefine | item reference | 1 | the redefined item, inside a repeating group |
+| alternative | symbol | 1 | the alternative every occurrence takes |
+
+**What it says is that there is no variant**, and that is why it is not a
+one-armed `discriminate-variant`. A redefine every occurrence of which takes one
+alternative resolves to that alternative's items with no variant node at all,
+the way a record-level redefine whose layout names one alternative resolves to
+one record node
+([`ir/SPEC.md`](../ir/SPEC.md#a-variant-is-chosen-once-per-occurrence)) — so
+nothing here is discriminated, nothing is scheduled and nothing is an
+alternation. Spelling it as one arm of `discriminate-variant` would put
+`discriminate-` on a form that chooses nothing, which is the argument that makes
+[`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position) a form of
+its own, and it would turn that form's two-arm arity into a rule about which of
+two shapes was written — a conditional the schema could not state at all, where
+today it states the arity outright.
+
+It is the table's counterpart of [Which alternative a record
+is](#which-alternative-a-record-is) and not a second spelling of it. An
+`alternative` child says which of the record types a record-level redefine
+resolved into a `record` form means, and the choice is the record's identity;
+this says which alternative every entry of a table is, and the bytes never leave
+the record they are in. A layout naming an item inside a repeating group in an
+`alternative` child is the diagnostic that section states, unchanged.
+
+The layout reader checks the halves that need no copybook. The reference
+**MUST** be rooted at a `record` the layout defines, and **MUST** carry at least
+two names, because a redefine this form can name sits inside a group that
+repeats — the same floor
+[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table)'s
+reference stands on. And exactly one form **MUST** name each redefine inside a
+repeating group, this one included: a redefine that both takes one alternative
+and tells two apart would leave the order the forms were written in deciding
+which it does.
+
+Everything else needs the copybook and is `resolve`'s: that the reference names
+an item the copybook redefines, that the group containing it repeats, and that
+the name beside it is an alternative declared over those bytes. A redefine no
+form names is `resolve`'s too, and this form is the third of the three answers
+its diagnostic asks for.
+
+```
+;; Only ADR-WORK is ever in the file. ADR-HOME is the storage the copybook
+;; declares it over, and no byte of an entry tells the two apart because no
+;; entry is ever an ADR-HOME.
+(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-WORK)
+```
+
+What it replaces is the only thing an adopter could write before it: two arms
+and a predicate invented to tell `ADR-WORK` apart from an alternative the file
+never carries. That is a test on bytes that decide nothing, which is the
+collapse the arm rules exist to prevent — and it was what a format whose own
+diagnostics advise naming one alternative left an adopter to write, having
+nowhere to write the thing they were advised to (#341).
 
 ### Literals
 
@@ -1916,10 +2014,10 @@ period is open, and the declarations a release added are a diff of two assets
 they already have — the same poorer signal
 [`ir/SPEC.md`](../ir/SPEC.md#while-ir_version_1-is-being-assembled) offers for
 the IR over the same period, and for the same reason. `schedule-variant` is
-added on those terms (#346): a change to what a layout may say, made while
-version 1 is being settled, leaving the number where it is. Pinning the cpybkc
-that reads the layouts a generator writes is what closes the gap until
-`v1.0.0`.
+added on those terms (#346), and `take-alternative` is added on the same ones
+(#341): each is a change to what a layout may say, made while version 1 is being
+settled, and each leaves the number where it is. Pinning the cpybkc that reads
+the layouts a generator writes is what closes the gap until `v1.0.0`.
 
 The version is not this document's. A spec carries no version number
 ([CONVENTIONS.md](../CONVENTIONS.md)); what is versioned is the interface, and
@@ -1942,8 +2040,9 @@ describing their file as something else. What rejects them, with the diagnostic
 each is owed, is the reader.
 
 **Rules counting one form against another.** Exactly one `discriminate` per
-`record`, one `discriminate-variant` per variant, two arms of one variant that
-do not name one alternative, every `record` appearing somewhere in the
+`record`, exactly one of `discriminate-variant`, `schedule-variant` and
+`take-alternative` per redefine inside a repeating group, two arms of one
+variant that do not name one alternative, every `record` appearing somewhere in the
 sequencing expression, an `encoding-override` naming at least one axis, at most
 one `rename` per item and no two of them substituting one name under one parent.
 A declaration is about one form and its positions, so a rule relating two of
@@ -1974,7 +2073,10 @@ unknown child, a repeated child whose arity forbids it, a missing required child
 or form; a value outside a closed set — a `recfm`, a `placement`, a strategy,
 an axis value; a duplicate record name; a record with no `discriminate` form or
 two; a discriminator whose item reference is rooted at a record other than the
-one it discriminates; a second `discriminate-variant` naming one variant; two
+one it discriminates; a second form naming one redefine inside a repeating
+group, whether the two are of one tag or of two; a `take-alternative` or a
+variant discriminator whose reference names an item directly under a record's
+top-level item, which no copybook can make a redefine inside a table; two
 arms of one variant naming one alternative, or naming one target and one
 literal; an arm whose target is rooted at another record, stands under another
 outermost group than the variant, or descends through the variant or one of its
@@ -2009,8 +2111,10 @@ records at one point in the sequence whose discriminators can both match; an
 arm's target outside the
 innermost repeating group containing the variant, or inside an arm that does not
 also contain it; two arms of one variant whose predicates can both match one
-occurrence; and a redefine inside a repeating group that no
-`discriminate-variant` names.
+occurrence; a `take-alternative` naming an item the copybook does not redefine,
+or an alternative it does not declare over those bytes; and a redefine inside a
+repeating group that no `discriminate-variant`, `schedule-variant` or
+`take-alternative` names.
 
 The split is not a policy. A check that needs a copybook cannot run before one
 has been read, and a check that does not **SHOULD** run in the reader, so that a
@@ -2123,8 +2227,11 @@ is which alternative to read — never what a redefine is, where its bytes are, 
 which items overlay which. A redefine whose alternatives are whole record types
 is told apart by an ordinary `discriminate`; one inside a repeating group is
 told apart by
-[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table), and
-both name items the copybook declared and nothing the copybook did not.
+[`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table) or
+[`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position), or is told
+to take one alternative by
+[`take-alternative`](#every-occurrence-of-a-table-takes-one-alternative). All of
+them name items the copybook declared and nothing the copybook did not.
 
 ### The S-expression grammar
 
@@ -2414,7 +2521,7 @@ and neither is a second profile.
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
-| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340 |
+| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |

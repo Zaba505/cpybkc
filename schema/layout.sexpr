@@ -278,6 +278,23 @@
   (argument alternative symbol exactly-one)
   (argument occurrence positive-number one-or-more))
 
+;; A redefine inside a repeating group every occurrence of which takes one
+;; alternative. It is not a variant -- there is nothing to choose between, so
+;; nothing is discriminated and nothing is scheduled -- which is why it is a
+;; form of its own rather than a `discriminate-variant` carrying one arm: the
+;; two-or-more above would otherwise become a condition on which of two shapes
+;; was written, and this schema could not state it at all.
+;;
+;; The argument names the item the copybook redefines; the symbol beside it is
+;; the alternative every occurrence takes, which may be the redefined item's own
+;; name. That the item is redefined at all, that the group containing it
+;; repeats, and that the name is an alternative declared over those bytes are
+;; `resolve`'s. That exactly one form names each redefine is the layout
+;; reader's, as it is for the two above.
+(form take-alternative (in top-level) (arity zero-or-more) (layer discrimination)
+  (argument redefine item-ref exactly-one)
+  (argument alternative symbol exactly-one))
+
 ;;; Sequencing ----------------------------------------------------------------
 
 (form sequence (in top-level) (arity exactly-one) (layer sequencing)

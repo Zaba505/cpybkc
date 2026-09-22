@@ -565,6 +565,86 @@ func TestAnAlternativeIsRootedAtTheRecordChoosingIt(t *testing.T) {
 	}
 }
 
+// TestATableTakingOneAlternativeResolvesToItsItems is the whole chain over the
+// statement #341 added: a layout says that every occurrence of a table takes one
+// alternative, and the record that comes out holds that alternative's items with
+// no variant node in it at all.
+//
+// It is the ordinary mainframe shape rather than an exotic one. Only ADR-WORK is
+// ever in the file; ADR-HOME is the storage the copybook declares it over, and
+// before this form the only way to say so was two arms and a predicate invented
+// to tell ADR-WORK from an alternative the file never carries.
+func TestATableTakingOneAlternativeResolvesToItsItems(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write(t, filepath.Join(dir, "addr.cpy"), fixed(
+		"01  ADDR-REC.",
+		"    05  ADR-COUNT         PIC X(2).",
+		"    05  ADR-ENTRY OCCURS 3 TIMES.",
+		"        10  ADR-HOME.",
+		"            15  ADR-H-LINE     PIC X(8).",
+		"        10  ADR-WORK REDEFINES ADR-HOME.",
+		"            15  ADR-W-COMPANY  PIC X(4).",
+		"            15  ADR-W-LINE     PIC X(4).",
+		"        10  ADR-TAG           PIC X(1).",
+	))
+
+	write(t, filepath.Join(dir, "addr.sexpr"), `(encoding
+  (charset ascii) (sign-convention ascii-zone-37)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm F) (lrecl 29))
+(record ADDR (copybook "addr.cpy" ADDR-REC))
+(discriminate ADDR single-record-type)
+(take-alternative (item ADDR ADR-ENTRY ADR-HOME) ADR-WORK)
+(sequence (* ADDR))
+`)
+	write(t, filepath.Join(dir, manifest.Name), `{"layout": "addr.sexpr", "generators": [{"name": "go", "out": "gen"}]}`)
+
+	run, err := project.Load(filepath.Join(dir, manifest.Name))
+	if err != nil {
+		t.Fatalf("the project does not resolve:\n%s", diag.Render(err))
+	}
+
+	if got := variants(run.Descriptor); got != 0 {
+		t.Errorf("the descriptor carries %d variant nodes, want none: nothing is chosen per occurrence", got)
+	}
+
+	fields := fieldNames(run.Descriptor)
+
+	for _, name := range []string{"ADR-W-COMPANY", "ADR-W-LINE"} {
+		if fields[name] != 1 {
+			t.Errorf("%s stands %d times in the record, want once: it is the alternative every entry takes",
+				name, fields[name])
+		}
+	}
+
+	if got := fields["ADR-H-LINE"]; got != 0 {
+		t.Errorf("ADR-H-LINE stands %d times in the record, want none: the layout did not name ADR-HOME", got)
+	}
+
+	// The bytes the alternative does not describe are still in the record, so
+	// everything behind the table sits where the copybook puts it.
+	if got := fields["ADR-TAG"]; got != 1 {
+		t.Errorf("ADR-TAG stands %d times in the record, want once", got)
+	}
+}
+
+// variants is how many variant nodes a descriptor carries, which is one per
+// redefine inside a repeating group whose alternatives are told apart.
+func variants(d *irpb.Descriptor) int {
+	found := 0
+
+	for _, node := range d.GetNodes() {
+		if _, ok := node.GetKind().(*irpb.Node_Variant); ok {
+			found++
+		}
+	}
+
+	return found
+}
+
 // redefinedTransactions writes the worked shape #164 decides — one `01`-level
 // redefined three ways, discriminated on a code behind a shared account key —
 // and hands back the directory holding it.

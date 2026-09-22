@@ -239,6 +239,13 @@ func (s *Scaffold) variantDiscriminators(out *strings.Builder) {
 		"than once per record, so it is a variant with an arm per alternative and",
 		"never an alternative child. Which names are alternatives there is the",
 		"copybook's; what selects each one is yours.",
+		"",
+		"Where every occurrence of the table takes one of them -- the others are",
+		"storage the copybook declares and the file never carries -- nothing is",
+		"chosen, and there is no variant. Say so with take-alternative instead of",
+		"inventing a predicate to tell the one you have from one you have not:",
+		"",
+		"  (take-alternative <item-ref> <name>)",
 	)
 
 	for _, v := range s.variants {

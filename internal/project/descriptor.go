@@ -421,13 +421,20 @@ func (l *layers) overrides(bound *bindings) (map[string][]resolve.EncodingOverri
 	return overrides, flat
 }
 
-// redefines resolves each `discriminate-variant` to the copybook item it names,
-// keyed by the record its reference is rooted at.
+// redefines resolves each `discriminate-variant` and each `take-alternative` to
+// the copybook item it names, keyed by the record its reference is rooted at.
 //
-// A variant is a redefine *inside* a repeating group: the alternative is chosen
-// once per occurrence rather than once per record, which is why it arrives as
-// input to resolving a record instead of multiplying the record types the way a
-// redefine outside one does.
+// Both are about a redefine *inside* a repeating group: the alternative is
+// chosen once per occurrence rather than once per record, which is why it
+// arrives as input to resolving a record instead of multiplying the record types
+// the way a redefine outside one does.
+//
+// They differ in how many alternatives they hand over, and `resolve` reads the
+// count as the statement it is: two or more are a variant with an arm apiece,
+// and exactly one says every occurrence takes that alternative and resolves to
+// its items with no variant node at all (docs/layout/SPEC.md, "Every occurrence
+// of a table takes one alternative"). Nothing here says which of the two it is,
+// because the number already does.
 func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 	redefines := make(map[string][]resolve.Redefine)
 
@@ -447,6 +454,22 @@ func (l *layers) redefines(bound *bindings) map[string][]resolve.Redefine {
 
 		record := variant.Variant.Record
 		redefines[record] = append(redefines[record], resolve.Redefine{Item: item, Alternatives: alternatives})
+	}
+
+	for _, taken := range l.discrimination.Taken {
+		item := bound.field(taken.Redefine)
+		if item == nil {
+			continue
+		}
+
+		// One alternative and no predicate: there is no arm for a predicate to
+		// select, and a strategy carried here would be a test on bytes that
+		// decide nothing.
+		record := taken.Redefine.Record
+		redefines[record] = append(redefines[record], resolve.Redefine{
+			Item:         item,
+			Alternatives: []resolve.Alternative{{Name: taken.Alternative}},
+		})
 	}
 
 	return redefines
