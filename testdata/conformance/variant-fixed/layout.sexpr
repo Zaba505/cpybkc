@@ -1,0 +1,39 @@
+;; A fixed-length dataset of one record type whose table holds a redefine, read
+;; the way a compiler reads an OCCURS DEPENDING ON when it is told not to slide:
+;; the table is a fixed three entries, the count is an ordinary item beside it,
+;; and the record's extent is the constant a fixed-length dataset requires.
+;;
+;; Two discriminators, in the two scopes. The first chooses a record and is
+;; evaluated before anything has been admitted. The second chooses an
+;; alternative inside one entry of the table, with the record already admitted,
+;; and its target sits inside the entry the choice is being made for -- a
+;; position the first may not name, and the only position the second may.
+;;
+;; The count in this file is not the number of entries the table holds. Under
+;; this reading the table is always three entries wide and the count says how
+;; many of them a program filled in, which is what makes the reading visible:
+;; the second record says two and carries three, so a consumer that read the
+;; table at the count would take ADR-TAIL out of the third entry's bytes.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 30))
+
+(record ADDRESS
+  (copybook "address.cpy" ADR-RECORD))
+
+(copybook-reading
+  (occurs-depending-on noodoslide))
+
+(discriminate ADDRESS (equals (item ADDRESS ADR-TYPE) "A"))
+
+(discriminate-variant (item ADDRESS ADR-ENTRY ADR-DOMESTIC)
+  (arm ADR-DOMESTIC (equals (item ADDRESS ADR-ENTRY ADR-KIND) "D"))
+  (arm ADR-FOREIGN  (equals (item ADDRESS ADR-ENTRY ADR-KIND) "F")))
+
+(sequence (* ADDRESS))

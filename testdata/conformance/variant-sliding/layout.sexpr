@@ -1,0 +1,35 @@
+;; variant-fixed's copybook, read the other way: the table slides, so the item
+;; behind it moves with the count and the record's extent is data rather than a
+;; constant. A fixed-length dataset could not carry such a record at all, which
+;; is why this one is framed, and the record descriptor word is the whole of the
+;; difference the framing makes to the bytes.
+;;
+;; The pair is the point. Nothing in either file says which reading is right and
+;; nothing disagrees with the wrong one: a consumer that read this file the way
+;; variant-fixed is read takes three entries out of a record that holds one, and
+;; a consumer that read variant-fixed this way stops at the count. What the two
+;; entries hold a generator to is that the descriptor decides it -- a constant
+;; repetition there, a repetition whose count is a reference here -- and that
+;; every entry of the table still chooses its own arm either way.
+(encoding
+  (charset ascii)
+  (sign-convention ascii-zone-37)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm VB))
+
+(record ADDRESS
+  (copybook "address.cpy" ADR-RECORD))
+
+(copybook-reading
+  (occurs-depending-on odoslide))
+
+(discriminate ADDRESS (equals (item ADDRESS ADR-TYPE) "A"))
+
+(discriminate-variant (item ADDRESS ADR-ENTRY ADR-DOMESTIC)
+  (arm ADR-DOMESTIC (equals (item ADDRESS ADR-ENTRY ADR-KIND) "D"))
+  (arm ADR-FOREIGN  (equals (item ADDRESS ADR-ENTRY ADR-KIND) "F")))
+
+(sequence (* ADDRESS))
