@@ -44,7 +44,7 @@ func TestTwoHeaderRecords(t *testing.T) {
 		0x15, // the delimiter behind record 2
 	}
 
-	r, err := counted.NewReader(bytes.NewReader(in), counted.Encoding())
+	r, err := counted.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestTwoHeaderRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := counted.NewWriter(&out, counted.Encoding())
+	w, err := counted.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestAHeaderRecordThenTwoDetailRecords(t *testing.T) {
 		0x15, // the delimiter behind record 3
 	}
 
-	r, err := counted.NewReader(bytes.NewReader(in), counted.Encoding())
+	r, err := counted.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestAHeaderRecordThenTwoDetailRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := counted.NewWriter(&out, counted.Encoding())
+	w, err := counted.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestAHeaderRecordThenASummaryRecord(t *testing.T) {
 		0x15, // the delimiter behind record 2
 	}
 
-	r, err := counted.NewReader(bytes.NewReader(in), counted.Encoding())
+	r, err := counted.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestAHeaderRecordThenASummaryRecord(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := counted.NewWriter(&out, counted.Encoding())
+	w, err := counted.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

@@ -30,7 +30,8 @@ const (
 )
 
 // emit is the whole of the generated file below its import block: the record
-// interface, the reader, the predicates both directions share, and the writer.
+// interface, the constructors' options, the reader, the predicates both directions
+// share, and the writer.
 func (f *filer) emit() (string, []string, error) {
 	walks := make([][]transition, len(f.states))
 
@@ -53,6 +54,7 @@ func (f *filer) emit() (string, []string, error) {
 	var b strings.Builder
 
 	f.emitRecord(&b, walks)
+	f.emitOptions(&b)
 
 	if err := f.emitReader(&b, walks); err != nil {
 		return "", nil, err
@@ -111,8 +113,7 @@ func (f *filer) survey(walks [][]transition) error {
 
 			f.surveyGuards(t.node.GetGuardIds())
 
-			switch t.typ {
-			case recordInterface, readerType, writerType, newReaderFunc, newWriterFunc:
+			if slices.Contains(fileIdentifiers, t.typ) {
 				return &collisionError{
 					Go:    t.typ,
 					Cobol: []colliding{{Original: t.record.GetNames().GetOriginal(), Override: t.record.GetNames().GetOverrideName()}, {Original: t.typ}},
@@ -301,8 +302,8 @@ that is already buffered to at least this size: bufio hands that reader back
 rather than wrapping it a second time, so the file is read in its bites and
 not in these.
 
-	r, err := %[2]s(bufio.NewReaderSize(f, 1<<20), %[3]s())`,
-		chosen, newReaderFunc, encodingFunc)
+	r, err := %[2]s(bufio.NewReaderSize(f, 1<<20))`,
+		chosen, newReaderFunc)
 }
 
 // readAhead is how big the reader's buffer is: bufio's own default, and the

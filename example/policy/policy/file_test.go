@@ -107,7 +107,7 @@ func TestAPxFileHeaderThenAPxFileTrailer(t *testing.T) {
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestAPxFileHeaderThenAPxFileTrailer(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestAPxFileHeaderThenTwoPxPolicysThenAPxFileTrailer(t *testing.T) {
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestAPxFileHeaderThenTwoPxPolicysThenAPxFileTrailer(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -630,7 +630,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxInsuredsThenAPxFileTrailer(t *testin
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -701,7 +701,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxInsuredsThenAPxFileTrailer(t *testin
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -934,7 +934,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxLocationsThenAPxFileTrailer(t *testi
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -1005,7 +1005,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxLocationsThenAPxFileTrailer(t *testi
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -1236,7 +1236,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxVehiclesThenAPxFileTrailer(t *testin
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -1307,7 +1307,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxVehiclesThenAPxFileTrailer(t *testin
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -1537,7 +1537,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxDriversThenAPxFileTrailer(t *testing
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -1608,7 +1608,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxDriversThenAPxFileTrailer(t *testing
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -1831,7 +1831,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxCoveragesThenAPxFileTrailer(t *testi
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -1902,7 +1902,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxCoveragesThenAPxFileTrailer(t *testi
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -2127,7 +2127,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxPremiumsThenAPxFileTrailer(t *testin
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -2198,7 +2198,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxPremiumsThenAPxFileTrailer(t *testin
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -2420,7 +2420,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxClaimsThenAPxFileTrailer(t *testing.
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -2491,7 +2491,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxClaimsThenAPxFileTrailer(t *testing.
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -2716,7 +2716,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxEndorsementsThenAPxFileTrailer(t *te
 		0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, //
 	}
 
-	r, err := policy.NewReader(bytes.NewReader(in), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -2787,7 +2787,7 @@ func TestAPxFileHeaderThenAPxPolicyThenTwoPxEndorsementsThenAPxFileTrailer(t *te
 
 	var out bytes.Buffer
 
-	w, err := policy.NewWriter(&out, policy.Encoding())
+	w, err := policy.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

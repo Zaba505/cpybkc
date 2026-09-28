@@ -65,7 +65,7 @@ func chunkFile(tb testing.TB, n int) []byte {
 func drain(tb testing.TB, in []byte) {
 	tb.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		tb.Fatalf("NewReader: %v", err)
 	}
@@ -161,7 +161,7 @@ func chunkRecords(n int) []Record {
 func emit(tb testing.TB, recs []Record) {
 	tb.Helper()
 
-	w, err := NewWriter(io.Discard, Encoding())
+	w, err := NewWriter(io.Discard)
 	if err != nil {
 		tb.Fatalf("NewWriter: %v", err)
 	}

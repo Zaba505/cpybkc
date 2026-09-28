@@ -21,8 +21,10 @@ import (
 )
 
 // TestAPackageWithNoBinaryItemRefusesAnotherStaircase holds every entry point
-// of a package holding no binary item to the refusal the orders golden holds
-// its own to.
+// of a package holding no binary item that can be handed a staircase — the
+// record methods, through a caller's own codec.Reader and codec.Writer — to the
+// refusal the orders golden holds its own to. NewReader and NewWriter take no
+// option carrying one, so there is nothing for them to refuse.
 func TestAPackageWithNoBinaryItemRefusesAnotherStaircase(t *testing.T) {
 	t.Parallel()
 
@@ -47,12 +49,6 @@ func TestAPackageWithNoBinaryItemRefusesAnotherStaircase(t *testing.T) {
 			}
 		}
 	}
-
-	_, err := NewReader(bytes.NewReader(convertibleRun(t, Encoding())), enc)
-	assertRefused("NewReader", err)
-
-	_, err = NewWriter(&bytes.Buffer{}, enc)
-	assertRefused("NewWriter", err)
 
 	for name, rec := range map[string]interface {
 		codec.Unmarshaler

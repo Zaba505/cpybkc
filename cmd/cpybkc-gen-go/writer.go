@@ -126,39 +126,26 @@ func (f *filer) admitted(walks [][]transition) []transition {
 // emitNewWriter writes the constructor.
 func (f *filer) emitNewWriter(b *strings.Builder) {
 	line(b, "")
-	line(b, "// %s writes records into w under enc.", newWriterFunc)
-	line(b, "//")
-	line(b, "// The five axes are the caller's for the reason they are on [%s]: they are", newReaderFunc)
-	line(b, "// properties of the file being written rather than of this descriptor's items.")
+	f.emitConstructorDoc(b, newWriterFunc, "writes records into w", "writes", "written", "w, err := "+newWriterFunc+"(out",
+		fmt.Sprintf("It is the same re-expression [%s] makes, so the record this writer refuses to emit is the record a reader handed the same options would route elsewhere.", newReaderFunc))
 
-	if f.staircase {
-		line(b, "// The staircase is refused here where it is not [%s]'s, before any record", encodingFunc)
-		line(b, "// is written, exactly as [%s] refuses it.", newReaderFunc)
-	}
-
-	if f.compares || f.literals.arms {
-		line(b, "// Every literal this package compares is re-expressed under enc here, once,")
-		line(b, "// and refused here where no file under enc can hold it, exactly as [%s]", newReaderFunc)
-		line(b, "// does — so the record this writer refuses to emit is the record a reader")
-		line(b, "// under the same encoding would route elsewhere.")
-	}
-
-	line(b, "func %s(w io.Writer, enc codec.Encoding) (*%s, error) {", newWriterFunc, writerType)
+	line(b, "func %s(w io.Writer, opts ...%s) (*%s, error) {", newWriterFunc, optionType, writerType)
 	line(b, "if w == nil {")
 	line(b, "return nil, codec.ErrNilWriter")
 	line(b, "}")
 	line(b, "")
+	line(b, "enc := %s(opts)", encodingWithFunc)
+	line(b, "")
 	line(b, "// The one encoder this writer builds, over a buffer of no bytes until the")
 	line(b, "// first record is laid into it. Construction is what validates the")
-	line(b, "// encoding, and it reports the same error for the same axis that")
-	line(b, "// enc.Validate does, so nothing is checked twice here.")
+	line(b, "// encoding, and every option with it: it reports the same error for the")
+	line(b, "// same axis that enc.Validate does, so nothing is checked twice here.")
 	line(b, "cw, err := codec.NewBytesWriter(nil, enc)")
 	line(b, "if err != nil {")
 	line(b, "return nil, err")
 	line(b, "}")
 	line(b, "")
 
-	f.emitStaircaseRefusal(b, "written")
 	f.emitLiteralsFetch(b, "writer", "written")
 
 	line(b, "return &%s{", writerType)

@@ -122,7 +122,7 @@ func read(t *testing.T, in []byte) ([]Record, error) {
 func readUnder(t *testing.T, enc codec.Encoding, in []byte) ([]Record, error) {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), enc)
+	r, err := NewReader(bytes.NewReader(in), optionsOf(t, enc)...)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestACountedRunReadsAndWritesBackTheFileItWas(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestATableCountedByARegisterIsSizedByItAndCheckedAgainstIt(t *testing.T) {
 
 			var b bytes.Buffer
 
-			w, err := NewWriter(&b, Encoding())
+			w, err := NewWriter(&b)
 			if err != nil {
 				t.Fatalf("NewWriter: %v", err)
 			}
@@ -359,7 +359,7 @@ func TestAWriterRefusesARecordAGuardExcludes(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestAWriterEvaluatesAPredicateAndNeverInvertsOne(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -440,5 +440,27 @@ func TestADelimiterThatIsNotWhereTheExtentEndsIsReported(t *testing.T) {
 
 	if _, err := read(t, moved); err == nil {
 		t.Fatal("a delimiter that is not where the extent ends was read as a well-formed file")
+	}
+}
+
+// optionsOf is enc as the options a reader or a writer is built with: one per
+// axis a layout states, each set to enc's. The tests here describe an encoding
+// once, as the codec.Encoding the bytes they lay out are synthesized under, and
+// build the file-level reader and writer under the same four axes from it.
+//
+// The staircase has no option, so enc's has to be the descriptor's; one that is
+// not is a mistake in the test rather than an encoding to drop silently.
+func optionsOf(t *testing.T, enc codec.Encoding) []Option {
+	t.Helper()
+
+	if enc.Binary != Encoding().Binary {
+		t.Fatalf("no option carries the binary width staircase %s, and this package's is %s", enc.Binary, Encoding().Binary)
+	}
+
+	return []Option{
+		WithCharset(enc.Charset),
+		WithSignConvention(enc.Sign),
+		WithByteOrder(enc.ByteOrder),
+		WithFloatFormat(enc.Float),
 	}
 }

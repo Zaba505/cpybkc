@@ -40,7 +40,7 @@ func TestTwoTextRecords(t *testing.T) {
 		0xc2, 0xc2, 0xc2, 0xc2, // record 2: TEXT-NOTE @1 X(4)
 	}
 
-	r, err := signs.NewReader(bytes.NewReader(in), signs.Encoding())
+	r, err := signs.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestTwoTextRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := signs.NewWriter(&out, signs.Encoding())
+	w, err := signs.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestTwoPositiveRecords(t *testing.T) {
 		0xc2, 0xc2, 0xc2, 0xc2, // record 2: POSITIVE-NOTE @1 X(4)
 	}
 
-	r, err := signs.NewReader(bytes.NewReader(in), signs.Encoding())
+	r, err := signs.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestTwoPositiveRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := signs.NewWriter(&out, signs.Encoding())
+	w, err := signs.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestTwoNegativeRecords(t *testing.T) {
 		0xc2, 0xc2, 0xc2, 0xc2, // record 2: NEGATIVE-NOTE @1 X(4)
 	}
 
-	r, err := signs.NewReader(bytes.NewReader(in), signs.Encoding())
+	r, err := signs.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestTwoNegativeRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := signs.NewWriter(&out, signs.Encoding())
+	w, err := signs.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestTwoCountRecords(t *testing.T) {
 		0xc3, 0xc3, 0xc3, 0xc3, // record 2: COUNT-NOTE @2 X(4)
 	}
 
-	r, err := signs.NewReader(bytes.NewReader(in), signs.Encoding())
+	r, err := signs.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestTwoCountRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := signs.NewWriter(&out, signs.Encoding())
+	w, err := signs.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

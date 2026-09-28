@@ -214,7 +214,7 @@ func document(values *conformance.Values) error {
 // value language, and the records themselves, which are what the writing
 // direction is handed.
 func read(nodes map[uint64]*irpb.Node, records map[string]uint64, file []byte) (*conformance.Values, []corpus.Record, error) {
-	reader, err := corpus.NewReader(bytes.NewReader(file), corpus.Encoding())
+	reader, err := corpus.NewReader(bytes.NewReader(file))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -285,7 +285,7 @@ func read(nodes map[uint64]*irpb.Node, records map[string]uint64, file []byte) (
 func writeBack(nodes map[uint64]*irpb.Node, records map[string]uint64, held []corpus.Record) (*conformance.Values, error) {
 	var file bytes.Buffer
 
-	writer, err := corpus.NewWriter(&file, corpus.Encoding())
+	writer, err := corpus.NewWriter(&file)
 	if err != nil {
 		return nil, err
 	}

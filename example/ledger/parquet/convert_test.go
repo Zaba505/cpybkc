@@ -48,7 +48,7 @@ func ledgerBytes(t *testing.T, n int32, trlCount int32, trlNet int64) []byte {
 
 	var b bytes.Buffer
 
-	w, err := ledger.NewWriter(&b, ledger.Encoding())
+	w, err := ledger.NewWriter(&b)
 	if err != nil {
 		t.Fatalf("ledger.NewWriter: %v", err)
 	}
@@ -181,7 +181,7 @@ func converted(t *testing.T, n int32, trlCount int32, trlNet int64) ([]byte, err
 
 	raw := ledgerBytes(t, n, trlCount, trlNet)
 
-	r, rerr := ledger.NewReader(bytes.NewReader(raw), ledger.Encoding())
+	r, rerr := ledger.NewReader(bytes.NewReader(raw))
 	if rerr != nil {
 		t.Fatalf("ledger.NewReader: %v", rerr)
 	}

@@ -578,7 +578,7 @@ func run(args []string, stderr io.Writer) error {
 	// Close can report that a caller could act on.
 	defer func() { _ = src.Close() }()
 
-	r, err := policy.NewReader(src, policy.Encoding())
+	r, err := policy.NewReader(src)
 	if err != nil {
 		return err
 	}

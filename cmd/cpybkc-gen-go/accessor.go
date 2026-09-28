@@ -359,39 +359,50 @@ func (c *coder) profile(d *irpb.Descriptor) (string, error) {
 		return "", err
 	}
 
-	doc := commentLines(fmt.Sprintf(`%s is the byte-level interpretation of the files these records live in:
-the five axes as they were resolved — four the layout declared, and the binary
-width staircase the copybook's items were laid out under.
+	constructors := ""
+	if readsFiles(d) {
+		constructors = "\n\n" + wrapped(fmt.Sprintf(`It is what [%[1]s] and [%[2]s] build under when handed no [%[3]s], and each option replaces one of the four axes a layout states and no other.`, newReaderFunc, newWriterFunc, optionType))
+	}
 
-None of the five has a default and every one of them fails silently when
-wrong, so codec has no usable zero-value Reader and this function is how a
-caller states all five at once:
+	doc := commentLines(fmt.Sprintf(`%[1]s is the encoding the layout this package was generated from states for
+its files: the four byte axes it declares — charset, zoned sign convention,
+byte order and floating-point format — and the binary width staircase the
+copybook's items were laid out under.%[2]s
 
-	r, err := codec.NewReader(f, %s())
+It is also what a record's own methods are used with. They are codec's
+Unmarshaler and Marshaler, so a caller reading or writing one record at a time
+builds the codec.Reader or codec.Writer they are handed from it:
+
+	r, err := codec.NewReader(f, %[1]s())
+
+It is a default in a sense codec does not have one. codec knows nothing about
+the file, so none of the five has a default there, and every one of them fails
+silently when wrong. This package does know: the layout it was generated from
+states all four byte axes with no default for any, and resolve put the
+staircase into the descriptor. So what this returns is not a guess about the
+file — it is the one thing this package was generated from.
 
 Binary is the odd one. The other four say how a byte becomes a value; this one
 says how many bytes a COMP item is, which is a property of the compiler that
 wrote the file rather than of the copybook — PIC S9(2) COMP is two bytes under
 IBM Enterprise COBOL and one under GnuCOBOL's default. It is the staircase the
-offsets in these records were computed under, so changing it here does not
+offsets in these records were computed under, so changing it does not
 reinterpret the file, it describes a different one — and one this package
-refuses. A reader or a writer built under an Encoding whose Binary is not this
-one, and a record's own methods handed a codec.Reader or codec.Writer carrying
-one, refuse it before any byte is read or written, naming both staircases.
+refuses. No option replaces it, and a record's own methods handed a
+codec.Reader or codec.Writer carrying another refuse it before any byte is read
+or written, naming both staircases.
 
-It is a value a caller passes rather than one anything applies on its own. A
-file this descriptor describes that was converted to another character set is
-read by passing a different Encoding, not by regenerating: the four axes a
-layout states may each be replaced, and every literal this package compares a
-field against — a record's type code, an arm's, a guard's — is re-expressed
-under them once, before the first record is read or written, as a file under
-them spells it. An item whose charset is none carries bytes rather than
-characters, and its literals never move. A literal no file under the axes
-asked for can hold — a character the charset has no byte for, a sign byte in
-no column of the convention it was resolved under, a float the format cannot
-hold exactly, two literals that come to one byte string — is refused when the
-reader or writer is built, naming the literal, the item, the record and the
-axis. Binary, the staircase, is not one of the four.`, encodingFunc, encodingFunc))
+A file this descriptor describes that was converted to another character set is
+read under other axes, not by regenerating: the four axes a layout states may
+each be replaced, and every literal this package compares a field against — a
+record's type code, an arm's, a guard's — is re-expressed under them once,
+before the first record is read or written, as a file under them spells it. An
+item whose charset is none carries bytes rather than characters, and its
+literals never move. A literal no file under the axes asked for can hold — a
+character the charset has no byte for, a sign byte in no column of the
+convention it was resolved under, a float the format cannot hold exactly, two
+literals that come to one byte string — is refused when the reader or writer is
+built, naming the literal, the item, the record and the axis.`, encodingFunc, constructors))
 
 	return doc + fmt.Sprintf(`func %s() codec.Encoding {
 return codec.Encoding{

@@ -78,7 +78,7 @@ func segmented(raw []byte, sizes ...int) []byte {
 func read(t *testing.T, in []byte) []Record {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAWriterLaysARecordIntoAsFewSegmentsAsTheLargestAllows(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestASegmentDescriptorWordThatDisagreesWithTheExtentIsReported(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			r, err := NewReader(bytes.NewReader(in), Encoding())
+			r, err := NewReader(bytes.NewReader(in))
 			if err != nil {
 				t.Fatalf("NewReader: %v", err)
 			}
@@ -212,7 +212,7 @@ func TestSegmentsThatDoNotMakeOneRecordAreReported(t *testing.T) {
 	// A middle segment with nothing in front of it.
 	in := append([]byte{0, 12, 0x03, 0}, raw[:8]...)
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}

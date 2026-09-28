@@ -48,7 +48,7 @@ func TestALedgerHeaderThenALedgerTrailer(t *testing.T) {
 		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 2: FILLER @16 X(8)
 	}
 
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
+	r, err := ledger.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestALedgerHeaderThenALedgerTrailer(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
+	w, err := ledger.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer(t *testing.T) {
 		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 4: FILLER @16 X(8)
 	}
 
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
+	r, err := ledger.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestALedgerHeaderThenTwoDebitPostingsThenALedgerTrailer(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
+	w, err := ledger.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestALedgerHeaderThenTwoCreditPostingsThenALedgerTrailer(t *testing.T) {
 		0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 4: FILLER @16 X(8)
 	}
 
-	r, err := ledger.NewReader(bytes.NewReader(in), ledger.Encoding())
+	r, err := ledger.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestALedgerHeaderThenTwoCreditPostingsThenALedgerTrailer(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := ledger.NewWriter(&out, ledger.Encoding())
+	w, err := ledger.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

@@ -636,44 +636,80 @@ resolved IR and every byte is `codec`'s, which is the same arrangement
 Neither method chooses an `Encoding`. The character set, the zoned sign
 convention, the byte order, the floating-point format and the binary width
 staircase are properties of the *file in hand* rather than of an item, so
-`codec` carries them on the `Reader` and the `Writer` and the caller states them
-once:
+`codec` carries them on the `Reader` and the `Writer`, and a record's methods
+read and write under whichever one they are handed. `Encoding()` is generated
+from the descriptor, and it is what you build one from to use them yourself:
 
 ```go
 r, err := codec.NewReader(f, orders.Encoding())
 ```
 
-`Encoding()` is generated from the descriptor, so what it returns is what your
-layout declared and what `resolve` resolved. It is a value you pass rather than
-one anything applies on its own — the same records converted to another
-character set are read by passing a different `Encoding`, not by regenerating;
-see [Reading a converted file](#reading-a-converted-file) for what follows the
-encoding you pass and what is refused. A charset `codec` ships no table for is
-an **error** rather than a substitution: generating `cp037` for a descriptor
-naming `cp500` would read most of a file correctly and the bracket, currency and
-accent characters wrongly.
+The file-level reader and writer build their own, and **default to it**:
 
-`Binary` is the axis your layout does *not* declare, and it is the one worth
-knowing about. It is the width staircase your `COMP` items were compiled under —
-`PIC S9(2) COMP` is two bytes under IBM Enterprise COBOL and one under
-GnuCOBOL's default — so it is a property of the compiler that wrote the file
-rather than of the bytes, and `resolve` puts the staircase it laid your record
-out under into the descriptor for this function to read back
-([`ir/SPEC.md`](../../docs/ir/SPEC.md#a-binary-items-width-is-the-staircase-not-the-digits)).
-Passing a different one does not reinterpret the file: it describes a different
-one, because every offset behind the first `COMP` item moves with it — so the
-package **refuses** it. `NewReader` and `NewWriter` refuse an `Encoding` whose
-`Binary` is not `Encoding()`'s, and every record's `UnmarshalCOBOL` and
-`MarshalCOBOL` refuse a `codec.Reader` or `codec.Writer` carrying one, before
-any byte is read or written and naming both staircases. The check compares the
-two `codec.BinarySize` values and never the whole `Encoding`, so a `Charset` of
+```go
+r, err := orders.NewReader(f)                                   // the layout's encoding
+r, err := orders.NewReader(f, orders.WithCharset(codec.ASCII()),
+	orders.WithSignConvention(codec.SignTranslatedEBCDIC))      // a converted copy of the same file
+```
+
+`codec` has no default for any of the five, and that is right for `codec`: it
+knows nothing about the file, and every axis fails silently when wrong. A
+generated package does know. Your layout **must** state all four byte axes with
+no default for any ([`layout/SPEC.md`](../../docs/layout/SPEC.md)), and
+`resolve` puts the staircase into the descriptor, so what `Encoding()` returns is
+not a guess about the file — it is the one thing the package was generated
+from. So `NewReader` and `NewWriter` take options rather than an `Encoding`, and
+you name only what differs from your layout
+([#381](https://github.com/Zaba505/cpybkc/issues/381)):
+
+| Option | Replaces |
+|---|---|
+| `WithCharset(codec.Charset)` | the character set |
+| `WithSignConvention(codec.SignConvention)` | the zoned sign convention |
+| `WithByteOrder(binary.ByteOrder)` | the byte order of binary items |
+| `WithFloatFormat(codec.FloatFormat)` | the floating-point format |
+
+Each replaces its own axis and no other, and where two name the same axis the
+later one holds. They are one type, `Option`, taken by both constructors,
+because the axes are the same four in both directions; its only field is
+unexported, so an option comes from one of these four functions or it is the
+zero value, which replaces nothing. An option is **validated when the reader or
+writer is built**, like the encoding always was: an axis `codec` has no member
+for — a nil charset, a sign convention it does not name — is the error `codec`
+reports for that axis today, before any record is read or written. What follows
+an override, and what is refused under one, is
+[Reading a converted file](#reading-a-converted-file). A charset `codec` ships
+no table for is an **error** at generation rather than a substitution:
+generating `cp037` for a descriptor naming `cp500` would read most of a file
+correctly and the bracket, currency and accent characters wrongly.
+
+There are two options this package deliberately does **not** have.
+
+- **None for the binary width staircase.** `Binary` is the axis your layout does
+  *not* declare. It is the width staircase your `COMP` items were compiled under
+  — `PIC S9(2) COMP` is two bytes under IBM Enterprise COBOL and one under
+  GnuCOBOL's default — so it is a property of the compiler that wrote the file
+  rather than of the bytes, and `resolve` puts the staircase it laid your record
+  out under into the descriptor for `Encoding()` to read back
+  ([`ir/SPEC.md`](../../docs/ir/SPEC.md#a-binary-items-width-is-the-staircase-not-the-digits)).
+  A different one does not reinterpret the file: it describes a different one,
+  because every offset behind the first `COMP` item moves with it. It is not an
+  axis you may swap, and a constructor that cannot be handed one needs no
+  refusal for it.
+- **None replacing the whole `Encoding`.** It would carry a staircase, and bring
+  that refusal back at the file level.
+
+The staircase can still arrive one way, and it is refused there: every record's
+`UnmarshalCOBOL` and `MarshalCOBOL` refuse a `codec.Reader` or `codec.Writer` of
+yours carrying one that is not `Encoding()`'s, before any byte is read or
+written and naming both staircases. The check compares the two
+`codec.BinarySize` values and never the whole `Encoding`, so a `Charset` of
 yours that Go cannot compare does not make it panic, and it is made whether or
 not your copybook holds a binary item: the staircase is the descriptor's either
-way ([#382](https://github.com/Zaba505/cpybkc/issues/382)). A
-staircase `codec` has no member for is an error rather than a substitution, for
-the same reason a charset is and with a worse failure — a wrong staircase leaves
-every field behind that item at the wrong offset, and nothing in the record
-disagrees.
+way ([#382](https://github.com/Zaba505/cpybkc/issues/382)). A staircase `codec`
+has no member for is an error rather than a substitution, for the same reason a
+charset is and with a worse failure — a wrong staircase leaves every field
+behind that item at the wrong offset, and nothing in the record disagrees.
 
 Items whose descriptor gives them **all five** axes are what `Encoding()` is
 read off, and they have to agree: `codec` carries one `Encoding` per `Reader`,
@@ -690,24 +726,28 @@ any other item's and are held to the agreement, because an `encoding-override`
 may name a **group**, and a group holds packed and binary items whose sign and
 byte order are read whatever the charset says. A descriptor **no** item of which states a charset
 states nothing about the file at all, and no `Encoding()` is generated for it;
-you pass your own, exactly as you would for a descriptor holding no item.
+you pass your own to `codec`, exactly as you would for a descriptor holding no
+item. Where such a descriptor describes a file, `NewReader` and `NewWriter`
+default to the four axes its items do state — the sign convention, the byte
+order, the float format and the staircase — and to no charset, which is the one
+the layout left to nothing: you name one with `WithCharset`, and `codec` reports
+it missing until you do.
 
 ### Reading a converted file
 
 A dataset read as the mainframe wrote it and the extract a transfer converted to
 ASCII are one file twice: the same records in the same order, told apart by the
 same fields, with the characters rewritten. So the four axes your layout states
-— charset, sign convention, byte order and float format — may each be replaced
-in the `Encoding` you hand `NewReader`, `NewWriter` or a record's own methods,
-and the package reads and writes the file under them
+— charset, sign convention, byte order and float format — may each be replaced,
+with an option to `NewReader` or `NewWriter` or in the `Encoding` you build a
+`codec.Reader` or `codec.Writer` from for a record's own methods, and the
+package reads and writes the file under them
 ([`ir/SPEC.md`](../../docs/ir/SPEC.md#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares)):
 
 ```go
-enc := ledger.Encoding()
-enc.Charset = codec.ASCII()
-enc.Sign = codec.SignTranslatedEBCDIC
-
-r, err := ledger.NewReader(f, enc)
+r, err := ledger.NewReader(f,
+	ledger.WithCharset(codec.ASCII()),
+	ledger.WithSignConvention(codec.SignTranslatedEBCDIC))
 ```
 
 **What follows the encoding.** Every literal the package compares a field
@@ -834,7 +874,7 @@ emitted as Go, so what you read is the walk your layout describes rather than an
 engine with your descriptor inside it.
 
 ```go
-r, err := orders.NewReader(f, orders.Encoding())
+r, err := orders.NewReader(f)
 
 for {
 	rec, err := r.Next()
@@ -860,15 +900,18 @@ told apart with `errors.Is` rather than by reading the message.
 and `codec.Marshaler` together rather than a method this generator invented —
 every record type here already implements both, and a marker method would be an
 identifier neither your copybook nor your layout wrote. `Reader`, `Writer`,
-`Record`, `NewReader` and `NewWriter` are the five identifiers this file
-occupies at package scope, and a record whose name munges to one of them is a
-**collision** and an error, exactly as two items that munge alike are.
+`Record`, `NewReader` and `NewWriter`, and the constructors' `Option`,
+`WithCharset`, `WithSignConvention`, `WithByteOrder` and `WithFloatFormat`, are
+the identifiers this file occupies at package scope, and a record whose name
+munges to one of them — a record called `OPTION` or `WITH-CHARSET` — is a
+**collision** and an error naming both, exactly as two items that munge alike
+are. Rename the record in your layout.
 
 Writing is the same walk in the other direction, and it ends with a `Close` that
 is not the file's:
 
 ```go
-w, err := orders.NewWriter(f, orders.Encoding())
+w, err := orders.NewWriter(f)
 
 for _, rec := range records {
 	if err := w.Write(rec); err != nil {
@@ -1038,7 +1081,7 @@ right answer is a property of the run.
 who wants bigger reads hands it one that is already buffered:
 
 ```go
-r, err := ledger.NewReader(bufio.NewReaderSize(f, 1<<20), ledger.Encoding())
+r, err := ledger.NewReader(bufio.NewReaderSize(f, 1<<20))
 ```
 
 There is no second buffer in that, and no extra copy per fill:

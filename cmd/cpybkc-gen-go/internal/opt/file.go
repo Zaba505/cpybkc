@@ -5,6 +5,7 @@ package opt
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/Zaba505/cobol-go/codec"
@@ -49,8 +50,83 @@ var delimiter = []byte("\x15")
 // rather than wrapping it a second time, so the file is read in its bites and
 // not in these.
 //
-//	r, err := NewReader(bufio.NewReaderSize(f, 1<<20), Encoding())
+//	r, err := NewReader(bufio.NewReaderSize(f, 1<<20))
 const readAhead = 4096
+
+// Option replaces one axis of the encoding a [Reader] or a [Writer] is built
+// under. Handed none, [NewReader] and [NewWriter] build under [Encoding], the
+// layout's own encoding. Each option replaces the axis it names and no other,
+// and where two name the same axis the later one holds.
+//
+// There is one per axis a layout states — [WithCharset],
+// [WithSignConvention], [WithByteOrder] and [WithFloatFormat] — and nothing
+// else is one. The binary width staircase has none: every offset this package
+// slices at was computed under the descriptor's, so another does not read this
+// file another way, it describes a different one. Nor is there one replacing
+// the whole encoding, which would carry a staircase with it.
+//
+// Its zero value replaces nothing.
+type Option struct {
+	apply func(*codec.Encoding)
+}
+
+// WithCharset reads or writes the file under charset rather than the charset
+// the layout states: the same records, converted to another character set.
+// Every literal this package compares a text item against is re-expressed
+// under it when the reader or the writer is built.
+//
+// It is validated when the reader or the writer is built, and a value codec
+// has no member for is refused there with the error codec reports for the
+// axis.
+func WithCharset(charset codec.Charset) Option {
+	return Option{apply: func(enc *codec.Encoding) { enc.Charset = charset }}
+}
+
+// WithSignConvention reads or writes the file's zoned items under sign rather
+// than the sign convention the layout states — what a transfer that rewrote
+// the characters of a sign byte leaves behind.
+//
+// It is validated when the reader or the writer is built, and a value codec
+// has no member for is refused there with the error codec reports for the
+// axis.
+func WithSignConvention(sign codec.SignConvention) Option {
+	return Option{apply: func(enc *codec.Encoding) { enc.Sign = sign }}
+}
+
+// WithByteOrder reads or writes the file's binary items in order rather than
+// the byte order the layout states.
+//
+// It is validated when the reader or the writer is built, and a value codec
+// has no member for is refused there with the error codec reports for the
+// axis.
+func WithByteOrder(order binary.ByteOrder) Option {
+	return Option{apply: func(enc *codec.Encoding) { enc.ByteOrder = order }}
+}
+
+// WithFloatFormat reads or writes the file's floating-point items in format
+// rather than the floating-point format the layout states.
+//
+// It is validated when the reader or the writer is built, and a value codec
+// has no member for is refused there with the error codec reports for the
+// axis.
+func WithFloatFormat(format codec.FloatFormat) Option {
+	return Option{apply: func(enc *codec.Encoding) { enc.Float = format }}
+}
+
+// encodingWith is the encoding a reader or a writer handed opts is built
+// under: [Encoding], with each option's axis replaced in the order they were
+// handed.
+func encodingWith(opts []Option) codec.Encoding {
+	enc := Encoding()
+
+	for _, opt := range opts {
+		if opt.apply != nil {
+			opt.apply(&enc)
+		}
+	}
+
+	return enc
+}
 
 // Reader reads the records of one file, walking the automaton this descriptor
 // carries.
@@ -96,19 +172,21 @@ type Reader struct {
 	done bool
 }
 
-// NewReader reads the records of r under enc.
+// NewReader reads the records of r under [Encoding], the layout's own
+// encoding, with each of opts replacing the axis it names. Handed no option,
+// it reads the file the layout describes:
 //
-// Neither the charset, the zoned sign convention, the byte order, the
-// floating-point format nor the binary width staircase is chosen here. They are
-// properties of the file in hand rather than of this descriptor's items, so the
-// caller states all five at once — [Encoding] is what this descriptor resolved,
-// and a file of these records converted to another character set is read by
-// passing a different one.
+//	r, err := NewReader(f)
 //
-// The staircase is the one of the five that is not the caller's to replace.
-// Every offset this package slices at was computed under [Encoding]'s, so an
-// enc carrying another describes a different file, and it is refused here,
-// naming both staircases, before any record is read.
+// A copy of that file converted to another character set holds the same
+// records, and is read by naming the axes the conversion rewrote:
+//
+//	r, err := NewReader(f, WithCharset(codec.ASCII()), WithSignConvention(codec.SignTranslatedEBCDIC))
+//
+// Each option is validated here, before any record is read: a value codec has
+// no member for is refused with the error codec reports for its axis. The
+// binary width staircase is not among them — every offset this package
+// slices at was computed under the descriptor's, and no [Option] replaces it.
 //
 // Reads are buffered: r is wrapped in a bufio.Reader of readAhead bytes, which is
 // bufio's own default wherever this file's predicates fit inside it. Where a
@@ -116,26 +194,22 @@ type Reader struct {
 // file reads — hand this an r that is already buffered to at least that size and
 // bufio hands it back rather than wrapping it again:
 //
-//	NewReader(bufio.NewReaderSize(f, 1<<20), Encoding())
-func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
+//	NewReader(bufio.NewReaderSize(f, 1<<20))
+func NewReader(r io.Reader, opts ...Option) (*Reader, error) {
 	if r == nil {
 		return nil, codec.ErrNilReader
 	}
 
+	enc := encodingWith(opts)
+
 	// The one decoder this reader builds, over no bytes until [Reader.admit]
 	// rewinds it onto the input.
 	//
-	// Construction is what validates the encoding, and it reports the same error
-	// for the same axis that enc.Validate does, so nothing is checked twice here.
+	// Construction is what validates the encoding, and every option with it: it
+	// reports the same error for the same axis that enc.Validate does, so nothing
+	// is checked twice here.
 	cr, err := codec.NewBytesReader(nil, enc)
 	if err != nil {
-		return nil, err
-	}
-
-	// Every offset this package slices at was computed under the descriptor's
-	// binary width staircase, so an enc carrying another is refused here, before
-	// any record is read, rather than read at offsets nothing here computed.
-	if err = refuseStaircase(enc.Binary); err != nil {
 		return nil, err
 	}
 
@@ -338,30 +412,34 @@ type Writer struct {
 	ordinal int
 }
 
-// NewWriter writes records into w under enc.
+// NewWriter writes records into w under [Encoding], the layout's own encoding,
+// with each of opts replacing the axis it names. Handed no option, it writes
+// the file the layout describes:
 //
-// The five axes are the caller's for the reason they are on [NewReader]: they are
-// properties of the file being written rather than of this descriptor's items.
-// The staircase is refused here where it is not [Encoding]'s, before any record
-// is written, exactly as [NewReader] refuses it.
-func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
+//	w, err := NewWriter(out)
+//
+// A copy of that file converted to another character set holds the same
+// records, and is written by naming the axes the conversion rewrote:
+//
+//	w, err := NewWriter(out, WithCharset(codec.ASCII()), WithSignConvention(codec.SignTranslatedEBCDIC))
+//
+// Each option is validated here, before any record is written: a value codec
+// has no member for is refused with the error codec reports for its axis. The
+// binary width staircase is not among them — every offset this package
+// slices at was computed under the descriptor's, and no [Option] replaces it.
+func NewWriter(w io.Writer, opts ...Option) (*Writer, error) {
 	if w == nil {
 		return nil, codec.ErrNilWriter
 	}
 
+	enc := encodingWith(opts)
+
 	// The one encoder this writer builds, over a buffer of no bytes until the
 	// first record is laid into it. Construction is what validates the
-	// encoding, and it reports the same error for the same axis that
-	// enc.Validate does, so nothing is checked twice here.
+	// encoding, and every option with it: it reports the same error for the
+	// same axis that enc.Validate does, so nothing is checked twice here.
 	cw, err := codec.NewBytesWriter(nil, enc)
 	if err != nil {
-		return nil, err
-	}
-
-	// Every offset this package slices at was computed under the descriptor's
-	// binary width staircase, so an enc carrying another is refused here, before
-	// any record is written, rather than written at offsets nothing here computed.
-	if err = refuseStaircase(enc.Binary); err != nil {
 		return nil, err
 	}
 

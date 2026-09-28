@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -629,6 +630,57 @@ func TestARecordMungingToTheReadersOwnNameIsRefused(t *testing.T) {
 
 			if !strings.Contains(err.Error(), "file-level reader and writer") {
 				t.Errorf("the refusal reads %q and does not say what it collides with", err)
+			}
+		})
+	}
+}
+
+// TestARecordMungingToAnOptionsNameIsRefused is the same rule over the
+// identifiers the constructors' options occupy, one case per identifier: the
+// option type and the function for each of the four axes a layout states. Each
+// is exported, so a copybook record called OPTION or WITH-CHARSET munges to it,
+// and the refusal names both the record and the identifier so that the adopter
+// renames the record in their layout.
+func TestARecordMungingToAnOptionsNameIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for name, identifier := range map[string]string{
+		"OPTION":               optionType,
+		"WITH-CHARSET":         withCharsetFunc,
+		"WITH-SIGN-CONVENTION": withSignFunc,
+		"WITH-BYTE-ORDER":      withByteOrderFunc,
+		"WITH-FLOAT-FORMAT":    withFloatFunc,
+		"NEW-READER":           newReaderFunc,
+		"NEW-WRITER":           newWriterFunc,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			nodes := withNodes(func(nodes []*irpb.Node) []*irpb.Node {
+				for _, node := range nodes {
+					if node.GetId() == 100 {
+						node.GetRecord().GetNames().Original = name
+					}
+				}
+
+				return nodes
+			})
+
+			_, err := fileMachine(&irpb.Descriptor{Version: supportedIRVersion, Nodes: nodes}, options{packageName: "counted", importPath: goldenModule + "internal/counted"})
+
+			var collision *collisionError
+			if !errors.As(err, &collision) {
+				t.Fatalf("a record called %s was emitted beside %s, returning %v", name, identifier, err)
+			}
+
+			if collision.Go != identifier {
+				t.Errorf("the collision is about %s, want %s", collision.Go, identifier)
+			}
+
+			for _, want := range []string{name, identifier, "file-level reader and writer"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal reads %q and does not say %q", err, want)
+				}
 			}
 		})
 	}

@@ -54,7 +54,7 @@ func lineBytes(t *testing.T, text string) []byte {
 func read(t *testing.T, in []byte) ([]Record, error) {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestASeparatedFileRoundTrips(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

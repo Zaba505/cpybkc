@@ -617,9 +617,10 @@ another is reported rather than picked between.`
 //
 // First in the method, ahead of the literals and of anything read or written,
 // for the reason [coder.literalsOf] is: a record method is handed an encoding
-// rather than built under one, and this is its half of the refusal
-// NewReader and NewWriter make. It is made for every record, binary items or
-// none, because the staircase is the descriptor's whatever the record holds.
+// rather than built under one, and it is the one route by which a staircase
+// can still reach this package: NewReader and NewWriter take no option carrying
+// one, so they have nothing to refuse. It is made for every record, binary items
+// or none, because the staircase is the descriptor's whatever the record holds.
 func (c *coder) staircaseOf(rw string) string {
 	if !c.staircase {
 		return ""
