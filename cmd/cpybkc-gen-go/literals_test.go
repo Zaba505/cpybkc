@@ -345,3 +345,34 @@ func TestALiteralNoAxisReachesIsNeverReExpressed(t *testing.T) {
 		t.Errorf("literalsFor does not hand back the literals as resolved under every encoding:\n%s", source)
 	}
 }
+
+// TestAGuardOverARegisterNoItemFillsIsGatheredRatherThanPanicking is the
+// register no binding fills from an item — a descriptor reading it is one the
+// generated reader reports as unbound at run time, and not one this gathering
+// gets to crash on. Its literals are gathered against no item, which is the
+// one reading that moves nothing: with no item there is no axis that reaches
+// one.
+func TestAGuardOverARegisterNoItemFillsIsGatheredRatherThanPanicking(t *testing.T) {
+	t.Parallel()
+
+	d := countedDescriptor()
+	d.Nodes = slices.DeleteFunc(d.Nodes, func(node *irpb.Node) bool { return node.GetId() == 41 })
+
+	lits, err := gatherLiterals(d)
+	if err != nil {
+		t.Fatalf("gatherLiterals: %v", err)
+	}
+
+	one, err := lits.ofGuard([]byte("\xe8"), 21)
+	if err != nil {
+		t.Fatalf("the guard's literal was not gathered: %v", err)
+	}
+
+	if one.field != nil || one.moves != stays {
+		t.Errorf("a literal over a register no item fills is compared against %v and moves %d", one.field, one.moves)
+	}
+
+	if got := itemOf(one); got != "a register no binding fills from an item" {
+		t.Errorf("a refusal would name the item %q", got)
+	}
+}

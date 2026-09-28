@@ -254,6 +254,12 @@ func gatherLiterals(d *irpb.Descriptor) (*literalTable, error) {
 				values = test.OneOf.GetValues()
 			}
 
+			// nil where no binding fills the register from an item. That is
+			// a descriptor the generated reader reports as reading an unbound
+			// register, not one to refuse here, and the literal is gathered
+			// against no item: protobuf's getters answer a nil node with zero
+			// values, so it keys on node zero and moves nothing, which is right
+			// for a literal no axis-bearing item stands behind.
 			field := t.source[kind.Guard.GetRegisterId()]
 
 			for _, value := range values {
