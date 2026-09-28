@@ -1699,15 +1699,38 @@ against:
 
 All three resolutions are `resolve`'s, and that is the split this document is
 built on: a layout says which *value* tells the record apart, and the IR carries
-the *bytes* a consumer compares. An adopter writing `"01"` on a `PIC X(2)` field
-of an EBCDIC file has said something true about their data; working out that it
-is `F0 F1` needs the charset, the width and the padding rule, and every one of
-those is COBOL knowledge a generator must never have to hold.
+the *bytes* a consumer compares — the bytes a file under this layout's own
+encoding holds there. An adopter writing `"01"` on a `PIC X(2)` field of an
+EBCDIC file has said something true about their data; working out that it is
+`F0 F1` needs the charset, the width and the padding rule. The width and the
+padding rule are COBOL knowledge — which items pad, on which side, and what a
+literal shorter than its item means — and a generator must never have to hold
+it: it arrives applied.
+
+What a generator may still do is carry those bytes onto the same records held
+under other axes — the extract a transfer converted to ASCII, say — and a
+generator offering that re-expresses each literal once, before it reads a record
+([`ir/SPEC.md`](../ir/SPEC.md#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares),
+#379). That is not the knowledge the sentence above keeps from it. Re-expression
+moves a byte from one code page to another, reads a sign byte's column in
+`codec/SPEC.md`'s table, reverses a binary item's bytes or re-encodes a float:
+facts about bytes under an encoding, which a generator already holds to read any
+field at all. It applies no comparison rule of COBOL's, because the padding it
+would have needed is already in the literal and a space re-expresses as a space.
 
 A byte string is there for the field whose value is not text and not a number —
 a flag byte carrying a bit pattern — and for the adopter who has a hex dump and
-no PICTURE they trust. It is the one spelling that says exactly what is in the
-file, and it is the one spelling that is wrong if the file is converted.
+no PICTURE they trust. It says exactly what is in the file under this layout's
+encoding, which is what every literal says once resolved: the IR does not record
+how a literal was spelled, so a consumer reading under other axes re-expresses a
+byte string by its field's axes like any other, and is not wrong about a
+converted file for having been given one. A flag byte in a text item is carried
+through the charset with the text around it, as the transfer that rewrote the
+file carried it. The item whose bytes a transfer left alone is the one to
+declare with `(charset none)` ([A byte is not a character, and such an item has
+no charset](#a-byte-is-not-a-character-and-such-an-item-has-no-charset)), and a
+literal compared against it is never re-expressed, since nothing about that
+item's bytes is.
 
 A literal wider than the item it is compared against is a diagnostic naming
 both. A literal narrower is padded under the first two spellings and is a
@@ -2529,7 +2552,7 @@ and neither is a second profile.
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
 | [Physical framing](#physical-framing) | #26 `layout` |
 | [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
-| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341 |
+| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout` |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |

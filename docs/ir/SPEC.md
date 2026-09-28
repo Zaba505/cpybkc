@@ -360,6 +360,10 @@ file's](../layout/SPEC.md#the-binary-width-staircase-is-the-compilers-not-the-fi
 What this document requires is only that whatever was resolved under is *said*,
 so that a consumer never has to assume.
 
+Once said, it is the one axis of the five a consumer reading under other axes
+may not replace ([The staircase is not an axis a consumer may
+replace](#the-staircase-is-not-an-axis-a-consumer-may-replace), #379).
+
 Two cheaper arrangements were available and neither is enough (#293).
 
 A **constant at the generator**, matching the dialect the producer happens to
@@ -2019,6 +2023,241 @@ it remembered the rule; a consumer handed this value has a translation it could
 apply and would be wrong to. After the first release, a member added to this set
 — or to any other — is breaking, and the version moves.
 
+### A consumer may read under other axes, and re-expresses what it compares
+
+Every literal a consumer compares — a predicate's, on a transition or on an arm,
+and a guard's over a bytes register — is carried as the bytes a file under the
+target field's **resolved** axes holds there ([Discriminator
+predicates](#discriminator-predicates), [The automaton remembers, in
+registers](#the-automaton-remembers-in-registers)). That is the descriptor's
+statement about the file its layout describes, and it is all a consumer reading
+that file needs.
+
+The same records are routinely held under other axes. A dataset read as the
+mainframe wrote it and the extract a transfer converted to ASCII are one file
+twice: the same records in the same order, told apart by the same fields, with
+the characters rewritten
+([`layout/SPEC.md`](../layout/SPEC.md#appendix-a-converted-file-end-to-end)). A
+consumer **MAY** read and write a field under axes other than its resolved ones
+— its **read axes** — and a consumer that does **MUST** compare every literal it
+compares against that field as a file under the read axes spells it,
+re-expressed by the rules in this section and the three after it (#379, #380,
+#383). Comparing the resolved bytes instead is not a smaller version of the
+feature. It refuses the first record of every file that tells records apart, and
+where a literal's bytes are also bytes of the other charset it matches the wrong
+records in silence: `0x40` is a space in cp037 and `@` in ASCII.
+
+**What a read axis is.** The read axes of a field are its resolved axes with one
+or more of the four a layout states — charset, sign convention, byte order,
+float format — replaced. They are what a consumer's caller states, and how a
+caller states them — once for the file, per field, or as a map from one value of
+an axis to another — is the consumer's, as [a generated writer's
+API](#also-out-of-scope) is. Two things are not the caller's to state, and a
+consumer **MUST NOT** offer either. One is the fifth axis, which [The staircase
+is not an axis a consumer may
+replace](#the-staircase-is-not-an-axis-a-consumer-may-replace) refuses. The
+other is a charset for a field whose resolved charset is none: [An item with no
+charset carries bytes, not
+characters](#an-item-with-no-charset-carries-bytes-not-characters) holds under
+the read axes exactly as it does under the resolved ones, because that field's
+bytes are a payload under any axes. A charset replaced for the file reaches
+every field but that one, and that field's literals are never re-expressed.
+
+A read axis is not a default in the sense [The encoding profile,
+applied](#the-encoding-profile-applied) forbids. The resolved axes are still
+carried, still set and still required — re-expressing a literal needs both ends
+of the move — and a read axis replaces a value that was stated rather than
+filling one that was not.
+
+**Once, and before the first record.** A literal's re-expression depends on the
+literal, its field and the two sets of axes, and on nothing a record holds. A
+consumer **MUST** therefore re-express every literal it compares before it reads
+or writes the first record under the read axes — when it builds a reader or a
+writer, where it has such a moment — and **MUST NOT** re-express one per record.
+The comparison stays a comparison of bytes, whole and over the target's full
+width, exactly as the resolved one is: no axis a caller may replace changes a
+field's width, so a re-expressed literal is still the target's width, and the
+padding the producer applied arrives as the read charset's own space.
+
+**Where nothing moves, nothing is re-expressed.** A literal is re-expressed only
+through the axes that govern its field's bytes, and which axes those are is
+`codec/SPEC.md`'s answer: charset does not touch packed decimal, and byte order
+touches only binary. Where the read axes agree with the resolved ones on every
+axis governing a field, that field's literals **MUST** be carried unchanged and
+**MUST NOT** be refused on their own account, whatever they hold. A packed,
+`COMP-6` or binary literal therefore survives a charset change untouched, a text
+literal survives a byte-order change untouched, and no literal is refused over
+an axis that does not reach it. A refusal raised over a literal whose bytes had
+not moved would be the swap that works for one layout and fails for the next,
+which is the outcome this section exists to rule out. The same holds where an
+axis governing a field does change and a literal comes out as the bytes it went
+in as — `"01"` between cp037 and cp1047, which agree on every digit: every
+refusal below is of a literal with no spelling under the read axes, and that one
+has one.
+
+Nor does re-expression reach anything but a literal. A delimiter is bytes the
+file holds rather than a field's, and carries no axis ([A delimiter is bytes,
+not a character](#a-delimiter-is-bytes-not-a-character)); slack is retained, not
+reconstructed ([Slack survives a read](#slack-survives-a-read)). An integer
+register holds a number rather than bytes, decoded from its source field under
+whatever axes the consumer reads that field with, and its one test — greater
+than zero — carries no literal.
+
+A writer is a consumer like any other here. The axes it writes a field under are
+its read axes, and it evaluates predicates and guards against the same
+re-expressed literals a reader under those axes compares ([A writer evaluates a
+predicate, it never inverts
+one](#a-writer-evaluates-a-predicate-it-never-inverts-one)), so the record it
+refuses to emit is the record that reader would route elsewhere.
+
+### Each axis carries a literal the way a file crosses it
+
+The obvious mechanism is to decode a literal to a value under the resolved axes
+and encode that value under the read ones, and it is wrong. A signed zoned item
+under cp037 and `ebcdic` signs reads both `F5` and `C5` as +5: `F` is the zone a
+writer puts on an unsigned item and `C` the one it puts on a positive signed
+one, and a reader takes either. Encoded under `ascii` and `translated-ebcdic`,
++5 is `45`, which is `E`. A copybook-aware transfer to ASCII, though, rewrites
+each byte through the two code pages, and sends `F5` to `35` and `C5` to `45` —
+two bytes, because they were two bytes before. Re-expressed by value, a literal
+of `F5` would ask for `E` where the converted file holds `5`, and a **bytes one
+of** holding both would collapse into one literal and could meet a predicate
+`resolve` proved it apart from. A value is coarser than what the file carries,
+and going through one loses exactly what a real file keeps.
+
+What decides the mechanism is how a file comes to be under other axes, and that
+is not the same for every axis. A **charset** changes when a file is moved —
+transferred, converted, copied off a dataset — and a move rewrites bytes one at
+a time, keeping each character. A **byte order** or a **float format** is never
+changed by a move: nothing a transfer does converts one, and a file under
+another one was *written* under it, by a program encoding the same values its
+own way. A **sign convention** changes both ways — `translated-ebcdic` is what a
+move makes of `ebcdic`, and `ascii-zone-37` is what a program writes natively —
+and its tables are what reconcile the two. So each axis re-expresses a literal
+the way a file crosses it:
+
+| Axis | Governs, per `codec/SPEC.md` | A literal is re-expressed |
+|---|---|---|
+| charset | every byte of an alphanumeric, alphabetic or edited item; every digit byte of a zoned item; a separate sign byte | byte by byte: each byte is decoded to the character it spells under the resolved charset, and encoded as the byte spelling that character under the read one |
+| sign convention | the byte of a signed zoned item that carries an overpunched sign, wherever the field's sign position puts it | by the byte's **column**: its digit, and whether the resolved convention's table spells it as positive, negative or unsigned, encoded as the byte the read convention's table spells for that digit in that column |
+| byte order | a binary item — `COMP`, `COMP-4`, `BINARY`, `COMP-5` | by value: the integer its bytes hold under the resolved order, encoded under the read one — which, the width being fixed, is the same bytes reversed |
+| float format | a floating-point item — `COMP-1`, `COMP-2` | by value: the number its bytes hold under the resolved format, encoded under the read one |
+
+`codec/SPEC.md`'s *Zoned Sign Conventions* is the table the second row reads,
+and it is cited rather than restated. Worked through on the case above: `F5` on
+the sign byte is digit 5 in `ebcdic`'s unsigned column, which
+`translated-ebcdic` spells `35`, and `C5` is digit 5 in the positive column,
+which it spells `45`. The rule lands on the two bytes the transfer wrote, and it
+lands there from the tables rather than from a transfer, so it lands the same
+way on a file no transfer produced. Into `ascii-zone-37`, whose table spells
+digit 5 as `35` in both the positive and the unsigned column, `F5` and `C5` both
+become `35` — which is what a program writing that convention puts in its file
+for either. That is a real loss of distinctness, and it is why overlap is
+re-checked rather than inherited ([What cannot be re-expressed is refused before
+any record is
+read](#what-cannot-be-re-expressed-is-refused-before-any-record-is-read)). Where
+the *resolved* convention is the one spelling two columns with one byte — zone
+`3` in `ascii-zone-37` and in `realia` — the byte is read as positive, which is
+what a writer under that convention means by it on a signed item.
+
+The charset row and the sign row do not compete for a byte. The sign-carrying
+byte of a signed zoned item is the sign convention's, whose table spells the
+whole byte; every other byte of that item, and every byte of an unsigned one, is
+a digit and is the charset's. A zoned literal is therefore re-expressed a byte
+at a time too, and a byte that is not a digit — a space in a numeric field that
+a file leaves blank — is carried as the character it is, as a transfer would
+carry it.
+
+Byte order and float format go by value because the file under the read axes was
+encoded from values. For byte order the two readings agree anyway — reversing a
+fixed number of bytes is exact for every bit pattern, including one the item's
+PICTURE does not admit — so it is the one axis on which re-expression can never
+fail. For float format they do not agree, because `hfp` spells one value more
+than one way and the program that wrote the file under the read format wrote its
+own spelling; by value is the only reading of what that file holds.
+
+### The staircase is not an axis a consumer may replace
+
+The binary width staircase is carried as the fifth axis, and it is the one a
+consumer **MUST NOT** read or write under any value but the descriptor's. It is
+not a property of the bytes, as the other four are. It is the decision every
+width in the descriptor was computed under, and so every position: [A binary
+item's width is the staircase, not the
+digits](#a-binary-items-width-is-the-staircase-not-the-digits) calls the widths
+and the axis one decision stated twice. A consumer reading under another
+staircase would be reading with one half of that decision and slicing with the
+other — decoding a binary item from a number of bytes the descriptor did not
+give it, and every field behind it from a position the descriptor did not
+compute. There is no literal to re-express in that. It is a different file, and
+the descriptor for it is the one a producer resolves under that staircase.
+
+So a consumer **MUST NOT** offer the staircase as something its caller may
+state. Where one can arrive regardless — a caller's own decoder, handed in with
+an encoding on it — the consumer **MUST** refuse a staircase that is not the
+descriptor's before it reads or writes a record, naming both and saying that the
+descriptor's positions were computed under its own. The refusal **MUST** hold
+for every descriptor, including one that carries no binary item: the staircase
+is the descriptor's whether or not an item reaches it, and a refusal that fired
+for a copybook holding a `COMP` item and not for one without would be a rule
+depending on what the copybook holds (#379, #382).
+
+### What cannot be re-expressed is refused before any record is read
+
+Re-expression is total on byte order, and on the other three it fails in a
+closed set of ways. A consumer **MUST** refuse each of them, and **MUST** do so
+when it re-expresses — before any record is read or written under the read axes
+— rather than at the record that would first have needed the literal:
+
+- **A character the read charset has no byte for.** A literal is decoded through
+  one code page, which is total, and encoded through another, which need not be:
+  `€` is `0x9F` in cp1140 and has no byte in cp037, nor in `ascii`, which
+  `codec` makes the identity over the code points `U+0000` to `U+00FF` and
+  nothing beyond.
+- **A sign byte in no column of the resolved convention**, where the sign
+  convention changes. It is a byte the field's own axes do not read as a digit
+  with a sign — a zone `codec/SPEC.md`'s *Lenient reading* admits under `ebcdic`
+  and no writer emits, `A`, `B` or `E`, or no sign at all — so it has no column
+  to keep, and no convention's table spells a byte for it.
+- **A number the read float format cannot hold exactly.** `hfp` has no infinity
+  and no NaN, and the two formats' ranges and precisions each exceed the other's
+  somewhere. A literal rounded to the nearest number the read format holds would
+  ask for a value no record under the read axes carries there.
+
+A refusal **MUST** name the literal, the field it is compared against, the
+record holding that field and the axis, and **MUST** say that the literal cannot
+occur in a file under the read axes: no file under those axes holds that value
+in that field, so no record in one could be told apart by it. It **MUST NOT** be
+worded or raised as a fault in a file's data. The adopter meeting it has made no
+mistake in their data and none in their layout; they have asked for axes under
+which the layout's own distinction cannot be written down, and the message is
+where they learn that, rather than where they start looking for a corrupt
+record.
+
+**Overlap is re-checked, not inherited.** `resolve` proved a descriptor's
+literals apart under its resolved axes ([When two match, and when none
+does](#when-two-match-and-when-none-does)), and re-expression carries that proof
+across two axes and not across the other two. A code page is a bijection over
+its bytes, so two distinct characters stay two distinct bytes, and reversing
+bytes is a bijection too. But a convention may spell two columns with one byte,
+as `ascii-zone-37` does positive and unsigned, and `hfp` spells one value more
+than one way; and a proof that rested on a byte domain rested on the resolved
+charset's digits, which are not the read charset's. So a consumer **MUST** hold
+the literals it has re-expressed to [When two match, and when none
+does](#when-two-match-and-when-none-does)'s rule again, for transitions leaving
+one state and for arms of one variant, guards included and byte domains taken
+under the read axes. It **MUST** refuse a pair that rule no longer holds apart,
+naming both literals, both fields, both records and the axis, and saying that no
+file under the read axes tells the two apart.
+
+Two literals of one **bytes one of** that come to one byte string are not such a
+pair, and a consumer **MUST NOT** refuse them: both asked for the same record,
+and a file under the read axes spells in one way what the resolved axes spelled
+in two. It **MUST** treat them as one literal.
+
+Every refusal in this section is a statement about a descriptor and two sets of
+axes, and none is about the file being read — which is why each is raised before
+one is.
+
 ## Names
 
 Every named node carries the original COBOL name, spelled as the copybook spells
@@ -2282,6 +2521,19 @@ width is a COBOL comparison rule, and applying it is the producer's work like
 every other (#37) — a consumer left to decide whether `Y` matches `Y ` is a
 consumer that decides differently in each language.
 
+That literal is the source field's bytes as a file under the field's
+**resolved** axes holds them, which is what a binding copies into the register
+from such a file. A consumer reading the source field under other axes copies
+bytes spelled under those, and compares them against the literal re-expressed
+under the same axes, once and before any record is read ([A consumer may read
+under other axes, and re-expresses what it
+compares](#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares),
+#379). The literal is re-expressed through the axes of the field the register
+was bound from. A register whose every binding names one field has one
+re-expression; a register bound from several fields has one per field, and a
+consumer compares against the one belonging to the field whose binding wrote the
+value in hand.
+
 Three tests, and no fourth. Conjunction is the list, disjunction is a second
 transition leaving the same state, and a state already *is* a disjunction — so
 the set needs neither. Its membership was settled here rather than with a
@@ -2505,6 +2757,15 @@ a prefix of it and never applies a COBOL comparison rule of its own. A test
 carrying no literal at all does not exist, and a test carrying the same literal
 twice is a producer emitting one member's work as another's; neither is a member
 here.
+
+Those bytes are the target's as a file under its **resolved** axes holds them:
+the descriptor's axes, and not whichever ones a consumer happens to read with. A
+consumer reading the target under other axes compares against the same literal
+re-expressed under those, once and before any record is read, and still compares
+the whole of the target against it. [A consumer may read under other axes, and
+re-expresses what it
+compares](#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares)
+is how, axis by axis, and what it refuses (#379).
 
 **bytes one of** is a member rather than a shorthand a producer expands. A
 transition carries at most one predicate and an arm carries exactly one, so a
@@ -4441,6 +4702,13 @@ needs to carry.
   more records are the generator's (#52). [Writing a file](#writing-a-file)
   constrains the bytes and the walk, not the call — the same line
   [Names](#names) draws for identifier munging.
+- **How a consumer's caller states the axes it reads with.** Once for the file,
+  per field, or as a replacement of one value of an axis by another, and under
+  what names, is the consumer's. [A consumer may read under other axes, and
+  re-expresses what it
+  compares](#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares)
+  constrains which axes may be stated and what happens to a literal once they
+  are, not the call (#379, #381).
 - **A transport.** protobuf here is a schema language. There is no gRPC service,
   no server, no port and no lifecycle; the descriptor reaches a plugin as a file
   on disk (#39).
@@ -4525,10 +4793,10 @@ records offer them.
 | [Structure](#structure) | #17, #80, #90 `ir`, #38 `resolve`; what an arm carries beside its body, widened from a predicate to a predicate or a schedule by #346 |
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir`; what a binary item's width depends on, and the requirement that a descriptor say which staircase it was resolved under, by #293 |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
-| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297 |
+| [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297; a consumer reading under axes other than a field's resolved ones, how each axis re-expresses a literal it compares, the staircase it may not replace and what it refuses, by #379 against discussion #378, with the corpus and adapter contract stating the axes an entry is read under left to #383 |
 | [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
-| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331 |
-| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323; whether an arm may be selected by its position in the table rather than by an occurrence's bytes, admitted by #346 as a selector beside the predicate and not as a third member, against discussion #340 |
+| [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331; a bytes register's guard literal as the resolved axes spell it, and re-expressed by a consumer reading under others, by #379 |
+| [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323; whether an arm may be selected by its position in the table rather than by an occurrence's bytes, admitted by #346 as a selector beside the predicate and not as a third member, against discussion #340; a predicate's literals as the resolved axes spell them, and re-expressed by a consumer reading under others, by #379 |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go`; reader and writer agreement re-derived from the transition order, and the writer's evaluation of the transitions ordered ahead of the one it took, by #333; a scheduled arm made the descriptor's rather than the caller's by #346 |
 | [Versioning and compatibility](#versioning-and-compatibility) | #17, #18 `ir`; what a closed-set addition costs while `IR_VERSION_1` is being assembled, what ends that period and which shape of addition it permits, settled by #347 |
 | [Why protobuf, and why no gRPC](#why-protobuf-and-why-no-grpc) | #17, #19 `ir` |
