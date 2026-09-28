@@ -51,6 +51,11 @@ const (
 type coder struct {
 	*emitter
 
+	// staircase is whether the package declares [refuseStaircaseFunc], which
+	// it does wherever it declares [encodingFunc]: a descriptor some item of
+	// which states the axes. Every record method opens by calling it.
+	staircase bool
+
 	// countOf is, for the record being walked, every repetition naming a count
 	// field, by that field's identifier. It is what makes a writer able to
 	// report a caller who supplied two numbers of occurrences for one count
@@ -313,7 +318,7 @@ func codecMethodsWith(d *irpb.Descriptor, opts options, lits *literalTable) (str
 		return "", err
 	}
 
-	c := &coder{emitter: e, receiver: opts.receiverName(), literals: lits}
+	c := &coder{emitter: e, receiver: opts.receiverName(), literals: lits, staircase: declaresStaircase(d)}
 
 	var (
 		decls []string
@@ -427,16 +432,24 @@ func (c *coder) unmarshal(name string, record *irpb.Record) (string, error) {
 		return "", err
 	}
 
-	doc := commentLines(fmt.Sprintf(`UnmarshalCOBOL reads one %s out of r, in the order docs/ir/SPEC.md
+	text := fmt.Sprintf(`UnmarshalCOBOL reads one %s out of r, in the order docs/ir/SPEC.md
 resolved its items, and retains the bytes of every slack node it carries and
 of every item the copybook gives no data-name.
 
 It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 of the file in hand, and %s is what this descriptor resolved.`,
-		record.GetNames().GetOriginal(), encodingFunc))
+		record.GetNames().GetOriginal(), encodingFunc)
+
+	if c.staircase {
+		text += "\n\n" + reflowed(fmt.Sprintf(`The binary width staircase is the one of the five r may not replace: every
+offset here was computed under %s's, and r's is refused where it is another,
+before any item is read.`, encodingFunc))
+	}
+
+	doc := commentLines(text)
 
 	return doc + fmt.Sprintf("func (%s *%s) UnmarshalCOBOL(r *codec.Reader) error {\n%s\nreturn nil\n}",
-		c.receiver, name, c.prologue(c.literalsOf("r")+c.subReaders()+body.String())), nil
+		c.receiver, name, c.prologue(c.staircaseOf("r")+c.literalsOf("r")+c.subReaders()+body.String())), nil
 }
 
 // subReaders declares and builds every sub-reader the record being decoded
@@ -566,6 +579,12 @@ emitted as what was retained for it. Everything else is the caller's,
 including the value a discriminator tests — a writer evaluates a predicate
 and never inverts one.`, record.GetNames().GetOriginal())
 
+	if c.staircase {
+		text += "\n\n" + reflowed(fmt.Sprintf(`The binary width staircase is not the caller's either: every offset here was
+computed under %s's, and w's is refused where it is another, before any item
+is written.`, encodingFunc))
+	}
+
 	// The one thing beside those two that is the descriptor's, and the only one
 	// of the three that is a choice rather than a value. It is said here rather
 	// than left to be read off the switch, because a caller looking at the
@@ -588,7 +607,45 @@ another is reported rather than picked between.`
 	doc := commentLines(text)
 
 	return doc + fmt.Sprintf("func (%s *%s) MarshalCOBOL(w *codec.Writer) error {\n%s\nreturn nil\n}",
-		c.receiver, name, c.prologue(c.literalsOf("w")+c.subWriters()+body.String())), nil
+		c.receiver, name, c.prologue(c.staircaseOf("w")+c.literalsOf("w")+c.subWriters()+body.String())), nil
+}
+
+// staircaseOf is the statement refusing the encoding of rw — the method's
+// codec.Reader or codec.Writer — where its binary width staircase is not the
+// descriptor's, or nothing where the package declares no [encodingFunc] to
+// hold it to.
+//
+// First in the method, ahead of the literals and of anything read or written,
+// for the reason [coder.literalsOf] is: a record method is handed an encoding
+// rather than built under one, and this is its half of the refusal
+// NewReader and NewWriter make. It is made for every record, binary items or
+// none, because the staircase is the descriptor's whatever the record holds.
+func (c *coder) staircaseOf(rw string) string {
+	if !c.staircase {
+		return ""
+	}
+
+	var b strings.Builder
+
+	line(&b, "// Every offset below was computed under the descriptor's binary width")
+	line(&b, "// staircase, so %s's encoding is refused where it carries another.", rw)
+	line(&b, "if err = %s(%s.Encoding().Binary); err != nil {", refuseStaircaseFunc, rw)
+	line(&b, "return err")
+	line(&b, "}")
+	line(&b, "")
+
+	return b.String()
+}
+
+// declaresStaircase is whether the package generated for d declares
+// [refuseStaircaseFunc], which is exactly where it declares [encodingFunc]:
+// where some item of d states the axes. A descriptor whose items disagree is
+// refused when [coder.profile] reads the same answer, so the error is left for
+// it to report.
+func declaresStaircase(d *irpb.Descriptor) bool {
+	enc, err := descriptorEncoding(d)
+
+	return err == nil && enc != nil
 }
 
 // literalsOf is the statement fetching the literals a record method compares,

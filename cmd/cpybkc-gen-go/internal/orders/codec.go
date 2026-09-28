@@ -24,7 +24,10 @@ import (
 // wrote the file rather than of the copybook — PIC S9(2) COMP is two bytes under
 // IBM Enterprise COBOL and one under GnuCOBOL's default. It is the staircase the
 // offsets in these records were computed under, so changing it here does not
-// reinterpret the file, it describes a different one.
+// reinterpret the file, it describes a different one — and one this package
+// refuses. A reader or a writer built under an Encoding whose Binary is not this
+// one, and a record's own methods handed a codec.Reader or codec.Writer carrying
+// one, refuse it before any byte is read or written, naming both staircases.
 //
 // It is a value a caller passes rather than one anything applies on its own. A
 // file this descriptor describes that was converted to another character set is
@@ -47,6 +50,28 @@ func Encoding() codec.Encoding {
 		Float:     codec.FloatHFP,
 		Binary:    codec.BinarySize248,
 	}
+}
+
+// refuseStaircase refuses a binary width staircase that is not Encoding's.
+//
+// Every offset this package slices at — an item's, a predicate's window, a
+// variant's occurrence, a run of slack — was computed when it was generated,
+// under [codec.BinarySize248]. The four axes a layout states may be replaced
+// by the caller; the staircase may not, because a different one does not read
+// the same file another way, it puts every item behind a binary item at an
+// offset nothing here computed, and nothing in the record disagrees. So it is
+// refused before any byte is read or written, rather than reported later as a
+// fault in data that was never at fault.
+//
+// It compares staircases and never whole encodings: a caller's Charset need
+// not be comparable, and a comparison of two Encodings holding one would
+// panic.
+func refuseStaircase(binary codec.BinarySize) error {
+	if binary == codec.BinarySize248 {
+		return nil
+	}
+
+	return fmt.Errorf("the encoding's binary width staircase is %s, and this package's offsets were computed under the descriptor's, %s: the staircase is not an axis a caller may replace, because every item behind a binary item would be read or written at an offset nothing here computed", binary, codec.BinarySize248)
 }
 
 // Every record reads and writes itself, which is codec's Unmarshaler and
@@ -133,8 +158,18 @@ func fresh[T any](p *T) *T {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if x.OrderID, err = r.ReadZonedInt32(5, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ORDER-RECORD: reading ORDER-ID: %w", err)
@@ -207,8 +242,18 @@ func (x *OrderRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
+//
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
 func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if err = w.WriteZonedInt32(x.OrderID, 5, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ORDER-RECORD: writing ORDER-ID: %w", err)
@@ -311,8 +356,18 @@ func (x *OrderRecord) MarshalCOBOL(w *codec.Writer) error {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *TrailerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if x.GrandTotal, err = r.ReadPackedBig(20); err != nil {
 		return fmt.Errorf("TRAILER-RECORD: reading GRAND-TOTAL: %w", err)
@@ -346,8 +401,18 @@ func (x *TrailerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
+//
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
 func (x *TrailerRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if err = w.WritePackedBig(x.GrandTotal, 20, codec.Signed); err != nil {
 		return fmt.Errorf("TRAILER-RECORD: writing GRAND-TOTAL: %w", err)
@@ -379,8 +444,18 @@ func (x *TrailerRecord) MarshalCOBOL(w *codec.Writer) error {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *SyncRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if x.SyncFlag, err = r.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("SYNC-RECORD: reading SYNC-FLAG: %w", err)
@@ -412,8 +487,18 @@ func (x *SyncRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
+//
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
 func (x *SyncRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if err = w.WriteAlphanumeric(x.SyncFlag, 1); err != nil {
 		return fmt.Errorf("SYNC-RECORD: writing SYNC-FLAG: %w", err)
@@ -458,8 +543,18 @@ func (x *SyncRecord) MarshalCOBOL(w *codec.Writer) error {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if x.PairCount, err = r.ReadZonedInt32(2, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("TABLE-RECORD: reading PAIR-COUNT: %w", err)
@@ -519,8 +614,18 @@ func (x *TableRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
+//
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
 func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	count1, from1 := -1, ""
 	{
@@ -605,8 +710,18 @@ func (x *TableRecord) MarshalCOBOL(w *codec.Writer) error {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	// lits is every literal this method compares an occurrence against, as a
 	// file under r's encoding spells it.
@@ -673,8 +788,18 @@ func (x *EntryRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
+//
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
 func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	// lits is every literal this method compares an occurrence against, as a
 	// file under w's encoding spells it.
@@ -760,8 +885,18 @@ func (x *EntryRecord) MarshalCOBOL(w *codec.Writer) error {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *AddrRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	// entry2 reads one occurrence of ADR-ENTRY, which carries a variant and so is read
 	// whole before it is walked. It is built here rather than inside the loop
@@ -838,12 +973,22 @@ func (x *AddrRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
 //
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
+//
 // The arm of a table whose entries are chosen by their position is the
 // descriptor's too. The schedule assigns one arm to each occurrence, so that
 // arm is written whatever the record holds, and a caller that filled in
 // another is reported rather than picked between.
 func (x *AddrRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	// entry2 lays out one occurrence of ADR-ENTRY, which carries a variant and so is
 	// laid out whole, so that it is the width every other occurrence of it is
@@ -959,8 +1104,18 @@ func (x *AddrRecord) MarshalCOBOL(w *codec.Writer) error {
 //
 // It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
+//
+// The binary width staircase is the one of the five r may not replace: every
+// offset here was computed under Encoding's, and r's is refused where it is
+// another, before any item is read.
 func (x *ShapeRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so r's encoding is refused where it carries another.
+	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if x.Tally, err = r.ReadComp6Int32(5); err != nil {
 		return fmt.Errorf("SHAPE-RECORD: reading TALLY: %w", err)
@@ -1000,8 +1155,18 @@ func (x *ShapeRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // emitted as what was retained for it. Everything else is the caller's,
 // including the value a discriminator tests — a writer evaluates a predicate
 // and never inverts one.
+//
+// The binary width staircase is not the caller's either: every offset here was
+// computed under Encoding's, and w's is refused where it is another, before
+// any item is written.
 func (x *ShapeRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// Every offset below was computed under the descriptor's binary width
+	// staircase, so w's encoding is refused where it carries another.
+	if err = refuseStaircase(w.Encoding().Binary); err != nil {
+		return err
+	}
 
 	if err = w.WriteComp6Int32(x.Tally, 5); err != nil {
 		return fmt.Errorf("SHAPE-RECORD: writing TALLY: %w", err)

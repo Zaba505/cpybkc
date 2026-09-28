@@ -661,7 +661,15 @@ rather than of the bytes, and `resolve` puts the staircase it laid your record
 out under into the descriptor for this function to read back
 ([`ir/SPEC.md`](../../docs/ir/SPEC.md#a-binary-items-width-is-the-staircase-not-the-digits)).
 Passing a different one does not reinterpret the file: it describes a different
-one, because every offset behind the first `COMP` item moves with it. A
+one, because every offset behind the first `COMP` item moves with it — so the
+package **refuses** it. `NewReader` and `NewWriter` refuse an `Encoding` whose
+`Binary` is not `Encoding()`'s, and every record's `UnmarshalCOBOL` and
+`MarshalCOBOL` refuse a `codec.Reader` or `codec.Writer` carrying one, before
+any byte is read or written and naming both staircases. The check compares the
+two `codec.BinarySize` values and never the whole `Encoding`, so a `Charset` of
+yours that Go cannot compare does not make it panic, and it is made whether or
+not your copybook holds a binary item: the staircase is the descriptor's either
+way ([#382](https://github.com/Zaba505/cpybkc/issues/382)). A
 staircase `codec` has no member for is an error rather than a substitution, for
 the same reason a charset is and with a worse failure — a wrong staircase leaves
 every field behind that item at the wrong offset, and nothing in the record
@@ -721,7 +729,8 @@ change untouched, and a text item's survives a byte order. A delimiter and the
 bytes retained for slack are the file's rather than an item's, and are carried
 as they are. And `Binary`, the staircase, is not one of the four — every offset
 in the package was computed under the descriptor's, so a different one is a
-different file rather than the same one read another way.
+different file rather than the same one read another way, and it is
+[refused](#the-five-axes) rather than read.
 
 **What is refused.** A literal no file under the axes you asked for can hold: a
 character the charset has no byte for, a sign byte in none of the columns of the

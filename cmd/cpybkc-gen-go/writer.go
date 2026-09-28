@@ -131,6 +131,11 @@ func (f *filer) emitNewWriter(b *strings.Builder) {
 	line(b, "// The five axes are the caller's for the reason they are on [%s]: they are", newReaderFunc)
 	line(b, "// properties of the file being written rather than of this descriptor's items.")
 
+	if f.staircase {
+		line(b, "// The staircase is refused here where it is not [%s]'s, before any record", encodingFunc)
+		line(b, "// is written, exactly as [%s] refuses it.", newReaderFunc)
+	}
+
 	if f.compares || f.literals.arms {
 		line(b, "// Every literal this package compares is re-expressed under enc here, once,")
 		line(b, "// and refused here where no file under enc can hold it, exactly as [%s]", newReaderFunc)
@@ -153,6 +158,7 @@ func (f *filer) emitNewWriter(b *strings.Builder) {
 	line(b, "}")
 	line(b, "")
 
+	f.emitStaircaseRefusal(b, "written")
 	f.emitLiteralsFetch(b, "writer", "written")
 
 	line(b, "return &%s{", writerType)

@@ -124,6 +124,11 @@ type filer struct {
 	// [filer.survey], which settles it.
 	literals *literalTable
 	compares bool
+
+	// staircase is whether the package declares [refuseStaircaseFunc], which
+	// both constructors call on the encoding they are handed. See
+	// [declaresStaircase].
+	staircase bool
 }
 
 // fileImports is what every generated file of this kind imports.
@@ -175,10 +180,11 @@ func fileMachineWith(d *irpb.Descriptor, opts options, lits *literalTable) (stri
 	}
 
 	f := &filer{
-		emitter:  e,
-		opts:     opts,
-		index:    make(map[uint64]int),
-		literals: lits,
+		emitter:   e,
+		opts:      opts,
+		index:     make(map[uint64]int),
+		literals:  lits,
+		staircase: declaresStaircase(d),
 	}
 
 	if err := f.collect(d); err != nil {

@@ -177,6 +177,27 @@ func (f *filer) emitLiteralsField(b *strings.Builder, holder string) {
 	line(b, "%s *%s", litsName, literalsType)
 }
 
+// emitStaircaseRefusal writes the constructor's refusal of an encoding whose
+// binary width staircase is not the descriptor's, ahead of anything else it
+// makes of that encoding and after codec has validated it: an encoding codec
+// refuses is refused on its own account, and saying why is codec's.
+//
+// It is made whether or not the descriptor holds a binary item, for the reason
+// [refuseStaircaseSource] gives.
+func (f *filer) emitStaircaseRefusal(b *strings.Builder, done string) {
+	if !f.staircase {
+		return
+	}
+
+	line(b, "// Every offset this package slices at was computed under the descriptor's")
+	line(b, "// binary width staircase, so an enc carrying another is refused here, before")
+	line(b, "// any record is %s, rather than %s at offsets nothing here computed.", done, done)
+	line(b, "if err = %s(enc.Binary); err != nil {", refuseStaircaseFunc)
+	line(b, "return nil, err")
+	line(b, "}")
+	line(b, "")
+}
+
 // emitLiteralsFetch writes the constructor's re-expression of every literal
 // under the encoding it was handed, and its refusal of one that has no spelling
 // there.
@@ -224,6 +245,14 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "// and a file of these records converted to another character set is read by")
 	line(b, "// passing a different one.")
 
+	if f.staircase {
+		line(b, "//")
+		line(b, "// The staircase is the one of the five that is not the caller's to replace.")
+		line(b, "// Every offset this package slices at was computed under [%s]'s, so an", encodingFunc)
+		line(b, "// enc carrying another describes a different file, and it is refused here,")
+		line(b, "// naming both staircases, before any record is read.")
+	}
+
 	if f.compares || f.literals.arms {
 		line(b, "//")
 		line(b, "// What follows enc is every literal this package compares a field against,")
@@ -265,6 +294,7 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "}")
 	line(b, "")
 
+	f.emitStaircaseRefusal(b, "read")
 	f.emitLiteralsFetch(b, "reader", "read")
 
 	line(b, "return &%s{", readerType)
