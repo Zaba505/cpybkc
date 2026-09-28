@@ -6,6 +6,7 @@
     "policy/doc.go",
     "policy/file.go",
     "policy/file_test.go",
+    "policy/literals.go",
     "policy/records.go",
     "policy/records_test.go"
   ]

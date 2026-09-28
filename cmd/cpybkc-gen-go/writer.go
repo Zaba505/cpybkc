@@ -54,6 +54,9 @@ func (f *filer) emitWriter(b *strings.Builder, walks [][]transition) error {
 	line(b, "// codec.Writer carries it, and one that could be swapped under a half-laid")
 	line(b, "// record is what codec refuses to allow.")
 	line(b, "cw *codec.Writer")
+
+	f.emitLiteralsField(b, "writer")
+
 	line(b, "")
 	line(b, "// state is where in the automaton the write is, numbered as [%s.state] is.", readerType)
 	line(b, "state int")
@@ -127,6 +130,14 @@ func (f *filer) emitNewWriter(b *strings.Builder) {
 	line(b, "//")
 	line(b, "// The five axes are the caller's for the reason they are on [%s]: they are", newReaderFunc)
 	line(b, "// properties of the file being written rather than of this descriptor's items.")
+
+	if f.compares || f.literals.arms {
+		line(b, "// Every literal this package compares is re-expressed under enc here, once,")
+		line(b, "// and refused here where no file under enc can hold it, exactly as [%s]", newReaderFunc)
+		line(b, "// does — so the record this writer refuses to emit is the record a reader")
+		line(b, "// under the same encoding would route elsewhere.")
+	}
+
 	line(b, "func %s(w io.Writer, enc codec.Encoding) (*%s, error) {", newWriterFunc, writerType)
 	line(b, "if w == nil {")
 	line(b, "return nil, codec.ErrNilWriter")
@@ -141,9 +152,17 @@ func (f *filer) emitNewWriter(b *strings.Builder) {
 	line(b, "return nil, err")
 	line(b, "}")
 	line(b, "")
+
+	f.emitLiteralsFetch(b, "writer", "written")
+
 	line(b, "return &%s{", writerType)
 	line(b, "dst: w,")
 	line(b, "cw: cw,")
+
+	if f.compares {
+		line(b, "%s: %s,", litsName, litsName)
+	}
+
 	line(b, "state: %d,", f.index[f.file.GetStartStateId()])
 
 	if f.how == delimited && f.placement == irpb.DelimiterPlacement_DELIMITER_PLACEMENT_SEPARATOR {
@@ -329,7 +348,7 @@ func (f *filer) emitWriterTransition(b *strings.Builder, walk []transition, at i
 
 	line(b, "// Transition %d of that state.", at+1)
 
-	test, phrase, registers, err := f.guardTests(t, "w")
+	test, phrase, args, registers, err := f.guardTests(t, "w")
 	if err != nil {
 		return err
 	}
@@ -359,7 +378,7 @@ func (f *filer) emitWriterTransition(b *strings.Builder, walk []transition, at i
 	closing := ""
 
 	if t.match != "" {
-		line(b, "if %s(raw) {", matches)
+		line(b, "if w.%s.%s(raw) {", litsName, matches)
 
 		closing = "}"
 	}
@@ -391,18 +410,18 @@ func (f *filer) emitWriterTransition(b *strings.Builder, walk []transition, at i
 	}
 
 	if t.match != "" {
-		line(b, "} else if excluded == \"\" && %s(raw) {", matches)
-		line(b, "excluded = fmt.Sprintf(%q%s)",
+		line(b, "} else if excluded == \"\" && w.%s.%s(raw) {", litsName, matches)
+		line(b, "excluded = fmt.Sprintf(%q%s%s)",
 			fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where %s%s",
-				escaped(phrase), f.holding(registers)),
-			f.holdingArgs(registers, "w"))
+				phrase, f.holding(registers)),
+			trailing(args), f.holdingArgs(registers, "w"))
 		line(b, "}")
 	} else {
 		line(b, "} else if excluded == \"\" {")
-		line(b, "excluded = fmt.Sprintf(%q%s)",
+		line(b, "excluded = fmt.Sprintf(%q%s%s)",
 			fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where %s%s",
-				escaped(phrase), f.holding(registers)),
-			f.holdingArgs(registers, "w"))
+				phrase, f.holding(registers)),
+			trailing(args), f.holdingArgs(registers, "w"))
 		line(b, "}")
 	}
 

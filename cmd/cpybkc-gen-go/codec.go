@@ -90,6 +90,12 @@ type coder struct {
 	// record is the COBOL name of the record being walked, for a diagnostic
 	// composed away from the walk.
 	record string
+
+	// literals is every literal the package compares, and compares is whether
+	// the method being emitted compares one of them — which is what obliges it
+	// to ask for them under the encoding it was handed. See [coder.literalsOf].
+	literals *literalTable
+	compares bool
 }
 
 // subCodec is one decoder a record's decode method builds over the bytes of
@@ -290,12 +296,24 @@ func declaredMax(rep *irpb.Repetition) uint32 {
 // so that the statement a caller makes is the descriptor's rather than one they
 // retyped.
 func codecMethods(d *irpb.Descriptor, opts options) (string, error) {
+	lits, err := gatherLiterals(d)
+	if err != nil {
+		return "", err
+	}
+
+	return codecMethodsWith(d, opts, lits)
+}
+
+// codecMethodsWith is [codecMethods] over literals already gathered, which is
+// how [generate] calls it: the arms it emits mark the literals they compare, and
+// literals.go is composed out of what was marked.
+func codecMethodsWith(d *irpb.Descriptor, opts options, lits *literalTable) (string, error) {
 	e, err := newEmitter(d)
 	if err != nil {
 		return "", err
 	}
 
-	c := &coder{emitter: e, receiver: opts.receiverName()}
+	c := &coder{emitter: e, receiver: opts.receiverName(), literals: lits}
 
 	var (
 		decls []string
@@ -398,6 +416,7 @@ func (c *coder) unmarshal(name string, record *irpb.Record) (string, error) {
 	c.valueOf = make(map[uint64]string)
 	c.counter = 0
 	c.subs = nil
+	c.compares = false
 	c.record = record.GetNames().GetOriginal()
 
 	s := scope{record: c.record, rw: "r", dir: decoding}
@@ -417,7 +436,7 @@ of the file in hand, and %s is what this descriptor resolved.`,
 		record.GetNames().GetOriginal(), encodingFunc))
 
 	return doc + fmt.Sprintf("func (%s *%s) UnmarshalCOBOL(r *codec.Reader) error {\n%s\nreturn nil\n}",
-		c.receiver, name, c.prologue(c.subReaders()+body.String())), nil
+		c.receiver, name, c.prologue(c.literalsOf("r")+c.subReaders()+body.String())), nil
 }
 
 // subReaders declares and builds every sub-reader the record being decoded
@@ -520,6 +539,7 @@ func (c *coder) marshal(name string, record *irpb.Record) (string, error) {
 	c.countOf = make(map[uint64][]countUse)
 	c.counter = 0
 	c.subs = nil
+	c.compares = false
 	c.record = record.GetNames().GetOriginal()
 
 	if err := c.collectCounts(record.GetRootId(), c.receiver, nil); err != nil {
@@ -568,7 +588,36 @@ another is reported rather than picked between.`
 	doc := commentLines(text)
 
 	return doc + fmt.Sprintf("func (%s *%s) MarshalCOBOL(w *codec.Writer) error {\n%s\nreturn nil\n}",
-		c.receiver, name, c.prologue(c.subWriters()+body.String())), nil
+		c.receiver, name, c.prologue(c.literalsOf("w")+c.subWriters()+body.String())), nil
+}
+
+// literalsOf is the statement fetching the literals a record method compares,
+// under the encoding of rw — the method's codec.Reader or codec.Writer — or
+// nothing where the method compares none.
+//
+// First in the method, ahead of anything it reads or writes, because a literal
+// with no spelling under that encoding is refused before any item is: the
+// record-level half of docs/ir/SPEC.md's "before any record is read", for a
+// method that is handed an encoding and never built. Under the descriptor's own
+// axes it costs four comparisons and hands back the literals the descriptor
+// resolved; under any other it is one cache lookup, because the re-expression
+// is made once per encoding and held (see literals.go).
+func (c *coder) literalsOf(rw string) string {
+	if !c.compares {
+		return ""
+	}
+
+	var b strings.Builder
+
+	line(&b, "// %s is every literal this method compares an occurrence against, as a", litsName)
+	line(&b, "// file under %s's encoding spells it.", rw)
+	line(&b, "%s, err := %s(%s.Encoding())", litsName, literalsFor, rw)
+	line(&b, "if err != nil {")
+	line(&b, "return err")
+	line(&b, "}")
+	line(&b, "")
+
+	return b.String()
 }
 
 // prologue is a method body with the one declaration it needs, where it needs
@@ -1515,6 +1564,12 @@ type arm struct {
 	// byte of an occurrence chooses.
 	match string
 
+	// compared is the literals match compares against, and at is where in the
+	// occurrence the target they are compared against starts. Both are unset on
+	// a scheduled arm.
+	compared []*comparand
+	at       extent
+
 	// schedule is the occurrence numbers, counted from one, this arm is taken
 	// for, and is nil on an arm selected by bytes. Exactly one of it and match
 	// is set, which is the choice docs/ir/SPEC.md's "An arm may be selected by
@@ -1562,7 +1617,7 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 			if one.schedule, err = armSchedule(a, one.item); err != nil {
 				return nil, err
 			}
-		} else if one.match, err = c.armMatch(a, s); err != nil {
+		} else if one.match, one.compared, one.at, err = c.armMatch(a, s); err != nil {
 			return nil, err
 		}
 
@@ -1580,9 +1635,48 @@ func (c *coder) arms(v *irpb.Variant, expr string, s scope) ([]arm, error) {
 		if err := covers(out, s); err != nil {
 			return nil, err
 		}
+
+		return out, nil
 	}
 
+	c.apart(out)
+
 	return out, nil
+}
+
+// apart records every pair of arms of one variant whose literals a reader or a
+// writer built under another encoding has to hold apart again.
+//
+// `resolve` proved the arms of a variant apart over the bytes their predicates
+// share (docs/ir/SPEC.md, "When two match, and when none does"), and a
+// re-expression carries that proof across some axes and not others; the table
+// decides which pairs it could have lost, and literals.go checks those. Where the
+// two targets sit at constant offsets in the occurrence, the pair is recorded
+// exactly where their runs meet. Where either sits behind a table whose length
+// is data, the two are compared only when they start at the same place, which
+// is the one position the generator can tell they share without the data.
+func (c *coder) apart(arms []arm) {
+	for i, one := range arms {
+		for _, other := range arms[i+1:] {
+			oneAt, otherAt := one.at.fixed, other.at.fixed
+
+			if len(one.at.terms) != 0 || len(other.at.terms) != 0 {
+				if one.at.String() != other.at.String() {
+					continue
+				}
+
+				oneAt, otherAt = 0, 0
+			}
+
+			for _, a := range one.compared {
+				for _, b := range other.compared {
+					if oneAt < otherAt+len(b.value) && otherAt < oneAt+len(a.value) {
+						c.literals.overlap(a, oneAt, b, otherAt)
+					}
+				}
+			}
+		}
+	}
 }
 
 // scheduled is whether a variant's arms are chosen by their position in the
@@ -1716,42 +1810,43 @@ func (a arm) occurrences() string {
 }
 
 // armMatch is the Go expression testing an arm's predicate against the bytes of
-// the occurrence in scope.
-func (c *coder) armMatch(a *irpb.Arm, s scope) (string, error) {
+// the occurrence in scope, the literals it compares and where in the occurrence
+// its target starts.
+func (c *coder) armMatch(a *irpb.Arm, s scope) (string, []*comparand, extent, error) {
 	node, ok := c.nodes[a.GetPredicateId()]
 	if !ok {
-		return "", unresolved(a.GetPredicateId())
+		return "", nil, extent{}, unresolved(a.GetPredicateId())
 	}
 
 	predicate := node.GetPredicate()
 	if predicate == nil {
-		return "", malformed(fmt.Sprintf("node %d selects an arm and is not a predicate node", a.GetPredicateId()),
+		return "", nil, extent{}, malformed(fmt.Sprintf("node %d selects an arm and is not a predicate node", a.GetPredicateId()),
 			"each arm names the predicate that selects it; see docs/ir/SPEC.md, \"A predicate on an arm reads one occurrence\"")
 	}
 
 	target, ok := c.nodes[predicate.GetFieldId()]
 	if !ok {
-		return "", unresolved(predicate.GetFieldId())
+		return "", nil, extent{}, unresolved(predicate.GetFieldId())
 	}
 
 	field := target.GetField()
 	if field == nil {
-		return "", malformed(fmt.Sprintf("node %d is a predicate's target and is not a field node", predicate.GetFieldId()),
+		return "", nil, extent{}, malformed(fmt.Sprintf("node %d is a predicate's target and is not a field node", predicate.GetFieldId()),
 			"a predicate always names a field; see docs/ir/SPEC.md, \"A predicate always names a field\"")
 	}
 
 	if field.GetRepetition() != nil {
-		return "", malformed(fmt.Sprintf("%s is the target of an arm's predicate and repeats", originalOf(target)),
+		return "", nil, extent{}, malformed(fmt.Sprintf("%s is the target of an arm's predicate and repeats", originalOf(target)),
 			"a predicate names a field, not an occurrence of one; see docs/ir/SPEC.md, \"A reference names a field, not an occurrence of one\"")
 	}
 
 	at, found, err := c.offsetOf(s.occurrence, predicate.GetFieldId(), s.occExpr, s.dir)
 	if err != nil {
-		return "", err
+		return "", nil, extent{}, err
 	}
 
 	if !found {
-		return "", malformed(fmt.Sprintf("%s is the target of an arm's predicate and is not in the occurrence the arm is chosen for", originalOf(target)),
+		return "", nil, extent{}, malformed(fmt.Sprintf("%s is the target of an arm's predicate and is not in the occurrence the arm is chosen for", originalOf(target)),
 			"an arm's predicate target MUST be contained, at any depth, in the innermost group that repeats and contains the variant; see docs/ir/SPEC.md, \"A predicate on an arm reads one occurrence\"")
 	}
 
@@ -1759,26 +1854,46 @@ func (c *coder) armMatch(a *irpb.Arm, s scope) (string, error) {
 
 	c.imports["bytes"] = struct{}{}
 
+	var values [][]byte
+
 	switch test := predicate.GetTest().(type) {
 	case *irpb.Predicate_BytesEqual:
-		return fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(test.BytesEqual.GetValue()))), nil
+		values = [][]byte{test.BytesEqual.GetValue()}
 	case *irpb.Predicate_BytesOneOf:
 		if len(test.BytesOneOf.GetValues()) < 2 {
-			return "", malformed("a one-of predicate carries fewer than two literals",
+			return "", nil, extent{}, malformed("a one-of predicate carries fewer than two literals",
 				"a producer MUST carry at least two and MUST NOT carry the same literal twice; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 		}
 
-		tests := make([]string, 0, len(test.BytesOneOf.GetValues()))
-
-		for _, value := range test.BytesOneOf.GetValues() {
-			tests = append(tests, fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(value))))
-		}
-
-		return "(" + strings.Join(tests, " || ") + ")", nil
+		values = test.BytesOneOf.GetValues()
 	default:
-		return "", malformed("a predicate carries no test",
+		return "", nil, extent{}, malformed("a predicate carries no test",
 			"the set is closed and a predicate carries one member of it; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
+
+	// Compared against the literals the method fetched under its own
+	// encoding rather than against constants, so that an occurrence of a
+	// converted file is held to the bytes a file under that encoding holds.
+	c.compares = true
+
+	tests := make([]string, 0, len(values))
+	compared := make([]*comparand, 0, len(values))
+
+	for _, value := range values {
+		one, err := c.literals.of(value, target)
+		if err != nil {
+			return "", nil, extent{}, err
+		}
+
+		tests = append(tests, fmt.Sprintf("bytes.Equal(%s, %s.%s)", slice, litsName, one.name))
+		compared = append(compared, one)
+	}
+
+	if len(tests) == 1 {
+		return tests[0], compared, at, nil
+	}
+
+	return "(" + strings.Join(tests, " || ") + ")", compared, at, nil
 }
 
 // collectCounts records every repetition of a record naming a count field.

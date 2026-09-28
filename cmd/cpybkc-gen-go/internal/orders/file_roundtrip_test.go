@@ -91,15 +91,17 @@ func trailerBytes(t *testing.T, enc codec.Encoding) []byte {
 }
 
 // fileBytes is a whole file of this descriptor's five record types, in the one
-// order its automaton admits them.
-//
-// EBCDIC only, because entryBytes is: an arm's predicate compares the bytes the
-// producer resolved, so reading these records under another encoding is reading
-// a file that is not the file the descriptor describes.
+// order its automaton admits them, laid out under [Encoding].
 func fileBytes(t *testing.T) []byte {
 	t.Helper()
 
-	enc := Encoding()
+	return fileBytesUnder(t, Encoding())
+}
+
+// fileBytesUnder is the same file laid out under enc, through codec rather
+// than through this package.
+func fileBytesUnder(t *testing.T, enc codec.Encoding) []byte {
+	t.Helper()
 
 	var b bytes.Buffer
 
@@ -107,7 +109,7 @@ func fileBytes(t *testing.T) []byte {
 		orderBytes(t, enc, 2),
 		tableBytes(t, enc, 3),
 		syncBytes(t, enc),
-		entryBytes(t, "DSD"),
+		entryBytes(t, enc, "DSD"),
 		trailerBytes(t, enc),
 	} {
 		b.Write(framed(raw))
@@ -173,26 +175,39 @@ func write(t *testing.T, enc codec.Encoding, records []Record) []byte {
 // makes a record read and written back unchanged byte-identical, and because
 // under this framing a file is byte-identical too: a record descriptor word
 // states the length of the record behind it and nothing else is invented.
+//
+// Under three encodings: the descriptor's own, a file written natively in
+// ASCII, and the one a transfer converted. The last two are laid out through
+// codec rather than through this package, and they are the same records read
+// by a package whose every literal was resolved under cp037 — the SYNC-RECORD's
+// flag the automaton admits it by, and the type codes its entries are chosen
+// by, are compared as a file under that encoding spells them.
 func TestAMultiRecordFileReadsBackAsTheFileItWas(t *testing.T) {
 	t.Parallel()
 
-	want := fileBytes(t)
+	for name, enc := range map[string]codec.Encoding{"EBCDIC": Encoding(), "ASCII": ascii(), "converted": converted()} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	records := read(t, Encoding(), want)
-	if len(records) != 5 {
-		t.Fatalf("the file holds five records and the reader produced %d", len(records))
+			want := fileBytesUnder(t, enc)
+
+			records := read(t, enc, want)
+			if len(records) != 5 {
+				t.Fatalf("the file holds five records and the reader produced %d", len(records))
+			}
+
+			for i, kind := range []any{
+				(*OrderRecord)(nil), (*TableRecord)(nil), (*SyncRecord)(nil),
+				(*EntryRecord)(nil), (*TrailerRecord)(nil),
+			} {
+				if got, want := recordType(records[i]), recordType(kind); got != want {
+					t.Errorf("record %d came back as a %s, want a %s", i+1, got, want)
+				}
+			}
+
+			assertBytes(t, write(t, enc, records), want)
+		})
 	}
-
-	for i, kind := range []any{
-		(*OrderRecord)(nil), (*TableRecord)(nil), (*SyncRecord)(nil),
-		(*EntryRecord)(nil), (*TrailerRecord)(nil),
-	} {
-		if got, want := recordType(records[i]), recordType(kind); got != want {
-			t.Errorf("record %d came back as a %s, want a %s", i+1, got, want)
-		}
-	}
-
-	assertBytes(t, write(t, Encoding(), records), want)
 }
 
 // recordType is what a record is, as a diagnostic names it.

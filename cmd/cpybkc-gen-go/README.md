@@ -137,12 +137,17 @@ run has succeeded. Two runs given the same descriptor and the same options
 produce byte-identical files: nothing in the output comes from the clock, the
 environment, the host, the user or the paths in the argument vector.
 
-So far that is six files: four that are the package, and two that are its tests.
-`doc.go` carries the package clause and nothing else, `records.go` carries
+So far that is seven files: five that are the package, and two that are its
+tests. `doc.go` carries the package clause and nothing else, `records.go` carries
 [the record structs](#the-record-structs) — one per record the descriptor
 describes — `codec.go` carries
-[the decode and encode methods](#decoding-and-encoding), and `file.go` carries
-[the file-level reader and writer](#reading-and-writing-a-file).
+[the decode and encode methods](#decoding-and-encoding), `file.go` carries
+[the file-level reader and writer](#reading-and-writing-a-file), and
+`literals.go` carries every byte string the other two compare a field against,
+with what re-expresses them under
+[an encoding other than the layout's](#reading-a-converted-file). A package that
+compares no literal — no predicate, and no guard over a bytes register — has no
+`literals.go`.
 
 Beside them, [the generated tests](#the-generated-tests) come in two tiers.
 `records_test.go` is the record tier, and it covers `records.go` and `codec.go`
@@ -641,10 +646,12 @@ r, err := codec.NewReader(f, orders.Encoding())
 `Encoding()` is generated from the descriptor, so what it returns is what your
 layout declared and what `resolve` resolved. It is a value you pass rather than
 one anything applies on its own — the same records converted to another
-character set are read by passing a different `Encoding`, not by regenerating. A
-charset `codec` ships no table for is an **error** rather than a substitution:
-generating `cp037` for a descriptor naming `cp500` would read most of a file
-correctly and the bracket, currency and accent characters wrongly.
+character set are read by passing a different `Encoding`, not by regenerating;
+see [Reading a converted file](#reading-a-converted-file) for what follows the
+encoding you pass and what is refused. A charset `codec` ships no table for is
+an **error** rather than a substitution: generating `cp037` for a descriptor
+naming `cp500` would read most of a file correctly and the bracket, currency and
+accent characters wrongly.
 
 `Binary` is the axis your layout does *not* declare, and it is the one worth
 knowing about. It is the width staircase your `COMP` items were compiled under —
@@ -676,6 +683,69 @@ may name a **group**, and a group holds packed and binary items whose sign and
 byte order are read whatever the charset says. A descriptor **no** item of which states a charset
 states nothing about the file at all, and no `Encoding()` is generated for it;
 you pass your own, exactly as you would for a descriptor holding no item.
+
+### Reading a converted file
+
+A dataset read as the mainframe wrote it and the extract a transfer converted to
+ASCII are one file twice: the same records in the same order, told apart by the
+same fields, with the characters rewritten. So the four axes your layout states
+— charset, sign convention, byte order and float format — may each be replaced
+in the `Encoding` you hand `NewReader`, `NewWriter` or a record's own methods,
+and the package reads and writes the file under them
+([`ir/SPEC.md`](../../docs/ir/SPEC.md#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares)):
+
+```go
+enc := ledger.Encoding()
+enc.Charset = codec.ASCII()
+enc.Sign = codec.SignTranslatedEBCDIC
+
+r, err := ledger.NewReader(f, enc)
+```
+
+**What follows the encoding.** Every literal the package compares a field
+against — a transition's predicate, an arm's, a guard over a bytes register —
+was resolved as the bytes a file under your layout's own encoding holds. Under
+another it is re-expressed, each through the axes that reach the item it is
+compared against and no other: a text item's literal character by character
+through the two code pages, a signed zoned item's sign byte by the column of the
+sign convention it sits in — so an `F5` a transfer writes as `5` comes out as
+`5`, and a `C5` it writes as `E` comes out as `E` — a binary item's by value
+under the other byte order, and a float's by value under the other format. The
+comparison stays a comparison of bytes, whole and over the item's full width.
+
+**What never does.** An item whose charset is
+[`none`](#an-item-that-carries-bytes-rather-than-characters) carries bytes rather
+than characters, and its literals are never re-expressed. Nor is a literal over
+an item no axis you replaced reaches: a packed item's literal survives a charset
+change untouched, and a text item's survives a byte order. A delimiter and the
+bytes retained for slack are the file's rather than an item's, and are carried
+as they are. And `Binary`, the staircase, is not one of the four — every offset
+in the package was computed under the descriptor's, so a different one is a
+different file rather than the same one read another way.
+
+**What is refused.** A literal no file under the axes you asked for can hold: a
+character the charset has no byte for, a sign byte in none of the columns of the
+convention it was resolved under — the lenient EBCDIC zones a reader admits and
+no writer emits — a float the other format cannot hold exactly, and two literals
+the layout tells apart that come out as one byte string, which
+`ascii-zone-3-7` does to a positive and an unsigned sign. Each is refused when
+the reader or the writer is **built**, before any record is read or written,
+naming the literal, the item, the record and the axis — it is about your layout
+and the encoding you asked for, and never about a fault in your data. A literal
+that re-expresses to the bytes it went in as is never refused, whatever it holds.
+
+**What it costs.** The re-expression is made once, when the reader or the writer
+is built, and never per record; under the layout's own encoding it is not made
+at all, and the comparisons are the ones `resolve` resolved. The record methods
+are handed an encoding on every call rather than being built, so they re-express
+the first time they meet an encoding and hold the answer — a refusal included —
+for every call after it: four comparisons decide the layout's own encoding, and
+one lookup finds any other.
+
+The code that re-expresses is not written a line at a time like the rest of the
+package. It is the same in every package that needs it, so it is kept as a Go
+package of its own, [`emitted/`](emitted/), compiled and tested there, and copied
+into `literals.go` a file at a time — only the files a package's literals need.
 
 ### What the writer supplies, and what it refuses to
 
@@ -870,7 +940,10 @@ Each predicate is emitted as a function called `matches<n>At<offset>`, where
 `offset` is where in a record it reads and `n` is which of the file's predicates
 it is. There is **one function per distinct `(offset, width, literal)`** and not
 one per transition that tests it: every state whose transition tests that
-predicate names that function, and both directions call the same one.
+predicate names that function, and both directions call the same one. It is a
+method of the literals a reader or a writer holds rather than a function over
+constants, so that it compares against them as
+[the encoding it was built with](#reading-a-converted-file) spells them.
 
 It is keyed on the predicate because a predicate is a function of the offset it
 reads at, the width it reads and the literals it compares against, and of nothing

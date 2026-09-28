@@ -28,7 +28,17 @@ import (
 //
 // It is a value a caller passes rather than one anything applies on its own. A
 // file this descriptor describes that was converted to another character set is
-// read by passing a different Encoding, not by regenerating.
+// read by passing a different Encoding, not by regenerating: the four axes a
+// layout states may each be replaced, and every literal this package compares a
+// field against — a record's type code, an arm's, a guard's — is re-expressed
+// under them once, before the first record is read or written, as a file under
+// them spells it. An item whose charset is none carries bytes rather than
+// characters, and its literals never move. A literal no file under the axes
+// asked for can hold — a character the charset has no byte for, a sign byte in
+// no column of the convention it was resolved under, a float the format cannot
+// hold exactly, two literals that come to one byte string — is refused when the
+// reader or writer is built, naming the literal, the item, the record and the
+// axis. Binary, the staircase, is not one of the four.
 func Encoding() codec.Encoding {
 	return codec.Encoding{
 		Charset:   codec.CP037(),
@@ -97,6 +107,13 @@ func fresh[T any](p *T) *T {
 func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 	var err error
 
+	// lits is every literal this method compares an occurrence against, as a
+	// file under r's encoding spells it.
+	lits, err := literalsFor(r.Encoding())
+	if err != nil {
+		return err
+	}
+
 	// entry1 reads one occurrence of ENTRY, which carries a variant and so is read
 	// whole before it is walked. It is built here rather than inside the loop
 	// over those occurrences, and rewound onto each occurrence's bytes there.
@@ -120,7 +137,7 @@ func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 		}
 
 		switch {
-		case bytes.Equal(occurrence1[0:1], []byte("\xc4")):
+		case bytes.Equal(occurrence1[0:1], lits.lit1):
 			x.Entry[i0].EntryDetail = fresh(x.Entry[i0].EntryDetail)
 			x.Entry[i0].EntrySummary = nil
 			if x.Entry[i0].EntryDetail.DetailSku, err = entry1.ReadAlphanumeric(4); err != nil {
@@ -130,7 +147,7 @@ func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 			if x.Entry[i0].EntryDetail.DetailQty, err = entry1.ReadBinaryInt16(4); err != nil {
 				return fmt.Errorf("LEDGER-RECORD: reading DETAIL-QTY in occurrence %d of ENTRY: %w", i0+1, err)
 			}
-		case bytes.Equal(occurrence1[0:1], []byte("\xe2")):
+		case bytes.Equal(occurrence1[0:1], lits.lit2):
 			x.Entry[i0].EntrySummary = fresh(x.Entry[i0].EntrySummary)
 			x.Entry[i0].EntryDetail = nil
 			if x.Entry[i0].EntrySummary.SummaryText, err = entry1.ReadAlphanumeric(4); err != nil {
@@ -165,6 +182,13 @@ func (x *LedgerRecord) UnmarshalCOBOL(r *codec.Reader) error {
 // and never inverts one.
 func (x *LedgerRecord) MarshalCOBOL(w *codec.Writer) error {
 	var err error
+
+	// lits is every literal this method compares an occurrence against, as a
+	// file under w's encoding spells it.
+	lits, err := literalsFor(w.Encoding())
+	if err != nil {
+		return err
+	}
 
 	// entry1 lays out one occurrence of ENTRY, which carries a variant and so is
 	// laid out whole before the arm chosen for it is checked against its bytes.
@@ -216,9 +240,9 @@ func (x *LedgerRecord) MarshalCOBOL(w *codec.Writer) error {
 		}
 		matched2, holds2 := -1, -1
 		switch {
-		case bytes.Equal(entry1.Bytes()[0:1], []byte("\xc4")):
+		case bytes.Equal(entry1.Bytes()[0:1], lits.lit1):
 			matched2 = 0
-		case bytes.Equal(entry1.Bytes()[0:1], []byte("\xe2")):
+		case bytes.Equal(entry1.Bytes()[0:1], lits.lit2):
 			matched2 = 1
 		}
 		switch {

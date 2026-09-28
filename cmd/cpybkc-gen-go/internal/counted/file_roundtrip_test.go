@@ -23,14 +23,19 @@ import (
 	"github.com/Zaba505/cobol-go/codec"
 )
 
-// laidOut is a record's bytes, written item by item, with the delimiter behind
-// it — which is where a terminator stands.
-func laidOut(t *testing.T, items func(*codec.Writer) error) []byte {
+// laidOut is a record's bytes under enc, written item by item through codec
+// rather than through this package, with the delimiter behind it — which is
+// where a terminator stands.
+//
+// The delimiter is the same bytes under every encoding: it is bytes the file
+// holds rather than a field's, and carries no axis (docs/ir/SPEC.md, "A
+// delimiter is bytes, not a character").
+func laidOut(t *testing.T, enc codec.Encoding, items func(*codec.Writer) error) []byte {
 	t.Helper()
 
 	var b bytes.Buffer
 
-	w, err := codec.NewWriter(&b, Encoding())
+	w, err := codec.NewWriter(&b, enc)
 	if err != nil {
 		t.Fatalf("codec.NewWriter: %v", err)
 	}
@@ -46,10 +51,10 @@ func laidOut(t *testing.T, items func(*codec.Writer) error) []byte {
 
 // headerBytes is one HEADER-RECORD: a detail count, a flag and the count the
 // summary's two tables are sized by.
-func headerBytes(t *testing.T, details int, flag string, total int) []byte {
+func headerBytes(t *testing.T, enc codec.Encoding, details int, flag string, total int) []byte {
 	t.Helper()
 
-	return laidOut(t, func(w *codec.Writer) error {
+	return laidOut(t, enc, func(w *codec.Writer) error {
 		if err := w.WriteAlphanumeric("H", 1); err != nil {
 			return err
 		}
@@ -68,10 +73,10 @@ func headerBytes(t *testing.T, details int, flag string, total int) []byte {
 
 // detailBytes is one DETAIL-RECORD whose amount is +152.50, which is the three
 // bytes 15 25 0C — the first of them this file's delimiter.
-func detailBytes(t *testing.T) []byte {
+func detailBytes(t *testing.T, enc codec.Encoding) []byte {
 	t.Helper()
 
-	return laidOut(t, func(w *codec.Writer) error {
+	return laidOut(t, enc, func(w *codec.Writer) error {
 		if err := w.WriteAlphanumeric("D", 1); err != nil {
 			return err
 		}
@@ -81,10 +86,10 @@ func detailBytes(t *testing.T) []byte {
 }
 
 // summaryBytes is one SUMMARY-RECORD whose two tables the register sizes.
-func summaryBytes(t *testing.T, lines int) []byte {
+func summaryBytes(t *testing.T, enc codec.Encoding, lines int) []byte {
 	t.Helper()
 
-	return laidOut(t, func(w *codec.Writer) error {
+	return laidOut(t, enc, func(w *codec.Writer) error {
 		if err := w.WriteAlphanumeric("S", 1); err != nil {
 			return err
 		}
@@ -109,7 +114,15 @@ func summaryBytes(t *testing.T, lines int) []byte {
 func read(t *testing.T, in []byte) ([]Record, error) {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	return readUnder(t, Encoding(), in)
+}
+
+// readUnder is every record of in, through the generated reader built under
+// enc.
+func readUnder(t *testing.T, enc codec.Encoding, in []byte) ([]Record, error) {
+	t.Helper()
+
+	r, err := NewReader(bytes.NewReader(in), enc)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -144,11 +157,11 @@ func TestACountedRunReadsAndWritesBackTheFileItWas(t *testing.T) {
 	t.Parallel()
 
 	want := joined(
-		headerBytes(t, 2, "Y", 2),
-		detailBytes(t),
-		detailBytes(t),
-		summaryBytes(t, 2),
-		headerBytes(t, 0, "N", 0),
+		headerBytes(t, Encoding(), 2, "Y", 2),
+		detailBytes(t, Encoding()),
+		detailBytes(t, Encoding()),
+		summaryBytes(t, Encoding(), 2),
+		headerBytes(t, Encoding(), 0, "N", 0),
 	)
 
 	records, err := read(t, want)
@@ -207,14 +220,14 @@ func TestTheFourThingsAMemorylessGraphWouldNotDetect(t *testing.T) {
 		// End of input in the group state with the count at two: the
 		// acceptance guards do not hold, so the file is truncated.
 		"a file ending two details short": {
-			file: joined(headerBytes(t, 2, "N", 0)),
+			file: joined(headerBytes(t, Encoding(), 2, "N", 0)),
 			says: []string{"not complete", "node 20"},
 		},
 
 		// End of input with the flag guard failing — also truncated, and
 		// distinguishable from the file simply running out mid-run.
 		"a missing summary where the flag says Y": {
-			file: joined(headerBytes(t, 0, "Y", 0)),
+			file: joined(headerBytes(t, Encoding(), 0, "Y", 0)),
 			says: []string{"not complete", "node 21"},
 		},
 
@@ -223,13 +236,13 @@ func TestTheFourThingsAMemorylessGraphWouldNotDetect(t *testing.T) {
 		// excluded the transition that would have matched, and that is what the
 		// consumer says rather than calling the record undescribed.
 		"a sixth detail where the header said five": {
-			file: joined(headerBytes(t, 0, "N", 0), detailBytes(t)),
+			file: joined(headerBytes(t, Encoding(), 0, "N", 0), detailBytes(t, Encoding())),
 			says: []string{"a guard excluded", "DETAIL-RECORD", "node 20"},
 		},
 
 		// The same failure, on the flag.
 		"a summary where the flag says N": {
-			file: joined(headerBytes(t, 0, "N", 0), summaryBytes(t, 0)),
+			file: joined(headerBytes(t, Encoding(), 0, "N", 0), summaryBytes(t, Encoding(), 0)),
 			says: []string{"a guard excluded", "SUMMARY-RECORD", "node 21"},
 		},
 	} {
@@ -262,9 +275,9 @@ func TestAGuardExcludedTransitionCarryingNoPredicateDoesNotDisplaceTheDiagnostic
 	t.Parallel()
 
 	_, err := read(t, joined(
-		headerBytes(t, 0, "Y", 0),
-		summaryBytes(t, 0),
-		detailBytes(t),
+		headerBytes(t, Encoding(), 0, "Y", 0),
+		summaryBytes(t, Encoding(), 0),
+		detailBytes(t, Encoding()),
 	))
 	if err == nil {
 		t.Fatal("a detail behind a summary was read as a record the layout describes")
@@ -299,7 +312,7 @@ func TestATableCountedByARegisterIsSizedByItAndCheckedAgainstIt(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			records, err := read(t, joined(headerBytes(t, 0, "Y", 2), summaryBytes(t, 2)))
+			records, err := read(t, joined(headerBytes(t, Encoding(), 0, "Y", 2), summaryBytes(t, Encoding(), 2)))
 			if err != nil {
 				t.Fatalf("reading the file: %v", err)
 			}
@@ -403,7 +416,7 @@ func TestAWriterEvaluatesAPredicateAndNeverInvertsOne(t *testing.T) {
 func TestAFileWithNoDelimiterBehindItsLastRecordIsTruncated(t *testing.T) {
 	t.Parallel()
 
-	whole := joined(headerBytes(t, 0, "N", 0))
+	whole := joined(headerBytes(t, Encoding(), 0, "N", 0))
 
 	_, err := read(t, whole[:len(whole)-1])
 	if err == nil {
@@ -420,7 +433,7 @@ func TestAFileWithNoDelimiterBehindItsLastRecordIsTruncated(t *testing.T) {
 func TestADelimiterThatIsNotWhereTheExtentEndsIsReported(t *testing.T) {
 	t.Parallel()
 
-	whole := joined(headerBytes(t, 0, "N", 0))
+	whole := joined(headerBytes(t, Encoding(), 0, "N", 0))
 
 	// The delimiter one byte early, so the record's extent runs past it.
 	moved := append(append([]byte{}, whole[:len(whole)-2]...), 0x15, 0x40)

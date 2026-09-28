@@ -22,12 +22,15 @@ DO NOT EDIT.` header is what tells them apart. `records_test.go` and
 arm and one more per record carrying a table that may be absent, the second one
 case per path through the automaton, each carrying the bytes
 it reads as a literal, and `written` pins both byte for byte like every other
-generated file. Everything else — `file_roundtrip_test.go` in all seven,
-`record_roundtrip_test.go` in `orders`, and the four `file_reuse_test.go` — is
-hand-written and is skipped, because those assertions live *inside* each package
-for a reason the generated ones do not have: the bytes retained for a slack node
-are unexported, so a run of the wrong length is something only code in the
-package can hand a writer.
+generated file. Everything else — `file_roundtrip_test.go` in all eight,
+`record_roundtrip_test.go` in `orders`, `converted_roundtrip_test.go` in
+`counted` and `fixed`, and the four `file_reuse_test.go` — is hand-written and
+is skipped, because those assertions live *inside* each package for a reason
+the generated ones do not have: the bytes retained for a slack node are
+unexported, so a run of the wrong length is something only code in the package
+can hand a writer, and the literals a reader or a writer compares are
+unexported too, so which ones it holds under an encoding is something only
+code in the package can ask.
 
 The hand-written names carry `roundtrip` because `file_test.go` is the name
 `cpybkc-gen-go` itself writes, for the file tier; see [the names, and which
@@ -59,10 +62,13 @@ escapes into the decoder.
 A descriptor carries one file node and a file node carries one framing, so what
 the reader and the writer do with the bytes around a record cannot be exercised
 from a package whose file node names a different one. There is therefore one
-package per framing, and one per delimiter placement — and one more, `batched`,
-which is not about a framing at all: it is the state whose two transitions no
-literal separates, where what a reader and a writer agree on is the order the
-state carries and the check that spends it:
+package per framing, and one per delimiter placement — and two more that are not
+about a framing at all. `batched` is the state whose two transitions no literal
+separates, where what a reader and a writer agree on is the order the state
+carries and the check that spends it. `signs` is the literals a re-expression
+moves by something other than a character, and the one golden whose
+`literals.go` carries every file of [`emitted`](../emitted) but the float one,
+so that each is compiled and linted in a generated package:
 
 | Package | Framing | What it is for |
 |---|---|---|
@@ -73,6 +79,7 @@ state carries and the check that spends it:
 | [`sep`](sep) | delimited, separator | A trailing delimiter announcing a record that is not there |
 | [`opt`](opt) | delimited, optional terminator | Tuesday's file and Wednesday's, and a writer that emits the final delimiter rather than choosing whether to |
 | [`batched`](batched) | unframed | `ir/SPEC.md`'s *A batch boundary is told by the order* — two discriminators at offsets that do not line up, and the writer refusing a detail its own reader would admit as a header |
+| [`signs`](signs) | descriptor-word | `ir/SPEC.md`'s *Each axis carries a literal the way a file crosses it* — records told apart by a character, by the sign byte of a signed zoned digit and by a binary count, read and written under a converted encoding and a little-endian one, and refused under the convention that spells two of those literals alike |
 
 Regenerate one whenever the emitter changes: the failure prints the whole of
 both sides, so the new bytes come out of the test's own output.

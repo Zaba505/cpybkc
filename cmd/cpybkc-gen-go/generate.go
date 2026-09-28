@@ -23,8 +23,9 @@ import (
 // point cpybkc at rather than a program that is not finished.
 //
 // The record structs land beside it in [recordsFile], the decode and encode
-// methods in [codecFile], and the file-level reader and writer in
-// [fileMachineFile]. The codec version assertions are #53, and land as a file
+// methods in [codecFile], the file-level reader and writer in
+// [fileMachineFile], and the literals the last two compare — with what
+// re-expresses them under another encoding — in [literalsFile]. The codec version assertions are #53, and land as a file
 // of their own for the same reason.
 const generatedFile = "doc.go"
 
@@ -79,7 +80,16 @@ func generate(w io.Writer, descriptor *irpb.Descriptor, out string, opts options
 		sources[recordsFile] = structs
 	}
 
-	methods, err := codecMethods(descriptor, opts)
+	// Every literal the package compares, named once before either file that
+	// compares one is composed, so that codec.go, file.go and literals.go agree
+	// about what each is called. literals.go is composed last, out of what the
+	// other two marked as compared.
+	lits, err := gatherLiterals(descriptor)
+	if err != nil {
+		return err
+	}
+
+	methods, err := codecMethodsWith(descriptor, opts, lits)
 	if err != nil {
 		return err
 	}
@@ -104,7 +114,7 @@ func generate(w io.Writer, descriptor *irpb.Descriptor, out string, opts options
 		sources[recordsTestFile] = tests
 	}
 
-	machine, err := fileMachine(descriptor, opts)
+	machine, err := fileMachineWith(descriptor, opts, lits)
 	if err != nil {
 		return err
 	}
@@ -115,6 +125,18 @@ func generate(w io.Writer, descriptor *irpb.Descriptor, out string, opts options
 	// with nothing to read or write.
 	if machine != "" {
 		sources[fileMachineFile] = machine
+	}
+
+	// Absent where neither file compares a literal, which is a package with no
+	// predicate and no guard over a bytes register: there is nothing to
+	// re-express under another encoding.
+	compared, err := literalsSource(lits, opts)
+	if err != nil {
+		return err
+	}
+
+	if compared != "" {
+		sources[literalsFile] = compared
 	}
 
 	// The file tier, written exactly when the file it covers is and by the same

@@ -27,17 +27,18 @@ import (
 	"github.com/Zaba505/cobol-go/codec"
 )
 
-// ledgerBytes is one LEDGER-RECORD whose two entries take the arms named.
+// ledgerBytes is one LEDGER-RECORD whose two entries take the arms named, laid
+// out under enc through codec rather than through this package.
 //
 // Every byte no item covers is neither a space nor a zero, so a writer filling
 // one rather than emitting what was read is a failure rather than a
 // coincidence.
-func ledgerBytes(t *testing.T, id, arms string) []byte {
+func ledgerBytes(t *testing.T, enc codec.Encoding, id, arms string) []byte {
 	t.Helper()
 
 	var b bytes.Buffer
 
-	w, err := codec.NewWriter(&b, Encoding())
+	w, err := codec.NewWriter(&b, enc)
 	if err != nil {
 		t.Fatalf("codec.NewWriter: %v", err)
 	}
@@ -86,7 +87,15 @@ func ledgerBytes(t *testing.T, id, arms string) []byte {
 func read(t *testing.T, in []byte) []Record {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	return readUnder(t, Encoding(), in)
+}
+
+// readUnder is every record of in, through the generated reader built under
+// enc.
+func readUnder(t *testing.T, enc codec.Encoding, in []byte) []Record {
+	t.Helper()
+
+	r, err := NewReader(bytes.NewReader(in), enc)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -111,9 +120,17 @@ func read(t *testing.T, in []byte) []Record {
 func write(t *testing.T, records []Record) []byte {
 	t.Helper()
 
+	return writeUnder(t, Encoding(), records)
+}
+
+// writeUnder is every record written back out, through the generated writer
+// built under enc.
+func writeUnder(t *testing.T, enc codec.Encoding, records []Record) []byte {
+	t.Helper()
+
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b, enc)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -139,9 +156,9 @@ func TestAFileNoPredicateDiscriminatesRoundTrips(t *testing.T) {
 	t.Parallel()
 
 	want := bytes.Join([][]byte{
-		ledgerBytes(t, "AAAA", "DS"),
-		ledgerBytes(t, "BBBB", "SD"),
-		ledgerBytes(t, "CCCC", "DD"),
+		ledgerBytes(t, Encoding(), "AAAA", "DS"),
+		ledgerBytes(t, Encoding(), "BBBB", "SD"),
+		ledgerBytes(t, Encoding(), "CCCC", "DD"),
 	}, nil)
 
 	records := read(t, want)
@@ -165,8 +182,8 @@ func TestReadModifyWriteLeavesEveryByteNoItemCovers(t *testing.T) {
 	t.Parallel()
 
 	in := bytes.Join([][]byte{
-		ledgerBytes(t, "AAAA", "DS"),
-		ledgerBytes(t, "BBBB", "SS"),
+		ledgerBytes(t, Encoding(), "AAAA", "DS"),
+		ledgerBytes(t, Encoding(), "BBBB", "SS"),
 	}, nil)
 
 	records := read(t, in)
@@ -179,8 +196,8 @@ func TestReadModifyWriteLeavesEveryByteNoItemCovers(t *testing.T) {
 	second.LedgerId = "ZZZZ"
 
 	want := bytes.Join([][]byte{
-		ledgerBytes(t, "AAAA", "DS"),
-		ledgerBytes(t, "ZZZZ", "SS"),
+		ledgerBytes(t, Encoding(), "AAAA", "DS"),
+		ledgerBytes(t, Encoding(), "ZZZZ", "SS"),
 	}, nil)
 
 	if got := write(t, records); !bytes.Equal(got, want) {
@@ -224,7 +241,7 @@ func TestARecordTheCallerBuiltEmitsZeroBytesForItsSlack(t *testing.T) {
 func TestAFileEndingPartWayThroughARecordIsTruncated(t *testing.T) {
 	t.Parallel()
 
-	whole := ledgerBytes(t, "AAAA", "DS")
+	whole := ledgerBytes(t, Encoding(), "AAAA", "DS")
 
 	r, err := NewReader(bytes.NewReader(whole[:len(whole)-3]), Encoding())
 	if err != nil {

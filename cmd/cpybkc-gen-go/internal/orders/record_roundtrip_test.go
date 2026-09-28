@@ -61,6 +61,20 @@ func ascii() codec.Encoding {
 	}
 }
 
+// converted is the third encoding these tests read under: what a
+// copybook-aware transfer to ASCII makes of a file under [Encoding]. It differs
+// from [ascii] in its sign convention — a transfer rewrites an EBCDIC sign byte
+// into the translated-EBCDIC one, where a program writing ASCII natively
+// writes zone 3 or 7 — and in keeping the float format the file was written
+// with.
+func converted() codec.Encoding {
+	enc := Encoding()
+	enc.Charset = codec.ASCII()
+	enc.Sign = codec.SignTranslatedEBCDIC
+
+	return enc
+}
+
 // laidOut is a record's bytes, written item by item.
 func laidOut(tb testing.TB, enc codec.Encoding, items func(*codec.Writer) error) []byte {
 	tb.Helper()
@@ -494,17 +508,19 @@ func TestACountOutsideItsDeclaredBoundsIsReported(t *testing.T) {
 	})
 }
 
-// entryBytes is one ENTRY-RECORD whose three entries take the arms named.
+// entryBytes is one ENTRY-RECORD under enc whose three entries take the arms
+// named.
 //
-// EBCDIC only, and deliberately: an arm's predicate compares the bytes the
-// producer resolved, so the type code is 0xC4 and 0xE2 rather than a character.
-// Reading these records under an ASCII encoding is reading a file that is not
-// the file the descriptor describes, which is the axis that has no default for
-// exactly this reason.
-func entryBytes(tb testing.TB, arms string) []byte {
+// Under any encoding, because an arm's predicate is compared against its
+// literal as a file under the decoder's own encoding spells it: the type code
+// was resolved as C4 and E2, and the record methods compare a file under ASCII
+// against 44 and 53 — `D` and `S` — rather than against bytes that file does
+// not hold. See docs/ir/SPEC.md, "A consumer may read under other axes, and
+// re-expresses what it compares".
+func entryBytes(tb testing.TB, enc codec.Encoding, arms string) []byte {
 	tb.Helper()
 
-	return laidOut(tb, Encoding(), func(w *codec.Writer) error {
+	return laidOut(tb, enc, func(w *codec.Writer) error {
 		for i, code := range arms {
 			if err := w.WriteAlphanumeric(string(code), 1); err != nil {
 				return err
@@ -547,18 +563,20 @@ func entryBytes(tb testing.TB, arms string) []byte {
 func TestATableOfVariantsWritesBackTheBytesItWasReadFrom(t *testing.T) {
 	t.Parallel()
 
-	for _, arms := range []string{"DDD", "DSD", "SSS", "SDS"} {
-		want := entryBytes(t, arms)
+	for name, enc := range map[string]codec.Encoding{"EBCDIC": Encoding(), "ASCII": ascii(), "converted": converted()} {
+		for _, arms := range []string{"DDD", "DSD", "SSS", "SDS"} {
+			want := entryBytes(t, enc, arms)
 
-		var x EntryRecord
+			var x EntryRecord
 
-		assertBytes(t, roundTrip(t, Encoding(), &x, want), want)
+			assertBytes(t, roundTrip(t, enc, &x, want), want)
 
-		for i, code := range arms {
-			held := x.Entry[i]
+			for i, code := range arms {
+				held := x.Entry[i]
 
-			if (code == 'D') != (held.EntryDetail != nil) || (code == 'S') != (held.EntrySummary != nil) {
-				t.Errorf("entry %d of %s holds detail=%v summary=%v", i, arms, held.EntryDetail != nil, held.EntrySummary != nil)
+				if (code == 'D') != (held.EntryDetail != nil) || (code == 'S') != (held.EntrySummary != nil) {
+					t.Errorf("%s: entry %d of %s holds detail=%v summary=%v", name, i, arms, held.EntryDetail != nil, held.EntrySummary != nil)
+				}
 			}
 		}
 	}
@@ -574,7 +592,7 @@ func TestATableOfVariantsWritesBackTheBytesItWasReadFrom(t *testing.T) {
 func TestAnOccurrenceMatchingNoArmIsReportedAsItsOwnFailure(t *testing.T) {
 	t.Parallel()
 
-	in := entryBytes(t, "DDD")
+	in := entryBytes(t, Encoding(), "DDD")
 
 	// The second entry's type code, which no arm's predicate admits.
 	in[7] = 0x5b
@@ -644,7 +662,7 @@ func TestAWriterEvaluatesAnArmsPredicateAndNeverInvertsOne(t *testing.T) {
 
 			var x EntryRecord
 
-			r, err := codec.NewReader(bytes.NewReader(entryBytes(t, "DDD")), Encoding())
+			r, err := codec.NewReader(bytes.NewReader(entryBytes(t, Encoding(), "DDD")), Encoding())
 			if err != nil {
 				t.Fatalf("codec.NewReader: %v", err)
 			}

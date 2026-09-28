@@ -131,6 +131,19 @@ func shareBytes(one, other transition) bool {
 // diagnostic from a helper deciding whether to emit a test would say the same
 // thing twice.
 func (f *filer) coEligible(one, other transition) bool {
+	return f.coEligibleUnder(one, other, func(uint64) bool { return false })
+}
+
+// coEligibleUnder is [filer.coEligible] with the guards over every register
+// ignored for which ignore says so — as though those registers could hold
+// anything.
+//
+// Ignoring a guard only ever answers `true` where the full answer was `false`,
+// never the reverse, so it is the safe direction for the one caller that needs
+// it: [filer.apart], deciding which pairs to re-check under another encoding,
+// where a guard over a register whose literals could come together under that
+// encoding is not a guard that can be relied on to keep a pair apart.
+func (f *filer) coEligibleUnder(one, other transition, ignore func(uint64) bool) bool {
 	byRegister := make(map[uint64][]*irpb.Guard)
 
 	for _, id := range slices.Concat(one.node.GetGuardIds(), other.node.GetGuardIds()) {
@@ -142,6 +155,10 @@ func (f *filer) coEligible(one, other transition) bool {
 		guard := node.GetGuard()
 		if guard == nil {
 			return true
+		}
+
+		if ignore(guard.GetRegisterId()) {
+			continue
 		}
 
 		byRegister[guard.GetRegisterId()] = append(byRegister[guard.GetRegisterId()], guard)
@@ -283,7 +300,7 @@ func (f *filer) emitRivalChecks(b *strings.Builder, walk []transition, at int, c
 			return err
 		}
 
-		test, _, registers, err := f.guardTests(other, "w")
+		test, _, _, registers, err := f.guardTests(other, "w")
 		if err != nil {
 			return err
 		}
@@ -308,9 +325,9 @@ func (f *filer) emitRivalChecks(b *strings.Builder, walk []transition, at int, c
 		line(b, "// automaton\".")
 
 		if test == "" {
-			line(b, "if %s(raw) {", matches)
+			line(b, "if w.%s.%s(raw) {", litsName, matches)
 		} else {
-			line(b, "if %s && %s(raw) {", test, matches)
+			line(b, "if %s && w.%s.%s(raw) {", test, litsName, matches)
 		}
 
 		line(b, "return w.refuse(%q, fmt.Sprintf(%q, raw[%d:%d]))",

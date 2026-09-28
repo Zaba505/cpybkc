@@ -30,6 +30,7 @@ var fileTierDescriptors = map[string]func() *irpb.Descriptor{
 	"internal/chunks":  chunksDescriptor,
 	"internal/sep":     separatedDescriptor,
 	"internal/opt":     optionalDescriptor,
+	"internal/signs":   signsDescriptor,
 }
 
 // TestTheFileTierCoversEveryTransitionPredicate is the coverage rule, held

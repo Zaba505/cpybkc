@@ -199,7 +199,13 @@ func refTail(w *codec.Writer) error {
 func fileBytes(t *testing.T) []byte {
 	t.Helper()
 
-	enc := Encoding()
+	return fileBytesUnder(t, Encoding())
+}
+
+// fileBytesUnder is the same file laid out under enc, through codec rather
+// than through this package.
+func fileBytesUnder(t *testing.T, enc codec.Encoding) []byte {
+	t.Helper()
 
 	var b bytes.Buffer
 
@@ -288,34 +294,57 @@ func recordType(v any) string {
 // framing is on the path too: a record descriptor word states the length of the
 // record behind it, so a writer that laid a record out differently would be
 // visible here even where every field came back equal.
+//
+// Under two encodings: the one the layout declares, and the one a
+// copybook-aware transfer to ASCII makes of the same file. The second is the
+// file discussion #378 read, and before the literals were re-expressed its first
+// record was refused — "01" was compared as F0 F1, which a file under ASCII
+// does not hold — and its writer refused a header its caller built.
 func TestAMultiRecordFileReadsBackAsTheFileItWas(t *testing.T) {
 	t.Parallel()
 
-	want := fileBytes(t)
+	for name, enc := range map[string]codec.Encoding{"layout": Encoding(), "converted": converted()} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	records := read(t, Encoding(), want)
-	if len(records) != 4 {
-		t.Fatalf("the file holds four records and the reader produced %d", len(records))
-	}
+			want := fileBytesUnder(t, enc)
 
-	// Both of the record types this layout names, between the header and the
-	// trailer, and each one selected by the type code twelve bytes into the
-	// record rather than by its position.
-	for i, kind := range []any{
-		(*LedgerHeader)(nil),
-		(*DebitPosting)(nil),
-		(*CreditPosting)(nil),
-		(*LedgerTrailer)(nil),
-	} {
-		if got, want := recordType(records[i]), recordType(kind); got != want {
-			t.Errorf("record %d came back as a %s, want a %s", i+1, got, want)
-		}
-	}
+			records := read(t, enc, want)
+			if len(records) != 4 {
+				t.Fatalf("the file holds four records and the reader produced %d", len(records))
+			}
 
-	got := write(t, Encoding(), records)
-	if !bytes.Equal(got, want) {
-		t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", got, want)
+			// Both of the record types this layout names, between the header
+			// and the trailer, and each one selected by the type code twelve
+			// bytes into the record rather than by its position.
+			for i, kind := range []any{
+				(*LedgerHeader)(nil),
+				(*DebitPosting)(nil),
+				(*CreditPosting)(nil),
+				(*LedgerTrailer)(nil),
+			} {
+				if got, want := recordType(records[i]), recordType(kind); got != want {
+					t.Errorf("record %d came back as a %s, want a %s", i+1, got, want)
+				}
+			}
+
+			got := write(t, enc, records)
+			if !bytes.Equal(got, want) {
+				t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", got, want)
+			}
+		})
 	}
+}
+
+// converted is what a copybook-aware transfer to ASCII makes of a file under
+// [Encoding]: ASCII characters and translated-EBCDIC signs, with the binary
+// items, the byte order, the float format and the staircase as they were.
+func converted() codec.Encoding {
+	enc := Encoding()
+	enc.Charset = codec.ASCII()
+	enc.Sign = codec.SignTranslatedEBCDIC
+
+	return enc
 }
 
 // TestTheBytesACreditPostingDoesNotDescribeSurviveARead is the half of the

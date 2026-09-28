@@ -94,6 +94,13 @@ type Reader struct {
 // and a file of these records converted to another character set is read by
 // passing a different one.
 //
+// What follows enc is every literal this package compares a field against,
+// re-expressed here, once, as a file under enc spells it; an item whose charset
+// is none carries bytes, and its literals never move. A literal no file under
+// enc can hold is refused here rather than at the record that would first have
+// needed it, and the refusal names the literal, the item, the record and the
+// axis: it is about the layout and enc, and not about the file. See literals.go.
+//
 // Reads are buffered: r is wrapped in a bufio.Reader of readAhead bytes, which is
 // bufio's own default wherever this file's predicates fit inside it. Where a
 // read of the file is expensive — a network filesystem, or a host with hooks on
@@ -112,6 +119,18 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 	// Construction is what validates the encoding, and it reports the same error
 	// for the same axis that enc.Validate does, so nothing is checked twice here.
 	cr, err := codec.NewBytesReader(nil, enc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Every literal this package compares, as a file under enc spells it. One
+	// with no spelling there is refused here, before any record is read: it is a
+	// property of the layout and of enc, and no file enc describes could hold it.
+	//
+	// This reader compares none of them itself; the record methods compare the
+	// arms' literals under this same encoding, and asking now is what puts the
+	// refusal here.
+	_, err = literalsFor(enc)
 	if err != nil {
 		return nil, err
 	}
@@ -284,6 +303,10 @@ type Writer struct {
 //
 // The five axes are the caller's for the reason they are on [NewReader]: they are
 // properties of the file being written rather than of this descriptor's items.
+// Every literal this package compares is re-expressed under enc here, once,
+// and refused here where no file under enc can hold it, exactly as [NewReader]
+// does — so the record this writer refuses to emit is the record a reader
+// under the same encoding would route elsewhere.
 func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	if w == nil {
 		return nil, codec.ErrNilWriter
@@ -294,6 +317,18 @@ func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	// encoding, and it reports the same error for the same axis that
 	// enc.Validate does, so nothing is checked twice here.
 	cw, err := codec.NewBytesWriter(nil, enc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Every literal this package compares, as a file under enc spells it. One
+	// with no spelling there is refused here, before any record is written: it is a
+	// property of the layout and of enc, and no file enc describes could hold it.
+	//
+	// This writer compares none of them itself; the record methods compare the
+	// arms' literals under this same encoding, and asking now is what puts the
+	// refusal here.
+	_, err = literalsFor(enc)
 	if err != nil {
 		return nil, err
 	}
