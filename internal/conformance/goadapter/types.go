@@ -22,7 +22,10 @@ import (
 const decodeMethod = "UnmarshalCOBOL"
 
 // recordTypes is every type of the generated package in dir that a record is
-// read into, named as the package declares it, in the order it declares them.
+// read into, named as the package declares it — in the order their decoders are
+// declared, file by file in the order of the files' names. Nothing depends on
+// that order beyond two runs over one package asking in the same one: every
+// type is asked, and every one of them has to refuse.
 //
 // A codec program needs them for one question: whether the generated code
 // refuses a binary width staircase that is not its descriptor's. The package's
