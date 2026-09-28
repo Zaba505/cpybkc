@@ -2001,7 +2001,7 @@ func (t *filetest) testCase(one *laid, alias string, used map[string]struct{}) (
 	b.WriteString(commentLines(doc))
 	fmt.Fprintf(&b, "func %s(t *testing.T) {\nt.Parallel()\n\n", name)
 	b.WriteString(t.synth.literalOf(one.runs))
-	fmt.Fprintf(&b, "\nr, err := %s.%s(bytes.NewReader(in), %s.%s())\n", alias, newReaderFunc, alias, encodingFunc)
+	fmt.Fprintf(&b, "\nr, err := %s.%s(bytes.NewReader(in))\n", alias, newReaderFunc)
 	fmt.Fprintf(&b, "if err != nil {\nt.Fatalf(\"%s: %%v\", err)\n}\n\n", newReaderFunc)
 	fmt.Fprintf(&b, "var records []%s.%s\n\n", alias, recordInterface)
 	b.WriteString("for {\nrec, err := r.Next()\nif errors.Is(err, io.EOF) {\nbreak\n}\n\n")
@@ -2035,7 +2035,7 @@ func (t *filetest) testCase(one *laid, alias string, used map[string]struct{}) (
 	}
 
 	b.WriteString("\nvar out bytes.Buffer\n\n")
-	fmt.Fprintf(&b, "w, err := %s.%s(&out, %s.%s())\n", alias, newWriterFunc, alias, encodingFunc)
+	fmt.Fprintf(&b, "w, err := %s.%s(&out)\n", alias, newWriterFunc)
 	fmt.Fprintf(&b, "if err != nil {\nt.Fatalf(\"%s: %%v\", err)\n}\n\n", newWriterFunc)
 	b.WriteString("for _, rec := range records {\nif err := w.Write(rec); err != nil {\nt.Fatalf(\"Write: %v\", err)\n}\n}\n\n")
 	b.WriteString("if err := w.Close(); err != nil {\nt.Fatalf(\"Close: %v\", err)\n}\n\n")

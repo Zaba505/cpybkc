@@ -38,7 +38,7 @@ func TestTwoLineRecords(t *testing.T) {
 		0x15, // the delimiter behind record 2
 	}
 
-	r, err := opt.NewReader(bytes.NewReader(in), opt.Encoding())
+	r, err := opt.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestTwoLineRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := opt.NewWriter(&out, opt.Encoding())
+	w, err := opt.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

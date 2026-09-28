@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -134,7 +135,7 @@ func TestAFileToldApartBySignsRoundTripsUnderEveryEncodingThatHoldsThemApart(t *
 
 			want := fileUnder(t, enc)
 
-			r, err := NewReader(bytes.NewReader(want), enc)
+			r, err := NewReader(bytes.NewReader(want), optionsOf(t, enc)...)
 			if err != nil {
 				t.Fatalf("NewReader: %v", err)
 			}
@@ -143,7 +144,7 @@ func TestAFileToldApartBySignsRoundTripsUnderEveryEncodingThatHoldsThemApart(t *
 
 			var b bytes.Buffer
 
-			w, err := NewWriter(&b, enc)
+			w, err := NewWriter(&b, optionsOf(t, enc)...)
 			if err != nil {
 				t.Fatalf("NewWriter: %v", err)
 			}
@@ -199,8 +200,8 @@ func TestAFileToldApartBySignsRoundTripsUnderEveryEncodingThatHoldsThemApart(t *
 func TestAConventionSpellingTwoLiteralsAlikeIsRefusedWhenTheReaderIsBuilt(t *testing.T) {
 	t.Parallel()
 
-	_, readErr := NewReader(bytes.NewReader(nil), native())
-	_, writeErr := NewWriter(&bytes.Buffer{}, native())
+	_, readErr := NewReader(bytes.NewReader(nil), optionsOf(t, native())...)
+	_, writeErr := NewWriter(&bytes.Buffer{}, optionsOf(t, native())...)
 
 	for name, err := range map[string]error{"NewReader": readErr, "NewWriter": writeErr} {
 		if err == nil {
@@ -260,7 +261,7 @@ func TestAnFZoneCrossesACharsetAsATransferWritesIt(t *testing.T) {
 func TestTheLayoutsOwnEncodingComparesTheResolvedLiterals(t *testing.T) {
 	t.Parallel()
 
-	r, err := NewReader(bytes.NewReader(nil), Encoding())
+	r, err := NewReader(bytes.NewReader(nil))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -281,5 +282,201 @@ func TestTheLayoutsOwnEncodingComparesTheResolvedLiterals(t *testing.T) {
 	again, err := literalsFor(swapped())
 	if err != nil || again != lits {
 		t.Errorf("a second reader under one encoding re-expressed the literals again: %v", err)
+	}
+}
+
+// optionsOf is enc as the options a reader or a writer is built with: one per
+// axis a layout states, each set to enc's. The tests here describe an encoding
+// once, as the codec.Encoding the bytes they lay out are synthesized under, and
+// build the file-level reader and writer under the same four axes from it.
+//
+// The staircase has no option, so enc's has to be the descriptor's; one that is
+// not is a mistake in the test rather than an encoding to drop silently.
+func optionsOf(t *testing.T, enc codec.Encoding) []Option {
+	t.Helper()
+
+	if enc.Binary != Encoding().Binary {
+		t.Fatalf("no option carries the binary width staircase %s, and this package's is %s", enc.Binary, Encoding().Binary)
+	}
+
+	return []Option{
+		WithCharset(enc.Charset),
+		WithSignConvention(enc.Sign),
+		WithByteOrder(enc.ByteOrder),
+		WithFloatFormat(enc.Float),
+	}
+}
+
+// TestNoOptionIsTheLayoutsEncoding is the default #381 settled: a reader or a
+// writer handed no option is built under [Encoding], the encoding the layout
+// states, and reads and writes the file the layout describes.
+func TestNoOptionIsTheLayoutsEncoding(t *testing.T) {
+	t.Parallel()
+
+	if got, want := encodingWith(nil), Encoding(); !reflect.DeepEqual(got, want) {
+		t.Errorf("handed no option, the reader and writer build under %+v, want %+v", got, want)
+	}
+
+	want := fileUnder(t, Encoding())
+
+	r, err := NewReader(bytes.NewReader(want))
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+
+	var b bytes.Buffer
+
+	w, err := NewWriter(&b)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+
+	for {
+		rec, err := r.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+
+		if err := w.Write(rec); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if !bytes.Equal(b.Bytes(), want) {
+		t.Errorf("the file under the layout's encoding wrote back % x, and was read from % x", b.Bytes(), want)
+	}
+}
+
+// TestEachOptionReplacesItsAxisAndNoOther holds every option to the one axis it
+// names: the encoding it builds is the layout's with that field replaced, and
+// every other field — the staircase among them — is the layout's.
+func TestEachOptionReplacesItsAxisAndNoOther(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		opt  Option
+		want func(*codec.Encoding)
+	}{
+		"charset":             {WithCharset(codec.ASCII()), func(e *codec.Encoding) { e.Charset = codec.ASCII() }},
+		"sign convention":     {WithSignConvention(codec.SignTranslatedEBCDIC), func(e *codec.Encoding) { e.Sign = codec.SignTranslatedEBCDIC }},
+		"byte order":          {WithByteOrder(binary.LittleEndian), func(e *codec.Encoding) { e.ByteOrder = binary.LittleEndian }},
+		"floating-point form": {WithFloatFormat(codec.FloatIEEE), func(e *codec.Encoding) { e.Float = codec.FloatIEEE }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			want := Encoding()
+			tc.want(&want)
+
+			if got := encodingWith([]Option{tc.opt}); !reflect.DeepEqual(got, want) {
+				t.Errorf("the option builds %+v, want %+v", got, want)
+			}
+		})
+	}
+
+	// The zero value is an option too, and replaces nothing; where two name one
+	// axis, the later holds.
+	if got := encodingWith([]Option{{}}); !reflect.DeepEqual(got, Encoding()) {
+		t.Errorf("the zero Option builds %+v, want the layout's %+v", got, Encoding())
+	}
+
+	if got := encodingWith([]Option{WithByteOrder(binary.LittleEndian), WithByteOrder(binary.BigEndian)}); got.ByteOrder != binary.BigEndian {
+		t.Errorf("two byte orders built %v, want the later one", got.ByteOrder)
+	}
+
+	// And the options are what a caller reads a converted copy with, named one
+	// axis at a time rather than as an encoding.
+	want := fileUnder(t, converted())
+
+	r, err := NewReader(bytes.NewReader(want), WithCharset(codec.ASCII()), WithSignConvention(codec.SignTranslatedEBCDIC))
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+
+	var kinds int
+
+	for {
+		_, err := r.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+
+		kinds++
+	}
+
+	if kinds == 0 {
+		t.Error("the converted copy read no record")
+	}
+}
+
+// unread is an input that fails the test it is read in: a constructor refusing
+// its options refuses them before it reads anything.
+type unread struct{ t *testing.T }
+
+// Read implements io.Reader.
+func (u unread) Read([]byte) (int, error) {
+	u.t.Error("the reader read its input before refusing its options")
+
+	return 0, io.EOF
+}
+
+// TestAnOverrideIsValidatedWhenTheReaderOrWriterIsBuilt holds a bad value for
+// each axis to the error codec reports for it today, from both constructors and
+// before anything is read or written.
+func TestAnOverrideIsValidatedWhenTheReaderOrWriterIsBuilt(t *testing.T) {
+	t.Parallel()
+
+	for field, opt := range map[string]Option{
+		"Charset":   WithCharset(nil),
+		"Sign":      WithSignConvention(codec.SignConvention(99)),
+		"ByteOrder": WithByteOrder(nil),
+		"Float":     WithFloatFormat(codec.FloatFormat(99)),
+	} {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+
+			// What codec reports for the same encoding, built directly.
+			_, want := codec.NewBytesReader(nil, encodingWith([]Option{opt}))
+			if want == nil {
+				t.Fatalf("codec accepted the encoding with a bad %s", field)
+			}
+
+			r, readErr := NewReader(unread{t}, opt)
+
+			var dst bytes.Buffer
+
+			w, writeErr := NewWriter(&dst, opt)
+
+			for name, err := range map[string]error{"NewReader": readErr, "NewWriter": writeErr} {
+				var got codec.EncodingError
+				if !errors.As(err, &got) || got.Field != field {
+					t.Errorf("%s reported %v, want codec's error for %s", name, err, field)
+				}
+
+				if err == nil || err.Error() != want.Error() {
+					t.Errorf("%s reported %v, and codec reports %v", name, err, want)
+				}
+			}
+
+			if r != nil || w != nil {
+				t.Error("a constructor handed back a reader or a writer beside its refusal")
+			}
+
+			if dst.Len() != 0 {
+				t.Errorf("NewWriter wrote % x under options it refused", dst.Bytes())
+			}
+		})
 	}
 }

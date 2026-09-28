@@ -37,7 +37,7 @@ func TestTwoLineRecords(t *testing.T) {
 		0x00, 0x00, 0x6d, // record 2: LINE-AMOUNT @5 S9(3)V9(2) PACKED-DECIMAL
 	}
 
-	r, err := sep.NewReader(bytes.NewReader(in), sep.Encoding())
+	r, err := sep.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestTwoLineRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := sep.NewWriter(&out, sep.Encoding())
+	w, err := sep.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

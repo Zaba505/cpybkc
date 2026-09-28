@@ -122,7 +122,7 @@ func fileBytesUnder(t *testing.T, enc codec.Encoding) []byte {
 func read(t *testing.T, enc codec.Encoding, in []byte) []Record {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), enc)
+	r, err := NewReader(bytes.NewReader(in), optionsOf(t, enc)...)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -149,7 +149,7 @@ func write(t *testing.T, enc codec.Encoding, records []Record) []byte {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, enc)
+	w, err := NewWriter(&b, optionsOf(t, enc)...)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestAFileEndingBeforeTheAutomatonAcceptsIsTruncated(t *testing.T) {
 	// not accept.
 	first := whole[:4+int(whole[0])<<8+int(whole[1])-4]
 
-	r, err := NewReader(bytes.NewReader(first), Encoding())
+	r, err := NewReader(bytes.NewReader(first))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestAWriterClosedBeforeTheAutomatonAcceptsIsReported(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestAWriterRefusesARecordNoTransitionAdmitsHere(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestAReaderReportsARecordDescriptorWordThatIsNotTheExtent(t *testing.T) {
 			stated := len(raw) + 4 + adjust
 			in[0], in[1] = byte(stated>>8), byte(stated)
 
-			r, err := NewReader(bytes.NewReader(in), Encoding())
+			r, err := NewReader(bytes.NewReader(in))
 			if err != nil {
 				t.Fatalf("NewReader: %v", err)
 			}
@@ -355,7 +355,7 @@ func TestTheWholeFileIsNeverMaterialised(t *testing.T) {
 
 	src := &metered{src: bytes.NewReader(in)}
 
-	r, err := NewReader(src, Encoding())
+	r, err := NewReader(src)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestARecordHeldAcrossALaterReadStillCarriesItsOwnSlack(t *testing.T) {
 
 	in := fileBytes(t)
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestNoPredicateIsEvaluatedBeyondTheLengthTheFramingStates(t *testing.T) {
 	// SYNC-RECORD.
 	b.Write([]byte{0, 4, 0, 0})
 
-	r, err := NewReader(bytes.NewReader(b.Bytes()), enc)
+	r, err := NewReader(bytes.NewReader(b.Bytes()), optionsOf(t, enc)...)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -495,5 +495,27 @@ func TestNoPredicateIsEvaluatedBeyondTheLengthTheFramingStates(t *testing.T) {
 		if !bytes.Contains([]byte(err.Error()), []byte(want)) {
 			t.Errorf("the report reads %q and does not name %s", err, want)
 		}
+	}
+}
+
+// optionsOf is enc as the options a reader or a writer is built with: one per
+// axis a layout states, each set to enc's. The tests here describe an encoding
+// once, as the codec.Encoding the bytes they lay out are synthesized under, and
+// build the file-level reader and writer under the same four axes from it.
+//
+// The staircase has no option, so enc's has to be the descriptor's; one that is
+// not is a mistake in the test rather than an encoding to drop silently.
+func optionsOf(t *testing.T, enc codec.Encoding) []Option {
+	t.Helper()
+
+	if enc.Binary != Encoding().Binary {
+		t.Fatalf("no option carries the binary width staircase %s, and this package's is %s", enc.Binary, Encoding().Binary)
+	}
+
+	return []Option{
+		WithCharset(enc.Charset),
+		WithSignConvention(enc.Sign),
+		WithByteOrder(enc.ByteOrder),
+		WithFloatFormat(enc.Float),
 	}
 }

@@ -64,7 +64,7 @@ func TestTwoClaimRecords(t *testing.T) {
 		0xc6, // record 2: CLM-STATUS @57 X(1)
 	}
 
-	r, err := claim.NewReader(bytes.NewReader(in), claim.Encoding())
+	r, err := claim.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestTwoClaimRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := claim.NewWriter(&out, claim.Encoding())
+	w, err := claim.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

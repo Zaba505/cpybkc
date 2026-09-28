@@ -85,7 +85,7 @@ func TestACountedRunReadsAndWritesBackUnderAConvertedEncoding(t *testing.T) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, converted())
+	w, err := NewWriter(&b, optionsOf(t, converted())...)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -138,12 +138,12 @@ func TestTheLayoutsOwnEncodingReExpressesNothing(t *testing.T) {
 		t.Error("the descriptor's own encoding re-expressed the literals it resolved")
 	}
 
-	r, err := NewReader(bytes.NewReader(nil), Encoding())
+	r, err := NewReader(bytes.NewReader(nil))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
 
-	w, err := NewWriter(&bytes.Buffer{}, Encoding())
+	w, err := NewWriter(&bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -199,8 +199,8 @@ func TestALiteralTheReadCharsetCannotSpellIsRefusedWhenTheReaderIsBuilt(t *testi
 	enc := converted()
 	enc.Charset = withoutY{codec.ASCII()}
 
-	_, readErr := NewReader(bytes.NewReader(convertibleRun(t, converted())), enc)
-	_, writeErr := NewWriter(&bytes.Buffer{}, enc)
+	_, readErr := NewReader(bytes.NewReader(convertibleRun(t, converted())), optionsOf(t, enc)...)
+	_, writeErr := NewWriter(&bytes.Buffer{}, optionsOf(t, enc)...)
 
 	for name, err := range map[string]error{"NewReader": readErr, "NewWriter": writeErr} {
 		if err == nil {

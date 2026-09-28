@@ -42,7 +42,7 @@ func TestTwoBatchHeaders(t *testing.T) {
 		0xc3, 0xc3, //
 	}
 
-	r, err := batched.NewReader(bytes.NewReader(in), batched.Encoding())
+	r, err := batched.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestTwoBatchHeaders(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := batched.NewWriter(&out, batched.Encoding())
+	w, err := batched.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestABatchHeaderThenTwoBatchDetails(t *testing.T) {
 		0xd4, 0xd4, 0xd4, 0xd4, 0xd4, 0xd4, 0xd4, 0xd4, // record 3: DTL-MEMO @12 X(8)
 	}
 
-	r, err := batched.NewReader(bytes.NewReader(in), batched.Encoding())
+	r, err := batched.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestABatchHeaderThenTwoBatchDetails(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := batched.NewWriter(&out, batched.Encoding())
+	w, err := batched.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

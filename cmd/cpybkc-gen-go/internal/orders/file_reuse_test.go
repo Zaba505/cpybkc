@@ -47,7 +47,7 @@ func TestTheExtentOfARecordIsCountedFromTheStartOfIt(t *testing.T) {
 
 	in := append(framed(orderBytes(t, Encoding(), 2)), framed(stated)...)
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestACodecFaultInASecondRecordReportsAnOffsetWithinThatRecord(t *testing.T)
 	table := tableBytes(t, Encoding(), 3)
 	short := table[:len(table)-3]
 
-	r, err := NewReader(bytes.NewReader(append(first, framed(short)...)), Encoding())
+	r, err := NewReader(bytes.NewReader(append(first, framed(short)...)))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestARecordThatFailedLeavesNothingBehindInTheDecoder(t *testing.T) {
 
 	in := append(framed(cut), framed(order)...)
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}

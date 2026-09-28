@@ -272,7 +272,7 @@ func encoded(t *testing.T, recs []policy.Record) []byte {
 
 	var b bytes.Buffer
 
-	w, err := policy.NewWriter(&b, policy.Encoding())
+	w, err := policy.NewWriter(&b)
 	if err != nil {
 		t.Fatalf("policy.NewWriter: %v", err)
 	}
@@ -298,7 +298,7 @@ func encoded(t *testing.T, recs []policy.Record) []byte {
 func converted(t *testing.T, recs []policy.Record, rows int) ([]byte, error) {
 	t.Helper()
 
-	r, err := policy.NewReader(bytes.NewReader(encoded(t, recs)), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(encoded(t, recs)))
 	if err != nil {
 		t.Fatalf("policy.NewReader: %v", err)
 	}
@@ -323,7 +323,7 @@ func table(t *testing.T, policies, details int32, rows int) []byte {
 	// before it, which converted cannot do for a caller that wants only the
 	// bytes — so this repeats the three lines instead of returning a slice
 	// taken too early.
-	r, err := policy.NewReader(bytes.NewReader(encoded(t, extract(policies, details))), policy.Encoding())
+	r, err := policy.NewReader(bytes.NewReader(encoded(t, extract(policies, details))))
 	if err != nil {
 		t.Fatalf("policy.NewReader: %v", err)
 	}

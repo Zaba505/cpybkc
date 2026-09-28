@@ -89,7 +89,7 @@ func TestAnOrderRecordThenATableRecordThenASyncRecordThenAnEntryRecordThenATrail
 		0xc6, 0xc6, 0xc6, 0xc6, //
 	}
 
-	r, err := orders.NewReader(bytes.NewReader(in), orders.Encoding())
+	r, err := orders.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestAnOrderRecordThenATableRecordThenASyncRecordThenAnEntryRecordThenATrail
 
 	var out bytes.Buffer
 
-	w, err := orders.NewWriter(&out, orders.Encoding())
+	w, err := orders.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

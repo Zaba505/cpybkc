@@ -70,7 +70,7 @@ func TestTwoMemberRecords(t *testing.T) {
 		0xe8, // record 2: MBR-STATUS @102 X(1)
 	}
 
-	r, err := member.NewReader(bytes.NewReader(in), member.Encoding())
+	r, err := member.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestTwoMemberRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := member.NewWriter(&out, member.Encoding())
+	w, err := member.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

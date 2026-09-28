@@ -46,7 +46,7 @@ func TestTwoChunkRecords(t *testing.T) {
 		0xc5, 0xc5, 0xc5, 0xc5, 0xc5, 0xc5, 0xc5, 0xc5, // record 2: CHUNK-BODY @4 X(20) (continued)
 	}
 
-	r, err := chunks.NewReader(bytes.NewReader(in), chunks.Encoding())
+	r, err := chunks.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestTwoChunkRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := chunks.NewWriter(&out, chunks.Encoding())
+	w, err := chunks.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

@@ -212,7 +212,7 @@ func fileBytes(t *testing.T) []byte {
 func read(t *testing.T, enc codec.Encoding, in []byte) []Record {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), enc)
+	r, err := NewReader(bytes.NewReader(in), optionsOf(t, enc)...)
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -239,7 +239,7 @@ func write(t *testing.T, enc codec.Encoding, records []Record) ([]byte, error) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, enc)
+	w, err := NewWriter(&b, optionsOf(t, enc)...)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -509,5 +509,27 @@ func TestAnEntryFilledInAgainstTheScheduleIsReported(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "occurrence") || !strings.Contains(err.Error(), "MBR-ADDRESS") {
 		t.Errorf("the report reads %q and does not say which occurrence of which table it is about", err)
+	}
+}
+
+// optionsOf is enc as the options a reader or a writer is built with: one per
+// axis a layout states, each set to enc's. The tests here describe an encoding
+// once, as the codec.Encoding the bytes they lay out are synthesized under, and
+// build the file-level reader and writer under the same four axes from it.
+//
+// The staircase has no option, so enc's has to be the descriptor's; one that is
+// not is a mistake in the test rather than an encoding to drop silently.
+func optionsOf(t *testing.T, enc codec.Encoding) []Option {
+	t.Helper()
+
+	if enc.Binary != Encoding().Binary {
+		t.Fatalf("no option carries the binary width staircase %s, and this package's is %s", enc.Binary, Encoding().Binary)
+	}
+
+	return []Option{
+		WithCharset(enc.Charset),
+		WithSignConvention(enc.Sign),
+		WithByteOrder(enc.ByteOrder),
+		WithFloatFormat(enc.Float),
 	}
 }

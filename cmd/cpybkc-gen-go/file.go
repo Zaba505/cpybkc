@@ -24,8 +24,9 @@ const fileMachineFile = "file.go"
 
 // The identifiers the file-level reader and writer occupy at package scope.
 //
-// Every identifier munged from a copybook name is exported, so these five are
-// the only place this generator can collide with one. A collision is reported
+// Every identifier munged from a copybook name is exported, so these five and
+// the constructors' options (see option.go) are the only place this file can
+// collide with one. A collision is reported
 // rather than worked around, which is what records.go already does with two
 // items that munge alike: an adopter renames the record in their layout and
 // gets a name they chose.
@@ -125,16 +126,20 @@ type filer struct {
 	literals *literalTable
 	compares bool
 
-	// staircase is whether the package declares [refuseStaircaseFunc], which
-	// both constructors call on the encoding they are handed. See
-	// [declaresStaircase].
-	staircase bool
+	// base is what the constructors build under when handed no option, as a
+	// Go expression, and declared is whether that is [encodingFunc] — the
+	// package declaring one — and charset the charset it names where it is.
+	// See [layoutEncoding].
+	base     string
+	declared bool
+	charset  irpb.Charset
 }
 
 // fileImports is what every generated file of this kind imports.
 //
 // Each is used by something the file always declares: bufio and io by the
-// reader, errors by the end-of-input test, and codec by both directions. Two
+// reader, errors by the end-of-input test, codec by both directions, and
+// encoding/binary by the option replacing the byte order. Two
 // are conditional. Only the diagnostic naming the record types a state expected
 // uses strings, and a file whose every state offers one unconditional
 // transition has no such diagnostic to make; only a comparison of byte strings
@@ -150,7 +155,7 @@ type filer struct {
 // that reaches for bytes some other way has to be added to [filer.survey] in
 // the same commit — [TestAFileMachineImportsBytesOnlyWhereItComparesThem] is
 // what holds the four ways it is reached today.
-var fileImports = []string{"bufio", "errors", "fmt", "io", codecImport}
+var fileImports = []string{"bufio", "encoding/binary", "errors", "fmt", "io", codecImport}
 
 // fileMachine is the source of [fileMachineFile] for this descriptor, or the
 // empty string where this descriptor's automaton admits no record — because it
@@ -179,12 +184,19 @@ func fileMachineWith(d *irpb.Descriptor, opts options, lits *literalTable) (stri
 		return "", err
 	}
 
+	base, stated, err := layoutEncoding(d)
+	if err != nil {
+		return "", err
+	}
+
 	f := &filer{
-		emitter:   e,
-		opts:      opts,
-		index:     make(map[uint64]int),
-		literals:  lits,
-		staircase: declaresStaircase(d),
+		emitter:  e,
+		opts:     opts,
+		index:    make(map[uint64]int),
+		literals: lits,
+		base:     base,
+		declared: stated != nil,
+		charset:  stated.GetCharset(),
 	}
 
 	if err := f.collect(d); err != nil {

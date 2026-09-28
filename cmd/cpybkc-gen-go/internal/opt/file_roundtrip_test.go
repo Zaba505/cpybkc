@@ -69,7 +69,7 @@ func terminated(records [][]byte, last bool) []byte {
 func read(t *testing.T, in []byte) []Record {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestAWriterEmitsTheFinalDelimiterRatherThanChoosingWhetherTo(t *testing.T) 
 
 			var b bytes.Buffer
 
-			w, err := NewWriter(&b, Encoding())
+			w, err := NewWriter(&b)
 			if err != nil {
 				t.Fatalf("NewWriter: %v", err)
 			}
@@ -175,7 +175,7 @@ func TestARecordCutShortIsStillReported(t *testing.T) {
 
 	whole := terminated([][]byte{lineBytes(t, "ONE")}, false)
 
-	r, err := NewReader(bytes.NewReader(whole[:len(whole)-2]), Encoding())
+	r, err := NewReader(bytes.NewReader(whole[:len(whole)-2]))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}

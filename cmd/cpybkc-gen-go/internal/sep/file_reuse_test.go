@@ -101,7 +101,7 @@ func separatedFile(tb testing.TB, n int) []byte {
 func drain(tb testing.TB, in []byte) {
 	tb.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		tb.Fatalf("NewReader: %v", err)
 	}

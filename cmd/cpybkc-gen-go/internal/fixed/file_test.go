@@ -48,7 +48,7 @@ func TestTwoLedgerRecords(t *testing.T) {
 		0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, // record 2: (slack) @18 6 bytes no item covers
 	}
 
-	r, err := fixed.NewReader(bytes.NewReader(in), fixed.Encoding())
+	r, err := fixed.NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestTwoLedgerRecords(t *testing.T) {
 
 	var out bytes.Buffer
 
-	w, err := fixed.NewWriter(&out, fixed.Encoding())
+	w, err := fixed.NewWriter(&out)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

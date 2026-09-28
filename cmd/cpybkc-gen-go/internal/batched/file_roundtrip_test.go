@@ -87,7 +87,7 @@ func detailBytes(t *testing.T, account, memo string) []byte {
 func read(t *testing.T, in []byte) []Record {
 	t.Helper()
 
-	r, err := NewReader(bytes.NewReader(in), Encoding())
+	r, err := NewReader(bytes.NewReader(in))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -115,7 +115,7 @@ func write(t *testing.T, records []Record) ([]byte, error) {
 
 	var b bytes.Buffer
 
-	w, err := NewWriter(&b, Encoding())
+	w, err := NewWriter(&b)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

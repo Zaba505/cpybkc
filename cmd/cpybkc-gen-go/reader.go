@@ -177,27 +177,6 @@ func (f *filer) emitLiteralsField(b *strings.Builder, holder string) {
 	line(b, "%s *%s", litsName, literalsType)
 }
 
-// emitStaircaseRefusal writes the constructor's refusal of an encoding whose
-// binary width staircase is not the descriptor's, ahead of anything else it
-// makes of that encoding and after codec has validated it: an encoding codec
-// refuses is refused on its own account, and saying why is codec's.
-//
-// It is made whether or not the descriptor holds a binary item, for the reason
-// [refuseStaircaseSource] gives.
-func (f *filer) emitStaircaseRefusal(b *strings.Builder, done string) {
-	if !f.staircase {
-		return
-	}
-
-	line(b, "// Every offset this package slices at was computed under the descriptor's")
-	line(b, "// binary width staircase, so an enc carrying another is refused here, before")
-	line(b, "// any record is %s, rather than %s at offsets nothing here computed.", done, done)
-	line(b, "if err = %s(enc.Binary); err != nil {", refuseStaircaseFunc)
-	line(b, "return nil, err")
-	line(b, "}")
-	line(b, "")
-}
-
 // emitLiteralsFetch writes the constructor's re-expression of every literal
 // under the encoding it was handed, and its refusal of one that has no spelling
 // there.
@@ -236,32 +215,7 @@ func (f *filer) emitLiteralsFetch(b *strings.Builder, holder, done string) {
 // emitNewReader writes the constructor.
 func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "")
-	line(b, "// %s reads the records of r under enc.", newReaderFunc)
-	line(b, "//")
-	line(b, "// Neither the charset, the zoned sign convention, the byte order, the")
-	line(b, "// floating-point format nor the binary width staircase is chosen here. They are")
-	line(b, "// properties of the file in hand rather than of this descriptor's items, so the")
-	line(b, "// caller states all five at once — [Encoding] is what this descriptor resolved,")
-	line(b, "// and a file of these records converted to another character set is read by")
-	line(b, "// passing a different one.")
-
-	if f.staircase {
-		line(b, "//")
-		line(b, "// The staircase is the one of the five that is not the caller's to replace.")
-		line(b, "// Every offset this package slices at was computed under [%s]'s, so an", encodingFunc)
-		line(b, "// enc carrying another describes a different file, and it is refused here,")
-		line(b, "// naming both staircases, before any record is read.")
-	}
-
-	if f.compares || f.literals.arms {
-		line(b, "//")
-		line(b, "// What follows enc is every literal this package compares a field against,")
-		line(b, "// re-expressed here, once, as a file under enc spells it; an item whose charset")
-		line(b, "// is none carries bytes, and its literals never move. A literal no file under")
-		line(b, "// enc can hold is refused here rather than at the record that would first have")
-		line(b, "// needed it, and the refusal names the literal, the item, the record and the")
-		line(b, "// axis: it is about the layout and enc, and not about the file. See %s.", literalsFile)
-	}
+	f.emitConstructorDoc(b, newReaderFunc, "reads the records of r", "reads", "read", "r, err := "+newReaderFunc+"(f", "")
 
 	line(b, "//")
 	line(b, "// Reads are buffered: r is wrapped in a bufio.Reader of %s bytes, which is", readAheadConst)
@@ -270,11 +224,13 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "// file reads — hand this an r that is already buffered to at least that size and")
 	line(b, "// bufio hands it back rather than wrapping it again:")
 	line(b, "//")
-	line(b, "//\t%s(bufio.NewReaderSize(f, 1<<20), %s())", newReaderFunc, encodingFunc)
-	line(b, "func %s(r io.Reader, enc codec.Encoding) (*%s, error) {", newReaderFunc, readerType)
+	line(b, "//\t%s(bufio.NewReaderSize(f, 1<<20))", newReaderFunc)
+	line(b, "func %s(r io.Reader, opts ...%s) (*%s, error) {", newReaderFunc, optionType, readerType)
 	line(b, "if r == nil {")
 	line(b, "return nil, codec.ErrNilReader")
 	line(b, "}")
+	line(b, "")
+	line(b, "enc := %s(opts)", encodingWithFunc)
 	line(b, "")
 
 	if f.how.bounded() {
@@ -286,15 +242,15 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	}
 
 	line(b, "//")
-	line(b, "// Construction is what validates the encoding, and it reports the same error")
-	line(b, "// for the same axis that enc.Validate does, so nothing is checked twice here.")
+	line(b, "// Construction is what validates the encoding, and every option with it: it")
+	line(b, "// reports the same error for the same axis that enc.Validate does, so nothing")
+	line(b, "// is checked twice here.")
 	line(b, "cr, err := codec.NewBytesReader(nil, enc)")
 	line(b, "if err != nil {")
 	line(b, "return nil, err")
 	line(b, "}")
 	line(b, "")
 
-	f.emitStaircaseRefusal(b, "read")
 	f.emitLiteralsFetch(b, "reader", "read")
 
 	line(b, "return &%s{", readerType)
