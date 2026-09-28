@@ -87,6 +87,8 @@ func (f *filer) emitReader(b *strings.Builder, walks [][]transition) error {
 	line(b, "// done is whether the end of the file has been reached and reported.")
 	line(b, "done bool")
 
+	f.emitLiteralsField(b, "reader")
+
 	if f.needsLook() {
 		line(b, "")
 		line(b, "// look is the bytes a predicate of the current state is evaluated against.")
@@ -159,6 +161,57 @@ func (f *filer) emitReader(b *strings.Builder, walks [][]transition) error {
 	return f.emitHelpers(b, walks)
 }
 
+// emitLiteralsField declares the literals a reader or a writer compares, where
+// it compares any.
+func (f *filer) emitLiteralsField(b *strings.Builder, holder string) {
+	if !f.compares {
+		return
+	}
+
+	line(b, "")
+	line(b, "// %s is every literal this %s compares — a transition's predicate, and a", litsName, holder)
+	line(b, "// guard over a bytes register — as a file under its encoding spells it. It is")
+	line(b, "// re-expressed once, when the %s is built, and never per record; under the", holder)
+	line(b, "// descriptor's own encoding it is the literals the descriptor resolved. See")
+	line(b, "// %s.", literalsFile)
+	line(b, "%s *%s", litsName, literalsType)
+}
+
+// emitLiteralsFetch writes the constructor's re-expression of every literal
+// under the encoding it was handed, and its refusal of one that has no spelling
+// there.
+//
+// It is made where the file compares nothing too, if a record's arms do: the
+// record methods compare those under the encoding of the decoder or encoder
+// this constructor is building, and a literal with no spelling under it is
+// refused here rather than at the first occurrence that reaches it.
+// docs/ir/SPEC.md, "What cannot be re-expressed is refused before any record
+// is read".
+func (f *filer) emitLiteralsFetch(b *strings.Builder, holder, done string) {
+	if !f.compares && !f.literals.arms {
+		return
+	}
+
+	line(b, "// Every literal this package compares, as a file under enc spells it. One")
+	line(b, "// with no spelling there is refused here, before any record is %s: it is a", done)
+	line(b, "// property of the layout and of enc, and no file enc describes could hold it.")
+
+	if f.compares {
+		line(b, "%s, err := %s(enc)", litsName, literalsFor)
+	} else {
+		line(b, "//")
+		line(b, "// This %s compares none of them itself; the record methods compare the", holder)
+		line(b, "// arms' literals under this same encoding, and asking now is what puts the")
+		line(b, "// refusal here.")
+		line(b, "_, err = %s(enc)", literalsFor)
+	}
+
+	line(b, "if err != nil {")
+	line(b, "return nil, err")
+	line(b, "}")
+	line(b, "")
+}
+
 // emitNewReader writes the constructor.
 func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "")
@@ -170,6 +223,17 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "// caller states all five at once — [Encoding] is what this descriptor resolved,")
 	line(b, "// and a file of these records converted to another character set is read by")
 	line(b, "// passing a different one.")
+
+	if f.compares || f.literals.arms {
+		line(b, "//")
+		line(b, "// What follows enc is every literal this package compares a field against,")
+		line(b, "// re-expressed here, once, as a file under enc spells it; an item whose charset")
+		line(b, "// is none carries bytes, and its literals never move. A literal no file under")
+		line(b, "// enc can hold is refused here rather than at the record that would first have")
+		line(b, "// needed it, and the refusal names the literal, the item, the record and the")
+		line(b, "// axis: it is about the layout and enc, and not about the file. See %s.", literalsFile)
+	}
+
 	line(b, "//")
 	line(b, "// Reads are buffered: r is wrapped in a bufio.Reader of %s bytes, which is", readAheadConst)
 	line(b, "// bufio's own default wherever this file's predicates fit inside it. Where a")
@@ -201,9 +265,16 @@ func (f *filer) emitNewReader(b *strings.Builder) {
 	line(b, "}")
 	line(b, "")
 
+	f.emitLiteralsFetch(b, "reader", "read")
+
 	line(b, "return &%s{", readerType)
 	line(b, "src: bufio.NewReaderSize(r, %s),", readAheadConst)
 	line(b, "cr: cr,")
+
+	if f.compares {
+		line(b, "%s: %s,", litsName, litsName)
+	}
+
 	line(b, "state: %d,", f.index[f.file.GetStartStateId()])
 
 	if f.how == delimited && f.placement == irpb.DelimiterPlacement_DELIMITER_PLACEMENT_SEPARATOR {
@@ -317,7 +388,7 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 		line(b, "")
 		line(b, "// Transition %d, which admits %s.", j+1, t.record.GetNames().GetOriginal())
 
-		test, phrase, registers, err := f.guardTests(t, "r")
+		test, phrase, args, registers, err := f.guardTests(t, "r")
 		if err != nil {
 			return err
 		}
@@ -350,7 +421,7 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 		closing := ""
 
 		if t.match != "" {
-			line(b, "if %s(r.look) {", matches)
+			line(b, "if r.%s.%s(r.look) {", litsName, matches)
 
 			closing = "}"
 		}
@@ -371,11 +442,11 @@ func (f *filer) emitState(b *strings.Builder, at int, walk []transition) error {
 			// says nothing about the bytes in hand and never displaces the
 			// diagnostic.
 			if t.match != "" {
-				line(b, "} else if excluded == \"\" && %s(r.look) {", matches)
-				line(b, "excluded = fmt.Sprintf(%q%s)",
+				line(b, "} else if excluded == \"\" && r.%s.%s(r.look) {", litsName, matches)
+				line(b, "excluded = fmt.Sprintf(%q%s%s)",
 					fmt.Sprintf("a guard excluded the transition that would have admitted %s, which is taken only where %s%s",
-						escaped(t.record.GetNames().GetOriginal()), escaped(phrase), f.holding(registers)),
-					f.holdingArgs(registers, "r"))
+						escaped(t.record.GetNames().GetOriginal()), phrase, f.holding(registers)),
+					trailing(args), f.holdingArgs(registers, "r"))
 				line(b, "}")
 			} else {
 				line(b, "}")

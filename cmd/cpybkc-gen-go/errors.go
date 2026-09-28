@@ -297,3 +297,33 @@ func (e *mixedEncodingError) Notes() []string {
 		"the five axes are properties of the file rather than of an item, and codec carries them on the Reader and the Writer; see docs/ir/SPEC.md, \"The encoding profile, applied\"",
 	}
 }
+
+// sharedRegisterError is a bytes register bound from two items a literal
+// crosses to another encoding differently.
+//
+// A guard's literal is re-expressed through the item its register was bound
+// from, and a register bound from several items has one re-expression per item
+// and compares against the one belonging to the item whose binding wrote the
+// value in hand (docs/ir/SPEC.md, "The automaton remembers, in registers").
+// That is a register remembering which binding wrote it, which this generator
+// does not emit: `resolve` allocates one bytes register per item, so no
+// descriptor it produces carries such a register, and the shape is refused
+// rather than read under one item's re-expression and compared against the
+// other's.
+type sharedRegisterError struct {
+	Register      uint64
+	First, Second string
+}
+
+// Error implements the error interface.
+func (e *sharedRegisterError) Error() string {
+	return fmt.Sprintf("the register the descriptor carries as node %d is bound from %s and from %s, which a literal crosses to another encoding differently",
+		e.Register, e.First, e.Second)
+}
+
+// Notes implements the diagnostic interface.
+func (e *sharedRegisterError) Notes() []string {
+	return []string{
+		"a guard's literal is re-expressed through the item its register is bound from, so a register bound from items that re-express differently would need to remember which one wrote it, and " + pluginName + " does not; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"",
+	}
+}

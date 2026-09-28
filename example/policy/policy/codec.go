@@ -27,7 +27,17 @@ import (
 //
 // It is a value a caller passes rather than one anything applies on its own. A
 // file this descriptor describes that was converted to another character set is
-// read by passing a different Encoding, not by regenerating.
+// read by passing a different Encoding, not by regenerating: the four axes a
+// layout states may each be replaced, and every literal this package compares a
+// field against — a record's type code, an arm's, a guard's — is re-expressed
+// under them once, before the first record is read or written, as a file under
+// them spells it. An item whose charset is none carries bytes rather than
+// characters, and its literals never move. A literal no file under the axes
+// asked for can hold — a character the charset has no byte for, a sign byte in
+// no column of the convention it was resolved under, a float the format cannot
+// hold exactly, two literals that come to one byte string — is refused when the
+// reader or writer is built, naming the literal, the item, the record and the
+// axis. Binary, the staircase, is not one of the four.
 func Encoding() codec.Encoding {
 	return codec.Encoding{
 		Charset:   codec.CP037(),

@@ -5,6 +5,7 @@
     "claim/doc.go",
     "claim/file.go",
     "claim/file_test.go",
+    "claim/literals.go",
     "claim/records.go",
     "claim/records_test.go",
     "graph/graph.md"

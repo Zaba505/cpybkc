@@ -95,6 +95,13 @@ type Reader struct {
 	// done is whether the end of the file has been reached and reported.
 	done bool
 
+	// lits is every literal this reader compares — a transition's predicate, and a
+	// guard over a bytes register — as a file under its encoding spells it. It is
+	// re-expressed once, when the reader is built, and never per record; under the
+	// descriptor's own encoding it is the literals the descriptor resolved. See
+	// literals.go.
+	lits *literals
+
 	// look is the bytes a predicate of the current state is evaluated against.
 	look []byte
 
@@ -111,6 +118,13 @@ type Reader struct {
 // caller states all five at once — [Encoding] is what this descriptor resolved,
 // and a file of these records converted to another character set is read by
 // passing a different one.
+//
+// What follows enc is every literal this package compares a field against,
+// re-expressed here, once, as a file under enc spells it; an item whose charset
+// is none carries bytes, and its literals never move. A literal no file under
+// enc can hold is refused here rather than at the record that would first have
+// needed it, and the refusal names the literal, the item, the record and the
+// axis: it is about the layout and enc, and not about the file. See literals.go.
 //
 // Reads are buffered: r is wrapped in a bufio.Reader of readAhead bytes, which is
 // bufio's own default wherever this file's predicates fit inside it. Where a
@@ -134,9 +148,18 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 		return nil, err
 	}
 
+	// Every literal this package compares, as a file under enc spells it. One
+	// with no spelling there is refused here, before any record is read: it is a
+	// property of the layout and of enc, and no file enc describes could hold it.
+	lits, err := literalsFor(enc)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Reader{
 		src:   bufio.NewReaderSize(r, readAhead),
 		cr:    cr,
+		lits:  lits,
 		state: 0,
 	}, nil
 }
@@ -187,7 +210,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-FILE-HEADER.
 		expected = append(expected, "PX-FILE-HEADER")
-		if matches1At0(r.look) {
+		if r.lits.matches1At0(r.look) {
 			rec := new(PxFileHeader)
 
 			if err := r.admit(rec); err != nil {
@@ -205,7 +228,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -219,7 +242,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -237,7 +260,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -251,7 +274,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -265,7 +288,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -279,7 +302,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -293,7 +316,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -307,7 +330,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -321,7 +344,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -335,7 +358,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -349,7 +372,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -363,7 +386,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -381,7 +404,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -395,7 +418,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -409,7 +432,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -423,7 +446,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -437,7 +460,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -451,7 +474,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -465,7 +488,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -479,7 +502,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -493,7 +516,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -507,7 +530,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -525,7 +548,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -539,7 +562,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -553,7 +576,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -567,7 +590,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -581,7 +604,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -595,7 +618,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -609,7 +632,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -623,7 +646,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -637,7 +660,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -651,7 +674,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -669,7 +692,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -683,7 +706,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -697,7 +720,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -711,7 +734,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -725,7 +748,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -739,7 +762,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -753,7 +776,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -767,7 +790,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -781,7 +804,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -795,7 +818,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -813,7 +836,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -827,7 +850,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -841,7 +864,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -855,7 +878,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -869,7 +892,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -883,7 +906,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -897,7 +920,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -911,7 +934,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -925,7 +948,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -939,7 +962,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -957,7 +980,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -971,7 +994,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -985,7 +1008,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -999,7 +1022,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1013,7 +1036,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1027,7 +1050,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1041,7 +1064,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1055,7 +1078,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1069,7 +1092,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1083,7 +1106,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1101,7 +1124,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -1115,7 +1138,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -1129,7 +1152,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -1143,7 +1166,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1157,7 +1180,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1171,7 +1194,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1185,7 +1208,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1199,7 +1222,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1213,7 +1236,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1227,7 +1250,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1245,7 +1268,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -1259,7 +1282,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -1273,7 +1296,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -1287,7 +1310,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1301,7 +1324,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1315,7 +1338,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1329,7 +1352,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1343,7 +1366,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1357,7 +1380,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1371,7 +1394,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1389,7 +1412,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits PX-INSURED.
 		expected = append(expected, "PX-INSURED")
-		if matches4At0(r.look) {
+		if r.lits.matches4At0(r.look) {
 			rec := new(PxInsured)
 
 			if err := r.admit(rec); err != nil {
@@ -1403,7 +1426,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits PX-LOCATION.
 		expected = append(expected, "PX-LOCATION")
-		if matches5At0(r.look) {
+		if r.lits.matches5At0(r.look) {
 			rec := new(PxLocation)
 
 			if err := r.admit(rec); err != nil {
@@ -1417,7 +1440,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 3, which admits PX-VEHICLE.
 		expected = append(expected, "PX-VEHICLE")
-		if matches6At0(r.look) {
+		if r.lits.matches6At0(r.look) {
 			rec := new(PxVehicle)
 
 			if err := r.admit(rec); err != nil {
@@ -1431,7 +1454,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 4, which admits PX-DRIVER.
 		expected = append(expected, "PX-DRIVER")
-		if matches7At0(r.look) {
+		if r.lits.matches7At0(r.look) {
 			rec := new(PxDriver)
 
 			if err := r.admit(rec); err != nil {
@@ -1445,7 +1468,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 5, which admits PX-COVERAGE.
 		expected = append(expected, "PX-COVERAGE")
-		if matches8At0(r.look) {
+		if r.lits.matches8At0(r.look) {
 			rec := new(PxCoverage)
 
 			if err := r.admit(rec); err != nil {
@@ -1459,7 +1482,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 6, which admits PX-PREMIUM.
 		expected = append(expected, "PX-PREMIUM")
-		if matches9At0(r.look) {
+		if r.lits.matches9At0(r.look) {
 			rec := new(PxPremium)
 
 			if err := r.admit(rec); err != nil {
@@ -1473,7 +1496,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 7, which admits PX-CLAIM.
 		expected = append(expected, "PX-CLAIM")
-		if matches10At0(r.look) {
+		if r.lits.matches10At0(r.look) {
 			rec := new(PxClaim)
 
 			if err := r.admit(rec); err != nil {
@@ -1487,7 +1510,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 8, which admits PX-ENDORSEMENT.
 		expected = append(expected, "PX-ENDORSEMENT")
-		if matches11At0(r.look) {
+		if r.lits.matches11At0(r.look) {
 			rec := new(PxEndorsement)
 
 			if err := r.admit(rec); err != nil {
@@ -1501,7 +1524,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 9, which admits PX-POLICY.
 		expected = append(expected, "PX-POLICY")
-		if matches2At0(r.look) {
+		if r.lits.matches2At0(r.look) {
 			rec := new(PxPolicy)
 
 			if err := r.admit(rec); err != nil {
@@ -1515,7 +1538,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 10, which admits PX-FILE-TRAILER.
 		expected = append(expected, "PX-FILE-TRAILER")
-		if matches3At0(r.look) {
+		if r.lits.matches3At0(r.look) {
 			rec := new(PxFileTrailer)
 
 			if err := r.admit(rec); err != nil {
@@ -1642,12 +1665,16 @@ func (r *Reader) admit(rec Record) error {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches1At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches1At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xf0\xf0\xf0"))
+	return bytes.Equal(b[0:3], l.lit1)
 }
 
 // matches2At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1662,12 +1689,16 @@ func matches1At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches2At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches2At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xd7\xd3\xc3"))
+	return bytes.Equal(b[0:3], l.lit2)
 }
 
 // matches3At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1682,12 +1713,16 @@ func matches2At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches3At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches3At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xf9\xf9\xf9"))
+	return bytes.Equal(b[0:3], l.lit3)
 }
 
 // matches4At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1702,12 +1737,16 @@ func matches3At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches4At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches4At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xc9\xd5\xe2"))
+	return bytes.Equal(b[0:3], l.lit4)
 }
 
 // matches5At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1722,12 +1761,16 @@ func matches4At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches5At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches5At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xd3\xd6\xc3"))
+	return bytes.Equal(b[0:3], l.lit5)
 }
 
 // matches6At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1742,12 +1785,16 @@ func matches5At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches6At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches6At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xe5\xc5\xc8"))
+	return bytes.Equal(b[0:3], l.lit6)
 }
 
 // matches7At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1762,12 +1809,16 @@ func matches6At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches7At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches7At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xc4\xd9\xe5"))
+	return bytes.Equal(b[0:3], l.lit7)
 }
 
 // matches8At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1782,12 +1833,16 @@ func matches7At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches8At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches8At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xc3\xd6\xe5"))
+	return bytes.Equal(b[0:3], l.lit8)
 }
 
 // matches9At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1802,12 +1857,16 @@ func matches8At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches9At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches9At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xd7\xd9\xd4"))
+	return bytes.Equal(b[0:3], l.lit9)
 }
 
 // matches10At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1822,12 +1881,16 @@ func matches9At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches10At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches10At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xc3\xd3\xd4"))
+	return bytes.Equal(b[0:3], l.lit10)
 }
 
 // matches11At0 is the predicate over bytes 0:3 of a record: the transitions it
@@ -1842,12 +1905,16 @@ func matches10At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches11At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches11At0(b []byte) bool {
 	if len(b) < 3 {
 		return false
 	}
 
-	return bytes.Equal(b[0:3], []byte("\xc5\xd5\xd9"))
+	return bytes.Equal(b[0:3], l.lit11)
 }
 
 // Writer writes the records of one file, walking the automaton this descriptor
@@ -1881,6 +1948,13 @@ type Writer struct {
 	// record is what codec refuses to allow.
 	cw *codec.Writer
 
+	// lits is every literal this writer compares — a transition's predicate, and a
+	// guard over a bytes register — as a file under its encoding spells it. It is
+	// re-expressed once, when the writer is built, and never per record; under the
+	// descriptor's own encoding it is the literals the descriptor resolved. See
+	// literals.go.
+	lits *literals
+
 	// state is where in the automaton the write is, numbered as [Reader.state] is.
 	state int
 
@@ -1893,6 +1967,10 @@ type Writer struct {
 //
 // The five axes are the caller's for the reason they are on [NewReader]: they are
 // properties of the file being written rather than of this descriptor's items.
+// Every literal this package compares is re-expressed under enc here, once,
+// and refused here where no file under enc can hold it, exactly as [NewReader]
+// does — so the record this writer refuses to emit is the record a reader
+// under the same encoding would route elsewhere.
 func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	if w == nil {
 		return nil, codec.ErrNilWriter
@@ -1907,9 +1985,18 @@ func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 		return nil, err
 	}
 
+	// Every literal this package compares, as a file under enc spells it. One
+	// with no spelling there is refused here, before any record is written: it is a
+	// property of the layout and of enc, and no file enc describes could hold it.
+	lits, err := literalsFor(enc)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Writer{
 		dst:   w,
 		cw:    cw,
+		lits:  lits,
 		state: 0,
 	}, nil
 }
@@ -1990,7 +2077,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2002,7 +2089,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2014,7 +2101,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2026,7 +2113,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2038,7 +2125,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2050,7 +2137,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2062,7 +2149,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2074,7 +2161,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2086,7 +2173,7 @@ func (w *Writer) writePxClaim(rec *PxClaim) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 7 of that state.
-		if matches10At0(raw) {
+		if w.lits.matches10At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2126,7 +2213,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2138,7 +2225,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2150,7 +2237,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2162,7 +2249,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2174,7 +2261,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2186,7 +2273,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2198,7 +2285,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2210,7 +2297,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2222,7 +2309,7 @@ func (w *Writer) writePxCoverage(rec *PxCoverage) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 5 of that state.
-		if matches8At0(raw) {
+		if w.lits.matches8At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2262,7 +2349,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2274,7 +2361,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2286,7 +2373,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2298,7 +2385,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2310,7 +2397,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2322,7 +2409,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2334,7 +2421,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2346,7 +2433,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2358,7 +2445,7 @@ func (w *Writer) writePxDriver(rec *PxDriver) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 4 of that state.
-		if matches7At0(raw) {
+		if w.lits.matches7At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2398,7 +2485,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2410,7 +2497,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2422,7 +2509,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2434,7 +2521,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2446,7 +2533,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2458,7 +2545,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2470,7 +2557,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2482,7 +2569,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2494,7 +2581,7 @@ func (w *Writer) writePxEndorsement(rec *PxEndorsement) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 8 of that state.
-		if matches11At0(raw) {
+		if w.lits.matches11At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2534,7 +2621,7 @@ func (w *Writer) writePxFileHeader(rec *PxFileHeader) error {
 	switch w.state {
 	case 0: // the state the descriptor carries as node 231
 		// Transition 1 of that state.
-		if matches1At0(raw) {
+		if w.lits.matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2574,7 +2661,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 	switch w.state {
 	case 1: // the state the descriptor carries as node 232
 		// Transition 2 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2586,7 +2673,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 2: // the state the descriptor carries as node 233
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2598,7 +2685,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2610,7 +2697,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2622,7 +2709,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2634,7 +2721,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2646,7 +2733,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2658,7 +2745,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2670,7 +2757,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2682,7 +2769,7 @@ func (w *Writer) writePxFileTrailer(rec *PxFileTrailer) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 10 of that state.
-		if matches3At0(raw) {
+		if w.lits.matches3At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2722,7 +2809,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2734,7 +2821,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2746,7 +2833,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2758,7 +2845,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2770,7 +2857,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2782,7 +2869,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2794,7 +2881,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2806,7 +2893,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2818,7 +2905,7 @@ func (w *Writer) writePxInsured(rec *PxInsured) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 1 of that state.
-		if matches4At0(raw) {
+		if w.lits.matches4At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2858,7 +2945,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2870,7 +2957,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2882,7 +2969,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2894,7 +2981,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2906,7 +2993,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2918,7 +3005,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2930,7 +3017,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2942,7 +3029,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2954,7 +3041,7 @@ func (w *Writer) writePxLocation(rec *PxLocation) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 2 of that state.
-		if matches5At0(raw) {
+		if w.lits.matches5At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -2994,7 +3081,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 	switch w.state {
 	case 1: // the state the descriptor carries as node 232
 		// Transition 1 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3006,7 +3093,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 2: // the state the descriptor carries as node 233
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3018,7 +3105,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3030,7 +3117,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3042,7 +3129,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3054,7 +3141,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3066,7 +3153,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3078,7 +3165,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3090,7 +3177,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3102,7 +3189,7 @@ func (w *Writer) writePxPolicy(rec *PxPolicy) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 9 of that state.
-		if matches2At0(raw) {
+		if w.lits.matches2At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3142,7 +3229,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3154,7 +3241,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3166,7 +3253,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3178,7 +3265,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3190,7 +3277,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3202,7 +3289,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3214,7 +3301,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3226,7 +3313,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3238,7 +3325,7 @@ func (w *Writer) writePxPremium(rec *PxPremium) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 6 of that state.
-		if matches9At0(raw) {
+		if w.lits.matches9At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3278,7 +3365,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 	switch w.state {
 	case 2: // the state the descriptor carries as node 233
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3290,7 +3377,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 3: // the state the descriptor carries as node 234
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3302,7 +3389,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 4: // the state the descriptor carries as node 235
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3314,7 +3401,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 5: // the state the descriptor carries as node 236
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3326,7 +3413,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 6: // the state the descriptor carries as node 237
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3338,7 +3425,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 7: // the state the descriptor carries as node 238
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3350,7 +3437,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 8: // the state the descriptor carries as node 239
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3362,7 +3449,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 9: // the state the descriptor carries as node 240
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -3374,7 +3461,7 @@ func (w *Writer) writePxVehicle(rec *PxVehicle) error {
 		}
 	case 10: // the state the descriptor carries as node 241
 		// Transition 3 of that state.
-		if matches6At0(raw) {
+		if w.lits.matches6At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}

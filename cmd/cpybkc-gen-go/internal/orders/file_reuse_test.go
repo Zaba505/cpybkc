@@ -226,7 +226,7 @@ const recordAllocations = 11
 // process's allocations, so a test measuring them cannot run beside one making
 // them.
 func TestATableOfVariantsBuildsOneDecoderForTheRecord(t *testing.T) {
-	raw := entryBytes(t, "DSD")
+	raw := entryBytes(t, Encoding(), "DSD")
 
 	cr, err := codec.NewBytesReader(nil, Encoding())
 	if err != nil {
@@ -252,7 +252,7 @@ func TestATableOfVariantsBuildsOneDecoderForTheRecord(t *testing.T) {
 // BenchmarkDecodingATableOfVariants is the orientation the assertion above
 // deliberately is not.
 func BenchmarkDecodingATableOfVariants(b *testing.B) {
-	raw := entryBytes(b, "DSD")
+	raw := entryBytes(b, Encoding(), "DSD")
 
 	cr, err := codec.NewBytesReader(nil, Encoding())
 	if err != nil {
@@ -340,7 +340,7 @@ func TestATableOfVariantsBuildsOneEncoderForTheRecord(t *testing.T) {
 func entryRecord(tb testing.TB, arms string) *EntryRecord {
 	tb.Helper()
 
-	cr, err := codec.NewBytesReader(entryBytes(tb, arms), Encoding())
+	cr, err := codec.NewBytesReader(entryBytes(tb, Encoding(), arms), Encoding())
 	if err != nil {
 		tb.Fatalf("codec.NewBytesReader: %v", err)
 	}

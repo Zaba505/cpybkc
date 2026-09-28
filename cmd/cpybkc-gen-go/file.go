@@ -8,7 +8,6 @@ package main
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/Zaba505/cpybkc/irpb"
@@ -118,6 +117,13 @@ type filer struct {
 	// emitted before this check existed — byte for byte, which is what the
 	// goldens in internal/ assert.
 	forges bool
+
+	// literals is every literal the package compares, named once for the three
+	// files that name them, and compares is whether this file compares one —
+	// a transition's predicate or a guard over a bytes register. See
+	// [filer.survey], which settles it.
+	literals *literalTable
+	compares bool
 }
 
 // fileImports is what every generated file of this kind imports.
@@ -151,15 +157,28 @@ var fileImports = []string{"bufio", "errors", "fmt", "io", codecImport}
 // selecting them are emitted as Go, so that what an adopter reads is the walk
 // their layout describes rather than an engine with their descriptor inside it.
 func fileMachine(d *irpb.Descriptor, opts options) (string, error) {
+	lits, err := gatherLiterals(d)
+	if err != nil {
+		return "", err
+	}
+
+	return fileMachineWith(d, opts, lits)
+}
+
+// fileMachineWith is [fileMachine] over literals already gathered, which is how
+// [generate] calls it: the predicates and guards it emits mark the literals they
+// compare, and literals.go is composed out of what was marked.
+func fileMachineWith(d *irpb.Descriptor, opts options, lits *literalTable) (string, error) {
 	e, err := newEmitter(d)
 	if err != nil {
 		return "", err
 	}
 
 	f := &filer{
-		emitter: e,
-		opts:    opts,
-		index:   make(map[uint64]int),
+		emitter:  e,
+		opts:     opts,
+		index:    make(map[uint64]int),
+		literals: lits,
 	}
 
 	if err := f.collect(d); err != nil {
@@ -317,8 +336,10 @@ type transition struct {
 	typ    string
 
 	// match is the Go expression testing its predicate against a window of
-	// bytes, empty where the transition carries no predicate.
-	match string
+	// bytes, empty where the transition carries no predicate, and compared is
+	// the literals it compares that window against.
+	match    string
+	compared []*comparand
 
 	// at is the byte offset its predicate's window starts at, and reads is
 	// how far into the record that window reaches. Both are zero where the
@@ -369,7 +390,7 @@ func (f *filer) transitionsOf(state *irpb.State) ([]transition, error) {
 				"a transition names the state to move to; see docs/ir/SPEC.md, \"The sequencing automaton\"")
 		}
 
-		match, at, reads, err := f.predicate(t, record)
+		match, compared, at, reads, err := f.predicate(t, record)
 		if err != nil {
 			return nil, err
 		}
@@ -378,54 +399,59 @@ func (f *filer) transitionsOf(state *irpb.State) ([]transition, error) {
 			f.lookahead = reads
 		}
 
-		out = append(out, transition{node: t, record: record, typ: typ, match: match, at: at, reads: reads, next: next})
+		out = append(out, transition{node: t, record: record, typ: typ, match: match, compared: compared, at: at, reads: reads, next: next})
 	}
 
 	return out, nil
 }
 
 // predicate is the Go expression testing a transition's predicate against a
-// window of the bytes in front of the reader, where in the record that window
-// starts and how far into it it reaches.
+// window of the bytes in front of the reader, the literals it compares that
+// window against, where in the record the window starts and how far into it it
+// reaches.
+//
+// The expression is a method body over the literals struct, whose receiver is
+// l: the literals a reader or a writer was built with, spelled under its
+// encoding. See literals.go.
 //
 // The target's offset is a constant, and this is where a descriptor saying
 // otherwise is refused: a target whose position moved with a count would oblige
 // a consumer to decode that count out of bytes it has not identified yet, which
 // is exactly the position step 3 of the read loop is in.
-func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int, int, error) {
+func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, []*comparand, int, int, error) {
 	if t.PredicateId == nil {
 		// A transition MAY carry no predicate, and one that does not matches
 		// every record. It is not a fall-through: it is evaluated in the order
 		// the state carries it like every other transition, and what it gives
 		// up is detection rather than order. See docs/ir/SPEC.md, "A transition
 		// may carry no predicate".
-		return "", 0, 0, nil
+		return "", nil, 0, 0, nil
 	}
 
 	node, ok := f.nodes[t.GetPredicateId()]
 	if !ok {
-		return "", 0, 0, unresolved(t.GetPredicateId())
+		return "", nil, 0, 0, unresolved(t.GetPredicateId())
 	}
 
 	predicate := node.GetPredicate()
 	if predicate == nil {
-		return "", 0, 0, malformed(fmt.Sprintf("node %d selects a transition and is not a predicate node", t.GetPredicateId()),
+		return "", nil, 0, 0, malformed(fmt.Sprintf("node %d selects a transition and is not a predicate node", t.GetPredicateId()),
 			"a transition names the predicate that selects it where it carries one; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
 
 	targetNode, ok := f.nodes[predicate.GetFieldId()]
 	if !ok {
-		return "", 0, 0, unresolved(predicate.GetFieldId())
+		return "", nil, 0, 0, unresolved(predicate.GetFieldId())
 	}
 
 	field := targetNode.GetField()
 	if field == nil {
-		return "", 0, 0, malformed(fmt.Sprintf("node %d is a predicate's target and is not a field node", predicate.GetFieldId()),
+		return "", nil, 0, 0, malformed(fmt.Sprintf("node %d is a predicate's target and is not a field node", predicate.GetFieldId()),
 			"a predicate always names a field; see docs/ir/SPEC.md, \"A predicate always names a field\"")
 	}
 
 	if field.GetRepetition() != nil {
-		return "", 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and repeats", originalOf(targetNode)),
+		return "", nil, 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and repeats", originalOf(targetNode)),
 			"a predicate names a field, not an occurrence of one; see docs/ir/SPEC.md, \"A reference names a field, not an occurrence of one\"")
 	}
 
@@ -433,42 +459,57 @@ func (f *filer) predicate(t *irpb.Transition, record *irpb.Record) (string, int,
 
 	at, found, err := c.offsetOf(record.GetRootId(), predicate.GetFieldId(), "", encoding)
 	if err != nil {
-		return "", 0, 0, err
+		return "", nil, 0, 0, err
 	}
 
 	if !found {
-		return "", 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and is not in the record that transition admits", originalOf(targetNode)),
+		return "", nil, 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and is not in the record that transition admits", originalOf(targetNode)),
 			"a producer MUST ensure the target is contained in the record the referring transition admits, at any depth; see docs/ir/SPEC.md, \"A predicate always names a field\"")
 	}
 
 	if len(at.terms) != 0 {
-		return "", 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and sits behind a table whose length is data", originalOf(targetNode)),
+		return "", nil, 0, 0, malformed(fmt.Sprintf("%s is the target of a transition's predicate and sits behind a table whose length is data", originalOf(targetNode)),
 			"a predicate's target MUST have a constant position within the record, since a consumer evaluates it before it has identified the record; see docs/ir/SPEC.md, \"A predicate never reads past the record in front of it\"")
 	}
 
 	end := at.fixed + int(field.GetWidth())
 	slice := fmt.Sprintf("b[%d:%d]", at.fixed, end)
 
+	var values [][]byte
+
 	switch test := predicate.GetTest().(type) {
 	case *irpb.Predicate_BytesEqual:
-		return fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(test.BytesEqual.GetValue()))), at.fixed, end, nil
+		values = [][]byte{test.BytesEqual.GetValue()}
 	case *irpb.Predicate_BytesOneOf:
 		if len(test.BytesOneOf.GetValues()) < 2 {
-			return "", 0, 0, malformed("a one-of predicate carries fewer than two literals",
+			return "", nil, 0, 0, malformed("a one-of predicate carries fewer than two literals",
 				"a producer MUST carry at least two and MUST NOT carry the same literal twice; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 		}
 
-		tests := make([]string, 0, len(test.BytesOneOf.GetValues()))
-
-		for _, value := range test.BytesOneOf.GetValues() {
-			tests = append(tests, fmt.Sprintf("bytes.Equal(%s, []byte(%s))", slice, strconv.Quote(string(value))))
-		}
-
-		return "(" + strings.Join(tests, " || ") + ")", at.fixed, end, nil
+		values = test.BytesOneOf.GetValues()
 	default:
-		return "", 0, 0, malformed("a predicate carries no test",
+		return "", nil, 0, 0, malformed("a predicate carries no test",
 			"the set is closed and a predicate carries one member of it; see docs/ir/SPEC.md, \"Discriminator predicates\"")
 	}
+
+	tests := make([]string, 0, len(values))
+	compared := make([]*comparand, 0, len(values))
+
+	for _, value := range values {
+		one, err := f.literals.of(value, targetNode)
+		if err != nil {
+			return "", nil, 0, 0, err
+		}
+
+		tests = append(tests, fmt.Sprintf("bytes.Equal(%s, l.%s)", slice, one.name))
+		compared = append(compared, one)
+	}
+
+	if len(tests) == 1 {
+		return tests[0], compared, at.fixed, end, nil
+	}
+
+	return "(" + strings.Join(tests, " || ") + ")", compared, at.fixed, end, nil
 }
 
 // register is the field the generated reader and writer hold a register in, and

@@ -203,7 +203,13 @@ func slackOf(n byte) []byte {
 func fileBytes(t *testing.T) []byte {
 	t.Helper()
 
-	enc := Encoding()
+	return fileBytesUnder(t, Encoding())
+}
+
+// fileBytesUnder is the same extract laid out under enc, through codec rather
+// than through this package.
+func fileBytesUnder(t *testing.T, enc codec.Encoding) []byte {
+	t.Helper()
 
 	var b bytes.Buffer
 
@@ -299,19 +305,91 @@ func claims(t *testing.T, records []Record) []*ClaimRecord {
 // framing is on the path too: a record descriptor word states the length of the
 // record behind it, and under `odoslide` that length is a different number for
 // a claim of five lines and a claim of two.
+//
+// Under two encodings: the one the layout declares, and the one a
+// copybook-aware transfer to ASCII makes of the same extract. Every line of the
+// second is chosen by a kind code the descriptor resolved under cp037 and the
+// record methods compare as a file under ASCII spells it.
 func TestAFileOfClaimsReadsBackAsTheFileItWas(t *testing.T) {
 	t.Parallel()
 
-	want := fileBytes(t)
+	for name, enc := range map[string]codec.Encoding{"layout": Encoding(), "converted": converted()} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	records := read(t, Encoding(), want)
-	if len(records) != 2 {
-		t.Fatalf("the file holds two claims and the reader produced %d", len(records))
+			want := fileBytesUnder(t, enc)
+
+			records := read(t, enc, want)
+			if len(records) != 2 {
+				t.Fatalf("the file holds two claims and the reader produced %d", len(records))
+			}
+
+			got := write(t, enc, records)
+			if !bytes.Equal(got, want) {
+				t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", got, want)
+			}
+		})
+	}
+}
+
+// converted is what a copybook-aware transfer to ASCII makes of a file under
+// [Encoding]: ASCII characters and translated-EBCDIC signs, with the packed
+// items, the byte order, the float format and the staircase as they were.
+func converted() codec.Encoding {
+	enc := Encoding()
+	enc.Charset = codec.ASCII()
+	enc.Sign = codec.SignTranslatedEBCDIC
+
+	return enc
+}
+
+// TestTheRecordMethodsChooseEachLineUnderTheEncodingTheyAreHanded is the path
+// that has no reader in it. codec.Unmarshal and codec.Marshal hand the record
+// methods a decoder or an encoder and nothing else, so the encoding they
+// compare each line's kind code under is the one on it — here, the converted
+// extract's — and every one of the four codes, the two the facility arm's
+// one-of admits included, has to choose the line it chose under cp037.
+func TestTheRecordMethodsChooseEachLineUnderTheEncodingTheyAreHanded(t *testing.T) {
+	t.Parallel()
+
+	enc := converted()
+
+	want := claimBytes(t, enc, "CLM000000009",
+		professional("PRV0000009", "99213", "25", 1),
+		pharmacy("00093015001", 30, slackOf(0)),
+		facility("F", "FAC0000001", "0450", "131", 0),
+		facility("I", "FAC0000002", "0120", "111", 4),
+	)
+
+	var x ClaimRecord
+
+	if err := codec.Unmarshal(enc, want, &x); err != nil {
+		t.Fatalf("codec.Unmarshal: %v", err)
 	}
 
-	got := write(t, Encoding(), records)
+	if len(x.ClmLine) != 4 {
+		t.Fatalf("the claim holds four lines and %d were read", len(x.ClmLine))
+	}
+
+	for i, chosen := range []string{"professional", "pharmacy", "facility", "facility"} {
+		held := x.ClmLine[i]
+
+		got := map[bool]string{true: "professional"}[held.ClnProfessional != nil] +
+			map[bool]string{true: "pharmacy"}[held.ClnPharmacy != nil] +
+			map[bool]string{true: "facility"}[held.ClnFacility != nil]
+
+		if got != chosen {
+			t.Errorf("line %d was read as %q, want %s", i+1, got, chosen)
+		}
+	}
+
+	got, err := codec.Marshal(enc, &x)
+	if err != nil {
+		t.Fatalf("codec.Marshal: %v", err)
+	}
+
 	if !bytes.Equal(got, want) {
-		t.Errorf("the file does not write back the bytes it was read from\n got: % x\nwant: % x", got, want)
+		t.Errorf("the claim does not write back the bytes it was read from\n got: % x\nwant: % x", got, want)
 	}
 }
 

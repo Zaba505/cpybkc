@@ -694,6 +694,10 @@ func TestEveryRefusalThisPackageRaisesHasADecidedClassification(t *testing.T) {
 		"mixedEncodingError":      {err: &mixedEncodingError{Axis: "charset", First: "A", Second: "B"}, want: true},
 		"unsupportedVersionError": {err: &unsupportedVersionError{Descriptor: supportedIRVersion}, want: true},
 		"uncoverableError":        {err: &uncoverableError{What: "what", Rule: "rule"}, want: true},
+		// Raised where the literals are gathered, which [generate] does before
+		// anything is composed, so no synthesizer ever meets one first: the
+		// generation has already been refused by the time a tier would ask.
+		"sharedRegisterError": {err: &sharedRegisterError{Register: 3, First: "A", Second: "B"}, want: true},
 	}
 
 	// The list above is the whole of it, held against the source so that a type

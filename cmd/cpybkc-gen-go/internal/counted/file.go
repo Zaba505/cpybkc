@@ -105,6 +105,13 @@ type Reader struct {
 	// done is whether the end of the file has been reached and reported.
 	done bool
 
+	// lits is every literal this reader compares — a transition's predicate, and a
+	// guard over a bytes register — as a file under its encoding spells it. It is
+	// re-expressed once, when the reader is built, and never per record; under the
+	// descriptor's own encoding it is the literals the descriptor resolved. See
+	// literals.go.
+	lits *literals
+
 	// look is the bytes a predicate of the current state is evaluated against.
 	look []byte
 
@@ -156,6 +163,13 @@ type Reader struct {
 // and a file of these records converted to another character set is read by
 // passing a different one.
 //
+// What follows enc is every literal this package compares a field against,
+// re-expressed here, once, as a file under enc spells it; an item whose charset
+// is none carries bytes, and its literals never move. A literal no file under
+// enc can hold is refused here rather than at the record that would first have
+// needed it, and the refusal names the literal, the item, the record and the
+// axis: it is about the layout and enc, and not about the file. See literals.go.
+//
 // Reads are buffered: r is wrapped in a bufio.Reader of readAhead bytes, which is
 // bufio's own default wherever this file's predicates fit inside it. Where a
 // read of the file is expensive — a network filesystem, or a host with hooks on
@@ -178,9 +192,18 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 		return nil, err
 	}
 
+	// Every literal this package compares, as a file under enc spells it. One
+	// with no spelling there is refused here, before any record is read: it is a
+	// property of the layout and of enc, and no file enc describes could hold it.
+	lits, err := literalsFor(enc)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Reader{
 		src:   bufio.NewReaderSize(r, readAhead),
 		cr:    cr,
+		lits:  lits,
 		state: 0,
 	}, nil
 }
@@ -231,7 +254,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 1, which admits HEADER-RECORD.
 		expected = append(expected, "HEADER-RECORD")
-		if matches1At0(r.look) {
+		if r.lits.matches1At0(r.look) {
 			rec := new(HeaderRecord)
 
 			if err := r.admit(rec); err != nil {
@@ -269,7 +292,7 @@ func (r *Reader) Next() (Record, error) {
 
 		if r.register20 > 0 {
 			expected = append(expected, "DETAIL-RECORD")
-			if matches2At0(r.look) {
+			if r.lits.matches2At0(r.look) {
 				rec := new(DetailRecord)
 
 				if err := r.admit(rec); err != nil {
@@ -294,7 +317,7 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches2At0(r.look) {
+		} else if excluded == "" && r.lits.matches2At0(r.look) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted DETAIL-RECORD, which is taken only where the register the descriptor carries as node 20 is greater than zero; node 20 holds %d", r.register20)
 		}
 
@@ -307,9 +330,9 @@ func (r *Reader) Next() (Record, error) {
 			return nil, r.unbound(21)
 		}
 
-		if r.register20 == 0 && bytes.Equal(r.register21, []byte("\xe8")) {
+		if r.register20 == 0 && bytes.Equal(r.register21, r.lits.lit3) {
 			expected = append(expected, "SUMMARY-RECORD")
-			if matches3At0(r.look) {
+			if r.lits.matches3At0(r.look) {
 				rec := new(SummaryRecord)
 
 				if !r.register22Bound {
@@ -344,8 +367,8 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches3At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted SUMMARY-RECORD, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is \"\\xe8\"; node 20 holds %d and node 21 holds %q", r.register20, r.register21)
+		} else if excluded == "" && r.lits.matches3At0(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted SUMMARY-RECORD, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is %q; node 20 holds %d and node 21 holds %q", r.lits.lit3, r.register20, r.register21)
 		}
 
 		// Transition 3, which admits HEADER-RECORD.
@@ -357,9 +380,9 @@ func (r *Reader) Next() (Record, error) {
 			return nil, r.unbound(21)
 		}
 
-		if r.register20 == 0 && (bytes.Equal(r.register21, []byte("\xd5")) || bytes.Equal(r.register21, []byte("@"))) {
+		if r.register20 == 0 && (bytes.Equal(r.register21, r.lits.lit1) || bytes.Equal(r.register21, r.lits.lit2)) {
 			expected = append(expected, "HEADER-RECORD")
-			if matches1At0(r.look) {
+			if r.lits.matches1At0(r.look) {
 				rec := new(HeaderRecord)
 
 				if err := r.admit(rec); err != nil {
@@ -383,8 +406,8 @@ func (r *Reader) Next() (Record, error) {
 
 				return rec, nil
 			}
-		} else if excluded == "" && matches1At0(r.look) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted HEADER-RECORD, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is one of \"\\xd5\", \"@\"; node 20 holds %d and node 21 holds %q", r.register20, r.register21)
+		} else if excluded == "" && r.lits.matches1At0(r.look) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have admitted HEADER-RECORD, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is one of %q, %q; node 20 holds %d and node 21 holds %q", r.lits.lit1, r.lits.lit2, r.register20, r.register21)
 		}
 
 		return nil, r.undescribed(expected, excluded)
@@ -398,7 +421,7 @@ func (r *Reader) Next() (Record, error) {
 			return nil, r.unbound(21)
 		}
 
-		if bytes.Equal(r.register21, []byte("\xe9")) {
+		if bytes.Equal(r.register21, r.lits.lit4) {
 			expected = append(expected, "DETAIL-RECORD")
 			rec := new(DetailRecord)
 
@@ -417,7 +440,7 @@ func (r *Reader) Next() (Record, error) {
 
 		// Transition 2, which admits HEADER-RECORD.
 		expected = append(expected, "HEADER-RECORD")
-		if matches1At0(r.look) {
+		if r.lits.matches1At0(r.look) {
 			rec := new(HeaderRecord)
 
 			if err := r.admit(rec); err != nil {
@@ -470,8 +493,8 @@ func (r *Reader) accepts() error {
 			return r.unbound(21)
 		}
 
-		if !(bytes.Equal(r.register21, []byte("\xd5")) || bytes.Equal(r.register21, []byte("@"))) {
-			return fmt.Errorf("the file ends after %d records and it is not complete: the state it ends in accepts only where the register the descriptor carries as node 21 is one of \"\\xd5\", \"@\"", r.ordinal)
+		if !(bytes.Equal(r.register21, r.lits.lit1) || bytes.Equal(r.register21, r.lits.lit2)) {
+			return fmt.Errorf("the file ends after %d records and it is not complete: the state it ends in accepts only where the register the descriptor carries as node 21 is one of %q, %q", r.ordinal, r.lits.lit1, r.lits.lit2)
 		}
 
 		return nil
@@ -652,12 +675,16 @@ func occurrences[T any](s []T, n int) []T {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches1At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches1At0(b []byte) bool {
 	if len(b) < 1 {
 		return false
 	}
 
-	return bytes.Equal(b[0:1], []byte("\xc8"))
+	return bytes.Equal(b[0:1], l.lit5)
 }
 
 // matches2At0 is the predicate over bytes 0:1 of a record: the transitions it
@@ -672,12 +699,16 @@ func matches1At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches2At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches2At0(b []byte) bool {
 	if len(b) < 1 {
 		return false
 	}
 
-	return bytes.Equal(b[0:1], []byte("\xc4"))
+	return bytes.Equal(b[0:1], l.lit6)
 }
 
 // matches3At0 is the predicate over bytes 0:1 of a record: the transitions it
@@ -692,12 +723,16 @@ func matches2At0(b []byte) bool {
 // reader hands it the record the framing bounds, or as much of the input as it
 // can see where the framing bounds nothing; a writer hands it the whole of the
 // record it is about to emit.
-func matches3At0(b []byte) bool {
+//
+// A method of the literals rather than a function over constants, so that
+// a reader or a writer built under another encoding compares against the
+// literals as a file under that encoding spells them. See literals.go.
+func (l *literals) matches3At0(b []byte) bool {
 	if len(b) < 1 {
 		return false
 	}
 
-	return bytes.Equal(b[0:1], []byte("\xe2"))
+	return bytes.Equal(b[0:1], l.lit7)
 }
 
 // Writer writes the records of one file, walking the automaton this descriptor
@@ -731,6 +766,13 @@ type Writer struct {
 	// record is what codec refuses to allow.
 	cw *codec.Writer
 
+	// lits is every literal this writer compares — a transition's predicate, and a
+	// guard over a bytes register — as a file under its encoding spells it. It is
+	// re-expressed once, when the writer is built, and never per record; under the
+	// descriptor's own encoding it is the literals the descriptor resolved. See
+	// literals.go.
+	lits *literals
+
 	// state is where in the automaton the write is, numbered as [Reader.state] is.
 	state int
 
@@ -759,6 +801,10 @@ type Writer struct {
 //
 // The five axes are the caller's for the reason they are on [NewReader]: they are
 // properties of the file being written rather than of this descriptor's items.
+// Every literal this package compares is re-expressed under enc here, once,
+// and refused here where no file under enc can hold it, exactly as [NewReader]
+// does — so the record this writer refuses to emit is the record a reader
+// under the same encoding would route elsewhere.
 func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	if w == nil {
 		return nil, codec.ErrNilWriter
@@ -773,9 +819,18 @@ func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 		return nil, err
 	}
 
+	// Every literal this package compares, as a file under enc spells it. One
+	// with no spelling there is refused here, before any record is written: it is a
+	// property of the layout and of enc, and no file enc describes could hold it.
+	lits, err := literalsFor(enc)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Writer{
 		dst:   w,
 		cw:    cw,
+		lits:  lits,
 		state: 0,
 	}, nil
 }
@@ -821,8 +876,8 @@ func (w *Writer) Close() error {
 			return w.unbound(21)
 		}
 
-		if !(bytes.Equal(w.register21, []byte("\xd5")) || bytes.Equal(w.register21, []byte("@"))) {
-			return fmt.Errorf("the file is closed after %d records and it is not complete: the state it ends in accepts only where the register the descriptor carries as node 21 is one of \"\\xd5\", \"@\"", w.ordinal)
+		if !(bytes.Equal(w.register21, w.lits.lit1) || bytes.Equal(w.register21, w.lits.lit2)) {
+			return fmt.Errorf("the file is closed after %d records and it is not complete: the state it ends in accepts only where the register the descriptor carries as node 21 is one of %q, %q", w.ordinal, w.lits.lit1, w.lits.lit2)
 		}
 
 		return nil
@@ -865,7 +920,7 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 		}
 
 		if w.register20 > 0 {
-			if matches2At0(raw) {
+			if w.lits.matches2At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -885,7 +940,7 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches2At0(raw) {
+		} else if excluded == "" && w.lits.matches2At0(raw) {
 			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is greater than zero; node 20 holds %d", w.register20)
 		}
 	case 2: // the state the descriptor carries as node 4
@@ -894,7 +949,7 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 			return w.unbound(21)
 		}
 
-		if bytes.Equal(w.register21, []byte("\xe9")) {
+		if bytes.Equal(w.register21, w.lits.lit4) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -904,7 +959,7 @@ func (w *Writer) writeDetailRecord(rec *DetailRecord) error {
 
 			return nil
 		} else if excluded == "" {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 21 is \"\\xe9\"; node 21 holds %q", w.register21)
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 21 is %q; node 21 holds %q", w.lits.lit4, w.register21)
 		}
 	}
 
@@ -938,7 +993,7 @@ func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
 	switch w.state {
 	case 0: // the state the descriptor carries as node 2
 		// Transition 1 of that state.
-		if matches1At0(raw) {
+		if w.lits.matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -967,8 +1022,8 @@ func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
 			return w.unbound(21)
 		}
 
-		if w.register20 == 0 && (bytes.Equal(w.register21, []byte("\xd5")) || bytes.Equal(w.register21, []byte("@"))) {
-			if matches1At0(raw) {
+		if w.register20 == 0 && (bytes.Equal(w.register21, w.lits.lit1) || bytes.Equal(w.register21, w.lits.lit2)) {
+			if w.lits.matches1At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -987,12 +1042,12 @@ func (w *Writer) writeHeaderRecord(rec *HeaderRecord) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches1At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is one of \"\\xd5\", \"@\"; node 20 holds %d and node 21 holds %q", w.register20, w.register21)
+		} else if excluded == "" && w.lits.matches1At0(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is one of %q, %q; node 20 holds %d and node 21 holds %q", w.lits.lit1, w.lits.lit2, w.register20, w.register21)
 		}
 	case 2: // the state the descriptor carries as node 4
 		// Transition 2 of that state.
-		if matches1At0(raw) {
+		if w.lits.matches1At0(raw) {
 			if err := w.emit(raw); err != nil {
 				return err
 			}
@@ -1075,8 +1130,8 @@ func (w *Writer) writeSummaryRecord(rec *SummaryRecord) error {
 			return w.unbound(21)
 		}
 
-		if w.register20 == 0 && bytes.Equal(w.register21, []byte("\xe8")) {
-			if matches3At0(raw) {
+		if w.register20 == 0 && bytes.Equal(w.register21, w.lits.lit3) {
+			if w.lits.matches3At0(raw) {
 				if err := w.emit(raw); err != nil {
 					return err
 				}
@@ -1086,8 +1141,8 @@ func (w *Writer) writeSummaryRecord(rec *SummaryRecord) error {
 
 				return nil
 			}
-		} else if excluded == "" && matches3At0(raw) {
-			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is \"\\xe8\"; node 20 holds %d and node 21 holds %q", w.register20, w.register21)
+		} else if excluded == "" && w.lits.matches3At0(raw) {
+			excluded = fmt.Sprintf("a guard excluded the transition that would have taken it, which is taken only where the register the descriptor carries as node 20 is 0 and the register the descriptor carries as node 21 is %q; node 20 holds %d and node 21 holds %q", w.lits.lit3, w.register20, w.register21)
 		}
 	}
 

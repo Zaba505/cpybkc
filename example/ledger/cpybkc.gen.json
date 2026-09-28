@@ -6,6 +6,7 @@
     "ledger/doc.go",
     "ledger/file.go",
     "ledger/file_test.go",
+    "ledger/literals.go",
     "ledger/records.go",
     "ledger/records_test.go"
   ]

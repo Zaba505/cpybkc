@@ -38,6 +38,7 @@ var machineGoldens = map[string]func() *irpb.Descriptor{
 	"internal/sep":     separatedDescriptor,
 	"internal/opt":     optionalDescriptor,
 	"internal/batched": batchedDescriptor,
+	"internal/signs":   signsDescriptor,
 }
 
 // TestTheGeneratedFileMachinesAreTheGoldens holds every byte of each of them
@@ -1230,6 +1231,10 @@ func generatedMachine(t *testing.T, d *irpb.Descriptor, name, dir string) string
 // predicateFunctions is every predicate function the generated file declares,
 // by name, against the expression it returns.
 //
+// They are methods of the literals struct, so that the literals they compare
+// against are the ones a reader or a writer was built with; a matches function
+// declared any other way is not one of them.
+//
 // The expression is read out of the parsed file and printed back, so that two
 // tests are the same test exactly when they are the same Go expression —
 // whatever the emitter spelled around them and whatever gofmt did to it
@@ -1250,7 +1255,7 @@ func predicateFunctions(t *testing.T, source string) map[string]string {
 
 	for _, node := range file.Decls {
 		decl, ok := node.(*ast.FuncDecl)
-		if !ok || decl.Recv != nil || !strings.HasPrefix(decl.Name.Name, "matches") {
+		if !ok || !onLiterals(decl) || !strings.HasPrefix(decl.Name.Name, "matches") {
 			continue
 		}
 
@@ -1351,6 +1356,23 @@ func TestEveryTransitionNamesTheFunctionThatIsItsOwnTest(t *testing.T) {
 	}
 }
 
+// onLiterals reports whether decl is a method whose receiver is a pointer to
+// the literals struct.
+func onLiterals(decl *ast.FuncDecl) bool {
+	if decl.Recv == nil || len(decl.Recv.List) != 1 {
+		return false
+	}
+
+	star, ok := decl.Recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+
+	ident, ok := star.X.(*ast.Ident)
+
+	return ok && ident.Name == literalsType
+}
+
 // gathered is a filer that has resolved a descriptor's walks and gathered the
 // predicates of them, which is the state [filer.matcherOf] answers from.
 //
@@ -1365,7 +1387,12 @@ func gathered(t *testing.T, d *irpb.Descriptor) (*filer, [][]transition) {
 		t.Fatalf("newEmitter: %v", err)
 	}
 
-	f := &filer{emitter: e, opts: options{packageName: goldenPackage}, index: make(map[uint64]int)}
+	lits, err := gatherLiterals(d)
+	if err != nil {
+		t.Fatalf("gatherLiterals: %v", err)
+	}
+
+	f := &filer{emitter: e, opts: options{packageName: goldenPackage}, index: make(map[uint64]int), literals: lits}
 
 	if err := f.collect(d); err != nil {
 		t.Fatalf("collect: %v", err)

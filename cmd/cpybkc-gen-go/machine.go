@@ -48,6 +48,7 @@ func (f *filer) emit() (string, []string, error) {
 	}
 
 	f.gather(walks)
+	f.apart(walks)
 
 	var b strings.Builder
 
@@ -105,6 +106,7 @@ func (f *filer) survey(walks [][]transition) error {
 			// bytes in front of the walk, and both directions evaluate it.
 			if t.match != "" {
 				f.comparesBytes = true
+				f.compares = true
 			}
 
 			f.surveyGuards(t.node.GetGuardIds())
@@ -185,6 +187,7 @@ func (f *filer) surveyGuards(ids []uint64) {
 
 		if kind, err := f.registerKind(guard.GetRegisterId()); err == nil && kind == "[]byte" {
 			f.comparesBytes = true
+			f.compares = true
 		}
 	}
 }
@@ -344,7 +347,11 @@ func (f *filer) emitPredicates(b *strings.Builder) error {
 		line(b, "// reader hands it the record the framing bounds, or as much of the input as it")
 		line(b, "// can see where the framing bounds nothing; a writer hands it the whole of the")
 		line(b, "// record it is about to emit.")
-		line(b, "func %s(b []byte) bool {", p.name)
+		line(b, "//")
+		line(b, "// A method of the literals rather than a function over constants, so that")
+		line(b, "// a reader or a writer built under another encoding compares against the")
+		line(b, "// literals as a file under that encoding spells them. See literals.go.")
+		line(b, "func (l *%s) %s(b []byte) bool {", literalsType, p.name)
 		line(b, "if len(b) < %d {", p.reads)
 		line(b, "return false")
 		line(b, "}")
@@ -476,21 +483,28 @@ func matcher(nth, at int) string {
 // under, because a register has no name and there is nothing else to call one:
 // what a user needs from the diagnostic is which of the automaton's values said
 // this record does not belong here.
-func (f *filer) guardOf(id uint64, holder string) (test, phrase string, err error) {
+//
+// The phrase is a fragment of a format rather than a sentence, and args is what
+// its verbs take. A bytes literal is one of those rather than text written into
+// the phrase, because what the guard compares against is the literal as the
+// reader or writer's own encoding spells it — which is not known until one is
+// built — and a diagnostic quoting the descriptor's bytes beside a register
+// holding a converted file's would name two different spellings of one value.
+func (f *filer) guardOf(id uint64, holder string) (test, phrase string, args []string, err error) {
 	node, ok := f.nodes[id]
 	if !ok {
-		return "", "", unresolved(id)
+		return "", "", nil, unresolved(id)
 	}
 
 	guard := node.GetGuard()
 	if guard == nil {
-		return "", "", malformed(fmt.Sprintf("node %d guards a transition or a state and is not a guard node", id),
+		return "", "", nil, malformed(fmt.Sprintf("node %d guards a transition or a state and is not a guard node", id),
 			"a guard reads a register and decides whether the transition carrying it is eligible; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 	}
 
 	kind, err := f.registerKind(guard.GetRegisterId())
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 
 	at := holder + "." + register(guard.GetRegisterId())
@@ -498,66 +512,80 @@ func (f *filer) guardOf(id uint64, holder string) (test, phrase string, err erro
 
 	switch test := guard.GetTest().(type) {
 	case *irpb.Guard_Equals:
-		value, err := literal(test.Equals, kind)
+		value, verb, arg, err := f.guardLiteral(test.Equals, kind, guard.GetRegisterId(), holder)
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 
-		return compare(at, value, kind), fmt.Sprintf("%s is %s", named, value), nil
+		return compare(at, value, kind), fmt.Sprintf("%s is %s", named, verb), arg, nil
 	case *irpb.Guard_OneOf:
 		values := test.OneOf.GetValues()
 		if len(values) == 0 {
-			return "", "", malformed("a one-of guard carries no literals",
+			return "", "", nil, malformed("a one-of guard carries no literals",
 				"a guard tests the register against a set, and a set of nothing excludes every transition carrying it")
 		}
 
 		tests := make([]string, 0, len(values))
-		names := make([]string, 0, len(values))
+		verbs := make([]string, 0, len(values))
 
 		for _, v := range values {
-			value, err := literal(v, kind)
+			value, verb, arg, err := f.guardLiteral(v, kind, guard.GetRegisterId(), holder)
 			if err != nil {
-				return "", "", err
+				return "", "", nil, err
 			}
 
 			tests = append(tests, compare(at, value, kind))
-			names = append(names, value)
+			verbs = append(verbs, verb)
+			args = append(args, arg...)
 		}
 
-		return "(" + strings.Join(tests, " || ") + ")", fmt.Sprintf("%s is one of %s", named, strings.Join(names, ", ")), nil
+		return "(" + strings.Join(tests, " || ") + ")", fmt.Sprintf("%s is one of %s", named, strings.Join(verbs, ", ")), args, nil
 	case *irpb.Guard_GreaterThanZero:
 		if kind != "int64" {
-			return "", "", malformed(fmt.Sprintf("a guard asks whether node %d is greater than zero and it holds bytes", guard.GetRegisterId()),
+			return "", "", nil, malformed(fmt.Sprintf("a guard asks whether node %d is greater than zero and it holds bytes", guard.GetRegisterId()),
 				"the greater-than-zero test is over an integer register; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 		}
 
-		return at + " > 0", named + " is greater than zero", nil
+		return at + " > 0", named + " is greater than zero", nil, nil
 	default:
-		return "", "", malformed("a guard carries no test",
+		return "", "", nil, malformed("a guard carries no test",
 			"the set is closed and a guard carries one member of it; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 	}
 }
 
-// literal is a guard's carried value as Go source, and it is refused where its
-// member does not match the kind of the register it will be compared against.
-func literal(l *irpb.Literal, kind string) (string, error) {
-	switch value := l.GetValue().(type) {
+// guardLiteral is a guard's carried value as Go source, the format fragment a
+// diagnostic reports it with and the argument that fragment's verb takes, and
+// it is refused where its member does not match the kind of the register it
+// will be compared against.
+//
+// A number is written into both as the number. A byte string is the field of
+// the literals struct holding it under the holder's encoding, and is reported
+// through a %q taking that same field.
+func (f *filer) guardLiteral(l *irpb.Literal, kind string, register uint64, holder string) (value, verb string, args []string, err error) {
+	switch held := l.GetValue().(type) {
 	case *irpb.Literal_BytesValue:
 		if kind != "[]byte" {
-			return "", malformed("a guard compares an integer register against a byte string",
+			return "", "", nil, malformed("a guard compares an integer register against a byte string",
 				"which member of a literal is set MUST match the kind of the register tested; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 		}
 
-		return strconv.Quote(string(value.BytesValue)), nil
+		one, err := f.literals.ofGuard(held.BytesValue, register)
+		if err != nil {
+			return "", "", nil, err
+		}
+
+		at := holder + "." + litsName + "." + one.name
+
+		return at, "%q", []string{at}, nil
 	case *irpb.Literal_Integer:
 		if kind != "int64" {
-			return "", malformed("a guard compares a bytes register against a number",
+			return "", "", nil, malformed("a guard compares a bytes register against a number",
 				"which member of a literal is set MUST match the kind of the register tested; see docs/ir/SPEC.md, \"The automaton remembers, in registers\"")
 		}
 
-		return strconv.FormatInt(value.Integer, 10), nil
+		return strconv.FormatInt(held.Integer, 10), strconv.FormatInt(held.Integer, 10), nil, nil
 	default:
-		return "", malformed("a guard carries a literal holding no value",
+		return "", "", nil, malformed("a guard carries a literal holding no value",
 			"a literal carries the bytes a bytes register is compared against or the number an integer one is")
 	}
 }
@@ -565,7 +593,7 @@ func literal(l *irpb.Literal, kind string) (string, error) {
 // compare is the equality test between a register and one literal.
 func compare(at, value, kind string) string {
 	if kind == "[]byte" {
-		return fmt.Sprintf("bytes.Equal(%s, []byte(%s))", at, value)
+		return fmt.Sprintf("bytes.Equal(%s, %s)", at, value)
 	}
 
 	return fmt.Sprintf("%s == %s", at, value)
@@ -616,7 +644,7 @@ func (f *filer) acceptance(b *strings.Builder, holder, ending string) error {
 		line(b, "case %d:", i)
 
 		for _, id := range state.GetAcceptanceGuardIds() {
-			test, phrase, err := f.guardOf(id, holder)
+			test, phrase, args, err := f.guardOf(id, holder)
 			if err != nil {
 				return err
 			}
@@ -628,9 +656,9 @@ func (f *filer) acceptance(b *strings.Builder, holder, ending string) error {
 			line(b, "}")
 			line(b, "")
 			line(b, "if !(%s) {", test)
-			line(b, "return fmt.Errorf(%q, %s.ordinal)",
+			line(b, "return fmt.Errorf(%q, %s.ordinal%s)",
 				fmt.Sprintf("%s after %%d records and it is not complete: the state it ends in accepts only where %s",
-					escaped(ending), escaped(phrase)), holder)
+					escaped(ending), phrase), holder, trailing(args))
 			line(b, "}")
 			line(b, "")
 		}
@@ -647,26 +675,74 @@ func (f *filer) acceptance(b *strings.Builder, holder, ending string) error {
 
 // guardTests is the eligibility test of one transition and the phrase reporting
 // what excluded it, or the empty string where it carries no guards.
-func (f *filer) guardTests(t transition, holder string) (test, phrase string, guards []uint64, err error) {
+//
+// The phrase is a fragment of a format, as [filer.guardOf]'s is, and args is
+// what its verbs take, in order.
+func (f *filer) guardTests(t transition, holder string) (test, phrase string, args []string, guards []uint64, err error) {
 	tests := make([]string, 0, len(t.node.GetGuardIds()))
 	phrases := make([]string, 0, len(t.node.GetGuardIds()))
 
 	for _, id := range t.node.GetGuardIds() {
-		one, said, err := f.guardOf(id, holder)
+		one, said, taken, err := f.guardOf(id, holder)
 		if err != nil {
-			return "", "", nil, err
+			return "", "", nil, nil, err
 		}
 
 		guard := f.nodes[id].GetGuard()
 
 		tests = append(tests, one)
 		phrases = append(phrases, said)
+		args = append(args, taken...)
 		guards = append(guards, guard.GetRegisterId())
 	}
 
 	if len(tests) == 0 {
-		return "", "", nil, nil
+		return "", "", nil, nil, nil
 	}
 
-	return strings.Join(tests, " && "), strings.Join(phrases, " and "), guards, nil
+	return strings.Join(tests, " && "), strings.Join(phrases, " and "), args, guards, nil
+}
+
+// trailing is arguments as the tail of a call's argument list: a comma and
+// each of them, or nothing where there are none.
+func trailing(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+
+	return ", " + strings.Join(args, ", ")
+}
+
+// apart records every pair of transitions leaving one state whose literals a
+// reader or a writer built under another encoding has to hold apart again.
+//
+// `resolve` refuses two transitions leaving one state that can both be eligible
+// and whose predicates agree over the bytes their runs share (docs/ir/SPEC.md,
+// "When two match, and when none does"). Re-expression carries that proof
+// across some axes and not others, and the table decides which pairs it could
+// have lost; literals.go checks those, once, before the first record.
+//
+// Two transitions a guard keeps apart are not a pair, as they are not to
+// `resolve` — unless the guard doing it compares literals of its own that a
+// re-expression could bring together, in which case it is not relied on.
+func (f *filer) apart(walks [][]transition) {
+	for _, walk := range walks {
+		for i, one := range walk {
+			if one.match == "" {
+				continue
+			}
+
+			for _, other := range walk[i+1:] {
+				if other.match == "" || !shareBytes(one, other) || !f.coEligibleUnder(one, other, f.literals.collapses) {
+					continue
+				}
+
+				for _, a := range one.compared {
+					for _, b := range other.compared {
+						f.literals.overlap(a, one.at, b, other.at)
+					}
+				}
+			}
+		}
+	}
 }

@@ -114,7 +114,15 @@ func newFiletest(d *irpb.Descriptor, opts options) (*filetest, error) {
 		return nil, err
 	}
 
-	f := &filer{emitter: e, opts: opts, index: make(map[uint64]int)}
+	// The literals are gathered for the predicates to be named by, and only
+	// for that: the cases this tier writes lay their bytes out under the
+	// descriptor's own encoding, which compares the literals as resolved.
+	lits, err := gatherLiterals(d)
+	if err != nil {
+		return nil, err
+	}
+
+	f := &filer{emitter: e, opts: opts, index: make(map[uint64]int), literals: lits}
 
 	if err := f.collect(d); err != nil {
 		return nil, err
