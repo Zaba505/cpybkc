@@ -1709,7 +1709,8 @@ it: it arrives applied.
 
 What a generator may still do is carry those bytes onto the same records held
 under other axes — the extract a transfer converted to ASCII, say — and a
-generator offering that re-expresses each literal once, before it reads a record
+generator offering that re-expresses each literal once, before it reads or
+writes a record
 ([`ir/SPEC.md`](../ir/SPEC.md#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares),
 #379). That is not the knowledge the sentence above keeps from it. Re-expression
 moves a byte from one code page to another, reads a sign byte's column in

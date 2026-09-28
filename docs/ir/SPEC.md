@@ -2179,10 +2179,10 @@ own spelling; by value is the only reading of what that file holds.
 ### The staircase is not an axis a consumer may replace
 
 The binary width staircase is carried as the fifth axis, and it is the one a
-consumer **MUST NOT** read or write under any value but the descriptor's. It is
-not a property of the bytes, as the other four are. It is the decision every
-width in the descriptor was computed under, and so every position: [A binary
-item's width is the staircase, not the
+consumer **MUST NOT** read or write under any value other than the descriptor's.
+It is not a property of the bytes, as the other four are. It is the decision
+every width in the descriptor was computed under, and so every position: [A
+binary item's width is the staircase, not the
 digits](#a-binary-items-width-is-the-staircase-not-the-digits) calls the widths
 and the axis one decision stated twice. A consumer reading under another
 staircase would be reading with one half of that decision and slicing with the
