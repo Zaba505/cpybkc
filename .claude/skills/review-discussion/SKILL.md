@@ -1,12 +1,16 @@
 ---
 name: review-discussion
-description: Triage one cpybkc GitHub Discussion post and reply to it. The skill works out what the post really is (a question, a feature request, a user's mistake, a real cpybkc bug, or spam), researches it against the example and conformance corpora, the specs and a reproduction, and then posts a reply backed by evidence. It files stories for any bug it reproduces, and asks the repository owners to agree before a feature decision turns into stories. Use this whenever the user asks to "review", "triage", "answer" or "reply to" a discussion, names a discussion by number or URL, or asks what is waiting in Discussions. Skip it for issues and pull requests.
+description: Triage one cpybkc GitHub Discussion post and reply to it. The skill works out what the post really is (a question, a feature request, a user's mistake, a real cpybkc bug, or spam), researches it against the example and conformance corpora, the specs and a reproduction, and then posts a reply backed by evidence. It files stories for any bug it reproduces. For a feature decision it proposes a story list in the thread and asks the repository owners to agree before filing. Every approval happens in the thread, never in the session, so it runs unattended or in a subagent. Use this whenever the user asks to "review", "triage", "answer" or "reply to" a discussion, or names one by number or URL. Skip it for issues and pull requests.
 argument-hint: <discussion number or URL>
 ---
 
 # review-discussion
 
 Take **one** discussion from where its thread stands to the next reply it needs, then stop.
+
+Nothing here waits on whoever started the run. Replies are posted without approval from
+anyone in the session. Every approval the skill needs is asked of the owners, in the thread.
+So it runs the same in a session, unattended, or in a subagent.
 
 The reply is posted from the account `gh` is logged in as, which is an owner's account. That
 fact shapes two rules below:
@@ -15,24 +19,23 @@ fact shapes two rules below:
   does not render, but the API returns it. It is the only way to tell a proposal this skill
   made apart from a decision an owner typed under the same login.
 - **An owner's unmarked comment overrides anything the skill proposed.** Follow it. Never
-  argue with it in the thread. If you think the owner is wrong, say so to the user in the
-  session.
+  argue with it in the thread. If you think the owner is wrong, say so in your report
+  (step 5).
 
 ## 0. Read the thread
 
-With no argument, list the discussions that have no comments yet and ask which one to take:
+The argument is a discussion number, or a discussion URL that ends in one. **Without it,
+fail.** Report `FAILED — review-discussion needs a discussion number` and do nothing else.
+Don't list discussions, and don't pick one yourself.
 
-```sh
-gh api graphql -f query='{repository(owner:"Zaba505",name:"cpybkc"){discussions(first:50,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number title category{name} comments{totalCount}}}}}' \
-  --jq '.data.repository.discussions.nodes[] | select(.comments.totalCount==0) | "#\(.number) [\(.category.name)] \(.title)"'
-```
-
-Otherwise read the whole thread: the post, then every comment and every reply to a comment.
+Read the whole thread: the post, then every comment and every reply to a comment.
 
 ```sh
 gh api graphql -F n=<number> -f query='query($n:Int!){repository(owner:"Zaba505",name:"cpybkc"){discussion(number:$n){id url title body category{name} author{login} createdAt
   comments(first:100){nodes{id url author{login} body createdAt replies(first:100){nodes{id author{login} body createdAt}}}}}}}'
 ```
+
+If the query returns no discussion, fail the same way and name the number.
 
 Then read who the owners are. Don't hard-code the list, because it changes:
 
@@ -46,7 +49,7 @@ Work out where the thread stands before you do anything:
 | --- | --- |
 | No marked comment yet | Start at step 1. |
 | Your marked proposal is there and no owner has answered it | Report "awaiting owners" and stop. Don't post a nudge. |
-| An owner has posted an unmarked comment after your proposal | Their comment decides it. Go to step 4 if they agreed, or reply by their decision if they chose something else. |
+| An owner has posted an unmarked comment after your proposal | Their comment decides it. If they agreed, go to step 4 with the story list as they left it. If they chose something else, reply by their decision. |
 | The reporter has sent new information, such as a reproduction you asked for | Start at step 2 with that information. |
 
 ## 1. Categorize
@@ -62,8 +65,8 @@ before you research anything.
 | **Feature request** | The reporter asks for something cpybkc does not do. This includes a "bug" where cpybkc refuses exactly as the spec says, but the spec does not cover the file the reporter has | General → Feature request |
 | **User bug** | The copybook or layout is wrong, or cpybkc is invoked wrongly, and cpybkc behaves as its spec says | Bug → User bug |
 | **cpybkc bug** | cpybkc does something other than what its spec, README or generated docs promise. This includes a defect upstream in `Zaba505/cobol-go` or `z5labs/sexpr-go` that cpybkc passes through | Bug → cpybkc bug |
-| **Spam** | Unrelated to cpybkc, promotional, or abusive | No reply. Report it to the user. Never delete, lock or hide it |
-| **Anything else** | An announcement, a poll, a show-and-tell post or a research note | No reply. Report it to the user and stop |
+| **Spam** | Unrelated to cpybkc, promotional, or abusive | No reply. Say so in the report. Never delete, lock or hide it |
+| **Anything else** | An announcement, a poll, a show-and-tell post or a research note | No reply. Say so in the report and stop |
 
 You can't tell a user bug from a cpybkc bug until you know what the spec promises. If you
 can't tell yet, do the cpybkc bug research first. A failed reproduction often turns out to be
@@ -134,6 +137,10 @@ These are the tests past threads settled on:
 If you need to ask the reporter something, ask only what their own layout needs. Never ask
 a question whose answer would narrow what the format supports.
 
+If the decision puts the work in cpybkc, plan the stories it needs now: everything
+traceable to the thread, including missing corpus entries, and each item that deliberately
+gets no story, with the reason. The proposal in step 3 carries this list.
+
 ### User bug
 
 1. Pin down the mistake. Show the line of the copybook, layout or command that is wrong,
@@ -141,7 +148,8 @@ a question whose answer would narrow what the format supports.
 2. Then check whether cpybkc could have prevented it. Did the diagnostic name the real
    problem? Did `cpybkc init` scaffold the thing the user got wrong? Does a spec rule go
    unchecked until generation time? If cpybkc could have stopped the mistake, that is a
-   candidate feature request. Test it against the feature-request questions above.
+   candidate feature request. Test it against the feature-request questions above, and
+   plan its stories the same way.
 
 ### cpybkc bug
 
@@ -165,8 +173,7 @@ it.
 For a cpybkc bug you reproduced on `main`, do step 4 first, so the reply can name the
 stories.
 
-Draft the reply in a file. Show the draft to the user, and post it only after they approve.
-The reply is public and goes out under their name.
+Write the reply to a file and post it. It needs no approval from anyone in the session.
 
 Every reply leads with its verdict, puts the evidence inline (commands, output, pinned
 links), states versions and SHAs, and ends with the marker.
@@ -174,8 +181,8 @@ links), states versions and SHAs, and ends with the marker.
 | Kind | The reply |
 | --- | --- |
 | **Question** | The answer, then the evidence from step 2. If the thread is in the Q&A category, leave marking the answer to the asker. |
-| **Feature request** | The proposed decision (cpybkc's logic or the adopter's), the tests that decided it, and what would change it. **@-mention every owner** and ask for their agreement. Say plainly that nothing will be filed until they agree. |
-| **User bug** | What the mistake is, where it is, and the fix. If step 2 found a way cpybkc could have prevented it, add it as a proposal and @-mention every owner, as for a feature request. |
+| **Feature request** | The proposed decision (cpybkc's logic or the adopter's), the tests that decided it, and what would change it. If the work goes in cpybkc, list the planned stories, each as its title and a short description, plus the items that deliberately get no story. Don't put full story bodies in the post. **@-mention every owner** and ask them to agree to the decision and the list. Say plainly that nothing will be filed until they agree. |
+| **User bug** | What the mistake is, where it is, and the fix. If step 2 found a way cpybkc could have prevented it, add it as a proposal with its story list and @-mention every owner, as for a feature request. |
 | **cpybkc bug, reproduced** | "Reproduced on <tag> and on `main` at <sha>", then the minimal reproduction, what goes wrong and where, the stories filed for it, and a workaround if an honest one exists. |
 | **cpybkc bug, not reproduced** | What you ran and what happened, then a request for a reproduction. Ask for the copybook (or a minimal one with the same shape), the layout, the manifest, the exact command, the cpybkc version, and the output. |
 
@@ -190,26 +197,32 @@ gh api graphql -F discussionId=<id> -F body=@reply.md -f query='mutation($discus
 
 Two paths reach this step:
 
-- **A cpybkc bug you reproduced on `main`.** Reproducing it is the validation, so it needs
-  no owner agreement. Come here before drafting the reply.
+- **A cpybkc bug you reproduced on `main`.** Reproducing it is the validation, so nothing
+  is proposed in the thread first. Plan the stories the same way a feature's are planned
+  (step 2), then file them. Come here before writing the reply.
 - **A feature decision**, including a prevention proposal from a user bug. It comes here
   only when every owner you @-mentioned has agreed in the thread, or when the owners
-  replied with a decision of their own.
+  replied with a decision of their own. File exactly the list they agreed to, with any
+  change they asked for. If the work turns out to need a story that is not on the list,
+  don't file it. Post the addition as a marked amendment and wait for agreement again.
 
 Then:
 
-1. List everything that is traceable to the thread: each story, each missing corpus
-   entry, and each item that deliberately gets no story, with the reason. Show this map to
-   the user before you create anything.
-2. File the stories with `.github/ISSUE_TEMPLATE/story.yaml` (label `story`). For each
-   issue, set the project field that `.claude/backlog.json` names under `select.project`.
-   Wire dependencies as native `blocked_by` edges. `gh issue create` does neither, so do
-   both by hand and read them back. If the defect is upstream in `cobol-go` or
-   `sexpr-go`, the story belongs in that repository, so ask the user before filing there.
-3. For a bug, the reply from step 3 names the stories. For a feature decision, post a
-   marked comment in the thread that lists them.
+1. Write each story in full, from its title and short description. Follow
+   `.github/ISSUE_TEMPLATE/story.yaml`: a title shaped `story(<subject>): <short
+   description>`, a *Description* written from the end user's point of view, and
+   *Acceptance Criteria*.
+2. File each one with the label `story`. Set the project field that `.claude/backlog.json`
+   names under `select.project`. Wire dependencies as native `blocked_by` edges.
+   `gh issue create` does neither of these, so do both by hand and read them back.
+3. If the defect is upstream in `cobol-go` or `sexpr-go`, don't file in that repository.
+   Say in the reply which repository the defect is in, and @-mention the owners so they
+   can file it there.
+4. For a bug, the reply from step 3 names the stories. For a feature decision, post a
+   marked comment in the thread that lists the filed issues.
 
 ## 5. Report
 
 End with one line: the discussion, the kind you assigned it, what you posted (with the URL)
-or why you posted nothing, and what the thread now waits on.
+or why you posted nothing, and what the thread now waits on. If you disagree with an owner's
+decision, say so here as well.
