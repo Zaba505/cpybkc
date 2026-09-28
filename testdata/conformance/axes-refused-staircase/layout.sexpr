@@ -1,0 +1,21 @@
+;; One record type whose descriptor was laid out under the 2-4-8 staircase.
+;; axes.json asks for 1-2-4-8, under which COUNT-VALUE is one byte and
+;; COUNT-NOTE starts one byte earlier: not this file read another way, but a
+;; different file. A consumer refuses a staircase that is not its
+;; descriptor's before it reads a byte, so that is the whole answer.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 6))
+
+(record COUNT
+  (copybook "count.cpy" COUNT-RECORD))
+
+(discriminate COUNT single-record-type)
+
+(sequence (* COUNT))

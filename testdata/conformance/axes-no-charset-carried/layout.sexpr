@@ -1,0 +1,32 @@
+;; Two record types told apart by a tag byte the layout declares as bytes
+;; rather than characters, C1 and C2. Under cp037 those are also the letters A
+;; and B, which is the point: the file beside it was converted to ASCII, the
+;; text around the tags was rewritten, and the tags were not -- so a consumer
+;; that re-expressed them as characters would look for 41 and 42 and find
+;; neither.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(encoding-override (item ALPHA ALPHA-TAG)
+  (charset none))
+
+(encoding-override (item BETA BETA-TAG)
+  (charset none))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record ALPHA
+  (copybook "tagged.cpy" ALPHA-RECORD))
+
+(record BETA
+  (copybook "tagged.cpy" BETA-RECORD))
+
+(discriminate ALPHA (equals (item ALPHA ALPHA-TAG) (bytes "C1")))
+(discriminate BETA (equals (item BETA BETA-TAG) (bytes "C2")))
+
+(sequence (* (alt ALPHA BETA)))

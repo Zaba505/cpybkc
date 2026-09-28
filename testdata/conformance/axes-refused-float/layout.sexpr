@@ -1,0 +1,24 @@
+;; LIMIT-VALUE's literal is 7F800000, positive infinity under IEEE 754, and
+;; READING-VALUE's is 3F800000, one. Hexadecimal floating point has no
+;; infinity, so under it no LIMIT-RECORD can be written and the consumer
+;; refuses before it reads a record -- where one alone would have been 41100000.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 8))
+
+(record LIMIT
+  (copybook "reading.cpy" LIMIT-RECORD))
+
+(record READING
+  (copybook "reading.cpy" READING-RECORD))
+
+(discriminate LIMIT (equals (item LIMIT LIMIT-VALUE) (bytes "7F800000")))
+(discriminate READING (equals (item READING READING-VALUE) (bytes "3F800000")))
+
+(sequence (* (alt LIMIT READING)))

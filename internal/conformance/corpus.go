@@ -186,6 +186,11 @@ type Entry struct {
 
 	// Values is what those bytes decode to.
 	Values *Values
+
+	// Axes are the axes the file is read and written under, where the entry
+	// states any in [AxesName], and nil where it is read under the axes its
+	// descriptor resolved — which is every entry that carries no such file.
+	Axes *Axes
 }
 
 // IsProvisional is whether the entry's expected answer is uncorroborated, and
@@ -304,10 +309,13 @@ func LoadEntry(dir string) (*Entry, error) {
 	fault(entry.readDescriptor())
 	fault(entry.readInput())
 	fault(entry.readValues())
+	fault(entry.readAxes())
 
 	if entry.Descriptor != nil && entry.Values != nil {
 		fault(entry.Values.check(entry.Descriptor))
 	}
+
+	fault(entry.checkAxes())
 
 	if len(faults) > 0 {
 		return nil, &EntryError{Entry: entry.Name, Err: joined(faults)}
@@ -317,8 +325,8 @@ func LoadEntry(dir string) (*Entry, error) {
 }
 
 // readListing holds the directory to the set of files an entry is made of: the
-// five members, one or more copybooks, and the reserved [OffsetsName] nothing
-// reads.
+// five members, one or more copybooks, the optional [AxesName], and the reserved
+// [OffsetsName] nothing reads.
 //
 // A file the format has no place for is a fault rather than something ignored,
 // which is the rule README.md's "The project manifest" already states about an
@@ -339,6 +347,9 @@ func (e *Entry) readListing(listing []os.DirEntry) error {
 		switch {
 		case name == MetadataName, name == LayoutName, name == DescriptorName,
 			name == InputName, name == ValuesName:
+		case name == AxesName:
+			// Optional: an entry read under its descriptor's own axes carries
+			// none, and [Entry.readAxes] reads one where it is there.
 		case name == OffsetsName:
 			// Reserved and optional: admitted so that an entry carrying one is
 			// not a fault, read by nothing (docs/conformance/SPEC.md,
@@ -499,6 +510,34 @@ func (e *Entry) readValues() error {
 	e.Values = values
 
 	return nil
+}
+
+// checkAxes holds the entry's expected answer to the axes it states, and the axes
+// to the descriptor they replace.
+//
+// A refusal of the axes is an answer only an entry that states some can expect:
+// docs/ir/SPEC.md's refusals are about a descriptor and two sets of axes, and an
+// entry read under its descriptor's own has only one set. Expecting one there is
+// an author who meant a file the reader refused and wrote the wrong member.
+func (e *Entry) checkAxes() error {
+	if e.Values == nil {
+		return nil
+	}
+
+	if e.Axes == nil {
+		if e.Values.AxesRefused != "" {
+			return fmt.Errorf("%s: axes_refused is an answer about the axes an entry is read under, and this entry "+
+				"states none in %s; a file the reader refused is written as failure", ValuesName, AxesName)
+		}
+
+		return nil
+	}
+
+	if e.Descriptor == nil {
+		return nil
+	}
+
+	return joined(e.Axes.against(e.Descriptor, e.Values))
 }
 
 // skipMissing drops the error of a member that is not there, because

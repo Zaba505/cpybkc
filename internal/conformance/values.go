@@ -37,6 +37,23 @@ type Values struct {
 	// one generator could pass. What is compared is that a failure happened,
 	// and that it happened after the records the entry lists.
 	Failure string `json:"failure,omitempty"`
+
+	// AxesRefused is present where the consumer refused to read or write the
+	// file under the axes it was asked to at all, and absent otherwise
+	// (docs/ir/SPEC.md, "What cannot be re-expressed is refused before any
+	// record is read"; #383).
+	//
+	// It is a member of its own rather than a Failure, because the two are
+	// different findings and an entry has to be able to expect one without the
+	// other passing for it. A failure is about the file: a reader stopped at
+	// bytes it could not read, after the records it lists. This is about the
+	// descriptor and two sets of axes: no file under the axes asked for can hold
+	// what the layout tells its records apart by, so no reader was built and no
+	// byte was read. Records is therefore empty beside it and Failure absent.
+	//
+	// The text is a note for whoever reads the report, and is not compared, for
+	// the reason Failure's is not.
+	AxesRefused string `json:"axes_refused,omitempty"`
 }
 
 // Record is one record of a file: which record type it is, and what it holds.
@@ -80,6 +97,19 @@ func ParseValues(b []byte) (*Values, error) {
 // document a runner writes (see [Answer]). Both hold it to this.
 func (v *Values) records() []error {
 	var faults []error
+
+	if v.AxesRefused != "" {
+		// Refused before any record was read, so there is none to list and no
+		// read that stopped part way.
+		if len(v.Records) > 0 {
+			faults = append(faults, fmt.Errorf("axes_refused says no reader was built, and the document lists %d records",
+				len(v.Records)))
+		}
+
+		if v.Failure != "" {
+			faults = append(faults, fmt.Errorf("axes_refused says no reader was built, and failure says a read stopped"))
+		}
+	}
 
 	// Counted from one, as [Compare] counts and as the driver counts: a record
 	// is named to whoever is reading a values document beside the file it came
@@ -185,6 +215,15 @@ func recordNames(descriptor *irpb.Descriptor) []string {
 // naming one of them sends its author looking for a single-field bug.
 func Compare(want, got *Values) error {
 	var faults []error
+
+	switch {
+	case want.AxesRefused != "" && got.AxesRefused == "":
+		faults = append(faults, fmt.Errorf("the consumer read under the axes it was asked to, and the entry expects "+
+			"it to refuse them: %s", want.AxesRefused))
+	case want.AxesRefused == "" && got.AxesRefused != "":
+		faults = append(faults, fmt.Errorf("the consumer refused the axes it was asked to read under, and the entry "+
+			"expects it not to: %s", got.AxesRefused))
+	}
 
 	switch {
 	case want.Failure != "" && got.Failure == "":

@@ -237,6 +237,10 @@ var grammarDocuments = map[string]*Values{
 		Failure: "the sign nibble is not one of the four the convention admits",
 	},
 	"record-empty-value": {Records: []Record{{Name: "TXN", Value: map[string]any{}}}},
+	"document-axes-refused": {
+		Records:     []Record{},
+		AxesRefused: "F5 and C5 are one byte string under ascii-zone-37",
+	},
 }
 
 // grammarForms pairs the Form column of GRAMMAR.md's "Not admissible" table with

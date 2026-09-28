@@ -1,0 +1,4 @@
+{
+  "description": "One record type laid out under the 2-4-8 binary width staircase, asked to be read under 1-2-4-8. The staircase is not an axis a consumer may replace -- every position behind a binary item was computed under the descriptor's -- so the consumer refuses it before any record is read.",
+  "source": "docs/ir/SPEC.md, \"The staircase is not an axis a consumer may replace\""
+}

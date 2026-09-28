@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/Zaba505/cpybkc/internal/conformance"
 )
 
 // Protocol is the version of docs/adapter/SPEC.md this adapter speaks. There is
@@ -32,13 +34,16 @@ const (
 // The kinds and capabilities this adapter declares.
 //
 // kindCodec because cmd/cpybkc-gen-go emits code that reads a file into records
-// and writes them back, capabilityWrite because it emits the writer, and
-// capabilityRebuild deliberately absent: regenerating one entry inside a warm
-// process is an operation this adapter does not serve, and a capability
-// declared and unserved is worse than one not declared at all.
+// and writes them back, capabilityWrite because it emits the writer,
+// capabilityAxes because the reader and the writer it emits may be built under
+// axes other than the descriptor's, and capabilityRebuild deliberately absent:
+// regenerating one entry inside a warm process is an operation this adapter
+// does not serve, and a capability declared and unserved is worse than one not
+// declared at all.
 const (
 	kindCodec         = "codec"
 	capabilityWrite   = "write"
+	capabilityAxes    = "axes"
 	capabilityRebuild = "rebuild"
 )
 
@@ -68,6 +73,11 @@ type request struct {
 	// Input is decode's: the entry's bytes, which encoding/json reads out of
 	// base64 in RFC 4648 section 4's alphabet.
 	Input []byte `json:"input"`
+
+	// Axes is decode's, where the entry states the axes its file is read and
+	// written under. The roundtrip after that decode writes under the same
+	// ones, so the codec program that answered the decode is what holds them.
+	Axes *conformance.Axes `json:"axes"`
 }
 
 // requestEntry is one entry of a generate request: its name, and its descriptor

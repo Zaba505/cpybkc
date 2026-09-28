@@ -41,9 +41,11 @@ written down belongs here.
 
 In scope: the directory an entry is, the members it holds and the one member
 that is reserved; how much authority an entry's expected answer carries, and
-what promotes one that carries none yet; the value language every decoded
-record is written in, down to the admissible spelling of each scalar; how a file
-the generated reader refused is reported; what a runner is asked to do and what
+what promotes one that carries none yet; the axes an entry may state its file
+is read under, where they are not its descriptor's; the value language every
+decoded record is written in, down to the admissible spelling of each scalar;
+how a file the generated reader refused is reported, and how axes the consumer
+refused are; what a runner is asked to do and what
 it is deliberately not asked to do; the answer document it returns; and how the
 corpus is published, down to the digest a downloader checks it against.
 
@@ -120,13 +122,14 @@ else is.
 | `*.cpy` | The copybooks that layout names, at the paths it spells them. | one or more |
 | `ir.json` | The [IR](../ir/SPEC.md) the layout and those copybooks resolve to. | yes |
 | `input.bin` | The bytes of one file laid out that way. | yes |
+| `axes.json` | The axes that file is read and written under, where they are not the ones `ir.json` resolved. See [below](#axesjson). | no |
 | `values.json` | What those bytes decode to. | yes |
 | `offsets.json` | Reserved. See [below](#offsetsjson-is-reserved). | no |
 
 An entry directory **MUST** hold each required member, under exactly the name
 above, and at least one file whose name ends in `.cpy`. It **MAY** hold
-`offsets.json`. It **MUST NOT** hold any other file, and it **MUST NOT** hold a
-subdirectory (#66).
+`axes.json` and `offsets.json`. It **MUST NOT** hold any other file, and it
+**MUST NOT** hold a subdirectory (#66, #383).
 
 A file the format has no place for is refused rather than ignored, which is the
 rule the [project manifest](../plugin/SPEC.md) already applies to an unknown
@@ -206,9 +209,71 @@ bugs.
 
 ### `input.bin`
 
-The bytes of one file laid out the way the layout says. A file of no bytes is
-admitted: an empty file is a file, and a layout whose sequencing expression
-accepts nothing is exactly what one entry ought to be about.
+The bytes of one file laid out the way the layout says — under the axes
+[`axes.json`](#axesjson) states, where the entry carries one, and under the ones
+`ir.json` resolved otherwise. A file of no bytes is admitted: an empty file is a
+file, and a layout whose sequencing expression accepts nothing is exactly what
+one entry ought to be about.
+
+### `axes.json`
+
+The axes the entry's file is read and written under, where they are not the ones
+its descriptor resolved — [`ir/SPEC.md`](../ir/SPEC.md)'s *read axes*, which a
+consumer **MAY** offer and, where it does, **MUST** re-express every literal it
+compares under ([*A consumer may read under other axes, and re-expresses what it
+compares*](../ir/SPEC.md#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares)
+and the three sections after it; #379, #383).
+
+```json
+{
+  "charset": "ascii",
+  "sign_convention": "translated-ebcdic"
+}
+```
+
+| Member | Replaces | Spelled |
+|---|---|---|
+| `charset` | the charset of every field but one whose resolved charset is none | as a [layout](../layout/SPEC.md#the-encoding-profile) spells a file's charset — `cp037`, `cp500`, `cp1047`, `cp1140` or `ascii`, and never `none` |
+| `sign_convention` | the zoned sign convention | `ebcdic`, `ascii-zone-37`, `translated-ebcdic` or `realia` |
+| `byte_order` | the byte order of binary items | `big-endian` or `little-endian` |
+| `float_format` | the floating-point format | `ieee-754` or `hfp` |
+| `binary_size` | the binary width staircase — see below | `2-4-8`, `1-2-4-8`, `1--8` or `full`, as `codec/SPEC.md` spells them |
+
+An entry that carries no `axes.json` is read and written under the axes its
+descriptor resolved, exactly as every entry was before the member existed.
+
+Where it carries one, every member is optional and a member absent replaces
+nothing, but the document **MUST** state at least one: an `axes.json` stating no
+axis is an entry read under its descriptor's own, which is the entry carrying
+none. An unknown member **MUST** be refused, as **MUST** a value outside the
+spellings above. The member names are the descriptor's own for the same five
+axes, and the values the layout's, so that an author writes in `axes.json` the
+word they would write in `layout.sexpr`.
+
+`input.bin` is then a file under the read axes, and `values.json` is what a
+consumer reading under them makes of it. That is usually the same values the
+same records hold under the descriptor's own axes — a converted file holds the
+same records as the file it was converted from — and where the consumer has to
+refuse the axes instead, it is [that refusal](#axes-the-consumer-refused).
+
+**Only the four axes a layout states are read under.** `binary_size` is
+admitted, and it is admitted for one question. The staircase is not an axis a
+consumer may read or write under: every position in the descriptor was computed
+under its own ([*The staircase is not an axis a consumer may
+replace*](../ir/SPEC.md#the-staircase-is-not-an-axis-a-consumer-may-replace)),
+so another describes a different file rather than this one read another way.
+What the corpus can check is that a consumer handed one refuses it, and so an
+entry stating `binary_size` **MUST** expect [the refusal](#axes-the-consumer-refused),
+and **MUST NOT** state the descriptor's own staircase — which replaces nothing
+and so owes no refusal.
+
+**A file of its own, and not a member of `entry.json`.** `entry.json` holds what
+the corpus says *about* an entry — what it is for, where its answer came from,
+how much the corpus stands behind it — and none of that reaches an adapter; [a
+runner is not told](#a-provisional-entry) an entry's status. The axes are part
+of the question: an adapter is handed them beside `ir.json` and `input.bin`, and
+a member of `entry.json` that travelled to the adapter while its neighbours did
+not would be the one member of that file with a different rule.
 
 ### `values.json`
 
@@ -233,7 +298,8 @@ What those bytes decode to, in the value language below.
 ```
 
 A values document **MUST** carry `records`, an array of the records read in file
-order, and **MAY** carry `failure`. It **MUST NOT** carry any other member, and
+order, and **MAY** carry `failure` or `axes_refused`. It **MUST NOT** carry any
+other member, and
 a reader **MUST** refuse one — a key an author wrote expecting it to mean
 something is a typo, and a document that ignores it passes for the wrong reason.
 
@@ -664,6 +730,51 @@ diagnostic is a generator's own wording in its own language, so an entry
 demanding particular words would be an entry only one generator could pass. What
 is compared is that reading failed, and that it failed after the records listed.
 
+### Axes the consumer refused
+
+Axes a consumer refused to read or write under are an answer too, and a
+different one. The values document carries `axes_refused`, and no record:
+
+```json
+{
+  "records": [],
+  "axes_refused": "F5 and C5 are one byte string under ascii-zone-37"
+}
+```
+
+`axes_refused` **MUST** be present exactly when the consumer refused to build a
+reader — or, for the [`written`](#the-answer-document) half of an answer, a
+writer — under the axes the entry states, and absent otherwise. Which axes a
+consumer refuses, and why, is [`ir/SPEC.md`](../ir/SPEC.md)'s and is never
+restated here: a literal with no spelling under the read axes, two literals that
+come to one byte string under them, and a staircase that is not the
+descriptor's ([*What cannot be re-expressed is refused before any record is
+read*](../ir/SPEC.md#what-cannot-be-re-expressed-is-refused-before-any-record-is-read),
+[*The staircase is not an axis a consumer may
+replace*](../ir/SPEC.md#the-staircase-is-not-an-axis-a-consumer-may-replace)).
+
+- Beside it, `records` **MUST** be empty and `failure` **MUST** be absent. Every
+  one of those refusals comes before a record is read, so there is none to list
+  and no read that stopped part way.
+- An entry's `values.json` **MUST NOT** carry it unless the entry carries
+  [`axes.json`](#axesjson). An entry read under its descriptor's own axes has
+  only one set of them, and a refusal of axes is a statement about two.
+- The text is a note, and **MUST NOT** be compared, for the reason a `failure`'s
+  is not.
+
+It is a member of its own rather than a kind of `failure` because the two
+findings send whoever reads a report to different places, and an entry has to
+be able to expect one without the other passing for it. A `failure` is about
+the *file*: a reader met bytes it could not read, after the records the document
+lists. A refusal of the axes is about the *descriptor and the axes asked for*:
+no file under them can hold what the layout tells its records apart by, so no
+reader was built and no byte was read. A consumer that built its reader under
+the wrong literals would typically fail at the first record, and under a single
+member that failure would pass an entry expecting the refusal — which is the one
+confusion the member exists to rule out. [`ir/SPEC.md`](../ir/SPEC.md) makes the
+same distinction from the other side: a refusal of axes **MUST NOT** be worded
+or raised as a fault in a file's data.
+
 ### Comparison is over the written form
 
 A harness comparing two values documents **MUST** compare a scalar by its
@@ -692,10 +803,19 @@ language. Given an entry it:
    [`plugin/SPEC.md`](../plugin/SPEC.md) says a plugin is given — to the
    generator under test, with whatever options that generator needs;
 2. compiles what came back;
-3. reads `input.bin` with it, top to bottom;
+3. reads `input.bin` with it, top to bottom — under the axes
+   [`axes.json`](#axesjson) states, where the entry carries one;
 4. where that read reached the end of the file, writes those records back out
-   with the generated writer and reads *that* file with the generated reader;
+   with the generated writer, under the same axes, and reads *that* file with
+   the generated reader;
 5. answers with the two values documents that make up an answer.
+
+Reading under axes other than a descriptor's is something a consumer **MAY**
+offer rather than something it owes, so a runner whose generator does not offer
+it is asked nothing about an entry carrying `axes.json`, and a harness **MUST
+NOT** report a run as failed on account of one it did not ask. How a runner
+says so before it is asked anything is the [adapter
+contract](../adapter/SPEC.md#capabilities-because-a-read-only-generator-is-a-legal-generator)'s.
 
 *What* it is asked is the list above and is this document's. *How* it is
 started, asked and answered — the process, the framing, the operations, the
@@ -738,7 +858,9 @@ each other and only the entry knows what the file holds.
 
 `written` **MUST** be absent in two cases: where the read did not reach the end
 of the file, since a run that stopped at a failure holds no complete set of
-records to write back; and where the generator emits no writer at all, which
+records to write back — and a read that [refused the axes it was asked
+for](#axes-the-consumer-refused) never began, which is the same case; and where
+the generator emits no writer at all, which
 [*Writing a file*](../ir/SPEC.md#writing-a-file) leaves to the generator. It is
 present and carries a `failure` where the writer refused a record it was given.
 
@@ -973,11 +1095,13 @@ to every row.
 
 | Section | Implemented by |
 |---|---|
-| [An entry](#an-entry) | #66 `conformance` for the format and the loader that holds a directory to it |
+| [An entry](#an-entry) | #66 `conformance` for the format and the loader that holds a directory to it; #383 `conformance` for the optional `axes.json` |
 | [`entry.json`](#entryjson) | #66 `conformance`; the `status` member, #207 `conformance` |
 | [A provisional entry](#a-provisional-entry) | #207 `conformance` for the status, the rule a harness follows and what promotes an entry; the authoring rule it mirrors is #67 |
 | [`ir.json`](#irjson) | #66 `conformance`; the canonical rendering it is held to, #20 `ir` |
-| [`values.json`](#valuesjson) | #66 `conformance` |
+| [`input.bin`](#inputbin) | #66 `conformance`; #383 `conformance` for a file under the axes an entry states |
+| [`axes.json`](#axesjson) | #383 `conformance` for the member, its spellings, the staircase it admits only to be refused, and the entries that carry it; the read axes it states are #379 `ir`'s |
+| [`values.json`](#valuesjson) | #66 `conformance`; #383 `conformance` for `axes_refused` beside `failure` |
 | [`offsets.json` is reserved](#offsetsjson-is-reserved) | #194 `conformance` for the reservation; the discussion it comes from is #193, and no story specifies its content |
 | [Which form a value takes is decided by the descriptor](#which-form-a-value-takes-is-decided-by-the-descriptor) | #66 `conformance`; #194 `conformance` for stating it as a procedure over `usage` and `category`; #275 for the charset step between them |
 | [A group, a table and a variant](#a-group-a-table-and-a-variant) | #66 `conformance` |
@@ -987,9 +1111,10 @@ to every row.
 | [`INDEX`, `POINTER` and `NATIONAL` are base64](#index-pointer-and-national-are-base64) | #66 `conformance` for base64; #194 `conformance` for the alphabet and the padding; #196 `conformance` for enforcing them |
 | [An item with no charset is a run of bytes as well](#an-item-with-no-charset-is-a-run-of-bytes-as-well) | #275 `layout` for the declaration, and the routing step and the entry that covers it |
 | [A file the reader refused](#a-file-the-reader-refused) | #66 `conformance` |
+| [Axes the consumer refused](#axes-the-consumer-refused) | #383 `conformance` for the member, the comparison of it, and the entries expecting each refusal #379 `ir` enumerates |
 | [Comparison is over the written form](#comparison-is-over-the-written-form) | #68 `conformance` for the comparison; #195 and #196 `conformance` for it being over the written form |
-| [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it; #198 `conformance` for the split between what a runner is asked and how it is asked, which moved the second half to [`adapter/SPEC.md`](../adapter/SPEC.md) |
-| [The answer document](#the-answer-document) | #68 `conformance`; #198 `conformance` for a read-only generator's absent `written` being declared rather than discovered, and #199 for the engine that honours it |
+| [What a runner does](#what-a-runner-does) | #68 `conformance` for the Go runner that implements it; #198 `conformance` for the split between what a runner is asked and how it is asked, which moved the second half to [`adapter/SPEC.md`](../adapter/SPEC.md); #383 `conformance` for reading and writing under the axes an entry states, and for a runner that does not offer it |
+| [The answer document](#the-answer-document) | #68 `conformance`; #198 `conformance` for a read-only generator's absent `written` being declared rather than discovered, and #199 for the engine that honours it; #383 `conformance` for `written` absent beside a refusal of the axes |
 | [How a runner is started and spoken to](#how-a-runner-is-started-and-spoken-to) | #198 `conformance` specifies it in [`adapter/SPEC.md`](../adapter/SPEC.md); no section here |
 | [Why the writing direction is checked by reading](#why-the-writing-direction-is-checked-by-reading-and-not-by-comparing-bytes) | #68 `conformance`; the rule it rests on, *Writing a file*, #17 `ir`; the two entries that exercise it, #206 `conformance` |
 | [The published corpus](#the-published-corpus) | #202 `conformance` for the release asset, the engine that ships in it and the pipeline that builds it |

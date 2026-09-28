@@ -223,6 +223,71 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 			},
 			says: "is not a record the descriptor carries",
 		},
+		// The axes an entry is read under are part of the question, so a
+		// spelling nobody reads is refused rather than handed to an adapter to
+		// guess at (#383).
+		"axes carrying a member nobody reads": {
+			entry: "axes-zoned-sign-column",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, AxesName), `{"charset": "ascii", "code_page": "437"}`)
+			},
+			says: "unknown field",
+		},
+		"axes carrying a spelling no layout writes": {
+			entry: "axes-zoned-sign-column",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, AxesName), `{"charset": "ASCII"}`)
+			},
+			says: `charset is "ASCII"`,
+		},
+		"axes naming a file with no charset": {
+			entry: "axes-zoned-sign-column",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, AxesName), `{"charset": "none"}`)
+			},
+			says: `charset is "none"`,
+		},
+		"axes stating no axis": {
+			entry: "axes-zoned-sign-column",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, AxesName), `{}`)
+			},
+			says: "states no axis",
+		},
+		"a refusal expected of an entry stating no axes": {
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, ValuesName), `{"records": [], "axes_refused": "why"}`)
+			},
+			says: "states none in " + AxesName,
+		},
+		"a refusal beside the records it says were never read": {
+			entry: "axes-refused-overlap",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, ValuesName), `{"records": [{"name": "UNSIGNED-RECORD", "value": {}}], "axes_refused": "why"}`)
+			},
+			says: "no reader was built, and the document lists 1 records",
+		},
+		"a refusal beside a read that stopped": {
+			entry: "axes-refused-overlap",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, ValuesName), `{"records": [], "failure": "a", "axes_refused": "b"}`)
+			},
+			says: "failure says a read stopped",
+		},
+		"a staircase expected to be read under": {
+			entry: "axes-refused-staircase",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, ValuesName), `{"records": []}`)
+			},
+			says: "expects axes_refused",
+		},
+		"a staircase that is the descriptor's own": {
+			entry: "axes-refused-staircase",
+			breaks: func(t *testing.T, dir string) {
+				write(t, filepath.Join(dir, AxesName), `{"binary_size": "2-4-8"}`)
+			},
+			says: "the descriptor's own and replaces nothing",
+		},
 		"values carrying a field nobody reads": {
 			breaks: func(t *testing.T, dir string) {
 				write(t, filepath.Join(dir, ValuesName), `{"records": [], "note": "why"}`)
@@ -294,6 +359,33 @@ func TestAnEntryTheFormatRefuses(t *testing.T) {
 				t.Errorf("the refusal is %q, and it does not say %q", err, test.says)
 			}
 		})
+	}
+}
+
+// TestAnEntryStatesTheAxesItIsReadUnder is the optional member that makes a
+// question of reading a file under axes other than its descriptor's (#383): an
+// entry carrying one is read under what it states, and an entry carrying none
+// is read under its descriptor's own, exactly as every entry was before the
+// member existed.
+func TestAnEntryStatesTheAxesItIsReadUnder(t *testing.T) {
+	stating, err := LoadEntry(filepath.Join(CorpusPath(repoRoot(t)), "axes-zoned-sign-column"))
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	want := Axes{Charset: "ascii", SignConvention: "translated-ebcdic"}
+
+	if stating.Axes == nil || *stating.Axes != want {
+		t.Errorf("the entry states %+v and was loaded as reading under %+v", want, stating.Axes)
+	}
+
+	silent, err := LoadEntry(filepath.Join(CorpusPath(repoRoot(t)), "orders-fixed"))
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if silent.Axes != nil {
+		t.Errorf("an entry carrying no %s was loaded as reading under %+v", AxesName, silent.Axes)
 	}
 }
 

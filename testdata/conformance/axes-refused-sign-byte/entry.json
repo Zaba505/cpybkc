@@ -1,0 +1,4 @@
+{
+  "description": "Two record types told apart by a signed zoned digit resolved under the ebcdic convention, where FIVE-RECORD's literal is A5 -- a zone a reader admits leniently and no writer emits -- read under ASCII with translated-EBCDIC signs. A sign byte in no column of the resolved convention has no column to carry across, so the consumer refuses the axes before any record is read.",
+  "source": "docs/ir/SPEC.md, \"What cannot be re-expressed is refused before any record is read\", a sign byte in no column of the resolved convention"
+}

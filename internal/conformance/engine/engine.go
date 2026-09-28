@@ -134,6 +134,13 @@ func (e *Engine) Run(ctx context.Context, entries []*conformance.Entry) (*Report
 // pass asks one adapter process about entries, and hands back the ones a broken
 // conversation never reached.
 func (e *Engine) pass(ctx context.Context, session *session, entries []*conformance.Entry, report *Report) []*conformance.Entry {
+	entries = e.offered(session, entries, report)
+	if len(entries) == 0 {
+		report.note(session.bye(ctx, e.grace()))
+
+		return nil
+	}
+
 	faults, err := session.generate(ctx, entries, e.buildDeadline())
 	if err != nil {
 		// Every entry is lost, whether the adapter refused the operation or
@@ -185,6 +192,36 @@ func (e *Engine) pass(ctx context.Context, session *session, entries []*conforma
 	report.note(session.bye(ctx, e.grace()))
 
 	return nil
+}
+
+// offered is the entries an adapter is to be asked about, having recorded every
+// other one as not offered.
+//
+// An entry stating read axes is asked only of an adapter that declared it offers
+// reading under them. The engine MUST NOT send one to any other: a receiver
+// ignores a member it does not recognise, so an adapter that had never heard of
+// axes would read the file under its descriptor's own and answer a question
+// nobody asked — and reading under other axes is something a consumer MAY
+// decline to offer at all (#383). Such an entry is neither generated nor
+// decoded.
+func (e *Engine) offered(session *session, entries []*conformance.Entry, report *Report) []*conformance.Entry {
+	if session.adapter.OffersAxes() {
+		return entries
+	}
+
+	asked := make([]*conformance.Entry, 0, len(entries))
+
+	for _, entry := range entries {
+		if entry.Axes != nil {
+			report.notOffered(entry)
+
+			continue
+		}
+
+		asked = append(asked, entry)
+	}
+
+	return asked
 }
 
 // compare holds one answer against what the entry states, and says where the
@@ -419,7 +456,7 @@ func (s *session) ask(ctx context.Context, entry *conformance.Entry, deadline ti
 		input = []byte{}
 	}
 
-	decoded, err := s.values(ctx, deadline, &request{Op: opDecode, Entry: entry.Name, Input: &input},
+	decoded, err := s.values(ctx, deadline, &request{Op: opDecode, Entry: entry.Name, Input: &input, Axes: entry.Axes},
 		entry.Name, func(got *response) json.RawMessage { return got.Decoded }, "decoded")
 	if err != nil {
 		return nil, err
@@ -430,8 +467,9 @@ func (s *session) ask(ctx context.Context, entry *conformance.Entry, deadline ti
 	// The preconditions on roundtrip, both of them checked here because an
 	// engine MUST NOT send a request whose precondition is not met: the adapter
 	// declared the write capability, and the read did not stop at a failure — a
-	// read that stopped holds no complete set of records to write back.
-	if !s.adapter.Writes() || decoded.Failure != "" {
+	// read that stopped holds no complete set of records to write back, and a
+	// reader refused the axes it was asked to read under read none at all.
+	if !s.adapter.Writes() || decoded.Failure != "" || decoded.AxesRefused != "" {
 		return answer, nil
 	}
 

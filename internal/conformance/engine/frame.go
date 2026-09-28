@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/Zaba505/cpybkc/internal/conformance"
 )
 
 // Protocol is the version of docs/adapter/SPEC.md this engine speaks, which the
@@ -35,6 +37,14 @@ const (
 // engine that read a capability it never exercised would be claiming a
 // conversation it does not have.
 const capabilityWrite = "write"
+
+// capabilityAxes is the capability an adapter declares where its generated code
+// may be read and written under axes other than the ones its descriptor
+// resolved (docs/ir/SPEC.md, "A consumer may read under other axes, and
+// re-expresses what it compares"). That is something a consumer MAY offer, so an
+// adapter that does not declare it is asked nothing about an entry stating read
+// axes rather than failed on one (#383).
+const capabilityAxes = "axes"
 
 // The two kinds an adapter may declare. An engine MUST refuse a kind it does
 // not recognise rather than falling back to one it does: a value added later
@@ -80,6 +90,14 @@ type request struct {
 	// file — a layout whose sequencing expression accepts nothing is exactly
 	// what one entry ought to be about — and the two are different questions.
 	Input *[]byte `json:"input,omitempty"`
+
+	// Axes is decode's, and is present exactly where the entry states the axes
+	// its file is read and written under: the roundtrip that follows the decode
+	// writes and reads back under the same ones. It is never sent to an adapter
+	// that did not declare [capabilityAxes], because a receiver ignores a member
+	// it does not recognise — and one that ignored this would read the file
+	// under its descriptor's own axes and answer a different question.
+	Axes *conformance.Axes `json:"axes,omitempty"`
 }
 
 // requestEntry is one entry of a generate request: its name, and its descriptor

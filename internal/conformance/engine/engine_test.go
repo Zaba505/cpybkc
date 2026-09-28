@@ -555,6 +555,115 @@ func TestADescriptiveAdapterIsNotAConformanceSubject(t *testing.T) {
 	}
 }
 
+// TestAnEntryStatingAxesIsNotAskedOfAnAdapterThatDoesNotOfferThem is the
+// capability that keeps a legal consumer from failing every entry about reading
+// under other axes (#383).
+//
+// docs/ir/SPEC.md makes reading under axes other than a descriptor's something
+// a consumer MAY offer. An adapter that does not declare it is therefore asked
+// nothing about such an entry — not generated for, not decoded — and the entry
+// is reported as not offered: in no total and in no verdict. The engine MUST
+// NOT send it the entry at all, which is a stronger statement than not failing
+// it, because an adapter that had never heard of the axes member would ignore
+// it and read the file under its descriptor's own axes.
+func TestAnEntryStatingAxesIsNotAskedOfAnAdapterThatDoesNotOfferThem(t *testing.T) {
+	entries := corpus(t, "packed-ebcdic", "axes-zoned-sign-column")
+
+	open, sent := door(t, script{Entries: answers(t, entries)})
+
+	report, err := (&engine.Engine{Door: open}).Run(t.Context(), entries)
+	if err != nil {
+		t.Fatalf("the run could not be made: %v", err)
+	}
+
+	if report.Failed() {
+		t.Fatalf("an adapter that does not offer reading under other axes was failed for not being asked:\n%v", report)
+	}
+
+	got := outcomes(report)
+
+	if got["axes-zoned-sign-column"] != engine.NotOffered {
+		t.Errorf("the entry stating axes is %s, and the adapter does not offer them:\n%v", got["axes-zoned-sign-column"], report)
+	}
+
+	if got["packed-ebcdic"] != engine.Passed {
+		t.Errorf("the entry stating none is %s, and it was answered as it states:\n%v", got["packed-ebcdic"], report)
+	}
+
+	if passed, mismatched, faulted := report.Counts(); passed+mismatched+faulted != 1 || report.NotOffered() != 1 {
+		t.Errorf("the entry not asked was counted in a total:\n%v", report)
+	}
+
+	if said := transcript(t, sent); strings.Contains(said, "axes-zoned-sign-column") || strings.Contains(said, `"axes"`) {
+		t.Errorf("the engine sent an adapter that does not offer axes an entry stating them:\n%s", said)
+	}
+
+	if said := report.String(); !strings.Contains(said, "not asked") {
+		t.Errorf("the report is\n%s\nand it does not say which entries were not asked", said)
+	}
+}
+
+// TestAnAdapterThatOffersAxesIsHandedThemOnDecode is the other half: the axes an
+// entry states reach the adapter on its decode, and on no other entry's, and a
+// refusal of them is an answer that is compared and followed by no roundtrip.
+func TestAnAdapterThatOffersAxesIsHandedThemOnDecode(t *testing.T) {
+	entries := corpus(t, "packed-ebcdic", "axes-zoned-sign-column", "axes-refused-overlap")
+
+	open, sent := door(t, script{
+		Capabilities: map[string]bool{"write": true, "axes": true},
+		Entries:      answers(t, entries),
+	})
+
+	report, err := (&engine.Engine{Door: open}).Run(t.Context(), entries)
+	if err != nil {
+		t.Fatalf("the run could not be made: %v", err)
+	}
+
+	if report.Failed() || report.NotOffered() != 0 {
+		t.Fatalf("the adapter answered every entry as it states and the run is\n%v", report)
+	}
+
+	stated := make(map[string]*conformance.Axes, len(entries))
+	for _, entry := range entries {
+		stated[entry.Name] = entry.Axes
+	}
+
+	for _, frame := range frames(t, sent) {
+		var got struct {
+			Op    string            `json:"op"`
+			Entry string            `json:"entry"`
+			Axes  *conformance.Axes `json:"axes"`
+		}
+
+		if err := json.Unmarshal([]byte(frame), &got); err != nil {
+			t.Fatalf("the engine sent something that is not a frame: %q", frame)
+		}
+
+		switch want := stated[got.Entry]; {
+		case got.Op != "decode":
+			if got.Axes != nil {
+				t.Errorf("the engine sent axes on %s, and they travel on decode", got.Op)
+			}
+		case want == nil && got.Axes != nil:
+			t.Errorf("the engine sent axes %+v on a decode of %s, which states none", *got.Axes, got.Entry)
+		case want != nil && (got.Axes == nil || *got.Axes != *want):
+			t.Errorf("the engine sent axes %+v on a decode of %s, which states %+v", got.Axes, got.Entry, *want)
+		}
+	}
+
+	want := []string{
+		"hello", "generate",
+		"decode", "roundtrip", // packed-ebcdic
+		"decode", "roundtrip", // axes-zoned-sign-column
+		"decode", // axes-refused-overlap, whose axes the reader refused
+		"bye",
+	}
+
+	if ops := operations(t, sent); strings.Join(ops, ",") != strings.Join(want, ",") {
+		t.Errorf("the engine sent %v, and the conversation is %v", ops, want)
+	}
+}
+
 // TestGenerate walks the two halves of the operation that costs the most.
 //
 // An entry the generator would not accept, or whose generated code would not

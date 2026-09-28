@@ -1,0 +1,25 @@
+;; PRICE-CURRENCY's literal is 9F, which cp037 reads as the currency sign
+;; U+00A4. cp1140 is cp037 with the euro sign at 9F instead, and has no byte
+;; for the currency sign at all, so a PRICE-RECORD cannot be written under it:
+;; the literal has no spelling there, and the consumer refuses before it reads
+;; a record.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record PRICE
+  (copybook "price.cpy" PRICE-RECORD))
+
+(record NOTE
+  (copybook "price.cpy" NOTE-RECORD))
+
+(discriminate PRICE (equals (item PRICE PRICE-CURRENCY) (bytes "9F")))
+(discriminate NOTE (equals (item NOTE NOTE-CURRENCY) "N"))
+
+(sequence (* (alt PRICE NOTE)))

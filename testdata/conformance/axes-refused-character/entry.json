@@ -1,0 +1,4 @@
+{
+  "description": "Two record types told apart by a currency mark resolved under cp037, where PRICE-RECORD's is the currency sign 9F, read under cp1140 -- which puts the euro sign at 9F and has no byte for the currency sign. The literal cannot be re-expressed, so the consumer refuses the axes before any record is read.",
+  "source": "docs/ir/SPEC.md, \"What cannot be re-expressed is refused before any record is read\", the character the read charset has no byte for"
+}

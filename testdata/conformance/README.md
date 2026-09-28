@@ -51,8 +51,9 @@ recalling the spec rather than defining it.
 ## An entry
 
 One directory per entry, named for what it is about. It holds five members and
-the copybooks the layout names; that list, the one reserved name it may also
-carry, and what each member is held to are [*An
+the copybooks the layout names; that list, the optional `axes.json` stating the
+axes its file is read under, the one reserved name it may also carry, and what
+each member is held to are [*An
 entry*](../../docs/conformance/SPEC.md#an-entry).
 
 An entry states two independent things, and they are checked by different
@@ -135,6 +136,22 @@ values document is a different record: *Slack survives a read* puts the bytes no
 item covers on the record a reader produced, and a constructed one has a writer
 fill them instead.
 
+The adapter declares the `axes` capability, and a `decode` carrying an entry's
+[`axes.json`](../../docs/conformance/SPEC.md#axesjson) reaches the codec program
+as a file beside the bytes (#383). The four axes a layout states become the
+generated package's own options, so the reader and the writer are built through
+`NewReader` and `NewWriter` exactly as an adopter reading a converted file builds
+them, and a constructor that refuses them is the answer. Two things are the
+adapter's rather than the package's. `codec` carries no table for cp1140, so the
+adapter supplies one — cp037 with the euro sign at `0x9F`, which is the one byte
+the two pages differ on and the character `ir/SPEC.md` names as one having and
+the other lacking. And the package has no option for a staircase, by design, so
+the one road a staircase reaches it by is a caller's own `codec.Reader` handed to
+a record's `UnmarshalCOBOL`: the program asks every record type the package
+declares, and counts the bytes each one read, because a decoder that did not
+refuse and then ran out of bytes errors too and only the count tells the two
+apart without reading the words of a message.
+
 `cmd/cpybkc-conform` is the engine with a command line on it, and it is what
 somebody outside this repository runs. Every release attaches it and this
 directory together as `cpybkc-conformance.tar.gz` — [*The published
@@ -165,7 +182,10 @@ platform they are run.
    descriptor is authored, not generated: that is what makes it an oracle.
 3. Write the bytes, and the values they decode to, from the specification —
    not from what a generator printed. An entry recorded from the code it checks
-   passes forever, including through the bug it was written to catch.
+   passes forever, including through the bug it was written to catch. Where the
+   file is under axes other than the ones the descriptor resolved — a
+   converted copy of it, say — write those in `axes.json` and write the bytes
+   under them.
 4. Cite the section in `entry.json`.
 5. Decide whether the entry is normative or provisional — see below. Most are
    normative and say nothing; an entry nothing can cross-check yet writes
@@ -272,16 +292,24 @@ with four items in it.
 | [`schedule-fixed`](schedule-fixed) | A `REDEFINES` inside a repeating group whose alternative is chosen by the position of an entry and by no byte of the record, read `noodoslide` — a constant four entries over three roles, one arm taken for two of them. |
 | [`schedule-sliding`](schedule-sliding) | The same copybook and the same schedule read `odoslide`: three records, of four entries, one and three, so how many of the scheduled arms are reached is the count's and which position takes which arm is still the descriptor's. |
 | [`schedule-occurs`](schedule-occurs) | The same schedule over a fixed `OCCURS` with no count item at all, which is the third of the three tables the mechanism has to be available over. |
+| [`axes-converted-batch`](axes-converted-batch) | `batch-fixed`'s layout and descriptor, unchanged, over the same batch after a transfer to ASCII: three type codes resolved under cp037 and read under ASCII with translated-EBCDIC signs, with the packed and binary items carried as they are. |
+| [`axes-zoned-sign-column`](axes-zoned-sign-column) | `ir/SPEC.md`'s worked case: a signed zoned discriminator whose literals are `F5` and `C5` for +5, read under translated-EBCDIC signs, where they are `35` and `45` — two bytes, because a sign byte is re-expressed by its column and not by its value. |
+| [`axes-no-charset-carried`](axes-no-charset-carried) | Two records told apart by a tag declared to carry no charset, `C1` and `C2`, read under ASCII: the tags are carried unchanged while the text around them is converted. |
+| [`axes-refused-character`](axes-refused-character) | A currency mark resolved under cp037 as `9F`, the currency sign, read under cp1140, which has no byte for it: refused before any record. |
+| [`axes-refused-sign-byte`](axes-refused-sign-byte) | A signed zoned literal of `A5`, which an EBCDIC reader admits leniently and which is in no column of the convention, read under translated-EBCDIC signs: refused before any record. |
+| [`axes-refused-float`](axes-refused-float) | A `COMP-1` literal of positive infinity under IEEE 754, read as hexadecimal floating point, which has no infinity: refused before any record. |
+| [`axes-refused-overlap`](axes-refused-overlap) | Two records told apart by `F5` and `C5` on a signed zoned item, read under `ascii-zone-37`, which spells both `35`: nothing tells the two apart any more, and the pair is refused before any record. |
+| [`axes-refused-staircase`](axes-refused-staircase) | A record laid out under the `2-4-8` staircase, asked to be read under `1-2-4-8`: not the same file read another way, and refused before any byte is read. |
 
 Every entry derived from `cobol-go`'s `codec/SPEC.md` Appendix A cites the rows
-it came from (#67). Twenty-two are not derived from it — `float-ieee754-special`,
+it came from (#67). Thirty are not derived from it — `float-ieee754-special`,
 `batch-fixed`, `batch-rdw`, `batch-ordered`, `batch-disjoint`,
 `batch-ordered-missplit`, `batch-ordered-rdw`, `delimited-terminator`,
 `delimited-optional-terminator`, `delimited-ascii-newline`,
 `segmented-spanning`, `odo-sliding`, `odo-optional`,
 `sync-slack`, `alphanumeric-payload`, `variant-fixed`, `variant-sliding`,
-`variant-no-arm`, `variant-optional`, `schedule-fixed`, `schedule-sliding` and
-`schedule-occurs` — and the subsections
+`variant-no-arm`, `variant-optional`, `schedule-fixed`, `schedule-sliding`,
+`schedule-occurs` and the eight `axes-` entries — and the subsections
 below say what each of them cites instead. The first subsection is about
 something else: which entries Appendix A's vectors are paired into, which is a
 question about the entries that *are* derived from it.
@@ -840,6 +868,75 @@ node's width, and the file it produced reads back as the same records. That the
 bytes are the *same* bytes is not something a values document can see, by
 construction ([*Slack is not a
 value*](../../docs/conformance/SPEC.md#slack-is-not-a-value)).
+
+### The axes entries cite the sections #379 added, and no vector
+
+The eight `axes-` entries are the corpus's half of
+[`docs/ir/SPEC.md`](../../docs/ir/SPEC.md)'s *A consumer may read under other
+axes, and re-expresses what it compares* and the three sections after it (#379).
+A consumer **MAY** read a file under axes other than the ones its descriptor
+resolved, and one that does **MUST** re-express every literal it compares and
+**MUST** refuse what cannot be re-expressed — before any record is read. Each
+entry states the axes it is read under in
+[`axes.json`](../../docs/conformance/SPEC.md#axesjson) and cites the section its
+expected answer comes from. `codec/SPEC.md` has no row for any of it: a
+re-expression is a statement about a literal and two sets of axes, and a vector
+is a statement about one field's bytes under one. Where an entry's items are
+Appendix A's, it cites the rows as well.
+
+Three of them read a file, and each is there for a different way a consumer can
+get the literals wrong while getting every item right.
+
+**`axes-converted-batch` is the converted file, whole.** `batch-fixed` is an
+EBCDIC batch whose type codes are `C8`, `C4` and `E3`; this is the same batch
+after a copybook-aware transfer to ASCII, and it carries `batch-fixed`'s layout
+and descriptor byte for byte. A consumer that compared the resolved bytes finds
+no transition for the first record. The packed amount's `12 34 5D` and the
+binary quantity's `04 D2` are the bytes `batch-fixed` holds, as a copybook-aware
+transfer leaves them, so a consumer that let the charset reach an item it does
+not govern disagrees about `TXN-AMT` and `TXN-QTY` while agreeing about every
+type code.
+
+**`axes-zoned-sign-column` is the case #379 works through.** `F5` and `C5` both
+read as +5 under the `ebcdic` convention, and a transfer sends them to `35` and
+`45`. A consumer that re-expressed by *value* — decode under the resolved axes,
+encode under the read ones — sends both to `45`, collapses the **bytes one of**
+into one literal, and matches nothing in the first record. The entry is also
+the one that holds the writing direction to it: the writer spells +5 as `45`,
+which is one of the two re-expressed literals, so the record it emits is the
+record the reader would route to `FIVE-RECORD`.
+
+**`axes-no-charset-carried` is the item re-expression never reaches.** Its tags
+are `C1` and `C2`, which are also `A` and `B` in cp037, and the layout declares
+them bytes. A consumer that re-expressed every literal through the charset
+looks for `41` and `42` in a file that still holds `C1` and `C2`.
+
+The other five expect the refusal, one per way `ir/SPEC.md` enumerates. Each
+`input.bin` holds a record a file under the read axes *can* hold — one the
+refusal does not concern — so that a consumer that built its reader anyway reads
+it and is reported as reading it, rather than passing because an empty file
+reads the same whether or not anything was refused.
+
+| Entry | Refused, per `ir/SPEC.md` | The literal, and the axis |
+|---|---|---|
+| `axes-refused-character` | a character the read charset has no byte for | `9F` — cp037's currency sign — under cp1140 |
+| `axes-refused-sign-byte` | a sign byte in no column of the resolved convention | `A5` under `ebcdic`, read under `translated-ebcdic` |
+| `axes-refused-float` | a number the read float format cannot hold exactly | `7F800000` — IEEE positive infinity — under `hfp` |
+| `axes-refused-overlap` | overlap re-checked after re-expression | `F5` and `C5` on two records, both `35` under `ascii-zone-37` |
+| `axes-refused-staircase` | a staircase that is not the descriptor's | `1-2-4-8` for a descriptor laid out under `2-4-8` |
+
+`axes-refused-character` is the one that needs a code page `codec` does not
+ship. None of the two it does ship lacks a character the other has — both are
+bijections over the 256 code points of Latin-1 — so the refusal is unreachable
+between them, and the corpus reaches it with the pair `ir/SPEC.md` names. The Go
+adapter supplies cp1140 as the one byte it differs from cp037 by; a descriptor
+*resolved* under cp1140 is still one `cpybkc-gen-go` refuses to generate from,
+which is why the entry resolves under cp037 and reads under cp1140 rather than
+the other way round.
+
+`axes-refused-staircase` is the one axis `axes.json` admits only to be refused.
+The staircase is not an axis a consumer reads under, so an entry stating one
+states a question with one answer, and the loader holds it to that answer.
 
 ### No row of Appendix A is deliberately absent, and two once were
 

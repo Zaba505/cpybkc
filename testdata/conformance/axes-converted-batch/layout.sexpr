@@ -1,0 +1,29 @@
+;; batch-fixed's layout, unchanged: an EBCDIC batch whose three record types
+;; are told apart by a type code resolved under cp037 -- C8, C4 and E3. The file
+;; beside it is that batch after a copybook-aware transfer to ASCII, which
+;; axes.json states: the type codes arrive as 48, 44 and 54, the packed and
+;; binary items arrive untouched, and the layout still describes it.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm FB)
+  (lrecl 16))
+
+(record HEADER
+  (copybook "header.cpy" BATCH-HEADER))
+
+(record DETAIL
+  (copybook "txn.cpy" TXN-RECORD))
+
+(record TRAILER
+  (copybook "trailer.cpy" BATCH-TRAILER))
+
+(discriminate HEADER (equals (item HEADER HDR-TYPE) (bytes "C8")))
+(discriminate DETAIL (equals (item DETAIL TXN-TYPE) (bytes "C4")))
+(discriminate TRAILER (equals (item TRAILER TRL-TYPE) (bytes "E3")))
+
+(sequence (seq HEADER (* DETAIL) TRAILER))

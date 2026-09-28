@@ -1,0 +1,229 @@
+{
+  "version": "IR_VERSION_1",
+  "nodes": [
+    {
+      "file": {
+        "unframed": {},
+        "start_state_id": "9"
+      }
+    },
+    {
+      "id": "1",
+      "record": {
+        "root_id": "2",
+        "names": {
+          "original": "PRICE-RECORD"
+        }
+      }
+    },
+    {
+      "id": "2",
+      "group": {
+        "member_ids": [
+          "3",
+          "4"
+        ],
+        "names": {
+          "original": "PRICE-RECORD"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "PRICE-CURRENCY"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "PRICE-AMOUNT"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "record": {
+        "root_id": "6",
+        "names": {
+          "original": "NOTE-RECORD"
+        }
+      }
+    },
+    {
+      "id": "6",
+      "group": {
+        "member_ids": [
+          "7",
+          "8"
+        ],
+        "names": {
+          "original": "NOTE-RECORD"
+        }
+      }
+    },
+    {
+      "id": "7",
+      "field": {
+        "width": 1,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "NOTE-CURRENCY"
+        }
+      }
+    },
+    {
+      "id": "8",
+      "field": {
+        "width": 4,
+        "encoding": {
+          "charset": "CHARSET_CP037",
+          "sign_convention": "SIGN_CONVENTION_EBCDIC",
+          "byte_order": "BYTE_ORDER_BIG_ENDIAN",
+          "float_format": "FLOAT_FORMAT_IEEE754",
+          "binary_size": "BINARY_SIZE_248"
+        },
+        "usage": "USAGE_DISPLAY",
+        "picture": {
+          "category": "CATEGORY_ALPHANUMERIC"
+        },
+        "names": {
+          "original": "NOTE-TEXT"
+        }
+      }
+    },
+    {
+      "id": "9",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "12",
+          "14"
+        ]
+      }
+    },
+    {
+      "id": "10",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "16",
+          "17"
+        ]
+      }
+    },
+    {
+      "id": "11",
+      "state": {
+        "accepts": true,
+        "transition_ids": [
+          "18",
+          "19"
+        ]
+      }
+    },
+    {
+      "id": "12",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "10",
+        "predicate_id": "13"
+      }
+    },
+    {
+      "id": "13",
+      "predicate": {
+        "field_id": "3",
+        "bytes_equal": {
+          "value": "nw=="
+        }
+      }
+    },
+    {
+      "id": "14",
+      "transition": {
+        "record_id": "5",
+        "next_state_id": "11",
+        "predicate_id": "15"
+      }
+    },
+    {
+      "id": "15",
+      "predicate": {
+        "field_id": "7",
+        "bytes_equal": {
+          "value": "1Q=="
+        }
+      }
+    },
+    {
+      "id": "16",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "10",
+        "predicate_id": "13"
+      }
+    },
+    {
+      "id": "17",
+      "transition": {
+        "record_id": "5",
+        "next_state_id": "11",
+        "predicate_id": "15"
+      }
+    },
+    {
+      "id": "18",
+      "transition": {
+        "record_id": "1",
+        "next_state_id": "10",
+        "predicate_id": "13"
+      }
+    },
+    {
+      "id": "19",
+      "transition": {
+        "record_id": "5",
+        "next_state_id": "11",
+        "predicate_id": "15"
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+;; UNSIGNED-KIND is F5 and POSITIVE-KIND is C5, which resolve proved apart
+;; under the ebcdic convention. The ascii-zone-37 convention spells digit 5 as
+;; 35 in both the unsigned and the positive column, so under it the two
+;; literals are one byte string: nothing tells the records apart, and the
+;; consumer refuses the pair before it reads a record.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record UNSIGNED
+  (copybook "kinds.cpy" UNSIGNED-RECORD))
+
+(record POSITIVE
+  (copybook "kinds.cpy" POSITIVE-RECORD))
+
+(discriminate UNSIGNED (equals (item UNSIGNED UNSIGNED-KIND) (bytes "F5")))
+(discriminate POSITIVE (equals (item POSITIVE POSITIVE-KIND) (bytes "C5")))
+
+(sequence (* (alt UNSIGNED POSITIVE)))

@@ -1,0 +1,25 @@
+{
+  "records": [
+    {
+      "name": "FIVE-RECORD",
+      "value": {
+        "FIVE-KIND": "5",
+        "FIVE-NOTE": "UNSG"
+      }
+    },
+    {
+      "name": "FIVE-RECORD",
+      "value": {
+        "FIVE-KIND": "5",
+        "FIVE-NOTE": "SIGN"
+      }
+    },
+    {
+      "name": "MINUS-RECORD",
+      "value": {
+        "MINUS-KIND": "-5",
+        "MINUS-NOTE": "MINS"
+      }
+    }
+  ]
+}

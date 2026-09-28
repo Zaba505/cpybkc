@@ -42,6 +42,14 @@ const (
 	// the request, it broke, or it did not answer in time. Nothing has been
 	// learned about the generator, which is why it is not a mismatch.
 	Faulted
+
+	// NotOffered is an entry stating read axes, asked of an adapter that did
+	// not declare it offers reading under any. Reading under axes other than a
+	// descriptor's is something a consumer MAY offer (docs/ir/SPEC.md, "A
+	// consumer may read under other axes, and re-expresses what it compares"),
+	// so the entry was not asked, and it is not a failure and not a fault: the
+	// run makes a smaller claim, as a read-only adapter's does (#383).
+	NotOffered
 )
 
 func (o Outcome) String() string {
@@ -54,6 +62,8 @@ func (o Outcome) String() string {
 		return "FAIL"
 	case Faulted:
 		return "FAULT"
+	case NotOffered:
+		return "NOT OFFERED"
 	default:
 		return fmt.Sprintf("Outcome(%d)", int(o))
 	}
@@ -114,6 +124,11 @@ type Adapter struct {
 // generator — reporting, once per entry, a missing answer to a question the
 // specification never obliged it to answer.
 func (a *Adapter) Writes() bool { return a != nil && a.Capabilities[capabilityWrite] }
+
+// OffersAxes is whether the adapter's generated code may be read and written
+// under axes other than the ones its descriptor resolved, and so whether an
+// entry stating read axes is asked of it at all.
+func (a *Adapter) OffersAxes() bool { return a != nil && a.Capabilities[capabilityAxes] }
 
 // String is the adapter as a report names it.
 func (a *Adapter) String() string {
@@ -190,7 +205,7 @@ type Report struct {
 // and it is not a verdict.
 func (r *Report) Failed() bool {
 	for _, result := range r.Results {
-		if result.Provisional {
+		if result.Provisional || result.Outcome == NotOffered {
 			continue
 		}
 
@@ -225,6 +240,25 @@ func (r *Report) ProvisionalCounts() (agreed, disagreed, unanswered int) {
 	return r.count(true)
 }
 
+// NotOffered is how many entries stated read axes that the adapter does not
+// offer reading under, and so were not asked.
+//
+// They are in neither [Report.Counts] nor [Report.ProvisionalCounts]: nothing
+// was asked, so nothing passed, disagreed or faulted, and an entry counted in a
+// total it was never asked about would move a number an implementation reports
+// on the strength of a feature it does not claim.
+func (r *Report) NotOffered() int {
+	var unasked int
+
+	for _, result := range r.Results {
+		if result.Outcome == NotOffered {
+			unasked++
+		}
+	}
+
+	return unasked
+}
+
 // StatesNothing is whether the run asked about entries and none of them was
 // one the corpus stands behind.
 //
@@ -249,7 +283,7 @@ func (r *Report) StatesNothing() bool {
 // count is either half of the corpus, by whether the entry was provisional.
 func (r *Report) count(provisional bool) (passed, mismatched, faulted int) {
 	for _, result := range r.Results {
-		if result.Provisional != provisional {
+		if result.Provisional != provisional || result.Outcome == NotOffered {
 			continue
 		}
 
@@ -323,6 +357,14 @@ func (r *Report) String() string {
 		}
 	}
 
+	if unasked := r.NotOffered(); unasked > 0 {
+		// Said beside the totals rather than in them, for the reason a
+		// read-only adapter's smaller claim is: reading under other axes is a
+		// feature a consumer MAY offer, and this one said it does not.
+		fmt.Fprintf(&said, "%d entries state axes to read under, and this adapter does not offer reading under any, "+
+			"so they were not asked: in no total above and in no verdict\n", unasked)
+	}
+
 	if r.Restarts == 1 {
 		said.WriteString("a fresh adapter was started after one broke\n")
 	} else if r.Restarts > 1 {
@@ -381,6 +423,17 @@ func (r *Report) mismatch(entry *conformance.Entry, err error) {
 		Outcome:     Mismatched,
 		Provisional: entry.IsProvisional(),
 		Err:         &conformance.MismatchError{Entry: entry.Name, Source: entry.Source, Err: err},
+	})
+}
+
+// notOffered records an entry stating read axes, which an adapter that does not
+// offer reading under any was not asked about.
+func (r *Report) notOffered(entry *conformance.Entry) {
+	r.Results = append(r.Results, &Result{
+		Entry:       entry.Name,
+		Source:      entry.Source,
+		Outcome:     NotOffered,
+		Provisional: entry.IsProvisional(),
 	})
 }
 

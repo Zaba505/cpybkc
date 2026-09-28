@@ -110,6 +110,8 @@ func TestTheHandshakeDeclaresACodecThatWrites(t *testing.T) {
 		t.Fatalf("the adapter declared no capabilities, and the member is required even when it is empty")
 	case !(*got.Capabilities)["write"]:
 		t.Errorf("the adapter declared no writer, and cpybkc-gen-go emits one")
+	case !(*got.Capabilities)["axes"]:
+		t.Errorf("the adapter declared no axes, and cpybkc-gen-go's reader and writer may be built under axes other than the descriptor's")
 	}
 }
 
