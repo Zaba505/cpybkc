@@ -453,9 +453,9 @@ func answers(t *testing.T, entries []*conformance.Entry) map[string]entryScript 
 		values := marshalled(t, entry.Values)
 
 		written := values
-		if entry.Values.Failure != "" {
-			// Nothing is written back from a read that stopped, and the engine
-			// does not ask.
+		if entry.Values.Failure != "" || entry.Values.AxesRefused != "" {
+			// Nothing is written back from a read that stopped, or from one
+			// that never began, and the engine does not ask.
 			written = nil
 		}
 

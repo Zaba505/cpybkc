@@ -154,8 +154,9 @@ at all.
 
 ## A record and a document
 
-[SPEC.md](SPEC.md)'s [`values.json`](SPEC.md#valuesjson) and [*A file the reader
-refused*](SPEC.md#a-file-the-reader-refused). These are whole documents rather
+[SPEC.md](SPEC.md)'s [`values.json`](SPEC.md#valuesjson), [*A file the reader
+refused*](SPEC.md#a-file-the-reader-refused) and [*Axes the consumer
+refused*](SPEC.md#axes-the-consumer-refused). These are whole documents rather
 than values, so the row is the entire text.
 
 | Row | Value | Written as |
@@ -164,6 +165,7 @@ than values, so the row is the entire text.
 | `document-no-records` | A file holding no record. The member is an empty array and never absent, and never `null`. | `{"records": []}` |
 | `document-failure` | A read that stopped after the first record. The text is a note and is never compared. | `{"records": [{"name": "TXN", "value": {"AMT": "1"}}], "failure": "the sign nibble is not one of the four the convention admits"}` |
 | `record-empty-value` | A record whose group holds nothing but slack. An empty value is an answer, not a missing one. | `{"records": [{"name": "TXN", "value": {}}]}` |
+| `document-axes-refused` | A file the consumer refused to read under the axes it was asked for, before any record. The records are an empty array, there is no `failure`, and the text is a note and is never compared. | `{"records": [], "axes_refused": "F5 and C5 are one byte string under ascii-zone-37"}` |
 
 ## Not admissible
 

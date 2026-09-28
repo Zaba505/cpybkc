@@ -40,8 +40,9 @@ the answer comes back, belongs here.
 ### Scope
 
 In scope: the framing of the conversation and the hazard that framing exists to
-survive; the operations an adapter serves and the order they arrive in; what an
-adapter declares about itself before it is asked anything; how a refusal, a
+survive; the operations an adapter serves and the order they arrive in; how the
+axes an entry is read under reach an adapter; what an adapter declares about
+itself before it is asked anything; how a refusal, a
 fault and a broken adapter are told apart; and the rule that the adapter is
 never handed the answers it is being checked against.
 
@@ -318,7 +319,7 @@ stops, closing the adapter's standard input as [below](#bye-and-end-of-input).
 ```json
 {"id": 1, "ok": true, "protocol": 1, "name": "cpybkc-gen-go adapter",
  "version": "0.4.0", "kind": "codec",
- "capabilities": {"write": true, "rebuild": true}}
+ "capabilities": {"write": true, "rebuild": true, "axes": true}}
 ```
 
 | Member | Type | Required | Meaning |
@@ -414,6 +415,26 @@ One entry, read top to bottom.
 
 `input` is the entry's `input.bin`, base64 encoded.
 
+Where the entry carries [`axes.json`](../conformance/SPEC.md#axesjson), the
+request carries it too, as the member `axes` — the same object, with the same
+members and the same spellings:
+
+```json
+{"id": 3, "op": "decode", "entry": "axes-zoned-sign-column", "input": "…",
+ "axes": {"charset": "ascii", "sign_convention": "translated-ebcdic"}}
+```
+
+The adapter **MUST** then read `input` under those axes: each member replaces
+that axis of the descriptor, and a member absent replaces nothing. An engine
+**MUST** send `axes` exactly when the entry states them and on no other request,
+and **MUST NOT** send it to an adapter that did not declare [the `axes`
+capability](#capabilities-because-a-read-only-generator-is-a-legal-generator). The
+second rule is what makes the first safe: a receiver [ignores a member it does
+not recognise](#an-unknown-member-is-ignored-and-an-unknown-operation-is-refused),
+so an adapter that had never heard of `axes` would read the file under its
+descriptor's own and answer a question nobody asked — correctly, and wrongly
+about the entry.
+
 ```json
 {"id": 3, "ok": true, "entry": "packed-ebcdic",
  "decoded": {"records": [{"REC": {"AMOUNT": "-123.45"}}]}}
@@ -427,7 +448,13 @@ what the generated reader made of those bytes. The adapter **MUST** echo
 A file the generated reader refused is an answer and not a fault: `ok` stays
 `true` and `decoded` carries a `failure` beside the records read before the read
 stopped, exactly as [*A file the reader
-refused*](../conformance/SPEC.md#a-file-the-reader-refused) requires. A large
+refused*](../conformance/SPEC.md#a-file-the-reader-refused) requires. Axes the
+generated code refused to build a reader under are an answer in the same way:
+`ok` stays `true`, and `decoded` carries `axes_refused` and no record, as [*Axes
+the consumer refused*](../conformance/SPEC.md#axes-the-consumer-refused)
+requires. The two are different answers and an adapter **MUST NOT** report one
+as the other — the first is about the file, and the second is about the
+descriptor and the axes, before any byte of the file was read. A large
 fraction of the corpus's entries expect precisely this, and an adapter that
 reported one of them as a fault would fail those entries by being right about
 them. (How many
@@ -456,7 +483,11 @@ The writing direction, over the records the reader just produced.
 The request carries no records, and that is the point. The adapter writes the
 records its own generated reader produced in the immediately preceding `decode`
 of this entry, lays them out with the generated writer, reads that file back
-with the generated reader, and answers with what came back:
+with the generated reader, and answers with what came back. Where that `decode`
+carried `axes`, the writer is built under them and the file is read back under
+them: the axes are the entry's, so they are held with the records rather than
+sent again. A writer the generated code refused to build under them is answered
+as `written` carrying `axes_refused`, as a refused reader is.
 
 ```json
 {"id": 4, "ok": true, "entry": "packed-ebcdic",
@@ -494,9 +525,9 @@ means they have to stay inside the adapter, which is why this operation names an
 entry and carries nothing else.
 
 Preconditions: the adapter declared the `write` capability; the adapter is
-holding records from a `decode` of the named entry; and that decode did not
-carry a `failure` — a read that stopped holds no complete set of records to
-write back.
+holding records from a `decode` of the named entry; and that decode carried
+neither a `failure` nor `axes_refused` — a read that stopped holds no complete
+set of records to write back, and a read that never began holds none at all.
 
 The middle one is stated as what the adapter is *holding* rather than as what
 was most recently *decoded*, and the difference is not pedantry. A
@@ -622,6 +653,7 @@ write `{}` has been asked the question, where an author who may omit it has not.
 |---|---|
 | `write` | The adapter's generator emits a writer, so [`roundtrip`](#roundtrip) can be served. |
 | `rebuild` | [`rebuild`](#rebuild) can be served. |
+| `axes` | The adapter's generated code can be read and written under axes other than the ones its descriptor resolved, so a [`decode`](#decode) may carry `axes`. |
 
 Reading is not a capability. An adapter of kind `codec` that cannot read a file
 is not a codec adapter, and giving it a member to say so would be giving it a
@@ -642,6 +674,27 @@ A run by a read-only adapter is a smaller claim than a run by a full one, and an
 engine **SHOULD** say which it was in the report. It is not a lesser result; it
 is a result about a smaller thing.
 
+Reading under other axes is a capability for the same reason writing is.
+[`ir/SPEC.md`](../ir/SPEC.md#a-consumer-may-read-under-other-axes-and-re-expresses-what-it-compares)
+makes it something a consumer **MAY** offer — and binding, literal by literal,
+on every consumer that does — so a generator that reads a file only under its
+descriptor's own axes is conformant, and an engine that asked it about a
+converted file would report a feature it never claimed as a fault once per entry
+(#383). So an engine **MUST NOT** send an adapter that did not declare `axes`
+any request about an entry carrying
+[`axes.json`](../conformance/SPEC.md#axesjson) — not `generate`, not `decode`,
+not `roundtrip` — and **MUST** report each such entry as *not offered*: neither a
+pass, nor a mismatch, nor a fault, in no total and in no verdict. It **SHOULD**
+say how many there were, since the run makes a smaller claim.
+
+An adapter that does declare `axes` has claimed the whole of the requirement,
+refusals included. It answers a refusal as [`decode`](#decode) says, and it
+**MUST NOT** answer `ok: false` for axes the generated code refused: that is the
+answer the entry is asking about. What it **MAY** answer `ok: false` for is a
+value it cannot hand its generated code at all — a code page for which neither
+the generated code nor the adapter has a table — which is a fault against that
+entry and says nothing about whether the generated code re-expresses correctly.
+
 ## Refusal is an answer, a fault is not, and an exit code is neither
 
 Three outcomes, and most of the value of this contract is in keeping them apart.
@@ -650,7 +703,7 @@ generator, or a working thing about a broken one.
 
 | Outcome | On the wire | What it says |
 |---|---|---|
-| **An answer** | `ok: true`, and whatever the operation returns — for [`decode`](#decode) and [`roundtrip`](#roundtrip) a values document, which **MAY** carry a `failure` | The adapter served the request. Where the request put a question to the generated code, a refusal is one of the answers, and an entry is allowed to expect it. |
+| **An answer** | `ok: true`, and whatever the operation returns — for [`decode`](#decode) and [`roundtrip`](#roundtrip) a values document, which **MAY** carry a `failure` or `axes_refused` | The adapter served the request. Where the request put a question to the generated code, a refusal is one of the answers, and an entry is allowed to expect it. |
 | **A fault** | `ok: false`, with `error` | The adapter could not serve this request. The entry is lost; the run is not. |
 | **A broken adapter** | a non-zero exit, or a stream that stopped parsing | The adapter cannot go on. The run is over until a fresh process is started. |
 
@@ -909,12 +962,12 @@ The same conversation with a descriptive adapter is four frames long:
 | [An unknown member is ignored, and an unknown operation is refused](#an-unknown-member-is-ignored-and-an-unknown-operation-is-refused) | #199 `conformance`; the opposite rule it contrasts with, #66 and #196 |
 | [`hello`](#hello) | #199 `conformance` for the engine's half; #200 for the Go adapter's; #201 for `kind` |
 | [`generate`](#generate) | #199 and #200 `conformance` |
-| [`decode`](#decode) | #199 and #200 `conformance`; the values document it carries, #66 and #194 |
-| [`roundtrip`](#roundtrip) | #199 and #200 `conformance`; the argument it rests on, #68, and *Writing a file*, #17 `ir` |
+| [`decode`](#decode) | #199 and #200 `conformance`; the values document it carries, #66 and #194; the `axes` it carries and a refusal of them answered as `axes_refused`, #383 `conformance` |
+| [`roundtrip`](#roundtrip) | #199 and #200 `conformance`; the argument it rests on, #68, and *Writing a file*, #17 `ir`; writing under the axes of the decode it follows, #383 `conformance` |
 | [`rebuild`](#rebuild) | #199 and #200 `conformance` |
 | [`bye`, and end of input](#bye-and-end-of-input) | #199 and #200 `conformance` |
 | [`kind`, because not every generator is a conformance subject](#kind-because-not-every-generator-is-a-conformance-subject) | #201 `conformance`; the discussion it comes from is #193, and no story specifies a descriptive oracle |
-| [`capabilities`, because a read-only generator is a legal generator](#capabilities-because-a-read-only-generator-is-a-legal-generator) | #199 `conformance` for the engine that must not fail a read-only adapter; the latitude it serves, #17 `ir` |
+| [`capabilities`, because a read-only generator is a legal generator](#capabilities-because-a-read-only-generator-is-a-legal-generator) | #199 `conformance` for the engine that must not fail a read-only adapter; the latitude it serves, #17 `ir`; the `axes` capability, the entries an adapter that does not declare it is not asked, and the Go adapter that declares it, #383 `conformance`, over the latitude #379 `ir` grants |
 | [Refusal is an answer, a fault is not, and an exit code is neither](#refusal-is-an-answer-a-fault-is-not-and-an-exit-code-is-neither) | #199 `conformance`; the reading it inherits, #66 and #68 |
 | [Exit codes](#exit-codes) | #199 and #200 `conformance` |
 | [The adapter is never given the expected values](#the-adapter-is-never-given-the-expected-values) | #199 `conformance`, which keeps the comparison |

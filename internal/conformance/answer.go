@@ -93,6 +93,11 @@ func ParseAnswer(b []byte) (*Answer, error) {
 			faults = append(faults, fmt.Errorf(
 				"written stands beside a decoded failure, and a file the reader refused holds no complete set of records to write back"))
 		}
+
+		if answer.Decoded != nil && answer.Decoded.AxesRefused != "" {
+			faults = append(faults, fmt.Errorf(
+				"written stands beside decoded axes_refused, and a reader that was never built read no records to write back"))
+		}
 	}
 
 	// Nothing on a fault, as [ParseValues] answers nothing: an answer this
@@ -126,6 +131,10 @@ func CompareAnswer(want *Values, got *Answer) error {
 	}
 
 	switch {
+	case want.AxesRefused != "" || got.Decoded.AxesRefused != "":
+		// Nothing was read, so nothing is written back. Either the entry is
+		// about the refusal and says so, or the consumer refused where the
+		// entry expects it not to — which [Compare] has already reported.
 	case want.Failure != "" || got.Decoded.Failure != "":
 		// Nothing is written back from a read that stopped, so there is nothing
 		// to compare. Either the entry is about the reading direction and says

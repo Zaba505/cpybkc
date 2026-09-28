@@ -1,0 +1,4 @@
+{
+  "records": [],
+  "axes_refused": "UNSIGNED-KIND and POSITIVE-KIND are compared against one byte string under ascii-zone-37"
+}

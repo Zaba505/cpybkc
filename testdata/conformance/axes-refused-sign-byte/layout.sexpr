@@ -1,0 +1,25 @@
+;; FIVE-KIND's literal is A5: +5 to an EBCDIC reader by its lenient reading,
+;; and in none of the three columns of the ebcdic convention's table. A byte
+;; with no column has nothing a column-by-column re-expression can keep, so
+;; under the translated-EBCDIC convention FIVE-RECORD has no spelling and the
+;; consumer refuses before it reads a record.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record FIVE
+  (copybook "kinds.cpy" FIVE-RECORD))
+
+(record MINUS
+  (copybook "kinds.cpy" MINUS-RECORD))
+
+(discriminate FIVE (equals (item FIVE FIVE-KIND) (bytes "A5")))
+(discriminate MINUS (equals (item MINUS MINUS-KIND) (bytes "D5")))
+
+(sequence (* (alt FIVE MINUS)))

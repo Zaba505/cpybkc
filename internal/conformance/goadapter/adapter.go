@@ -218,7 +218,7 @@ func (c *conversation) hello(id int, req *request) *response {
 
 	// Required even when it is empty, so it is written out in full rather than
 	// assembled from whatever happens to be true.
-	capabilities := map[string]bool{capabilityWrite: true}
+	capabilities := map[string]bool{capabilityWrite: true, capabilityAxes: true}
 
 	return &response{
 		ID:           id,
@@ -259,7 +259,25 @@ func (c *conversation) decode(ctx context.Context, id int, req *request) *respon
 		return refuse(id, "failed to write the bytes to read: %v", err)
 	}
 
-	started, err := start(ctx, entry)
+	// The axes go to the codec program as a file beside the bytes, and only
+	// where the request states some: a program given none builds its reader
+	// and its writer exactly as it always did, under the descriptor's own.
+	axes := ""
+
+	if req.Axes != nil {
+		stated, err := json.Marshal(req.Axes)
+		if err != nil {
+			return refuse(id, "failed to write the axes to read under: %v", err)
+		}
+
+		axes = entry.axes
+
+		if err := os.WriteFile(axes, stated, 0o600); err != nil {
+			return refuse(id, "failed to write the axes to read under: %v", err)
+		}
+	}
+
+	started, err := start(ctx, entry, axes)
 	if err != nil {
 		return refuse(id, "the generated code did not run: %v", err)
 	}
@@ -274,14 +292,15 @@ func (c *conversation) decode(ctx context.Context, id int, req *request) *respon
 	// records to write back, which is roundtrip's precondition and a fact about
 	// this adapter rather than about the answer.
 	var stopped struct {
-		Failure string `json:"failure"`
+		Failure     string `json:"failure"`
+		AxesRefused string `json:"axes_refused"`
 	}
 
 	if err := json.Unmarshal(document, &stopped); err != nil {
 		return refuse(id, "the generated code wrote a document this adapter cannot read: %v", started.stop(err))
 	}
 
-	started.refused = stopped.Failure != ""
+	started.refused = stopped.Failure != "" || stopped.AxesRefused != ""
 	c.held = started
 
 	return &response{ID: id, OK: true, Entry: req.Entry, Decoded: document}
@@ -301,8 +320,8 @@ func (c *conversation) roundtrip(id int, req *request) *response {
 		// rather than as what was most recently decoded.
 		return refuse(id, "this adapter is holding no records of %q to write back", req.Entry)
 	case c.held.refused:
-		return refuse(id, "the read of %q stopped at a failure, so there is no complete set of records to write back",
-			req.Entry)
+		return refuse(id, "the read of %q stopped at a failure or never began, so there is no complete set of records "+
+			"to write back", req.Entry)
 	}
 
 	document, err := c.held.roundtrip()
@@ -376,11 +395,18 @@ type child struct {
 // this adapter ever writes to one.
 const roundtripCommand = "roundtrip"
 
-// start runs one entry's codec program on the bytes written for it.
-func start(ctx context.Context, entry *built) (*child, error) {
+// start runs one entry's codec program on the bytes written for it, under the
+// axes written at the path axes names, or under the descriptor's own where it
+// is empty.
+func start(ctx context.Context, entry *built, axes string) (*child, error) {
+	args := []string{entry.descriptor, entry.input}
+	if axes != "" {
+		args = append(args, axes)
+	}
+
 	// CommandContext so that a run this adapter's caller gave up on does not
 	// leave a codec program behind it.
-	cmd := exec.CommandContext(ctx, entry.program, entry.descriptor, entry.input)
+	cmd := exec.CommandContext(ctx, entry.program, args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

@@ -62,6 +62,33 @@ func TestCompareAnswerHoldsBothDirectionsToTheEntry(t *testing.T) {
 			want:   `{"records": [], "failure": "the sign nibble is not one of the four"}`,
 			answer: `{"decoded": {"records": [], "failure": "invalid sign nibble 0xE at offset 7"}}`,
 		},
+
+		// The refusal of the axes a file is read under is an answer of its own,
+		// and neither it nor a refused file passes for the other (#383).
+		"an entry about axes the consumer refuses": {
+			want:   `{"records": [], "axes_refused": "no file under ascii-zone-37 tells the two apart"}`,
+			answer: `{"decoded": {"records": [], "axes_refused": "F5 and C5 are one byte under ascii-zone-37"}}`,
+		},
+		"the consumer read under axes the entry expects it to refuse": {
+			want:   `{"records": [], "axes_refused": "no file under ascii-zone-37 tells the two apart"}`,
+			answer: `{"decoded": ` + oneRecord + `, "written": ` + oneRecord + `}`,
+			says:   []string{"read under the axes it was asked to", "expects it to refuse them"},
+		},
+		"the consumer refused axes the entry expects it to read under": {
+			want:   oneRecord,
+			answer: `{"decoded": {"records": [], "axes_refused": "no byte for the currency sign"}}`,
+			says:   []string{"refused the axes it was asked to read under", "no byte for the currency sign"},
+		},
+		"a refused file where the entry expects the axes refused": {
+			want:   `{"records": [], "axes_refused": "no file under ascii-zone-37 tells the two apart"}`,
+			answer: `{"decoded": {"records": [], "failure": "no transition matches the record at offset 0"}}`,
+			says:   []string{"expects it to refuse them", "reading the file failed"},
+		},
+		"the writer refused axes the reader was built under": {
+			want:   oneRecord,
+			answer: `{"decoded": ` + oneRecord + `, "written": {"records": [], "axes_refused": "the writer would not"}}`,
+			says:   []string{"reading back the file written from those records", "refused the axes"},
+		},
 	}
 
 	for name, test := range tests {
@@ -114,14 +141,17 @@ func TestCompareAnswerReportsAFailedReadOnce(t *testing.T) {
 // TestParseAnswerRefuses walks the answers the format does not admit.
 func TestParseAnswerRefuses(t *testing.T) {
 	tests := map[string]string{
-		"nothing that was read":            `{"written": ` + oneRecord + `}`,
-		"a field nobody reads":             `{"decoded": ` + oneRecord + `, "bytes": "AAA="}`,
-		"a values document on its own":     oneRecord,
-		"a record with no name":            `{"decoded": {"records": [{"value": {}}]}}`,
-		"a record with no value":           `{"decoded": {"records": [{"name": "ORDER-RECORD"}]}}`,
-		"a written record with no name":    `{"decoded": ` + oneRecord + `, "written": {"records": [{"value": {}}]}}`,
-		"something behind the document":    `{"decoded": ` + oneRecord + `} and then some`,
-		"a file written back from nothing": `{"decoded": {"records": [], "failure": "short record"}, "written": {"records": []}}`,
+		"nothing that was read":                            `{"written": ` + oneRecord + `}`,
+		"a field nobody reads":                             `{"decoded": ` + oneRecord + `, "bytes": "AAA="}`,
+		"a values document on its own":                     oneRecord,
+		"a record with no name":                            `{"decoded": {"records": [{"value": {}}]}}`,
+		"a record with no value":                           `{"decoded": {"records": [{"name": "ORDER-RECORD"}]}}`,
+		"a written record with no name":                    `{"decoded": ` + oneRecord + `, "written": {"records": [{"value": {}}]}}`,
+		"something behind the document":                    `{"decoded": ` + oneRecord + `} and then some`,
+		"a file written back from nothing":                 `{"decoded": {"records": [], "failure": "short record"}, "written": {"records": []}}`,
+		"a file written back from a reader never built":    `{"decoded": {"records": [], "axes_refused": "no"}, "written": {"records": []}}`,
+		"records read by a reader never built":             `{"decoded": ` + strings.Replace(oneRecord, `"records"`, `"axes_refused": "no", "records"`, 1) + `}`,
+		"a refusal of the axes beside a read that stopped": `{"decoded": {"records": [], "axes_refused": "no", "failure": "short record"}}`,
 	}
 
 	for name, document := range tests {

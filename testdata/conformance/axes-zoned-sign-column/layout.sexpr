@@ -1,0 +1,27 @@
+;; docs/ir/SPEC.md's worked case. FIVE-KIND's literals are F5 and C5 -- the
+;; zone an unsigned item is written with and the zone a positive signed one is,
+;; both +5 to a reader -- resolved under cp037 and the ebcdic convention. The
+;; file beside it was converted to ASCII with translated-EBCDIC signs, which
+;; sends F5 to 35 and C5 to 45: two bytes, because they were two bytes before.
+;; A consumer that re-expressed by value would send both to 45 and match
+;; nothing in the first record.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+(framing
+  (recfm F)
+  (lrecl 5))
+
+(record FIVE
+  (copybook "kinds.cpy" FIVE-RECORD))
+
+(record MINUS
+  (copybook "kinds.cpy" MINUS-RECORD))
+
+(discriminate FIVE (one-of (item FIVE FIVE-KIND) (bytes "F5") (bytes "C5")))
+(discriminate MINUS (equals (item MINUS MINUS-KIND) (bytes "D5")))
+
+(sequence (* (alt FIVE MINUS)))

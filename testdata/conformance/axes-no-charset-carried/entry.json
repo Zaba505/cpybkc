@@ -1,0 +1,4 @@
+{
+  "description": "Two record types told apart by a tag the layout declares carries no charset, read under ASCII while the descriptor resolves the text around it under cp037. The tags' literals are carried unchanged, since the item's bytes are a payload under any axes, and only the text is read through the other charset.",
+  "source": "docs/ir/SPEC.md, \"A consumer may read under other axes, and re-expresses what it compares\" and \"An item with no charset carries bytes, not characters\""
+}

@@ -152,6 +152,67 @@ func TestAnEntryTheGeneratedCodeDisagreesWith(t *testing.T) {
 	}
 }
 
+// TestTheAxesAnEntryStatesDecideItsAnswer asserts that the axes an entry states
+// reach the generated code and change what it answers (#383).
+//
+// Each case is a shipped entry with its axes taken away or replaced, so that
+// what is asserted is the mechanism: an adapter that dropped the axes on the
+// floor would read every file under its descriptor's own and still pass an
+// entry whose file happened to read the same way both times, and none of these
+// does.
+//
+//   - A converted file read under the descriptor's own axes matches none of the
+//     type codes it was resolved with, so the read stops.
+//   - A layout whose literals overlap under ascii-zone-37 does not overlap under
+//     the translated-EBCDIC convention, so the refusal the entry expects does
+//     not come.
+//   - A staircase no caller states is no staircase to refuse, so the file is
+//     read.
+func TestTheAxesAnEntryStatesDecideItsAnswer(t *testing.T) {
+	root := repoRoot(t)
+
+	entries, err := conformance.Load(conformance.CorpusPath(root))
+	if err != nil {
+		t.Fatalf("the conformance corpus: %v", err)
+	}
+
+	byName := make(map[string]*conformance.Entry, len(entries))
+	for _, entry := range entries {
+		byName[entry.Name] = entry
+	}
+
+	changed := func(name string, axes *conformance.Axes) *conformance.Entry {
+		held, ok := byName[name]
+		if !ok {
+			t.Fatalf("the corpus holds no entry called %s", name)
+		}
+
+		entry := *held
+		entry.Axes = axes
+
+		return &entry
+	}
+
+	asked := []*conformance.Entry{
+		changed("axes-zoned-sign-column", nil),
+		changed("axes-refused-overlap", &conformance.Axes{Charset: "ascii", SignConvention: "translated-ebcdic"}),
+		changed("axes-refused-staircase", nil),
+	}
+
+	report := ask(t, root, asked)
+
+	for _, result := range report.Results {
+		if result.Outcome != engine.Mismatched {
+			t.Errorf("%s with its axes changed is %s, and the answer it states is no longer the file's:\n%s",
+				result.Entry, result.Outcome, report)
+		}
+	}
+
+	if len(report.Results) != len(asked) {
+		t.Errorf("%d entries were asked about and the report carries %d results", len(asked), len(report.Results))
+	}
+}
+
 // TestAnEntryTheGeneratorRefusesCostsOnlyThatEntry is the per-entry half of
 // generate: an entry whose descriptor the generator would not accept comes back
 // ok: false with a diagnostic, and the adapter stays alive and serves the rest.

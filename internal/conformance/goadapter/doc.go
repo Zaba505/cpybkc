@@ -20,16 +20,19 @@
 //
 // # What a conversation does
 //
-//  1. hello declares this adapter: kind codec, and the write capability,
-//     because cmd/cpybkc-gen-go emits a writer.
+//  1. hello declares this adapter: kind codec, the write capability, because
+//     cmd/cpybkc-gen-go emits a writer, and the axes capability, because the
+//     reader and the writer it emits may be built under axes other than the
+//     descriptor's.
 //  2. generate is handed every entry's descriptor at once. Each one goes to the
 //     generator through [github.com/Zaba505/cpybkc/internal/plugin], so the
 //     argument vector is the one docs/plugin/SPEC.md fixes, and a codec program
 //     is written beside what came back. All of them are then compiled in one
 //     invocation of the Go toolchain, which is what generate carrying the whole
 //     corpus is for.
-//  3. decode starts that entry's codec program on the bytes the frame carried
-//     and answers with the values document it wrote.
+//  3. decode starts that entry's codec program on the bytes the frame carried,
+//     under the axes it carried where it carried any, and answers with the
+//     values document it wrote.
 //  4. roundtrip tells the same still-running process to lay the records its
 //     reader produced back out, read that file, and answer with what came back.
 //  5. bye stops the process, removes the scratch tree and exits zero.

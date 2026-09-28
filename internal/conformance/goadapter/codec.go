@@ -40,7 +40,11 @@ func (c *conversation) importPath(generated string) (string, error) {
 // program is never read by a person unless a run failed, and go/format is what
 // turns a mistake in the template into an error here rather than into a
 // compilation failure attributed to the generated code.
-func (c *conversation) writeProgram(dir, generated string) error {
+//
+// types are the generated package's record types, which the program holds a
+// constructor for each of: see [recordTypes] for the one question that needs
+// them.
+func (c *conversation) writeProgram(dir, generated string, types []string) error {
 	imported, err := c.importPath(generated)
 	if err != nil {
 		return err
@@ -49,9 +53,11 @@ func (c *conversation) writeProgram(dir, generated string) error {
 	data := struct {
 		Import    string
 		Roundtrip string
+		Records   []string
 	}{
 		Import:    imported,
 		Roundtrip: roundtripCommand,
+		Records:   types,
 	}
 
 	var rendered bytes.Buffer
@@ -97,7 +103,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/Zaba505/cobol-go/codec"
+
 	"github.com/Zaba505/cpybkc/internal/conformance"
+	readaxes "github.com/Zaba505/cpybkc/internal/conformance/goadapter/axes"
 	"github.com/Zaba505/cpybkc/irpb"
 	corpus "{{.Import}}"
 )
@@ -106,13 +115,26 @@ import (
 // else, and end of input, ends it.
 const roundtrip = "{{.Roundtrip}}"
 
+// recordTypes makes a zero record of each type the generated package declares,
+// which is what a caller holding a codec.Reader of its own reads a record into.
+var recordTypes = []func() corpus.Record{
+{{- range .Records}}
+	func() corpus.Record { return new(corpus.{{.}}) },
+{{- end}}
+}
+
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: codec <descriptor> <input>")
+	if len(os.Args) != 3 && len(os.Args) != 4 {
+		fmt.Fprintln(os.Stderr, "usage: codec <descriptor> <input> [<axes>]")
 		os.Exit(2)
 	}
 
-	if err := run(os.Args[1], os.Args[2]); err != nil {
+	axesPath := ""
+	if len(os.Args) == 4 {
+		axesPath = os.Args[3]
+	}
+
+	if err := run(os.Args[1], os.Args[2], axesPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -127,7 +149,7 @@ func main() {
 // value" has bytes travelling with a record while never appearing as a value, so
 // records rebuilt from a document are missing exactly the bytes the writing
 // direction is being asked about.
-func run(descriptorPath, inputPath string) error {
+func run(descriptorPath, inputPath, axesPath string) error {
 	encoded, err := os.ReadFile(descriptorPath)
 	if err != nil {
 		return err
@@ -153,7 +175,27 @@ func run(descriptorPath, inputPath string) error {
 		return err
 	}
 
-	decoded, held, err := read(nodes, records, input)
+	stated, err := readAxes(axesPath)
+	if err != nil {
+		return err
+	}
+
+	opts, err := options(stated)
+	if err != nil {
+		return err
+	}
+
+	var (
+		decoded *conformance.Values
+		held    []corpus.Record
+	)
+
+	if stated != nil && stated.BinarySize != "" {
+		decoded, err = underStaircase(&descriptor, stated, input)
+	} else {
+		decoded, held, err = read(nodes, records, input, stated != nil, opts)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -169,7 +211,7 @@ func run(descriptorPath, inputPath string) error {
 
 		switch command := strings.TrimSuffix(line, "\n"); {
 		case command == roundtrip:
-			written, err := writeBack(nodes, records, held)
+			written, err := writeBack(nodes, records, held, stated != nil, opts)
 			if err != nil {
 				return err
 			}
@@ -193,6 +235,146 @@ func run(descriptorPath, inputPath string) error {
 	}
 }
 
+// readAxes reads the axes the adapter wrote for this decode, or nothing where it
+// wrote none — in which case the reader and the writer are built exactly as they
+// always were, under the descriptor's own.
+func readAxes(path string) (*conformance.Axes, error) {
+	if path == "" {
+		return nil, nil
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var stated conformance.Axes
+	if err := json.Unmarshal(b, &stated); err != nil {
+		return nil, fmt.Errorf("failed to read the axes to read under: %w", err)
+	}
+
+	return &stated, nil
+}
+
+// options are the generated package's own options for every axis a layout
+// states that the entry replaces. The staircase is not among them, because the
+// package has no option for it: see [underStaircase].
+func options(stated *conformance.Axes) ([]corpus.Option, error) {
+	if stated == nil {
+		return nil, nil
+	}
+
+	var opts []corpus.Option
+
+	if stated.Charset != "" {
+		charset, err := readaxes.Charset(stated.Charset)
+		if err != nil {
+			return nil, err
+		}
+
+		opts = append(opts, corpus.WithCharset(charset))
+	}
+
+	if stated.SignConvention != "" {
+		sign, err := readaxes.SignConvention(stated.SignConvention)
+		if err != nil {
+			return nil, err
+		}
+
+		opts = append(opts, corpus.WithSignConvention(sign))
+	}
+
+	if stated.ByteOrder != "" {
+		order, err := readaxes.ByteOrder(stated.ByteOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		opts = append(opts, corpus.WithByteOrder(order))
+	}
+
+	if stated.FloatFormat != "" {
+		format, err := readaxes.FloatFormat(stated.FloatFormat)
+		if err != nil {
+			return nil, err
+		}
+
+		opts = append(opts, corpus.WithFloatFormat(format))
+	}
+
+	return opts, nil
+}
+
+// underStaircase asks every record type's own decoder to read the file through
+// a codec.Reader carrying the staircase the entry states, which is the one road
+// a staircase reaches a generated package by: its reader takes no option for
+// one.
+//
+// Each of them MUST refuse before it reads a byte (docs/ir/SPEC.md, "The
+// staircase is not an axis a consumer may replace"), and whether one read a
+// byte is counted rather than inferred from its error: a decoder that did not
+// refuse and then ran out of bytes errors too, and only the count tells the two
+// apart without reading the words of a message.
+//
+// A decoder that read is reported as what it is — a read that did not complete
+// through the package's own API, since the package has no way to be asked for
+// that staircase — and never as a refusal.
+func underStaircase(descriptor *irpb.Descriptor, stated *conformance.Axes, file []byte) (*conformance.Values, error) {
+	enc, err := readaxes.Resolved(descriptor)
+	if err != nil {
+		return nil, err
+	}
+
+	if enc, err = readaxes.Replace(enc, stated); err != nil {
+		return nil, err
+	}
+
+	refused := ""
+
+	for _, zero := range recordTypes {
+		counted := &counting{r: bytes.NewReader(file)}
+
+		reader, err := codec.NewReader(counted, enc)
+		if err != nil {
+			return nil, err
+		}
+
+		one := zero()
+
+		err = one.UnmarshalCOBOL(reader)
+		if err == nil || counted.n > 0 {
+			return &conformance.Values{
+				Records: []conformance.Record{},
+				Failure: fmt.Sprintf("%T read %d bytes under the binary width staircase %s rather than refusing it (%v)",
+					one, counted.n, enc.Binary, err),
+			}, nil
+		}
+
+		if refused == "" {
+			refused = err.Error()
+		}
+	}
+
+	if refused == "" {
+		return nil, fmt.Errorf("the generated package declares no record type to hand a staircase to")
+	}
+
+	return &conformance.Values{Records: []conformance.Record{}, AxesRefused: refused}, nil
+}
+
+// counting is a reader that counts what was read through it.
+type counting struct {
+	r io.Reader
+	n int
+}
+
+func (c *counting) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+
+	return n, err
+}
+
 // document writes one values document, on a line of its own, which is the whole
 // of what this program says on its standard output.
 func document(values *conformance.Values) error {
@@ -213,9 +395,19 @@ func document(values *conformance.Values) error {
 // read reads one file with the generated reader: what it decoded, in the corpus's
 // value language, and the records themselves, which are what the writing
 // direction is handed.
-func read(nodes map[uint64]*irpb.Node, records map[string]uint64, file []byte) (*conformance.Values, []corpus.Record, error) {
-	reader, err := corpus.NewReader(bytes.NewReader(file))
+//
+// Where the entry states axes, a reader the package refuses to build under them
+// is an answer rather than a failure of this program: no file under those axes
+// can hold what the layout tells its records apart by, and the package says so
+// before it reads a byte (docs/ir/SPEC.md, "What cannot be re-expressed is
+// refused before any record is read").
+func read(nodes map[uint64]*irpb.Node, records map[string]uint64, file []byte, axes bool, opts []corpus.Option) (*conformance.Values, []corpus.Record, error) {
+	reader, err := corpus.NewReader(bytes.NewReader(file), opts...)
 	if err != nil {
+		if axes {
+			return &conformance.Values{Records: []conformance.Record{}, AxesRefused: err.Error()}, nil, nil
+		}
+
 		return nil, nil, err
 	}
 
@@ -282,11 +474,18 @@ func read(nodes map[uint64]*irpb.Node, records map[string]uint64, file []byte) (
 // program, for the reason a reader that refuses a file is one: it is something
 // the generated code did, and only the comparison against the entry knows what
 // the entry expected of it.
-func writeBack(nodes map[uint64]*irpb.Node, records map[string]uint64, held []corpus.Record) (*conformance.Values, error) {
+//
+// The writer is built under the axes the reader was, and a writer the package
+// refuses to build under them is the same answer a refused reader is.
+func writeBack(nodes map[uint64]*irpb.Node, records map[string]uint64, held []corpus.Record, axes bool, opts []corpus.Option) (*conformance.Values, error) {
 	var file bytes.Buffer
 
-	writer, err := corpus.NewWriter(&file)
+	writer, err := corpus.NewWriter(&file, opts...)
 	if err != nil {
+		if axes {
+			return &conformance.Values{Records: []conformance.Record{}, AxesRefused: err.Error()}, nil
+		}
+
 		return nil, err
 	}
 
@@ -306,7 +505,7 @@ func writeBack(nodes map[uint64]*irpb.Node, records map[string]uint64, held []co
 		}, nil
 	}
 
-	values, _, err := read(nodes, records, file.Bytes())
+	values, _, err := read(nodes, records, file.Bytes(), axes, opts)
 
 	return values, err
 }

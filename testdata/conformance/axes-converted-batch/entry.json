@@ -1,0 +1,4 @@
+{
+  "description": "batch-fixed's EBCDIC batch after a copybook-aware transfer to ASCII, read under the ASCII charset and the translated-EBCDIC sign convention while its descriptor still resolves every type code under cp037: each discriminator literal is re-expressed character by character, and the packed and binary items are carried as they are.",
+  "source": "docs/ir/SPEC.md, \"A consumer may read under other axes, and re-expresses what it compares\" and \"Each axis carries a literal the way a file crosses it\"; the detail record's items are cobol-go codec/SPEC.md, Appendix A, A.7 rows 1 and 3"
+}

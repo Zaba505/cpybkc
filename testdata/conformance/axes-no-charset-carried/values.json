@@ -1,0 +1,18 @@
+{
+  "records": [
+    {
+      "name": "ALPHA-RECORD",
+      "value": {
+        "ALPHA-TAG": "wQ==",
+        "ALPHA-TEXT": "TEXT"
+      }
+    },
+    {
+      "name": "BETA-RECORD",
+      "value": {
+        "BETA-TAG": "wg==",
+        "BETA-TEXT": "MORE"
+      }
+    }
+  ]
+}

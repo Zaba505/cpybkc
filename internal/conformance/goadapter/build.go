@@ -70,6 +70,10 @@ const (
 	// inputName is what the bytes a decode frame carried are written as, inside
 	// this adapter's own tree and never beside the entry they came from.
 	inputName = "input.bin"
+
+	// axesName is what the axes a decode frame carried are written as, beside
+	// the bytes they are to be read under.
+	axesName = "axes.json"
 )
 
 // The four trees a conversation's scratch directory holds, one entry to a
@@ -95,6 +99,7 @@ type built struct {
 
 	descriptor string
 	input      string
+	axes       string
 
 	pkg     string
 	program string
@@ -270,6 +275,7 @@ func (c *conversation) emit(ctx context.Context, i int, asked requestEntry) (*bu
 		name:       asked.Entry,
 		descriptor: filepath.Join(work, descriptorName),
 		input:      filepath.Join(work, inputName),
+		axes:       filepath.Join(work, axesName),
 		program:    filepath.Join(c.scratch, binDir, held+exeSuffix()),
 	}
 
@@ -281,7 +287,12 @@ func (c *conversation) emit(ctx context.Context, i int, asked requestEntry) (*bu
 
 	program := filepath.Join(c.scratch, programDir, held)
 
-	if err := c.writeProgram(program, generated); err != nil {
+	types, err := recordTypes(generated)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.writeProgram(program, generated, types); err != nil {
 		return nil, err
 	}
 
