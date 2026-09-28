@@ -24,7 +24,8 @@ case per path through the automaton, each carrying the bytes
 it reads as a literal, and `written` pins both byte for byte like every other
 generated file. Everything else — `file_roundtrip_test.go` in all eight,
 `record_roundtrip_test.go` in `orders`, `converted_roundtrip_test.go` in
-`counted` and `fixed`, and the four `file_reuse_test.go` — is hand-written and
+`counted` and `fixed`, `staircase_refusal_test.go` in `orders` and `counted`,
+and the four `file_reuse_test.go` — is hand-written and
 is skipped, because those assertions live *inside* each package for a reason
 the generated ones do not have: the bytes retained for a slack node are
 unexported, so a run of the wrong length is something only code in the package

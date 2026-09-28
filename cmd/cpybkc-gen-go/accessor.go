@@ -16,6 +16,13 @@ import (
 // axes this descriptor resolved.
 const encodingFunc = "Encoding"
 
+// refuseStaircaseFunc is the function the generated package declares beside
+// [encodingFunc], refusing an encoding whose binary width staircase is not the
+// one this descriptor's offsets were computed under. Lowercase for the reason
+// every other generated helper is: every identifier munged from a copybook
+// name is exported, so it cannot collide with one.
+const refuseStaircaseFunc = "refuseStaircase"
+
 // readCall is the one codec accessor an elementary item is read with.
 //
 // The accessor is selected by the item's USAGE, by how many digits its PICTURE
@@ -367,7 +374,10 @@ says how many bytes a COMP item is, which is a property of the compiler that
 wrote the file rather than of the copybook — PIC S9(2) COMP is two bytes under
 IBM Enterprise COBOL and one under GnuCOBOL's default. It is the staircase the
 offsets in these records were computed under, so changing it here does not
-reinterpret the file, it describes a different one.
+reinterpret the file, it describes a different one — and one this package
+refuses. A reader or a writer built under an Encoding whose Binary is not this
+one, and a record's own methods handed a codec.Reader or codec.Writer carrying
+one, refuse it before any byte is read or written, naming both staircases.
 
 It is a value a caller passes rather than one anything applies on its own. A
 file this descriptor describes that was converted to another character set is
@@ -391,7 +401,47 @@ ByteOrder: %s,
 Float: %s,
 Binary: %s,
 }
-}`, encodingFunc, charset, signConvention(enc.GetSignConvention()), byteOrder(enc.GetByteOrder()), floatFormat(enc.GetFloatFormat()), binary), nil
+}`, encodingFunc, charset, signConvention(enc.GetSignConvention()), byteOrder(enc.GetByteOrder()), floatFormat(enc.GetFloatFormat()), binary) + "\n\n" + refuseStaircaseSource(binary), nil
+}
+
+// refuseStaircaseSource is the [refuseStaircaseFunc] declaration for a
+// descriptor resolved under the staircase binary, which is codec's name for it.
+//
+// A function of the staircase alone rather than of the whole encoding, for two
+// reasons. The other four axes a layout states may each be replaced
+// (docs/ir/SPEC.md, "A consumer may read under other axes, and re-expresses
+// what it compares"), so the staircase is the only axis there is to hold a
+// caller to. And a codec.Encoding carries a Charset, an interface a caller may
+// satisfy with a type that is not comparable, so comparing two whole encodings
+// can panic where comparing two codec.BinarySize values cannot.
+//
+// It is declared, and called, whether or not the descriptor holds a binary
+// item. The staircase is the descriptor's either way, and a rule that
+// depended on what the copybook holds would read a file under one staircase
+// today and refuse it after an unrelated COMP item was added.
+func refuseStaircaseSource(binary string) string {
+	doc := commentLines(reflowed(fmt.Sprintf(`%s refuses a binary width staircase that is not %s's.
+
+Every offset this package slices at — an item's, a predicate's window, a
+variant's occurrence, a run of slack — was computed when it was generated,
+under [%s]. The four axes a layout states may be replaced by the caller; the
+staircase may not, because a different one does not read the same file
+another way, it puts every item behind a binary item at an offset nothing
+here computed, and nothing in the record disagrees. So it is refused before
+any byte is read or written, rather than reported later as a fault in data
+that was never at fault.
+
+It compares staircases and never whole encodings: a caller's Charset need
+not be comparable, and a comparison of two Encodings holding one would
+panic.`, refuseStaircaseFunc, encodingFunc, binary)))
+
+	return doc + fmt.Sprintf(`func %s(binary codec.BinarySize) error {
+if binary == %s {
+return nil
+}
+
+return fmt.Errorf("the encoding's binary width staircase is %%s, and this package's offsets were computed under the descriptor's, %%s: the staircase is not an axis a caller may replace, because every item behind a binary item would be read or written at an offset nothing here computed", binary, %s)
+}`, refuseStaircaseFunc, binary, binary)
 }
 
 // descriptorEncoding is the one encoding every field of the descriptor carries,

@@ -94,6 +94,11 @@ type Reader struct {
 // and a file of these records converted to another character set is read by
 // passing a different one.
 //
+// The staircase is the one of the five that is not the caller's to replace.
+// Every offset this package slices at was computed under [Encoding]'s, so an
+// enc carrying another describes a different file, and it is refused here,
+// naming both staircases, before any record is read.
+//
 // Reads are buffered: r is wrapped in a bufio.Reader of readAhead bytes, which is
 // bufio's own default wherever this file's predicates fit inside it. Where a
 // read of the file is expensive — a network filesystem, or a host with hooks on
@@ -113,6 +118,13 @@ func NewReader(r io.Reader, enc codec.Encoding) (*Reader, error) {
 	// for the same axis that enc.Validate does, so nothing is checked twice here.
 	cr, err := codec.NewBytesReader(nil, enc)
 	if err != nil {
+		return nil, err
+	}
+
+	// Every offset this package slices at was computed under the descriptor's
+	// binary width staircase, so an enc carrying another is refused here, before
+	// any record is read, rather than read at offsets nothing here computed.
+	if err = refuseStaircase(enc.Binary); err != nil {
 		return nil, err
 	}
 
@@ -343,6 +355,8 @@ type Writer struct {
 //
 // The five axes are the caller's for the reason they are on [NewReader]: they are
 // properties of the file being written rather than of this descriptor's items.
+// The staircase is refused here where it is not [Encoding]'s, before any record
+// is written, exactly as [NewReader] refuses it.
 func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	if w == nil {
 		return nil, codec.ErrNilWriter
@@ -354,6 +368,13 @@ func NewWriter(w io.Writer, enc codec.Encoding) (*Writer, error) {
 	// enc.Validate does, so nothing is checked twice here.
 	cw, err := codec.NewBytesWriter(nil, enc)
 	if err != nil {
+		return nil, err
+	}
+
+	// Every offset this package slices at was computed under the descriptor's
+	// binary width staircase, so an enc carrying another is refused here, before
+	// any record is written, rather than written at offsets nothing here computed.
+	if err = refuseStaircase(enc.Binary); err != nil {
 		return nil, err
 	}
 
