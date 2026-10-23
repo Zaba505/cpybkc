@@ -1,3 +1,10 @@
+# Everything `dagger generate` writes into this module, so it stays out of diffs
+# and language stats. The first three lines are codegen's own: it appends any of
+# them that is missing, so they stay as it writes them. go.mod and go.sum are
+# this repository's addition, because codegen rewrites both from the Go SDK's
+# template for the engineVersion in dagger-module.toml (#429).
 /dagger.gen.go linguist-generated
 /internal/dagger/** linguist-generated
 /internal/telemetry/** linguist-generated
+/go.mod linguist-generated
+/go.sum linguist-generated

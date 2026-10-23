@@ -289,6 +289,14 @@ dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
   generate --source . export --path .
 ```
 
+**It needs a Dagger CLI of at least `v1.0.0-beta.15`.** That is the
+`engineVersion` the module declares in its
+[`dagger-module.toml`](daggerverse/cpybkc/dagger-module.toml). A v0 CLI refuses
+to load it (`module requires dagger v1.0.0-beta.15, but you have v0.21.8`), and
+an earlier v1 beta is one it has never been run on. The minimum
+moves when this repository's engine does, and below cpybkc 1.0.0 any release may
+move it; the `dagger-module.toml` at the ref you call is the authority.
+
 It is the cpybkc CLI daggerized: what `cpybkc` can do, this module aims to do by
 name, with the CLI's commands as functions and their flags as arguments.
 `generate` and `init` are the two commands there are, and `emit-ir` is the flag

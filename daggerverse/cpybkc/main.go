@@ -61,9 +61,11 @@
 // The `.dagger/` module at the repository root is a different thing entirely: it
 // runs this repository's own pipeline, it is published for nobody, and it knows
 // about a checkout of cpybkc that this module never sees. What holds the two to
-// one Dagger `engineVersion` is the local dependency edge the root `dagger.json`
-// declares on this directory — an engine bump is then one commit touching both
-// files, rather than two files nothing requires to agree.
+// one Dagger `engineVersion` is the local dependency edge the root
+// `dagger-module.toml` declares on this directory, and the root module's
+// EngineLock check beside it, which catches the drift that edge lets through —
+// an engine bump is then one commit touching both `dagger-module.toml` files,
+// rather than two files nothing requires to agree.
 //
 // # Composing a generator, and the Dockerfile it replaces
 //
