@@ -105,11 +105,13 @@ that freedom is real on a host and is spent inside this image, and what buys it
 back is an image with nothing in it to run.
 
 **Stability.** `/usr/local/bin` is covered by the [compatibility
-guarantees](#compatibility-guarantees) below: it does not move within a major
-version, and the release that moved it would ship both directories for a full
-minor release first. It is stated here as well as there because a path in a
-stranger's Dockerfile is not something they should have to go looking for a
-guarantee about.
+guarantees](#compatibility-guarantees) below, which state what 1.0.0 will
+promise: from 1.0.0 it does not move within a major version, and the release
+that moved it would ship both directories for a full minor release first. Below
+1.0.0 [any release may move it](#below-100-any-release-may-break-a-covered-thing),
+and a derived Dockerfile that needs it held pins a full version tag or a digest.
+It is stated here as well as there because a path in a stranger's Dockerfile is
+not something they should have to go looking for a guarantee about.
 
 `/usr/local/bin` is chosen over a `/opt/cpybkc/plugins` precisely because it is
 not cpybkc-specific. It is the conventional destination for a locally installed
@@ -283,7 +285,7 @@ that was already written. A caller who *composed* that line — a wrapper passin
 word of its own user's input through as cpybkc's first argument — is broken by
 the same change, and is broken identically whether it reached cpybkc through this
 image or through a `go install`. That is [the CLI contract's
-break](../cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it),
+break](../cli/SPEC.md#the-subcommand-is-the-first-change-to-break-a-covered-thing),
 not this one's, and the section below is where this document decides what it owes
 somebody holding one of its tags when the other contract breaks.
 
@@ -302,8 +304,11 @@ invocation published before this — the CLI's default action is all flags — o
 may now be a subcommand name; which names are admitted is [the
 CLI's](../cli/SPEC.md#the-first-operand-is-a-subcommand-name) rather than this
 document's. What a breaking change to that command set does to this image's own
-major tag is settled below, and the answer is that the moving major tag does not
-carry one: a break in either contract takes [a new major version of the
+major tag is settled below, and the answer has two halves. Below 1.0.0 [any
+release may carry one](#below-100-any-release-may-break-a-covered-thing), and
+`v0` follows it there (#398) — every tag from `v0.0.0` on already carries `init`.
+From 1.0.0 the moving major tag does not carry one: a break in either contract
+takes [a new major version of the
 release](#a-breaking-change-to-either-contract-takes-a-new-major-version) (#213).
 
 ## The user
@@ -610,13 +615,17 @@ rebuild: two builds naming it resolve to the same digest, forever, or the tag
 was a lie.
 
 The other three **MUST** move, and moving is what they are for. `v0` picks up
-every fix in the major version and, by the [guarantee
-below](#compatibility-guarantees), keeps every path this document names; it is
-the right pin for a derived image that wants security updates without a
-Dockerfile change, and it is what the [worked
-example](#worked-example-adding-a-generator) uses. It keeps the CLI's covered
-surface as well, which is a decision rather than a consequence of the sentence
-before it: see [A breaking change to either contract takes a new major
+every release in the major version; it is the pin for a derived image that wants
+every fix without a Dockerfile change, and it is what the [worked
+example](#worked-example-adding-a-generator) uses. What it does **not** buy,
+below 1.0.0, is stability: [any release may break a covered
+thing](#below-100-any-release-may-break-a-covered-thing), in this document or in
+the CLI contract, and `v0` moves onto that release like any other. A derived
+image that needs a path or a command line held across releases pins a full
+version tag, or a digest, and moves it at a moment of its own choosing. From
+1.0.0 the major tag keeps every path this document names and the CLI's covered
+surface as well — the second a decision rather than a consequence of the first:
+see [A breaking change to either contract takes a new major
 version](#a-breaking-change-to-either-contract-takes-a-new-major-version).
 A **prerelease** —
 `v0.3.0-rc.1` — publishes its own full version tag and **MUST NOT** move any of
@@ -647,14 +656,19 @@ move independently of the CLI's, and the question [the subcommand
 raised](#the-arrangement-survives-a-subcommand) is not which of two numbers
 advances but what the one number is entitled to carry.
 
+This section binds **from 1.0.0**, and states now what 1.0.0 will promise. Below
+1.0.0 [any release may break a covered
+thing](#below-100-any-release-may-break-a-covered-thing) in either contract, and
+nothing here holds a `0.y.z` to a particular number (#398).
+
 **The image's major version tracks the CLI's covered surface as well as its
-own** (#213). A change breaking [this document's
+own** (#213). From 1.0.0, a change breaking [this document's
 guarantees](#compatibility-guarantees) **or** [the CLI contract's
 guarantees](../cli/SPEC.md#compatibility-guarantees) is a breaking change of the
 release, and the release carrying it **MUST** be a new major version, by [How a
-covered thing would change](#how-a-covered-thing-would-change). The moving major
-tag therefore never carries one: `v0` stops at the last release before it and
-`v1` begins with it, and a derived Dockerfile pinning `v0` keeps the command set
+covered thing would change](#how-a-covered-thing-would-change). A moving major
+tag therefore never carries one: `v1` stops at the last release before it and
+`v2` begins with it, and a derived Dockerfile pinning `v1` keeps the command set
 it was written against as surely as it keeps the plugin directory.
 
 The other answer was available and is refused. The two contracts do cover
@@ -662,24 +676,24 @@ different things — [`docs/cli/SPEC.md` says so in as many
 words](../cli/SPEC.md#compatibility-guarantees), listing anything about the
 published image as not its own — and on this image's own terms nothing broke
 when `init` arrived: every path here survives it and the entrypoint still takes
-cpybkc's arguments. A rule reading only the table below would let `v0` move
-across it.
+cpybkc's arguments. A rule reading only the table below would let a major tag
+move across a change like that one.
 
-What refuses that is who is holding the tag. A `FROM …:v0` line is in a
-repository this project cannot see, and what it pulls the image *for* is the
-program inside it. A caller whose wrapper passes a word of its own user's input
-through as cpybkc's first argument is broken by [the subcommand's
-arrival](../cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it)
+What refuses that is who is holding the tag. A `FROM` line naming a major tag is
+in a repository this project cannot see, and what it pulls the image *for* is
+the program inside it. A caller whose wrapper passes a word of its own user's
+input through as cpybkc's first argument is broken by [the subcommand's
+arrival](../cli/SPEC.md#the-subcommand-is-the-first-change-to-break-a-covered-thing)
 whether they reached cpybkc through a `docker run` or through a `go install`,
 and telling them afterwards that the break was covered by a document they were
 not reading is telling them the pin this section recommends bought less than the
 sentence recommending it said.
 
-The cost is stated rather than hidden: a `v0` pinner stops receiving fixes once
-`v1` is cut. That is what a compatibility boundary *is*, it is what the [full
-version tag](#tags-and-what-pinning-one-buys) already means one release at a
-time, and moving across it is one edited line at a moment of the pinner's
-choosing rather than a build that changed under them.
+The cost is stated rather than hidden: a pinner of one major tag stops receiving
+fixes once the next is cut. That is what a compatibility boundary *is*, it is
+what the [full version tag](#tags-and-what-pinning-one-buys) already means one
+release at a time, and moving across it is one edited line at a moment of the
+pinner's choosing rather than a build that changed under them.
 
 Nothing here makes the CLI's requirements this document's. Which names the
 command set admits, which flags exist and what they mean stay [the CLI
@@ -687,46 +701,55 @@ contract's](../cli/SPEC.md) to state and to change; what this section fixes is
 only which release number a change to them may appear in, because that number is
 a tag on this image.
 
-### Below 1.0.0, the rule produces 1.0.0
+### Below 1.0.0, any release may break a covered thing
 
-cpybkc is below 1.0.0, and SemVer 2.0.0 §4 puts a `0.y.z` release outside the
-stability rules altogether — so "a new major version" looks like a requirement
-naming no number a release could be held to. It names one (#213):
+cpybkc is below 1.0.0, and the owner has decided what that means (#394, recorded
+here by #398):
 
-> A breaking change to a covered thing in either contract **MUST NOT** be
-> published in a `0.y.z` release. Below 1.0.0 the release satisfying [How a
-> covered thing would change](#how-a-covered-thing-would-change) is **1.0.0**.
+> this project is very much under development and will not 1.0 any time soon so
+> no release planning is needed. anything can be broken at any point and users
+> must accept possible breaking changes between versions.
 
-The leading non-zero component is **not** treated as the major in the meantime,
-and the rule does **not** wait for 1.0.0 either. Both of those readings were
-available, and both make `v0` mean something other than what this document has
-already published about it. Under either, a break ships in `0.3.0`; [the tag
-table](#tags-and-what-pinning-one-buys) moves `v0` onto it, because SemVer's
-major is `0` and which tags a version implies is [the shared pipeline's
-derivation](#tags-and-what-pinning-one-buys) rather than this project's to
-redefine; and the boundary a reader was told to pin turns out to have been the
-*minor* tag all along. Saying so now is itself a change to a covered thing,
-which would need the major version this section is about.
+Stated as this document's rule:
 
-SemVer §4 is a permission and not an obligation, and this project has already
-declined it. Two documents under `docs/` price a change in a release number —
-this one and [the CLI contract](../cli/SPEC.md#compatibility-guarantees), each
-publishing a covered table and the rule that a covered thing changes in a new
-major version — and they are exactly the two whose number this section fixes.
-The others version what they specify from the inside, through a field in the
-artifact rather than through a tag: [the IR's own version
-number](../ir/SPEC.md#versioning-and-compatibility) is the one to compare against,
-and it moves on its own schedule. A project that publishes those two tables and
-then declines to be bound by them below 1.0.0 is publishing nothing, and the two
-things already resting on them from outside this repository — a stranger's `FROM`
-line and [the generator images'
-addresses](#where-this-projects-own-generators-are-published) — are what makes
-that a cost somebody else pays. 1.0.0 is the number that says the tables bind,
-and the first change that cannot be made without breaking one of them is the
-release that has to say it.
+- Below 1.0.0, **any release MAY break any covered thing in either contract** —
+  [this document's](#compatibility-guarantees) and [the CLI
+  contract's](../cli/SPEC.md#compatibility-guarantees).
+- A `0.y.z` owes a break **no particular number, no overlap and no
+  deprecation**. Which component of the number moves is the releaser's to choose,
+  [How a covered thing would change](#how-a-covered-thing-would-change)'s
+  parallel forms are not owed, and neither is a release in which the old form is
+  reported before it goes. An adopter of a `0.y.z` accepts possible breaking
+  changes between versions.
+- The **covered tables state what 1.0.0 will promise**. They are written now so
+  that the promise is argued while the thing it covers is being built, rather
+  than reconstructed on the day it starts to bind.
+- From 1.0.0, [A breaking change to either contract takes a new major
+  version](#a-breaking-change-to-either-contract-takes-a-new-major-version) and
+  [How a covered thing would change](#how-a-covered-thing-would-change) **bind
+  as written**.
+- A reader who needs stability below 1.0.0 **pins a full version tag or a
+  digest** — the two references [Tags and what pinning one
+  buys](#tags-and-what-pinning-one-buys) says never move. `v0` and `latest` move
+  onto every release, a breaking one included.
 
-This makes 1.0.0 a consequence rather than a milestone anybody plans: releases
-below it are additive, and the first that is not is the one.
+The reason is the owner's decision rather than an argument from this document.
+cpybkc is under active development and will not reach 1.0.0 soon, and a rule
+holding every break back to 1.0.0 turns each change to a covered row into
+release planning — a decision about which release may carry it, an overlap to
+schedule, a deprecation to announce — for a project with no adopter the owner is
+planning releases for. SemVer 2.0.0 §4 already puts a `0.y.z` release outside
+the stability rules, and this section takes that permission rather than
+declining it, which #213 had done.
+
+What this does not touch is the tag table. A full version tag still never moves
+and a digest still names the bytes, which is what makes a pin worth taking; the
+moving tags still follow [the shared pipeline's
+derivation](#tags-and-what-pinning-one-buys), so `v0` follows every `0.y.z`.
+Nor does it touch the documents that version what they specify from the inside:
+[the IR's own version number](../ir/SPEC.md#versioning-and-compatibility) moves
+on its own schedule, and the rule keying the end of its free closed-set
+additions to `v1.0.0` (#347) is a separate rule this section leaves as it is.
 
 ### What a tag carries besides the image
 
@@ -1357,8 +1380,16 @@ it is output that read the image's own copy of the schema.
 
 ## Compatibility guarantees
 
-**Covered.** Within a major version of the image each of these holds, and a
-change to any of them is a breaking change:
+**This table states what 1.0.0 will promise.** Below 1.0.0 [any release may
+break any row of it](#below-100-any-release-may-break-a-covered-thing), with no
+particular number, no overlap and no deprecation (#398); from 1.0.0 it binds as
+written. The same holds for every other place this document calls something
+covered for a major version, or a change one a minor release may make: each
+states what 1.0.0 will promise, and none of them needs saying again where it
+appears.
+
+**Covered.** From 1.0.0, within a major version of the image each of these
+holds, and a change to any of them is a breaking change:
 
 | Guarantee | Value |
 | --- | --- |
@@ -1370,7 +1401,7 @@ change to any of them is a breaking change:
 | [Shell or no shell](#shell-or-no-shell) | Absent; extension is `COPY`-only |
 | [Platforms](#why-the-platform-set-is-the-two-it-is) | `linux/amd64` and `linux/arm64` |
 | [Tags](#tags-and-what-pinning-one-buys) | A published full-version tag never moves |
-| [The CLI's covered surface](#a-breaking-change-to-either-contract-takes-a-new-major-version) | Holds here too: a change breaking [the CLI contract's guarantees](../cli/SPEC.md#compatibility-guarantees) takes a new major version of this image, so neither the major nor the minor tag carries one |
+| [The CLI's covered surface](#a-breaking-change-to-either-contract-takes-a-new-major-version) | Holds here too: from 1.0.0, a change breaking [the CLI contract's guarantees](../cli/SPEC.md#compatibility-guarantees) takes a new major version of this image, so neither the major nor the minor tag carries one |
 | [This project's own generator images](#where-this-projects-own-generators-are-published) | `<repository>-gen-<name>`, in the same registry and under the same release's tags as the CLI image |
 | [Signatures](#what-a-tag-carries-besides-the-image) | The published index and each manifest beneath it are signed; the index digest carries provenance and an SBOM per platform, as referrers |
 
@@ -1468,14 +1499,17 @@ at `COPY` time with an error naming a path rather than a version. Giving it a
 release in which both the old and the new form work is what turns that into a
 deprecation notice somebody reads instead of a broken build somebody bisects.
 
-**Which release is a new major version** is not left to whoever cuts it. A break
-in [either contract](#a-breaking-change-to-either-contract-takes-a-new-major-version)
-is one of these, and [below 1.0.0 the release that satisfies this
-rule](#below-100-the-rule-produces-100) is 1.0.0 — so a covered thing does not
-change in a `0.y.z` at all (#213). Where the change withdraws a rejection rather
-than moving a form, there is nothing to hold in parallel and the announcement is
-the whole of the transition; [the CLI contract states that
-case](../cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it)
+**Which release is a new major version** is not left to whoever cuts it, from
+1.0.0: a break in [either
+contract](#a-breaking-change-to-either-contract-takes-a-new-major-version) is one
+of these (#213). This section is what 1.0.0 will promise, and binds as written
+from then. Below 1.0.0 it does not bind — [any release may break a covered
+thing](#below-100-any-release-may-break-a-covered-thing), and a `0.y.z` owes the
+break no particular number, no overlap and no deprecation (#398). Where the
+change withdraws a rejection rather than moving a form, there is nothing to hold
+in parallel and the announcement is the whole of the transition; [the CLI
+contract states that
+case](../cli/SPEC.md#the-subcommand-is-the-first-change-to-break-a-covered-thing)
 for the one change that has hit it.
 
 ## Out of Scope
@@ -1530,19 +1564,19 @@ Go install with no document that applies to them.
 | [Where this project's own generators are published](#where-this-projects-own-generators-are-published) | #180 `container` decides the rule is covered rather than internal, and publishes the first image under it; #230 `container` publishes the second, which is what makes the rule a family rather than an exception |
 | [The CLI's own path is not part of the contract](#the-clis-own-path-is-not-part-of-the-contract) | #55 `container`; #185 `container` is where it was spent |
 | [The entrypoint](#the-entrypoint) | #55 `container` |
-| [The arrangement survives a subcommand](#the-arrangement-survives-a-subcommand) | #183 `cli` adds the subcommand and restates the promise here; #213 `container` decides what a breaking CLI change does to this image's major tag |
+| [The arrangement survives a subcommand](#the-arrangement-survives-a-subcommand) | #183 `cli` adds the subcommand and restates the promise here; #213 `container` decides what a breaking CLI change does to this image's major tag; #398 `container` says that decision binds from 1.0.0 and that `v0` follows a break below it |
 | [The user](#the-user) | #55 `container` |
 | [Shell or no shell](#shell-or-no-shell) | #55 `container` |
-| [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container`; #185 `container` moves the family's derivation to the shared pipeline; #213 `container` says what the moving major tag does with a breaking CLI change |
-| [A breaking change to either contract takes a new major version](#a-breaking-change-to-either-contract-takes-a-new-major-version) | #213 `container`, over the command set #183 `cli` broke and the guarantees #146 `cli` and #54 `container` state |
-| [Below 1.0.0, the rule produces 1.0.0](#below-100-the-rule-produces-100) | #213 `container` |
+| [Tags and what pinning one buys](#tags-and-what-pinning-one-buys) | #59 `container`; #185 `container` moves the family's derivation to the shared pipeline; #213 `container` says what the moving major tag does with a breaking CLI change; #398 `container` says `v0` buys no stability below 1.0.0 and a full version tag or a digest does |
+| [A breaking change to either contract takes a new major version](#a-breaking-change-to-either-contract-takes-a-new-major-version) | #213 `container`, over the command set #183 `cli` broke and the guarantees #146 `cli` and #54 `container` state; #398 `container` makes it bind from 1.0.0 |
+| [Below 1.0.0, any release may break a covered thing](#below-100-any-release-may-break-a-covered-thing) | #398 `container` records the owner's policy (#394), replacing #213 `container`'s rule that a break below 1.0.0 takes 1.0.0 |
 | [What a tag carries besides the image](#what-a-tag-carries-besides-the-image) | #58 `container`; #185 `container` for the SBOM's subject and formats |
 | [Verifying a signature](#verifying-a-signature) | #58 `container` |
 | [After mirroring to an internal registry](#after-mirroring-to-an-internal-registry) | #58 `container` |
 | [Discovering the attestations](#discovering-the-attestations) | #185 `container` |
 | [Worked example: adding a generator](#worked-example-adding-a-generator) | #54 `container` |
 | [This example is built by the pipeline](#this-example-is-built-by-the-pipeline) | #54 `container` for the build stage and the reading of the final one, #55 `container` for replaying that stage onto a base image of this pipeline's own |
-| [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container`; #213 `container` adds the CLI's covered surface to the table and fixes which release number a change to a covered thing takes |
+| [Compatibility guarantees](#compatibility-guarantees) | #54, #58 `container`; #213 `container` adds the CLI's covered surface to the table and fixes which release number a change to a covered thing takes; #398 `container` says the table states what 1.0.0 will promise, and that below 1.0.0 any release may break it |
 | [Why the platform set is the two it is](#why-the-platform-set-is-the-two-it-is) | #54 `container` decides it, #55 `container` builds it, #56 `container` retires the third leg it once had |
 | [The IR schema in the image](#the-ir-schema-in-the-image) | #57 `container`; #185 `container` for its ownership and mode |
 | [Worked example: reading the IR without generated code](#worked-example-reading-the-ir-without-generated-code) | #57 `container`; #19 `ir` for what the descriptor set contains |

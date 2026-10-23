@@ -14,9 +14,10 @@
 // This module is the cpybkc CLI daggerized (#253): a caller who reaches for it
 // should be able to do what `cpybkc` does, by name. That makes it something a
 // third party builds against rather than a convenience they could equally well
-// do without — a function name, an argument and a default here are public API
-// for as long as the directory this module is published under exists, which is
-// for as long as the directory exists at all.
+// do without — a function's name, arguments, defaults and return type are
+// public API. Below 1.0.0 any release may change them, as it may anything the
+// CLI and base-image contracts cover (docs/container/SPEC.md, "Below 1.0.0, any
+// release may break a covered thing").
 //
 // It gets no SPEC.md all the same, and the reason is not that there would be
 // nothing to specify. It is that everything there would be to specify is
@@ -178,10 +179,12 @@
 //
 // That is a stance rather than an observation, and it replaced a good argument
 // (#62, #253). This module used to curate deliberately — two functions, an
-// escape hatch, and the reasoning that a module argument is public API for as
-// long as the published ref exists, so a surface mapped one-to-one onto
-// docs/cli/SPEC.md's flag table makes every change to that table a change to
-// this module's. That cost is real, and mirroring pays it rather than avoids it.
+// escape hatch, and the reasoning that a module argument is public API, so a
+// surface mapped one-to-one onto docs/cli/SPEC.md's flag table makes every
+// change to that table a change to this module's. That cost is real, and
+// mirroring pays it rather than avoids it; below 1.0.0 it is paid as a change
+// announced in a release's notes, because any release may change a function's
+// name, arguments, defaults or return type.
 // What decided it the other way is what the alternative cost: a caller who can
 // do something with `cpybkc` and not with this module could not tell "not
 // offered, on purpose" from "nobody has got to it yet", and neither could
@@ -397,8 +400,8 @@ func New(
 	// The tag of the published cpybkc image to run.
 	//
 	// It defaults to the moving major tag "v0", which follows every release in
-	// that major version: a caller who passes nothing keeps up with fixes and
-	// stays inside the base-image contract's compatibility guarantees. Escalate
+	// that major version: a caller who passes nothing keeps up with every
+	// release, and below 1.0.0 any release may break a covered thing. Escalate
 	// deliberately — "v0" follows releases, "v0.3.1" pins one release, and only a
 	// digest pins the bytes. A digest is not a tag, so it goes to --image rather
 	// than here.

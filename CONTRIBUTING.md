@@ -495,43 +495,43 @@ which IR version that image speaks.
 Nothing else is a step, after the first one. There is no version to bump by hand
 and no tag to push beyond the one the release object carries.
 
-### Which number a breaking change takes
+### Below 1.0.0, a release may take any number
 
-Choosing the tag is the only judgment left in a release, and it is not a free
-one. A change breaking a covered thing in [the CLI
+Choosing the tag is the only judgment left in a release, and below 1.0.0 it is a
+free one. A releaser below 1.0.0 **may cut any `0.y.z` for any change** — a
+change breaking a covered thing in [the CLI
 contract](docs/cli/SPEC.md#compatibility-guarantees) or [the base-image
-contract](docs/container/SPEC.md#compatibility-guarantees) takes a **new major
-version**, and below 1.0.0 the only release that is one is
-[**1.0.0**](docs/container/SPEC.md#below-100-the-rule-produces-100) (#213). A
-`0.y.z` is additive, always; the first release that is not additive is 1.0.0.
+contract](docs/container/SPEC.md#compatibility-guarantees) included. That is the
+owner's policy, recorded in [the base-image
+contract](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398): a `0.y.z` owes a break no particular number, no overlap and no
+deprecation, and an adopter of one accepts possible breaking changes between
+versions. Nothing here needs planning around a release.
 
-The two contracts share one number, which is why one of them decides for both:
-the image's major version [tracks the CLI's covered surface as well as its
+From 1.0.0 it stops being free. A break in either contract then takes a **new
+major version**, and the two contracts share one number, which is why one of
+them decides for both: the image's major version [tracks the CLI's covered
+surface as well as its
 own](docs/container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
 so nothing that breaks either can ride a moving tag a derived Dockerfile pinned
-in order to pick up fixes.
+in order to pick up fixes. The covered tables are written now as what 1.0.0 will
+promise.
 
-**Nothing in the pipeline checks this**, and that is worth knowing before going
+**Nothing in the pipeline checks either**, and that is worth knowing before going
 looking for the check that would. Whether a change is breaking is a property of
 the change and not of the tag: `dagger call tag-scheme` can say that `v0.3.0` is
 a canonical version pointing at HEAD, and that the family it implies is the
 archetype's, and it cannot say that the diff under it withdrew a rejection. The
-reading is the releaser's, and the release notes are where the announcement it
-obliges goes — written by hand, above the [generated
+reading is the releaser's. A release that breaks a covered thing is still worth
+announcing, below 1.0.0 as above it: the release notes are where that goes —
+written by hand, above the [generated
 block](#whether-a-commit-is-a-release-is-a-function-not-a-step), which is
 spliced in rather than appended and so leaves what somebody wrote alone.
 
-The next release is where this first bites. `init` is on `main` and unreleased,
-and [the CLI contract requires the release that first carries it to be
-1.0.0](docs/cli/SPEC.md#the-subcommand-is-the-first-change-under-this-rule-and-it-breaks-it).
-
-That release is also when [the companion module's `v0`
-default](#the-default-image-tag-is-the-moving-major-tag) stops picking anything
-up: `v0` receives no release after the last `0.y.z`, and the argument that the
-default cannot go stale holds within a major and not across one. What to do
-about it — move the default to `v1`, or keep a moving default at all — is a
-decision for the module and not one this section makes; what this section says
-is that 1.0.0 is when it has to be made rather than noticed.
+`init` is the case that shows it. It broke the CLI's command set, and [every tag
+from `v0.0.0` on carries
+it](docs/cli/SPEC.md#the-subcommand-is-the-first-change-to-break-a-covered-thing),
+which the policy permits.
 
 ### The version a release publishes is the version it was cut from
 
@@ -702,10 +702,12 @@ to be settled before it could be written, because the answer is a default value
 in a constructor, and a default in a module directory that is never renamed is
 public API from the first release.
 
-The module **is** an interface of its own — it mirrors the CLI, and a function
-name or an argument on it is public API for as long as the published ref exists
-(#253, and [the stance](#the-module-mirrors-the-cli-and-the-check-that-holds-it-to-it)
-below). It gets no `SPEC.md` all the same, and not because there would be
+The module **is** an interface of its own — it mirrors the CLI, and a function's
+name, arguments, defaults and return type are public API (#253, and [the
+stance](#the-module-mirrors-the-cli-and-the-check-that-holds-it-to-it) below).
+Below 1.0.0 [any release may change
+them](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing),
+as it may anything the two contracts cover (#398). It gets no `SPEC.md` all the same, and not because there would be
 nothing to specify: everything there would be to specify is specified already.
 What a flag means is [`docs/cli/SPEC.md`](docs/cli/SPEC.md)'s, what the image
 promises is [the base-image contract](docs/container/SPEC.md)'s, and what a
@@ -868,13 +870,16 @@ are from the parser that decides them.
 
 Until #253 the module argued the opposite, and argued it well. It curated
 deliberately: two functions, an escape hatch, and the reasoning that **a module
-argument is public API for as long as the published ref exists** — the
-[directory name is the public
+argument is public API** — the [directory name is the public
 ref](#the-directory-name-is-the-public-ref-so-it-is-chosen-once) — so a surface
 mapped one-to-one onto `docs/cli/SPEC.md`'s flag table makes every change to
 that table a change to this module's. That cost is real, and mirroring **pays**
 it rather than avoids it: adding a flag to cpybkc now ordinarily means adding an
-argument here that can never be removed.
+argument here, and an argument here is public API like the flag it carries.
+Below 1.0.0 [any release may change
+one](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398), so the cost is a change announced in a release's notes rather than an
+argument kept forever; from 1.0.0 it is held for a major version.
 
 What decided it the other way is what the alternative cost. A curated surface
 and a forgotten one read identically from outside, so a caller could not tell
@@ -1466,16 +1471,16 @@ step that could be forgotten. A caller who pins nothing picks up every fix in
 the major version without editing anything — which is what a moving tag is for,
 and what the container contract already recommends to a derived Dockerfile.
 
-**Within a major**, and that bound is now dated rather than theoretical. A break
-in either contract takes [a new major
-version](docs/container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
-and [below 1.0.0 the release that is
-one](docs/container/SPEC.md#below-100-the-rule-produces-100) is 1.0.0 — so `v0`
-stops receiving releases at 1.0.0 and this default stops picking fixes up on the
-same day. It does not go stale in the sense the paragraph above rules out (no
-constant to forget, no release step to miss); it goes stale by the image moving
-on without it, which is [a decision for that
-release](#which-number-a-breaking-change-takes) rather than a bug to fix now.
+**What it follows is releases, not compatibility.** Below 1.0.0 [any release
+may break a covered
+thing](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+in either contract (#398), and `v0` moves onto that release like any other — so
+a caller who pins nothing picks up the breaks as well as the fixes, and the
+release notes are where they learn which they got. A caller who needs the CLI
+held still names a full version tag, and only a digest pins the bytes. The
+default does not go stale in the sense the paragraph above rules out (no
+constant to forget, no release step to miss); what a moving default buys is
+currency, and below 1.0.0 currency is all any tag but a full version promises.
 
 ### What pinning the module ref buys, and what it does not
 
@@ -1487,24 +1492,38 @@ that tag names. Which image that source pulls is decided when it runs, by the
 module ref therefore buys a module that behaves the same way every time, and
 says nothing about the bytes of the CLI it drives.
 
-What the two do agree on is the major version, and that is not an accident: a
-module published at a `v0.x.y` ref defaults to the image's `v0`. Pinning the ref
-pins which major of the image you get, and that is exactly the range over which
-the [compatibility
-guarantees](docs/container/SPEC.md#compatibility-guarantees) hold. Anything
-narrower than a major is the caller's explicit act — `v0.3.1` names one release,
-and a digest names the bytes.
+What the two do agree on is the major version: a module published at a
+`v0.x.y` ref defaults to the image's `v0`. Pinning the ref pins which major of
+the image you get, and below 1.0.0 that buys less than it sounds like. `v0`
+follows releases that [may break covered
+things](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398), so a pinned ref driving the default can meet an image that broke the
+command line it composes; the [compatibility
+guarantees](docs/container/SPEC.md#compatibility-guarantees) state what 1.0.0
+will hold within a major, not what a `0.y.z` holds. Anything narrower than a
+major is the caller's explicit act — `v0.3.1` names one release, and a digest
+names the bytes.
 
 ### Skew between the module and the image is supported within a major
 
-A module from one release driving an image from another is a **supported
-combination** for as long as both are inside one major version of the image, and
-what bounds it is the container contract's compatibility guarantees rather than
-anything the module promises on its own. Across a major version it is not
-supported, and the default cannot produce it: `v0` does not cross into `v1`.
+Below 1.0.0 **only one release's module and image are a tested pair**: the
+module at a release's ref, driving the image published under that release's full
+version tag. A module from one release driving an image from another is a
+combination nobody tested, and the default produces exactly that, because `v0`
+follows releases that [may break covered
+things](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398) — a later image can drop a flag the module still passes. A caller who
+needs the pair held passes the module's own release as `--version`.
+
+From 1.0.0, a module from one release driving an image from another is a
+**supported combination** for as long as both are inside one major version of the
+image, and what bounds it is the container contract's compatibility guarantees
+rather than anything the module promises on its own. Across a major version it is
+not supported, and the default cannot produce it: a major tag does not cross into
+the next.
 
 The bound is narrower than the whole contract, which is what makes it worth
-leaning on. The module drives the image through four things, and all four are in
+leaning on once it binds. The module drives the image through four things, and all four are in
 the covered table: the plugin directory it copies a generator into, the
 entrypoint it passes arguments to, the user that has to be able to execute what
 was copied, and the platform set. Everything else it reads off the container
@@ -1559,8 +1578,8 @@ carries it (#61), and a change to the default is a change to both:
 // Version is the tag of the published cpybkc image to run.
 //
 // It defaults to the moving major tag "v0", which follows every release in
-// that major version: a caller who passes nothing keeps up with fixes and
-// stays inside the base-image contract's compatibility guarantees. Escalate
+// that major version: a caller who passes nothing keeps up with every
+// release, and below 1.0.0 any release may break a covered thing. Escalate
 // deliberately — "v0" follows releases, "v0.3.1" pins one release, and only a
 // digest pins the bytes. A digest is not a tag, so it goes to the container
 // override argument rather than here.

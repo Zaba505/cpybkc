@@ -145,7 +145,7 @@ func (r Record) Check(flags, functions []string) error {
 		if !slices.Contains(flags, flag) {
 			errs = append(errs, fmt.Errorf(
 				"%s records %s as answered by %s and the cpybkc CLI no longer accepts that flag; a module argument "+
-					"is public API for as long as the published module ref exists, so a flag leaving the CLI is a "+
+					"is public API, and below 1.0.0 any release may change one, so a flag leaving the CLI is a "+
 					"decision about the module rather than a line to delete from this table without one",
 				r.Module, flag, recorded[flag]))
 		}

@@ -56,7 +56,15 @@ $ docker pull ghcr.io/zaba505/cpybkc-gen-go:v0
 $ docker pull ghcr.io/zaba505/cpybkc-gen-graph:v0
 ```
 
-So neither needs a Go toolchain to run: a generator is copied out of its image
+cpybkc is below 1.0.0, and any release may break anything — a flag, a path in
+the image, a function on the Dagger module — with no particular version number
+and no deprecation. `v0` follows every release, a breaking one included; pin a
+full version tag such as `v0.0.7`, or a digest, to hold one still. [Below 1.0.0,
+any release may break a covered
+thing](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+has the policy in full.
+
+Neither generator needs a Go toolchain to run: each is copied out of its image
 into one built `FROM` the CLI's, which is the same route a stranger's generator
 takes. [Where this project's own generators are
 published](docs/container/SPEC.md#where-this-projects-own-generators-are-published)
@@ -296,12 +304,12 @@ generator must not need a variable set to do its normal work, precisely so that
 two developers comparing generated output can see the difference between their
 machines.
 
-It still has no `SPEC.md`, and not because there is nothing to specify — it is
-public API, and a function or an argument here lasts as long as the published
-ref does. It is that everything there would be to specify is specified already:
-what a flag means is [the CLI's](docs/cli/SPEC.md), what the image promises is
-[the base-image contract's](docs/container/SPEC.md), and what a generator is
-handed is [the plugin contract's](docs/plugin/SPEC.md). A document here would be
+It still has no `SPEC.md`, and not because there is nothing to specify — a
+function's name, arguments, defaults and return type are public API, and below
+1.0.0 any release may change them. It is that everything there would be to
+specify is specified already: what a flag means is [the CLI's](docs/cli/SPEC.md),
+what the image promises is [the base-image contract's](docs/container/SPEC.md),
+and what a generator is handed is [the plugin contract's](docs/plugin/SPEC.md). A document here would be
 a second reading of those three. What it needs to say beyond them it says in
 `dagger call --help`.
 
