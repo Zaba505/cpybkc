@@ -12,6 +12,7 @@ Each example is a directory. Read the one whose file looks like yours.
 | [`policy/`](policy) | a daily policy administration extract on a fixed-block dataset (`recfm FB`) | eleven record types as eleven `01`-levels in one copybook member, a type code at one offset, three grains of nesting with no register, the width and sparsity a real extract has — 197 fields, 70 of them a field some other record type also declares under its own prefix, and no record carrying more than twenty — and a worked Parquet conversion arguing what one wide sparse table costs to write |
 | [`claim/`](claim) | a healthcare claims extract on a variable-length dataset (`recfm VB`) | one record type whose entries, not whose records, have to be told apart: a `REDEFINES` inside a repeating group discriminated by a `discriminate-variant` with an arm per alternative, an arm shorter than the run it redefines and its slack surviving a round trip per occurrence, and the first `OCCURS DEPENDING ON` in `example/` with the `(copybook-reading (occurs-depending-on odoslide))` it obliges and the variable-length framing that reading requires |
 | [`member/`](member) | a membership extract on a variable-length dataset (`recfm VB`) | the other way a `REDEFINES` inside a repeating group is settled: entries carrying **roles** rather than types, chosen by a `schedule-variant` that names the occurrences each alternative is taken for, because no byte of an entry says which it is — the schedule checked statically so no entry can fail to match at read time, slack belonging to the occurrence the schedule put it in, and the same schedule legal under either `OCCURS DEPENDING ON` reading |
+| [`receivables/`](receivables) | an accounts-receivable transaction extract on a fixed-block dataset (`recfm FB`), from a vendor copybook this repository does not carry | exactly what `cpybkc init` writes: the definitions file it transcribes the copybook into and the scaffold it writes beside it, answered — no copybook anywhere in the project, five records naming one definitions file, and a README walking the vendor-update and migration procedures and the move of the definitions into the layout and back |
 
 Adding one is adding a directory: everything below reads the tree rather than a
 list, so a new example is covered by having been written.
@@ -40,7 +41,8 @@ that, and a shop that can commit its copybooks loses nothing by it. `cpybkc
 init` no longer writes that shape: it transcribes each copybook into a
 [definitions file](../docs/layout/SPEC.md#definitions) beside the layout and has
 the records name those instead (#403), so an adopter whose copybooks cannot be
-committed checks in the definitions files in their place.
+committed checks in the definitions files in their place. `receivables` is that
+shape, and the one example here holding no copybook at all.
 
 A directory per example is also what makes them independent — an example whose
 layout is being reworked does not put every other example's generated tree in
@@ -67,6 +69,17 @@ bytes `--emit-ir` writes for the same inputs — which needs an example whose
 manifest names two, and fails if the tree has stopped holding one. And that the
 one `cpybkc.gen.json` per project, rather than one per generator, is what prunes
 a file a layout no longer describes.
+
+And two that are about one example rather than every one, because the example
+makes a claim the others do not. `receivables/` says it is what `cpybkc init`
+writes over a copybook it does not carry, so `init` is run over that copybook —
+which sits outside this directory, in
+[`testdata/vendor/`](../testdata/vendor/ARTRANS), as a vendor's would — and the
+definitions file it writes is held against the example's byte for byte, and every
+`record` form in the example's layout against the scaffold's. Its README walks
+through moving the definitions between the copybook, the file and a block in the
+layout, and the second assertion carries those moves out and requires `--emit-ir`
+to write the same descriptor after each.
 
 Two things outside this directory have to be told about a new example even so,
 and both fail loudly rather than going uncovered. A generator it names has to

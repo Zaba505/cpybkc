@@ -1,0 +1,75 @@
+000100***************************************************************** ARTR0310
+000200*                                                               * ARTR0310
+000300*   ARTRANS  --  ACCOUNTS RECEIVABLE TRANSACTION EXTRACT        * ARTR0310
+000400*   RELEASE 3.1                                                 * ARTR0310
+000500*                                                               * ARTR0310
+000600*   ONE HEADER, ANY NUMBER OF TRANSACTIONS, ONE TRAILER.        * ARTR0310
+000700*   EVERY RECORD IS 80 BYTES AND CARRIES ITS TYPE IN BYTE 1.    * ARTR0310
+000800*                                                               * ARTR0310
+000900*   A TRANSACTION IS AN INVOICE, A PAYMENT OR AN ADJUSTMENT.    * ARTR0310
+001000*   ITS DETAIL AREA ARD-BODY IS DESCRIBED ONCE PER KIND BY THE  * ARTR0310
+001100*   REDEFINES BELOW IT; ARD-REC-TYPE SAYS WHICH ONE APPLIES.    * ARTR0310
+001200*                                                               * ARTR0310
+001300*   DO NOT MODIFY.  THIS MEMBER IS REPLACED ON EVERY RELEASE.   * ARTR0310
+001400*                                                               * ARTR0310
+001500***************************************************************** ARTR0310
+001600 77  ART-COPYBOOK-RELEASE        PIC X(4) VALUE 'R031'.           ARTR0310
+001700*---------------------------------------------------------------- ARTR0310
+001800*   EXTRACT HEADER                                                ARTR0310
+001900*---------------------------------------------------------------- ARTR0310
+002000 01  ART-HEADER-REC.                                              ARTR0310
+002100     05  ARH-REC-TYPE            PIC X(1).                        ARTR0310
+002200         88  ARH-IS-HEADER       VALUE 'H'.                       ARTR0310
+002300     05  ARH-COMPANY             PIC X(3).                        ARTR0310
+002400     05  ARH-RUN-DATE            PIC 9(8).                        ARTR0310
+002500     05  ARH-CYCLE               PIC X(1).                        ARTR0310
+002600     05  ARH-BATCH-NO            PIC S9(4) COMP SYNC.             ARTR0310
+002700     05  ARH-RELEASE             PIC X(4).                        ARTR0310
+002800     05  FILLER                  PIC X(60) VALUE SPACES.          ARTR0310
+002900*---------------------------------------------------------------- ARTR0310
+003000*   TRANSACTION DETAIL                                            ARTR0310
+003100*---------------------------------------------------------------- ARTR0310
+003200 01  ART-DETAIL-REC.                                              ARTR0310
+003300     05  ARD-REC-TYPE            PIC X(1).                        ARTR0310
+003400         88  ARD-IS-INVOICE      VALUE 'I'.                       ARTR0310
+003500         88  ARD-IS-PAYMENT      VALUE 'P'.                       ARTR0310
+003600         88  ARD-IS-ADJUSTMENT   VALUE 'A'.                       ARTR0310
+003700         88  ARD-IS-TRANSACTION  VALUE 'I' 'P' 'A'.               ARTR0310
+003800     05  ARD-CUSTOMER            PIC X(8).                        ARTR0310
+003900     05  ARD-DOCUMENT            PIC X(10).                       ARTR0310
+004000     05  ARD-POST-DATE           PIC 9(8).                        ARTR0310
+004100     05  ARD-BODY                PIC X(40).                       ARTR0310
+004200     05  ARD-INVOICE             REDEFINES ARD-BODY.              ARTR0310
+004300         10  ARI-DUE-DATE        PIC 9(8).                        ARTR0310
+004400         10  ARI-AMOUNT          PIC S9(9)V99 COMP-3.             ARTR0310
+004500         10  ARI-TERMS           PIC X(4).                        ARTR0310
+004600             88  ARI-NET-30      VALUE 'N030'.                    ARTR0310
+004700             88  ARI-ON-RECEIPT  VALUE 'DOR '.                    ARTR0310
+004800         10  ARI-TAX-AMOUNT      PIC S9(7)V99 COMP-3.             ARTR0310
+004900         10  ARI-PO-NUMBER       PIC X(17).                       ARTR0310
+005000     05  ARD-PAYMENT             REDEFINES ARD-BODY.              ARTR0310
+005100         10  ARP-METHOD          PIC X(2).                        ARTR0310
+005200             88  ARP-BY-CHECK    VALUE 'CK'.                      ARTR0310
+005300             88  ARP-BY-WIRE     VALUE 'WT'.                      ARTR0310
+005400         10  ARP-AMOUNT          PIC S9(9)V99                     ARTR0310
+005500                                 SIGN LEADING SEPARATE.           ARTR0310
+005600         10  ARP-CHECK-NO        PIC X(10).                       ARTR0310
+005700     05  ARD-ADJUSTMENT          REDEFINES ARD-BODY.              ARTR0310
+005800         10  ARA-REASON          PIC X(3).                        ARTR0310
+005900         10  ARA-AMOUNT          PIC S9(9)V99                     ARTR0310
+006000                                 SIGN TRAILING SEPARATE.          ARTR0310
+006100         10  ARA-APPROVER        PIC X(8).                        ARTR0310
+006200         10  ARA-NOTE            PIC X(17).                       ARTR0310
+006300     05  ARD-OPERATOR            PIC X(6).                        ARTR0310
+006400     05  FILLER                  PIC X(7) VALUE SPACES.           ARTR0310
+006500*---------------------------------------------------------------- ARTR0310
+006600*   EXTRACT TRAILER                                               ARTR0310
+006700*---------------------------------------------------------------- ARTR0310
+006800 01  ART-TRAILER-REC.                                             ARTR0310
+006900     05  ATR-REC-TYPE            PIC X(1).                        ARTR0310
+007000         88  ATR-IS-TRAILER      VALUE 'T'.                       ARTR0310
+007100     05  ATR-RECORD-COUNT        PIC 9(7).                        ARTR0310
+007200     05  ATR-NET-TOTAL           PIC S9(11)V99                    ARTR0310
+007300                                 SIGN TRAILING SEPARATE.          ARTR0310
+007400     05  ATR-HASH                PIC S9(9) COMP SYNC.             ARTR0310
+007500     05  FILLER                  PIC X(52) VALUE SPACES.          ARTR0310

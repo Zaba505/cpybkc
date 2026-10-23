@@ -1,0 +1,90 @@
+;; An accounts-receivable transaction extract on a fixed-block dataset: a
+;; header, any number of invoices, payments and adjustments in any order, and a
+;; trailer -- described from a vendor's copybook that is not in this repository.
+;;
+;; That is the whole of what this example is here to show, and README.md beside
+;; this file walks through it. The copybook, ARTRANS, belongs to the vendor and
+;; is replaced on every release; `cpybkc init` transcribed its entries into
+;; ARTRANS.sexpr, and every record below names that file rather than the
+;; copybook. So this project regenerates from what is checked in here, and no
+;; copybook is read, opened or needed to do it.
+;;
+;; Every `record` form below is the one `cpybkc init` wrote, byte for byte. The
+;; rest is what init leaves to the adopter: the encoding, the framing, what tells
+;; one record type from another, and the order they come in. init's scaffold
+;; asked each of those as a commented question; this file is the answers.
+
+;; The encoding profile. All four axes, always, with no default for any. There
+;; is no floating-point item in ARTRANS, and the axis is stated anyway: it is a
+;; property of the file and not of one copybook, and a copybook that gains a
+;; COMP-2 on the vendor's next release would otherwise be read under a default
+;; nobody chose.
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format ieee-754))
+
+;; The dataset. Fixed-block, eighty bytes, which is what the vendor's header
+;; comment says and what every 01-level in ARTRANS works out to -- docs/layout/
+;; SPEC.md, "`lrecl` and `blksize` describe the dataset, not the stream".
+(framing
+  (recfm FB)
+  (lrecl 80))
+
+;; The header and the trailer, one 01-level each, as init wrote them.
+(record ART-HEADER-REC (definitions "ARTRANS.sexpr" ART-HEADER-REC))
+(record ART-TRAILER-REC (definitions "ARTRANS.sexpr" ART-TRAILER-REC))
+
+;; The transactions. ART-DETAIL-REC carries one REDEFINES run, ARD-BODY, and
+;; three descriptions over it, so it resolves to four record types and init
+;; wrote all four: a copybook cannot say which of them a file holds. Three of
+;; them are here. The fourth, ART-DETAIL-REC-ARD-BODY, describes the detail area
+;; as forty bytes of text, which is how the vendor declares the storage the
+;; three share and not a transaction anybody writes -- so this layout leaves it
+;; out, and nothing in ARTRANS.sexpr changes to do that.
+;;
+;; One definitions file serves five records, because three of them are one
+;; 01-level read three ways. Which way is the `alternative` child, and it is the
+;; only thing that tells them apart.
+(record ART-DETAIL-REC-ARD-INVOICE
+  (definitions "ARTRANS.sexpr" ART-DETAIL-REC)
+  (alternative (item ART-DETAIL-REC-ARD-INVOICE ARD-INVOICE)))
+(record ART-DETAIL-REC-ARD-PAYMENT
+  (definitions "ARTRANS.sexpr" ART-DETAIL-REC)
+  (alternative (item ART-DETAIL-REC-ARD-PAYMENT ARD-PAYMENT)))
+(record ART-DETAIL-REC-ARD-ADJUSTMENT
+  (definitions "ARTRANS.sexpr" ART-DETAIL-REC)
+  (alternative (item ART-DETAIL-REC-ARD-ADJUSTMENT ARD-ADJUSTMENT)))
+
+;; The three transaction records carry ART-DETAIL-REC's name between them until
+;; something says otherwise, and cpybkc-gen-go refuses the collision rather than
+;; munging it. The record names above are init's, long and mechanical, and they
+;; are kept because they say which alternative each record selects; the names
+;; the generated code carries are these.
+(rename ART-DETAIL-REC-ARD-INVOICE "ART-INVOICE-REC")
+(rename ART-DETAIL-REC-ARD-PAYMENT "ART-PAYMENT-REC")
+(rename ART-DETAIL-REC-ARD-ADJUSTMENT "ART-ADJUSTMENT-REC")
+
+;; What selects each record type: byte one, for every one of them. The vendor
+;; spells the codes as 88-levels -- ARH-IS-HEADER, ARD-IS-INVOICE and the rest --
+;; and those are transcribed into ARTRANS.sexpr with everything else, but a
+;; condition-name is the copybook's and a discriminator is the layout's, so the
+;; literal is written out here.
+(discriminate ART-HEADER-REC (equals (item ART-HEADER-REC ARH-REC-TYPE) "H"))
+(discriminate ART-DETAIL-REC-ARD-INVOICE
+  (equals (item ART-DETAIL-REC-ARD-INVOICE ARD-REC-TYPE) "I"))
+(discriminate ART-DETAIL-REC-ARD-PAYMENT
+  (equals (item ART-DETAIL-REC-ARD-PAYMENT ARD-REC-TYPE) "P"))
+(discriminate ART-DETAIL-REC-ARD-ADJUSTMENT
+  (equals (item ART-DETAIL-REC-ARD-ADJUSTMENT ARD-REC-TYPE) "A"))
+(discriminate ART-TRAILER-REC (equals (item ART-TRAILER-REC ATR-REC-TYPE) "T"))
+
+;; The order they may appear in: one header, the transactions in whatever order
+;; the day produced them, and one trailer.
+(sequence
+  (seq ART-HEADER-REC
+       (* (alt ART-DETAIL-REC-ARD-INVOICE
+               ART-DETAIL-REC-ARD-PAYMENT
+               ART-DETAIL-REC-ARD-ADJUSTMENT))
+       ART-TRAILER-REC))

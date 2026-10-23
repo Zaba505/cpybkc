@@ -22,6 +22,7 @@ import (
 	"github.com/Zaba505/cpybkc/internal/definitions"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/emit"
+	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/manifest"
 	"github.com/Zaba505/cpybkc/internal/project"
 )
@@ -36,6 +37,11 @@ const trackedCorpusEntries = 59
 // writes one. A `copybook-reading` form is not one: its tag is followed by a
 // form, never by text.
 var copybookSource = regexp.MustCompile(`\(copybook "([^"]*)"`)
+
+// definitionsFileSource is a record's `definitions` source naming a file, with
+// its path, as a layout writes one. A source naming a block is not one: a
+// block's name is a symbol, never text.
+var definitionsFileSource = regexp.MustCompile(`\(definitions "([^"]*)"`)
 
 // TestADefinitionsFileResolvesToTheCopybooksDescriptor is docs/layout/SPEC.md's
 // "Three sources, one descriptor" for the first two of them: a record bound to
@@ -306,7 +312,19 @@ func convert(t *testing.T, dir, layout string) {
 	}
 
 	if len(converted) == 0 {
-		t.Fatalf("the layout names no copybook to convert:\n%s", src)
+		// A layout whose records already name definitions files and no
+		// copybook — example/receivables, which ships no copybook at all — is
+		// this conversion's result already, and there is nothing to convert.
+		// That example's own equality with its copybook is held by
+		// example/regenerate_test.go, which names the copybook it was
+		// transcribed from; what is refused here is a layout naming neither.
+		if !definitionsFileSource.Match(src) {
+			t.Fatalf("the layout names no copybook to convert:\n%s", src)
+		}
+
+		t.Logf("the layout names definitions files and no copybook, so it is converted already")
+
+		return
 	}
 
 	rewritten := copybookSource.ReplaceAllString(string(src), `(definitions "$1.sexpr"`)
@@ -317,12 +335,17 @@ func convert(t *testing.T, dir, layout string) {
 	write(t, path, rewritten)
 }
 
-// inline converts every copybook the layout at dir/layout names into a
-// `definitions-block` holding its entries, written by #401's writer at block
-// depth and added to the layout, and rewrites each record's `copybook` source
-// to name the block. Each copybook is converted once, into one block, however
-// many records name it — which is the "several records naming one block"
-// docs/layout/SPEC.md's "What a record may reach" allows.
+// inline converts every copybook and every definitions file the layout at
+// dir/layout names into a `definitions-block` holding its entries, written by
+// #401's writer at block depth and added to the layout, and rewrites each
+// record's source to name the block. Each copybook or file is converted once,
+// into one block, however many records name it — which is the "several records
+// naming one block" docs/layout/SPEC.md's "What a record may reach" allows.
+//
+// A definitions file is converted as well as a copybook so that an example
+// naming files rather than copybooks — example/receivables, which ships none —
+// is inlined like every other, which is docs/cli/SPEC.md's "file to block"
+// move.
 func inline(t *testing.T, dir, layout string) {
 	t.Helper()
 
@@ -337,34 +360,50 @@ func inline(t *testing.T, dir, layout string) {
 
 	var added strings.Builder
 
-	for _, match := range copybookSource.FindAllStringSubmatch(string(src), -1) {
-		named := match[1]
-		if _, already := blocks[named]; already {
-			continue
+	// A source is keyed by its kind as well as its path, so that a copybook
+	// and the definitions file converted from it, both named in one layout, are
+	// two blocks rather than one.
+	for _, source := range []struct {
+		kind    string
+		pattern *regexp.Regexp
+		read    func(*testing.T, string) []*cobol.DataDescriptionEntry
+	}{
+		{kind: "copybook", pattern: copybookSource, read: parseCopybook},
+		{kind: "definitions", pattern: definitionsFileSource, read: readDefinitionsFile},
+	} {
+		for _, match := range source.pattern.FindAllStringSubmatch(string(src), -1) {
+			key := source.kind + " " + match[1]
+			if _, already := blocks[key]; already {
+				continue
+			}
+
+			name := fmt.Sprintf("CONVERTED-%d", len(blocks)+1)
+			blocks[key] = name
+
+			entries := source.read(t, filepath.Join(filepath.Dir(path), filepath.FromSlash(match[1])))
+
+			var body bytes.Buffer
+			if err := definitions.Write(&body, entries, definitions.BlockDepth); err != nil {
+				t.Fatalf("converting %s: %v", match[1], err)
+			}
+
+			fmt.Fprintf(&added, "\n(definitions-block %s\n%s)\n", name, strings.TrimSuffix(body.String(), "\n"))
 		}
-
-		name := fmt.Sprintf("CONVERTED-%d", len(blocks)+1)
-		blocks[named] = name
-
-		entries := parseCopybook(t, filepath.Join(filepath.Dir(path), filepath.FromSlash(named)))
-
-		var body bytes.Buffer
-		if err := definitions.Write(&body, entries, definitions.BlockDepth); err != nil {
-			t.Fatalf("converting %s: %v", named, err)
-		}
-
-		fmt.Fprintf(&added, "\n(definitions-block %s\n%s)\n", name, strings.TrimSuffix(body.String(), "\n"))
 	}
 
 	if len(blocks) == 0 {
-		t.Fatalf("the layout names no copybook to convert:\n%s", src)
+		t.Fatalf("the layout names no copybook and no definitions file to convert:\n%s", src)
 	}
 
 	rewritten := copybookSource.ReplaceAllStringFunc(string(src), func(source string) string {
-		return "(definitions " + blocks[copybookSource.FindStringSubmatch(source)[1]]
+		return "(definitions " + blocks["copybook "+copybookSource.FindStringSubmatch(source)[1]]
 	})
-	if strings.Contains(rewritten, `(copybook "`) {
-		t.Fatalf("a record is still bound to a copybook:\n%s", rewritten)
+	rewritten = definitionsFileSource.ReplaceAllStringFunc(rewritten, func(source string) string {
+		return "(definitions " + blocks["definitions "+definitionsFileSource.FindStringSubmatch(source)[1]]
+	})
+
+	if strings.Contains(rewritten, `(copybook "`) || definitionsFileSource.MatchString(rewritten) {
+		t.Fatalf("a record is still bound to a copybook or a definitions file:\n%s", rewritten)
 	}
 
 	write(t, path, rewritten+added.String())
@@ -386,6 +425,34 @@ func parseCopybook(t *testing.T, path string) []*cobol.DataDescriptionEntry {
 	}
 
 	return file.Fragment.Entries
+}
+
+// readDefinitionsFile reads a definitions file as a run reads one: parsed as a
+// layout file, its body read and judged.
+func readDefinitionsFile(t *testing.T, path string) []*cobol.DataDescriptionEntry {
+	t.Helper()
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	file, err := layout.Parse(filepath.Base(path), bytes.NewReader(src))
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+
+	read, err := definitions.Read(definitions.FileBody(file))
+	if err != nil {
+		t.Fatalf("reading the entries of %s: %v", path, err)
+	}
+
+	entries, err := definitions.Judge(read)
+	if err != nil {
+		t.Fatalf("judging the entries of %s: %v", path, err)
+	}
+
+	return entries
 }
 
 // copyProject copies the layouts, copybooks and manifest under dir into a
