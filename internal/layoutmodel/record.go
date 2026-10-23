@@ -349,16 +349,14 @@ func (r *recordReader) binding(record *Record, child layout.Form) bool {
 		return false
 	}
 
-	item, ok := child.Elements[1].(layout.Symbol)
+	item, itemPos, ok := r.topLevelName(child)
 	if !ok {
-		r.Fail(&CopybookFormError{Pos: child.Elements[1].Position(), Found: describe(child.Elements[1])})
-
 		return false
 	}
 
 	record.Kind = CopybookSource
 	record.Path, record.PathPos = path.Value, path.Pos
-	record.Item, record.ItemPos = item.Value, item.Pos
+	record.Item, record.ItemPos = item, itemPos
 
 	// A path of no characters names no file, and the diagnostic the CLI would
 	// otherwise raise about it would say that a copybook at "" could not be
@@ -370,6 +368,35 @@ func (r *recordReader) binding(record *Record, child layout.Form) bool {
 	}
 
 	return true
+}
+
+// topLevelName reads a source's second argument, the top-level item it binds
+// the record to, which is a COBOL name and so a data-name whichever source it
+// is: a symbol, or `(word "<spelling>")` where the spelling would not read as
+// one (#404). Anything else is the source's own form error.
+func (r *recordReader) topLevelName(child layout.Form) (string, layout.Pos, bool) {
+	node := child.Elements[1]
+
+	name, pos, ok, err := dataName(node)
+	if err != nil {
+		r.Fail(err)
+
+		return "", layout.Pos{}, false
+	}
+
+	if !ok {
+		found := describe(node)
+
+		if child.Tag == childCopybook {
+			r.Fail(&CopybookFormError{Pos: node.Position(), Found: found})
+		} else {
+			r.Fail(&DefinitionsFormError{Pos: node.Position(), Found: found})
+		}
+
+		return "", layout.Pos{}, false
+	}
+
+	return name, pos, true
 }
 
 // definitions reads a `definitions` source: a definitions file by its path, or
@@ -385,14 +412,12 @@ func (r *recordReader) definitions(record *Record, child layout.Form) bool {
 		return false
 	}
 
-	item, ok := child.Elements[1].(layout.Symbol)
+	item, itemPos, ok := r.topLevelName(child)
 	if !ok {
-		r.Fail(&DefinitionsFormError{Pos: child.Elements[1].Position(), Found: describe(child.Elements[1])})
-
 		return false
 	}
 
-	record.Item, record.ItemPos = item.Value, item.Pos
+	record.Item, record.ItemPos = item, itemPos
 
 	switch origin := child.Elements[0].(type) {
 	case layout.Text:

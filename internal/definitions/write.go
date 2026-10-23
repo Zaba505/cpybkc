@@ -359,11 +359,17 @@ func form(tag string, arguments ...string) string {
 	return "(" + tag + " " + strings.Join(arguments, " ") + ")"
 }
 
+// Spell is a COBOL word as a data-name is written, wherever one is: the bare
+// symbol, or `(word "<spelling>")` where `sexpr-go` would read the spelling as
+// something other than that symbol. A layout's diagnostics quote the names its
+// item positions hold through it, so that what they quote is what was written.
+func Spell(spelling string) string { return word(spelling) }
+
 // word is a COBOL word as a data-name: the bare symbol, or `(word "<spelling>")`
 // where `sexpr-go` would read the spelling as something other than that symbol
 // — the reader's own test, so that what is written is what it reads.
 func word(spelling string) string {
-	if readsAsSymbol(spelling) {
+	if ReadsAsSymbol(spelling) {
 		return spelling
 	}
 

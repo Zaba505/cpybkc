@@ -50,8 +50,19 @@ func (r ItemRef) Name() string {
 
 // String renders the reference the way a layout writes it, which is what a
 // diagnostic naming an item quotes.
+//
+// A name on the path is written as the layout has to write it: bare where it
+// reads as a symbol, and `(word "<spelling>")` where it would not, so `nil` is
+// quoted as the reference an adopter wrote rather than one they could not have.
 func (r ItemRef) String() string {
-	return "(item " + strings.Join(append([]string{r.Record}, r.Path...), " ") + ")"
+	names := make([]string, 0, len(r.Path)+1)
+	names = append(names, r.Record)
+
+	for _, name := range r.Path {
+		names = append(names, spell(name))
+	}
+
+	return "(item " + strings.Join(names, " ") + ")"
 }
 
 // identity is what makes two references the same item.
@@ -87,21 +98,27 @@ func readItemRef(node layout.Node) (ItemRef, error) {
 		return ItemRef{}, &ItemReferenceError{Pos: form.Pos, Found: found}
 	}
 
-	ref := ItemRef{Pos: form.Pos}
+	// The record name is the layout's own identifier and is always a symbol.
+	record, ok := form.Elements[0].(layout.Symbol)
+	if !ok {
+		return ItemRef{}, &ItemReferenceError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])}
+	}
 
-	for i, element := range form.Elements {
-		symbol, ok := element.(layout.Symbol)
+	ref := ItemRef{Pos: form.Pos, Record: record.Value}
+
+	// Every name after it is a COBOL name, and so a data-name: a symbol, or
+	// `(word "<spelling>")` where the spelling would not read as one (#404).
+	for _, element := range form.Elements[1:] {
+		name, _, ok, err := dataName(element)
+		if err != nil {
+			return ItemRef{}, err
+		}
+
 		if !ok {
 			return ItemRef{}, &ItemReferenceError{Pos: element.Position(), Found: describe(element)}
 		}
 
-		if i == 0 {
-			ref.Record = symbol.Value
-
-			continue
-		}
-
-		ref.Path = append(ref.Path, symbol.Value)
+		ref.Path = append(ref.Path, name)
 	}
 
 	return ref, nil

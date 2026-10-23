@@ -109,10 +109,12 @@
 
 ;; (item <record-name> <name> ...) — the record, then the path from its
 ;; top-level item down to the item named, one name per level, outermost first.
-;; The top-level item's own name is not repeated.
+;; The top-level item's own name is not repeated. Each name in the path is a
+;; COBOL name, so it is a `data-name`; the record name is the layout's own and
+;; stays a symbol.
 (form item (in item-ref)
   (argument record record-name exactly-one)
-  (argument name symbol one-or-more))
+  (argument name data-name one-or-more))
 
 ;; (bytes "F0F1") — hexadecimal digits in pairs. That the text is hexadecimal,
 ;; and that a byte string of no bytes is a diagnostic, are the reader's.
@@ -209,7 +211,7 @@
 
 (form copybook (in record-source)
   (argument path text exactly-one)
-  (argument top-level-name symbol exactly-one))
+  (argument top-level-name data-name exactly-one))
 
 ;; (definitions "<path>" <top-level-name>) names a definitions file, relative to
 ;; the layout; (definitions <block-name> <top-level-name>) names a
@@ -221,7 +223,7 @@
 ;; a source is one step from the layout and never a chain.
 (form definitions (in record-source)
   (argument origin definitions-origin exactly-one)
-  (argument top-level-name symbol exactly-one))
+  (argument top-level-name data-name exactly-one))
 
 (sort definitions-origin text block-name)
 
@@ -280,8 +282,11 @@
 
 ;; A COBOL word: a symbol in the case the copybook wrote it, or `(word "...")`
 ;; where `sexpr-go` would read the spelling as something other than that symbol
-;; — today only `nil`. That a `word` is needless around a spelling that reads as
-;; a symbol cannot be said here, and is the entry reader's.
+;; — today only `nil`. It is the sort of every layout position that names a
+;; COBOL item too: an item reference's path, a source's top-level name, an
+;; arm's alternative and a `take-alternative`'s. That a `word` is needless
+;; around a spelling that reads as a symbol cannot be said here, and is the
+;; entry reader's and the layout reader's.
 (sort data-name symbol (form word))
 
 (form word (in data-name)
@@ -415,7 +420,7 @@
   (argument arm variant-arm two-or-more))
 
 (form arm (in variant-arm)
-  (argument alternative symbol exactly-one)
+  (argument alternative data-name exactly-one)
   (argument predicate predicate exactly-one))
 
 ;; A redefine inside a repeating group whose entries carry roles rather than
@@ -437,7 +442,7 @@
 ;; sort and a `when`'s value in another: there is no predicate on it, because a
 ;; scheduled arm tests nothing.
 (form arm (in scheduled-arm)
-  (argument alternative symbol exactly-one)
+  (argument alternative data-name exactly-one)
   (argument occurrence positive-number one-or-more))
 
 ;; A redefine inside a repeating group every occurrence of which takes one
@@ -455,7 +460,7 @@
 ;; reader's, as it is for the two above.
 (form take-alternative (in top-level) (arity zero-or-more) (layer discrimination)
   (argument redefine item-ref exactly-one)
-  (argument alternative symbol exactly-one))
+  (argument alternative data-name exactly-one))
 
 ;;; Sequencing ----------------------------------------------------------------
 
