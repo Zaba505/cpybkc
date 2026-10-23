@@ -56,10 +56,11 @@
 //
 // It used to carry an `inputs` list, at the top level and again on each
 // generator entry, and #157 removed both. The reason is that neither could
-// affect anything: a run's descriptor is assembled from the layout and the
-// copybooks that layout's `record` forms name (docs/cli/SPEC.md, "Which
-// descriptor is emitted"), and a generator is invoked with a descriptor, an
-// output directory and its options and never with a copybook path at all
+// affect anything. A run's descriptor is assembled from a layout and the
+// record descriptions it holds or names (docs/cli/SPEC.md, "Which descriptor
+// is emitted"): the copybooks and definitions files its `record` forms name,
+// and the blocks it holds. A generator is invoked with a descriptor, an output
+// directory and its options, and never with a copybook path at all
 // (docs/plugin/SPEC.md, "Invocation"). A per-generator list therefore promised
 // something the pipeline cannot do — two generators of one run reading two
 // different sets of copybooks, and so being handed two different descriptors —

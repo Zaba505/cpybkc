@@ -801,38 +801,212 @@ and an adopter who guesses gives up a diagnostic without being told.
 
 ```
 (record <name>
-  (copybook "<path>" <top-level-name>)
+  <source>
   (alternative <item-ref>) …)
 ```
 
 | Argument or child | Arity | Value |
 |---|---|---|
 | `<name>` | 1 | a symbol, unique among the layout's records |
-| `copybook` | 1 | a path, and the name of the item in it this record is — a [data-name](#the-leaves-a-level-a-data-name-and-literal-text) |
+| `<source>` | 1 | where the record's description is held, and the name of the item in it this record is; see [A record's source](#a-records-source-a-copybook-a-definitions-file-or-a-block) |
 | `alternative` | 0..n | one alternative of a `REDEFINES` outside a repeating group; see [Which alternative a record is](#which-alternative-a-record-is) |
 
 A record name is the layout's own identifier for a record type. It **MAY** be
-the same symbol as the copybook item's name and does not have to be, and nothing
-outside the layout ever sees it as an identity — the IR carries the copybook's
-name and any [rename](#a-rename-substitutes-a-name-and-keeps-the-original)
-beside it, never this one.
+the same symbol as the name of the top-level item it binds and does not have to
+be, and nothing outside the layout ever sees it as an identity — the IR carries
+the top-level item's name, as the record's description spells it, and any
+[rename](#a-rename-substitutes-a-name-and-keeps-the-original) beside it, never
+this one.
 
-The `copybook` child names a path and a top-level item within it, and both are
-required. The top-level item is the copybook's `01`-level of that name. A
-copybook holding exactly one `01`-level does not make the second argument
-redundant: a copybook that gains a second one later would otherwise change what
-every layout naming it means, silently and in a file none of those layouts is
-stored beside.
+### A record's source: a copybook, a definitions file or a block
 
-How the path resolves — which directories are searched, what an include path is
+A record's **description** is the run of entries its top-level item is declared
+in. Every record has exactly one, and the record's source says where it is held.
+There are two source forms, and the second has two spellings:
+
+```
+(copybook "<path>" <top-level-name>)
+(definitions "<path>" <top-level-name>)
+(definitions <block-name> <top-level-name>)
+```
+
+- **`copybook`** names a copybook by its path, relative to the layout, exactly
+  as it always has.
+- **`definitions` with text** names a [definitions file](#definitions) by its
+  path, relative to the layout:
+
+  ```
+  (record DEBIT-POSTING
+    (definitions "posting.cpy.sexpr" POSTING-RECORD)
+    (alternative (item DEBIT-POSTING PST-DEBIT)))
+  ```
+
+- **`definitions` with a symbol** names a
+  [`definitions-block`](#the-definitions-block-form) in this layout, by the
+  block's name:
+
+  ```
+  (record LEDGER-TRAILER (definitions TRAILER LEDGER-TRAILER))
+  ```
+
+Which of the two `definitions` means is decided by the argument's kind and by
+nothing else: text is a path, a symbol is a block name. A path is never a
+symbol and a block name is never text, so neither spelling has a second
+reading.
+
+The source is written where the `copybook` child always went. `copybook` is
+unchanged — its spelling, its arguments and everything it resolves to — so a
+layout written before definitions existed says exactly what it said. Each
+record has **exactly one** source, and one layout **MAY** mix copybook, file
+and block, record by record, as [Definitions held three
+ways](#appendix-definitions-held-three-ways) does.
+
+**The top-level name is required for every source**, and it is spelled as
+`copybook`'s is: a [data-name](#the-leaves-a-level-a-data-name-and-literal-text),
+naming the `01`-level of that name in the record's description. A description
+holding exactly one `01`-level does not make it redundant.
+
+Reason: a description that later gains a second `01`-level would otherwise
+change what every record naming it means, silently — in a copybook or a
+definitions file none of those layouts is stored beside, and in a block as
+much as anywhere, since a block is edited by whoever edits the layout and an
+added `01` beside the one a record meant is the same edit there. And a layout
+has one spelling for each statement it makes ([What this document
+delegates](#what-this-document-delegates)): a record naming its item in one
+source and leaving it implied in another would be two spellings of one
+binding.
+
+How a path resolves — which directories are searched, what an include path is
 — is a CLI concern and not a property of the layout; see [Out of
-Scope](#out-of-scope). What the copybook may contain is `cobol-go`'s and is not
-restated here.
+Scope](#out-of-scope). What a copybook may contain is `cobol-go`'s and is not
+restated here, and what a definitions file or a block may contain is
+[Definitions](#definitions)'.
+
+### The schema shape of a source
+
+The [published schema](#the-published-schema) declares the source as a sort of
+two forms, and `record` takes it as an argument rather than as a child:
+
+```
+(sort record-source (form copybook) (form definitions))
+```
+
+- `record` takes `(argument source record-source exactly-one)` in place of
+  `(child copybook exactly-one)`;
+- `definitions`' first argument is of `(sort definitions-origin text
+  block-name)`, with `(reference block-name definitions-block name)`, so a
+  symbol there **MUST** name a block the layout defines;
+- its second argument is a data-name, as `copybook`'s is.
+
+This section leaves [The top-level forms](#the-top-level-forms) alone: a
+source is written inside a `record`, never at the top level.
+[The version paragraph](#the-version-is-in-the-file-and-it-moves-with-the-format)
+lists `definitions` beside `schedule-variant` and `take-alternative`, so the
+schema stays at version 1. The declarations land with #402; no schema file
+changes here.
+
+### What a record may reach
+
+Five rules bound what a source may name, and together they are why a run never
+has to follow a chain of files.
+
+- **Only a definitions file is imported, and only by a record.** There is no
+  top-level import form, and no form but `definitions` names a file of entries.
+
+  Reason: each record states its own source where it states its top-level item,
+  so the one place a reader looks to learn what a record is describes it whole.
+  A layout-wide import would put a second statement about a record's
+  description at a distance from the record, and a name the record used would
+  then mean whatever the imports in scope declared (the owner's decision on
+  discussion #394).
+
+- **A definitions file names no file and holds no block. A block names no file
+  and holds no block.** Each is an [entry body](#an-entry-body-and-the-two-places-it-is-held)
+  and nothing else.
+
+  Reason: with nothing inside a description able to name another, there are no
+  transitive imports, so there are no cycles to detect, no order to read files
+  in, and no question of whether two spellings reached along two chains name
+  one file. A run reads the layout and then, one step away, the descriptions its
+  records name, and stops.
+
+- **Several records naming one path read it once. Several records naming one
+  block have it judged once.**
+
+  Reason: a description is one file or one form, and what is in it is one
+  statement however many records bind it. Reading it once is what makes every
+  fault inside it [reported once](#who-reports-a-fault-in-an-entry-body), at its
+  span, rather than once per record that happened to name it.
+
+- **Block names are unique within the layout, and are a name space of their
+  own.** A block **MAY** share its symbol with a record or with an item.
+
+  Reason: no position admits both a block name and a record name — a block name
+  is admitted only as `definitions`' first argument, and nothing else is admitted
+  there — so the two can never be read as each other, and making an adopter
+  rename a block `TRAILER` because a record is also called `TRAILER` would buy
+  nothing.
+
+- **Block names are scoped to the one layout.** A block **MAY** come before or
+  after the records that name it. Definitions shared between layouts live in a
+  file.
+
+  Reason: a layout is a set of forms, and no rule in it depends on the order they
+  are written in, so a reference to a block ahead of it is as good as one behind
+  it. A block is a form of the layout that holds it, so another layout has no way
+  to name it, and the format offers none: a file is the shared spelling, with a
+  path both layouts can state.
+
+Two spellings follow from those rules and are refused. **Record-local entries**
+— `entry` forms written inside a `record`, or a `definitions-block` written
+there — are not a source: a description is held in a file or a block and named,
+never written in place, so a record has one shape whichever source it uses.
+And **a block reached from another layout** is not a reference this format can
+write: a symbol in `definitions` names a block in this layout, or it names
+nothing and is a fault.
+
+### A block's name, and a block no record names
+
+Each block fault is reported at its span.
+
+- **A block name defined twice** is the layout reader's diagnostic, with two
+  spans: at the second definition, and at the first. Either block is a good
+  definition on its own, and what the adopter has to decide is which of the two
+  the name was meant for.
+- **A record naming a block the layout does not define** is the schema's
+  reference fault, at the symbol. It lists the blocks the layout does define, as
+  every reference fault lists its referents (#402).
+- **A block no record names** is an error at its name. A block exists to be a
+  record's description, and one nothing binds is a description of a record the
+  layout does not have — which is more often a misspelled `definitions` argument
+  than a block kept for later, and an error says so where a warning would scroll
+  past (the owner's decision on discussion #394). The block's entries are still
+  read, checked, judged and built in that run, so every fault inside it is
+  reported beside this one rather than after it is first named.
+
+### Three sources, one descriptor
+
+**A record bound to a copybook, the same record bound to the definitions file
+`init` converts from that copybook, and the same record bound to a block holding
+that file's entries MUST resolve to byte-identical descriptors.** Everything
+else in the layout is held equal, and only the source differs.
+
+This is the property the [Definitions](#definitions) chapter exists to give: an
+adopter moving a record from a copybook they cannot commit to a definitions file
+they can, or from a file into the layout, changes where the entries are written
+and nothing a generator is handed. It is checkable rather than hoped for — two
+runs, two `--emit-ir` files, one `cmp` — and [Which descriptor is
+emitted](../cli/SPEC.md#which-descriptor-is-emitted) cites it as part of what a
+descriptor is a function of.
 
 ### Many records may name one copybook, and two may name one item
 
-Two `record` forms **MAY** name the same path, and **MAY** name the same path
-and the same top-level item. Only the record name is unique. Several records
+Two `record` forms **MAY** name the same description, and **MAY** name the same
+description and the same top-level item — by whichever source holds it: one
+copybook, one definitions file or one block. Only the record name is unique.
+What holds for a copybook below holds for the other two unchanged, and the
+copybook is the case written out because it is the one most layouts have.
+Several records
 over one copybook is the ordinary case — a shop keeps the record types of one
 file in one copybook, an `01`-level apiece, and the
 [appendix](#appendix-a-layout-end-to-end) is four of them — and nothing in this
@@ -849,20 +1023,22 @@ describable only by copying the `01`-level under a second name in the copybook,
 so that a duplicate existed for the layout's benefit.
 
 What makes it safe is that [an item reference](#an-item-reference) is rooted at
-a **record name** and never at a copybook path. `(item ORDER-DETAIL OD-KEY)`
+a **record name** and never at a copybook path, a file or a block. `(item ORDER-DETAIL OD-KEY)`
 names the item as it is reached through `ORDER-DETAIL`, so two records over one
 `01`-level are discriminated, renamed and encoding-overridden independently and
 neither reaches the other. [A
 rename](#a-rename-substitutes-a-name-and-keeps-the-original)'s at-most-one rule
 counts per record for that reason: the item it may name once is the item
-reached through the record it names, not the copybook item behind it. A rename
-is therefore **per record and not per item**, and an implementation keying one
-on the copybook item alone has one substitute where this section promises two
-(#164).
+reached through the record it names, not the item in the description behind
+it. A rename is therefore **per record and not per item**, and an
+implementation keying one on the description's item alone has one substitute
+where this section promises two (#164).
 
-Whether two paths name one copybook is a question about the files they resolve
-to rather than about how they are spelled, and the resolving is the CLI's. No
-rule here is stated over `copybook` children carrying equal strings.
+Whether two paths name one copybook or one definitions file is a question about
+the files they resolve to rather than about how they are spelled, and the
+resolving is the CLI's. No rule here is stated over sources carrying equal
+strings. Two records naming one block name one block, since a block name is
+the layout's own identifier and the layout holds one block of each name.
 
 ### Which alternative a record is
 
@@ -928,8 +1104,10 @@ not a record-level alternative, and is a diagnostic on those terms.
 Many real files pair a shared header with a per-type body: every record opens
 with the same handful of fields, and what follows them differs by record type.
 The two halves commonly live in two copybooks, and this format does **not**
-join them. A `record` form carries exactly one `copybook` child, there is no
-second one, and a layout **MUST NOT** be read as concatenating anything.
+join them. A `record` form carries exactly one source, there is no second one,
+and a layout **MUST NOT** be read as concatenating anything. That holds for
+every source alike: the record's description is one copybook, one definitions
+file or one block, and its top-level item is one `01`-level in it.
 
 What joins them is COBOL's own `COPY`, in a copybook the adopter writes:
 
@@ -951,6 +1129,14 @@ a copybook — which is where it usually lives, an `FD` being this text under
 another heading — those lines are a copy of ones that exist rather than a new
 statement about the file.
 
+A record composed with `COPY` and held in a definitions file or a block is held
+as its **expanded** entries: the `01`-level and every entry the members it
+copies contribute, in the order the expansion puts them, as one entry body.
+`COPY` is a statement in a copybook and not an entry, so there is no form for
+it in an entry body, and a block cannot concatenate — it is one `01`-level's
+entries, exactly as a file is. Where a `COPY` member is found when the copybook
+is read is #407's.
+
 The format declines to do the joining itself for a reason that is not economy
 of vocabulary. **Two `01`-levels laid end to end are not a COBOL construct, so
 nothing says what the bytes at the seam are.** A `SYNCHRONIZED` item aligns
@@ -959,17 +1145,18 @@ record containing it until something invents one, so cpybkc would be deciding
 slack at a seam COBOL never defines, for a record no compiler ever laid out
 (#34). That is `codec/SPEC.md`'s subject and not this document's ([Out of
 Scope](#also-out-of-scope)). Written as `COPY`, the seam is inside one
-`01`-level and every byte of it is the compiler's answer, unchanged.
+`01`-level and every byte of it is the compiler's answer, unchanged — and
+expanded into a file or a block, it is still inside that one `01`-level.
 
 Two smaller costs fall out of the same place. A composed record needs a
-top-level item no copybook declares, and
+top-level item no description declares, and
 [`ir/SPEC.md`](../ir/SPEC.md#the-node-kinds) gives a record node exactly one
 whose name is the original COBOL name spelled as the copybook spells it
 ([Names](../ir/SPEC.md#names)) — which a synthesized group has not got, and the
 record's own layout name is explicitly not it. And [an item
 reference](#an-item-reference) omits the top-level item's name because the
 `record` form has already stated it; with two of them a path would have to name
-which, so the rule would hold for a record naming one copybook and not for a
+which, so the rule would hold for a record naming one description and not for a
 record naming two, and the [published schema](#the-published-schema) could not
 state the difference.
 
@@ -982,24 +1169,50 @@ record.
 
 ### A copybook that is not there, and an item that is not in it
 
-Both checks need the copybook, so both are `resolve`'s (#32) rather than the
-layout reader's, and both are diagnostics this section requires by name.
+Both checks need the record's description, so both are `resolve`'s (#32) rather
+than the layout reader's, and both are diagnostics this section requires by
+name. They take one shape for all three sources, so that a record moved from a
+copybook to a file or a block fails the same way it failed before.
 
-A `copybook` child whose path names no file `resolve` can read is a diagnostic.
-It **MUST** name the path as the layout spells it, and it carries a span into
-the layout, at that child. It carries **no** second span: there is no file to
+A source whose path names no file `resolve` can read is a diagnostic. It
+**MUST** name the path as the layout spells it, and it carries a span into the
+layout, at the source. It carries **no** second span: there is no file to
 point into, and a span invented for one would point at nothing. Where the path
 was looked for is the CLI's to explain, for the same reason the resolving is
-the CLI's.
+the CLI's. For a copybook the message is `no copybook at cpy/orders.cpy`, and
+for a definitions file it is
 
-A copybook that reads and does not declare the top-level item the record names
-is a diagnostic carrying two spans (#31): one into the layout at the `copybook`
-child, and one into the copybook. It **MUST** name the item as the layout
-spells it. The second span points at what is *there* — the `01`-levels the
-copybook does declare — because an absent item has no position, and the list an
-adopter needs in order to fix the record is the list of the ones they could
-have meant. A file declaring no `01`-level at all has nothing to point at but
-itself, and the span is the file.
+```
+no definitions file at posting.cpy.sexpr
+  looked for /srv/ledger/posting.cpy.sexpr
+```
+
+with the absolute path on a continuation line, as [Finding the
+inputs](../cli/SPEC.md#finding-the-inputs) states for both. A block opens
+nothing, so the missing-file diagnostic never applies to one: a block name the
+layout does not define is the schema's reference fault ([A block's
+name](#a-blocks-name-and-a-block-no-record-names)).
+
+A description that reads and does not declare the top-level item the record
+names is a diagnostic carrying two spans (#31), in one shape whichever source
+holds it:
+
+```
+the <copybook|definitions file|definitions block> <name> declares no <item>
+```
+
+`<name>` is the path as the layout spells it, for a copybook or a file, and the
+block's name for a block; `<item>` is the item as the layout spells it, which
+the diagnostic **MUST** name. The first span is into the layout, at the source.
+The second is at the description's first top-level entry and lists the names it
+does declare — the `01`-levels there — because an absent item has no position,
+and the list an adopter needs in order to fix the record is the list of the ones
+they could have meant. This is the copybook's shape as cpybkc already reports it
+(`internal/diag/copybook.go`), carried to the other two sources unchanged. A
+copybook declaring no `01`-level at all has nothing to point at but itself, and
+the span is the file. A definitions file or a block always holds at least one
+entry ([An entry body](#an-entry-body-and-the-two-places-it-is-held)), so the
+second span always has an entry to point at.
 
 Neither is satisfied by reporting that a record failed to resolve, and neither
 is satisfied by naming only the layout. They are the two failures that arrive
@@ -1042,7 +1255,8 @@ consequence of how it happens to hold its copybook items (#164).
 
 The second spelling takes a **record name** where the first takes a reference,
 and it substitutes a name for the record type's own — the name the IR carries on
-a record node, which is the one the copybook's `01`-level gives it
+a record node, which is the one the `01`-level in its description gives it,
+whichever source holds that description
 ([`ir/SPEC.md`](../ir/SPEC.md#names)):
 
 ```
@@ -1068,8 +1282,10 @@ position.
 
 The rules carry over unchanged in the shape they can. At most one rename **MAY**
 name a given record. Two renames **MUST NOT** substitute one name for two
-records, and a rename **MUST NOT** substitute a name another record's `copybook`
-child spells as its top-level item — both decidable from the layout alone, and
+records, and a rename **MUST NOT** substitute the name of the top-level item
+another record binds, by whichever source — the name a `copybook` or a
+`definitions` form spells as its second argument. Both are decidable from the
+layout alone, and
 both the same ambiguity [A substitute is a name nothing beside it already
 answers to](#a-substitute-is-a-name-nothing-beside-it-already-answers-to)
 removes between siblings. There is no parent for a record node to have siblings
@@ -1177,7 +1393,9 @@ A block holds no nested block, no path and no header. A definitions file holds
 no block, and no header either: it is the entries and nothing beside them, so a
 file's text and a block's body are interchangeable by moving lines, and a
 reader of one is a reader of the other. Which of the two a record's description
-is held in, and how a record names it, is #399's.
+is held in is the record's to say, by its [source](#a-records-source-a-copybook-a-definitions-file-or-a-block):
+`(definitions "<path>" …)` for a file and `(definitions <block-name> …)` for a
+block.
 
 **Entries are flat.** An entry body is a list, never a tree: the hierarchy of a
 record comes from its level numbers, which `copybook.Build` folds into groups
@@ -1205,14 +1423,68 @@ layout's own identifier, like a record's, and never a COBOL name, so it is never
 written `(word …)`.
 
 The tag is `definitions-block` rather than `definitions` because `definitions`
-is the record source #399 settles, and a diagnostic that names a form has to
-name one thing. How a record names a block, and what a block no record names is,
-are #399's.
+is the [record source](#a-records-source-a-copybook-a-definitions-file-or-a-block),
+and a diagnostic that names a form has to name one thing. A record names a block
+by giving its name as `definitions`' first argument; block names are a name
+space of their own, scoped to the layout, and a block no record names is an
+error ([What a record may reach](#what-a-record-may-reach), [A block's name, and
+a block no record names](#a-blocks-name-and-a-block-no-record-names)).
 
 This section is not yet a row of [The top-level forms](#the-top-level-forms).
 That table and `schema/layout.sexpr` are held equal by a test, so the row lands
 with the declaration, in #400, and until then a layout carrying one is refused
 as an unknown top-level form.
+
+### How a definitions file and a layout are told apart
+
+A layout and a definitions file are both `.sexpr` documents, and neither
+carries a header form saying which it is. Nothing inside one needs to.
+
+**A file's kind is set by how it is reached.** A manifest's `layout` names a
+layout, and a text `definitions` argument names a definitions file. A run never
+opens a `.sexpr` document it has not been told the kind of, so it never has to
+guess one. A block is not a third kind of file: it is a form of its layout, read
+with the layout and opened by nothing.
+
+**The top-level vocabularies stay disjoint**, so a file reached the wrong way
+is recognisable as the other kind from its first form:
+
+- a definitions file's top level is `entry` and nothing else;
+- a layout's top level never admits `entry` — an entry appears in a layout only
+  inside a `definitions-block`;
+- `definitions-block` never appears in a definitions file.
+
+Reason: a header would be a second statement of a fact the route already
+fixes, for the two to disagree about, and it would be one more line `init`
+writes and an adopter moving entries into a block has to delete. Disjoint
+vocabularies give the same certainty for free, and they are what lets a file's
+text and a block's body be interchangeable by moving lines.
+
+What a run reports when the route and the content disagree names what was
+found, not merely what was expected:
+
+- **A layout whose top-level forms are one or more `entry` forms and nothing
+  else** — a definitions file named as the manifest's layout. The run says so, with a span at the manifest's
+  `layout` and a span at the file's first entry, and reports nothing else about
+  that file: a hundred unknown-top-level-form diagnostics, one per entry, would
+  describe the wrong file accurately and the mistake not at all.
+- **`entry` forms among a layout's other forms.** The schema check reports one
+  diagnostic per contiguous run of them, at its first entry, saying that entries
+  go inside a `definitions-block` or in a definitions file a record names. One
+  per run rather than one per entry, because a run of entries pasted into a
+  layout is one mistake.
+- **A `definitions-block` inside a record** — a record-local block. The schema's
+  diagnostic there, a form the position does not admit, with a hint that a block
+  is top-level and a record names it.
+- **A file reached through `definitions "<path>"` whose top level holds no
+  `entry`** — a layout named as a definitions file. The run says so, with a span
+  at the record's `definitions` source in the naming layout and a span at the
+  named file's first form.
+- **A definitions file holding a `definitions-block`, or any other form that is
+  not `entry`.** A diagnostic at that form, in the definitions file, with a
+  second span at the naming record's `definitions` source — the file is a
+  description and holds entries only, and the second span is how the reader
+  finds which record's description it was being read as.
 
 ### An entry, and one form per clause
 
@@ -2450,8 +2722,10 @@ they already have — the same poorer signal
 the IR over the same period, and for the same reason. `schedule-variant` is
 added on those terms (#346), and `take-alternative` is added on the same ones
 (#341), and so are `definitions-block`, `entry`, every clause and operand form
-of an [entry body](#definitions), `data-name` and `word` (#395, #400): each is a
-change to what a layout may say, made while version 1 is being settled, and each
+of an [entry body](#definitions), `data-name` and `word` (#395, #400), and so
+are `definitions`, the `record-source` sort `record` takes it in, and the
+`definitions-origin` sort and `block-name` reference beneath it (#399, #402):
+each is a change to what a layout may say, made while version 1 is being settled, and each
 leaves the number where it is. Pinning the cpybkc that reads
 the layouts a generator writes is what closes the gap until `v1.0.0`.
 
@@ -2516,7 +2790,8 @@ each is owed, is the reader.
 `take-alternative` per redefine inside a repeating group, two arms of one
 variant that do not name one alternative, every `record` appearing somewhere in the
 sequencing expression, an `encoding-override` naming at least one axis, at most
-one `rename` per item and no two of them substituting one name under one parent.
+one `rename` per item and no two of them substituting one name under one parent,
+one `definitions-block` per name, and every block named by some record.
 A declaration is about one form and its positions, so a rule relating two of
 them is the reader's. The one
 cross-form statement the schema does make is the reference, and it is the
@@ -2571,14 +2846,17 @@ reference is rooted at another record, and two of them naming one item; a second
 name substituted for two items under one parent or for two records, a substitute
 equal to the
 name of an item the layout itself references under that parent, and a substitute
-equal to the top-level item another record's `copybook` child names; a `blksize`,
+equal to the top-level item another record binds, by whichever source; a block
+name defined twice, and a block no record names; a `blksize`,
 `lrecl`, `max-segment` or `delimiter` under a spelling that does not admit it;
 and the framing spellings rejected by name — `U`, a carriage-control suffix,
 `(blocks in-stream)`.
 
 **`resolve`** (#32–#38) has the copybooks too, and reports everything that needs
-them: a `copybook` child naming a file it cannot read, and one naming a
-top-level item the copybook it read does not declare (#27); an item reference
+them: a source naming a copybook or a definitions file it cannot read, and one
+naming a top-level item the description it read — a copybook, a definitions
+file or a block — does not declare (#27); a file reached through `definitions`
+that is not a definitions file; an item reference
 naming no item or more than one; a `record` form whose `alternative` children do
 not name exactly one alternative per `REDEFINES` its `01`-level carries outside
 a repeating group, and one naming an item that is no such alternative; a
@@ -2678,12 +2956,25 @@ sub-form that is wrong, not the top-level form containing it — which is what
 [Positions survive](#tagged-forms-over-s-expressions) buys and what #24's
 positioned AST holds.
 
-A diagnostic about something in a copybook carries a **second** span, into the
-copybook and the item (#31). An item reference that does not resolve, an item
-that repeats where a value was expected, a record type whose extent misses
-`lrecl`, a table with items behind it on a fixed-length dataset: in every one of
-those the layout and the copybook are both part of the answer, and a diagnostic
-naming only one of them leaves the reader to find the other by hand.
+A diagnostic about something in a record's description carries a **second**
+span, into the description and the item (#31). An item reference that does not
+resolve, an item that repeats where a value was expected, a record type whose
+extent misses `lrecl`, a table with items behind it on a fixed-length dataset:
+in every one of those the layout and the description are both part of the
+answer, and a diagnostic naming only one of them leaves the reader to find the
+other by hand.
+
+The second span points into the record's description **whichever source holds
+it**, and names the file the way an adopter can open it:
+
+- a span into a copybook names the copybook, as it always has;
+- a span into a definitions file names the file **as the run opened it**, so
+  that a reader holding the diagnostic can open the same file the run read;
+- a span into a block names **the layout**, as the run opened it, because the
+  block is a form of the layout and its entries are lines in that file.
+
+A record moved from a copybook to a file or a block therefore keeps every
+diagnostic it had, pointing at the same entry in the place that entry now lives.
 
 Where a rule in this document says a diagnostic **MUST** name a particular
 thing — the record and the table, the dataset, the item and the variable item in
@@ -2911,14 +3202,21 @@ protections. An adopter who wants one writes four lines.
 - **The `cpybkc.json` project manifest** (#40), which says which generators to
   run over which layouts. It is a build-configuration file, not a description of
   a data file, and the two have different lifetimes.
-- **Copybook discovery** — where copybook files are found and how include paths
-  resolve is a CLI concern, not a property of the layout.
-- **Layout file discovery and composition** — which files a layout's forms are
-  read from, and in what order, is the same CLI concern. The format has no
-  include form and needs none: every form is top-level and refers by name, so a
-  shop's profile in a file of its own is the same statement wherever it is read.
-  A definitions file a record names is not this: it holds a record's
-  description, not a layout's forms, and how a record names one is #399's.
+- **Copybook and definitions file discovery** — where a copybook or a
+  definitions file is found and how its path resolves is a CLI concern, not a
+  property of the layout.
+- **Layout file discovery and composition** — composing one layout's own forms
+  from several files is out of scope. Which file a layout's forms are read from
+  is the CLI's, and the answer is one file.
+
+  Reason: every form is top-level and refers by name, so a shop's profile in a
+  file of its own is the same statement wherever it is read, and pasting it is
+  the whole of the reuse it needs. An include form would make a layout's meaning
+  depend on files it reaches through other files, which is the transitive
+  import [What a record may reach](#what-a-record-may-reach) refuses for
+  definitions too. A definitions file a record names is not composition: it
+  holds one record's description, not a layout's forms, and nothing in it can
+  name a further file.
 
 ## Appendix: A layout, end to end
 
@@ -3156,7 +3454,8 @@ A ledger file whose three kinds of record are described three ways, record by
 record: the header by the shop's own copybook, which is committed; the postings
 by the definitions file above, because their copybook cannot be; and the
 trailer, three items long, by a `definitions-block` in the layout itself. The
-record forms name their sources in the spelling #399 settles.
+record forms name their sources in the spelling [A record's
+source](#a-records-source-a-copybook-a-definitions-file-or-a-block) settles.
 
 ```
 (encoding
@@ -3213,7 +3512,11 @@ The block is in the canonical printed form for a block — the file's form, two
 spaces further in, opening on its own line and closing on its last entry's
 line. Its name, `TRAILER`, is the layout's own identifier and not a COBOL name;
 `LEDGER-TRAILER` after it, in the record form, is the `01`-level inside it. The
-two postings name one file, and #399 says what a run reads when they do.
+two postings name one file, and a run reads it once ([What a record may
+reach](#what-a-record-may-reach)). The block sits before the record naming it
+here and could as well sit after it. A run reads the layout,
+`cpy/ledger-header.cpy` and `posting.cpy.sexpr`, and opens nothing for the
+trailer.
 
 ## Appendix: Mapping to Stories
 
@@ -3222,9 +3525,9 @@ two postings name one file, and #399 says what a run reads when they do.
 | [The surface syntax](#the-surface-syntax) | #22 `layout`; the data-name sort in an item reference, and the delegated refusals governing a layout's own forms while an entry body follows the entry rules, by #395 against discussion #394 |
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293; that a form whose only content is its presence is refused among a layout's own forms and not in an entry body, by #395 |
 | [Physical framing](#physical-framing) | #26 `layout` |
-| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394 |
-| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations and the reader by #400, the absent `at-most-one` argument by #396, the converter and the judge by #401, a record naming a file or a block by #399 and #402, and the data-name sort in a layout's item positions by #404 |
+| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394; a record's source — a copybook, a definitions file or a block — what a record may reach, block names and their faults, the one shape of a missing description or item across the three sources, composition carried to a file or a block, and the three sources resolving to byte-identical descriptors, settled by #399 against discussion #394; the `definitions` form declared and read by #402, and resolved by #405 for a file and #409 for a block |
+| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations and the reader by #400, the absent `at-most-one` argument by #396, the converter and the judge by #401, a record naming a file or a block by #399 and #402, how a definitions file and a layout are told apart, and what each is reported as when reached the wrong way, by #399 against discussion #394, and the data-name sort in a layout's item positions by #404 |
 | [Discrimination](#discrimination) | #28 `layout`; an arm's and a `take-alternative`'s alternative written as a data-name, by #395 against discussion #394; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
-| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394 |
-| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397 |
+| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394; the `record-source` sort and `definitions-origin`, stated by #399 against discussion #394 and declared by #402 |
+| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397; a record's second span pointing into its description whichever source holds it, a file named as the run opened it and a block as the layout, by #399 against discussion #394 |

@@ -3,7 +3,8 @@
 ## Overview
 
 cpybkc is one executable a person runs. It finds the project's manifest, reads
-the layout that manifest names, resolves it against the copybooks it names, and
+the layout that manifest names, resolves it against the record descriptions
+that layout holds or names — copybooks, definitions files and blocks — and
 hands the resolved descriptor to every generator the manifest asks for. This
 document is the contract between that person and the program: what may be
 typed, where the manifest is looked for, what arrives on each stream, and what
@@ -329,7 +330,8 @@ One rule covers every path in a run, and it has two halves:
 
 - A relative path **stated in a file** is resolved against the directory of
   that file. A manifest's `layout` and `out` are relative to the manifest
-  (#40); a layout's `copybook` path is relative to the layout (#148).
+  (#40); a layout's `copybook` path is relative to the layout (#148), and so is
+  the path a text `definitions` argument states (#399).
 - A relative path **typed on the command line** — `--manifest`, `--emit-ir` —
   is resolved against the working directory, because that is the directory the
   person typing it was standing in.
@@ -338,8 +340,8 @@ cpybkc **MUST** resolve paths this way and **MUST NOT** resolve one against
 anything else — not against a search path, not against a variable, not against
 the project root.
 
-The first half is what makes a layout portable. A layout and the copybooks it
-names travel together, so a layout naming `cpy/orders.cpy` means the copybook
+The first half is what makes a layout portable. A layout and the copybooks and
+definitions files it names travel together, so a layout naming `cpy/orders.cpy` means the copybook
 beside it wherever the pair is checked out, and a project that vendors somebody
 else's layout does not have to rewrite the paths inside it. Resolving a
 copybook against the *manifest* instead would make one layout mean different
@@ -361,17 +363,31 @@ machines with no difference between them that any file records, which is the
 failure a generated file library cannot detect and cannot recover from — the
 code compiles, and the offsets are wrong.
 
-**Where a layout's forms are read from.** From the one file the manifest's
-`layout` names. A layout has no include form and needs none (`layout/SPEC.md`),
-and cpybkc composes nothing: two files are two layouts and two runs.
+**Where a definitions file is looked for.** Exactly where a copybook is: at the
+path its layout states, resolved as above, and nowhere else. Every argument
+against a search path above holds for a file of entries as it does for a
+copybook, and a definitions file exists precisely so that what a run reads is
+checked in.
 
-**Which copybooks a run reads**, and the answer #157 owed this section: exactly
-the ones its layout's `record` forms name, and no others. The manifest does not
-list them. It names the layout, the generators and their options — the things a
-layout has no opinion about — and it carries no `inputs` (#40), so there is no
-set a layout may not name a copybook outside of, and no diagnostic for naming
-one. The only fault about a copybook is the one above, a path cpybkc cannot
-open.
+**Where a layout's forms are read from.** From the one file the manifest's
+`layout` names. Composing a layout's own forms from several files is out of
+scope, with its reason, in `layout/SPEC.md`'s [Out of
+Scope](../layout/SPEC.md#also-out-of-scope).
+
+**Which files a run reads**, and the answer #157 owed this section: the layout,
+plus exactly the copybooks and definitions files its layout's `record` forms
+name, and no others. A `definitions-block` opens nothing — it is a form of the
+layout, already read — and only the text form of `definitions` is a path; a
+symbol there names a block. A definitions file names no further file
+([What a record may reach](../layout/SPEC.md#what-a-record-may-reach)), so the
+list stops one step from the layout. Several records naming one path read it
+once.
+
+The manifest does not list them. It names the layout, the generators and their
+options — the things a layout has no opinion about — and it carries no `inputs`
+(#40), so there is no set a layout may not name a copybook or a definitions
+file outside of, and no diagnostic for naming one. The only fault about either
+here is a path cpybkc cannot open.
 
 That is a decision against the alternative and not an omission. A manifest that
 listed the copybooks a run may read would be a second statement of what the
@@ -399,6 +415,17 @@ looking in the wrong directory.
 error: orders.sexpr:14:5: no copybook at cpy/orders.cpy
   looked for /srv/orders/cpy/orders.cpy
 ```
+
+A definitions file cpybkc cannot open is reported in the same shape, naming
+the path as the layout spells it and the absolute path cpybkc looked for:
+
+```
+error: ledger.sexpr:22:5: no definitions file at posting.cpy.sexpr
+  looked for /srv/ledger/posting.cpy.sexpr
+```
+
+Neither line ever applies to a block, which is in the layout and is never
+opened.
 
 The absolute path is on a continuation line rather than in a second span,
 because `layout/SPEC.md` requires this diagnostic to carry no second span:
@@ -455,11 +482,20 @@ about the emission alone.
 ### Which descriptor is emitted
 
 A run resolves **one** descriptor, from the layout the manifest names and the
-copybooks that layout names, and `--emit-ir` writes that one. No flag selects
-among descriptors, because there is one — and nothing a project can write makes
-there be two. A manifest names exactly one layout, a layout names the copybooks
-its records are in, and those two facts are the whole of what the descriptor is
-a function of.
+record descriptions that layout holds or names — the copybooks and definitions
+files its records name, and the `definitions-block` forms it holds — and
+`--emit-ir` writes that one. No flag selects among descriptors, because there is
+one — and nothing a project can write makes there be two. A manifest names
+exactly one layout, a layout holds or names the descriptions its records are
+in, and those two facts are the whole of what the descriptor is a function of.
+
+Which source holds a description is not among them. A record bound to a
+copybook, to the definitions file `init` converts from it, or to a block
+holding that file's entries **MUST** resolve to byte-identical descriptors,
+which is `layout/SPEC.md`'s [Three sources, one
+descriptor](../layout/SPEC.md#three-sources-one-descriptor); so moving a
+record's entries from one to another is checked with two `--emit-ir` runs and a
+byte comparison, and changes nothing a generator is handed.
 
 That was an open question when this document was written, and #157 settled it by
 changing the manifest rather than by giving the flag a selector. A generator
@@ -1641,10 +1677,10 @@ the layout is resolved, not by `init`, which read no layout to compare against
 | [`init`'s streams and exit codes](#inits-streams-and-exit-codes) | #183 `cli`, over the format #150 `cli` and the statuses #147 `cli` fix; implemented by #214 `cli` |
 | [Why this is a subcommand and not a script over the published schema](#why-this-is-a-subcommand-and-not-a-script-over-the-published-schema) | #183 `cli`, against the published schema #23 `layout` and the reader #24 `layout` |
 | [Finding the manifest](#finding-the-manifest) | #148 `cli`, over the manifest reader #40 `plugin` |
-| [A path is relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it) | #148 `cli` |
-| [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli`; which copybooks a run reads, and that the manifest does not list them, #157 `cli` |
+| [A path is relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it) | #148 `cli`; a text `definitions` path, #399 `layout` against discussion #394 |
+| [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli`; which copybooks a run reads, and that the manifest does not list them, #157 `cli`; which definitions files a run reads, that a block opens nothing, the missing-definitions diagnostic, and that a layout's own forms are read from one file, #399 `layout` against discussion #394 |
 | [Emitting the IR](#emitting-the-ir) | #149 `cli`, over the encoders #20 and #21 `ir` |
-| [Which descriptor is emitted](#which-descriptor-is-emitted) | #157 `cli` decided it — one descriptor per run, and the manifest's `inputs` removed to keep it true; #148 `cli` assembles it, #149 `cli` writes it |
+| [Which descriptor is emitted](#which-descriptor-is-emitted) | #157 `cli` decided it — one descriptor per run, and the manifest's `inputs` removed to keep it true; #148 `cli` assembles it, #149 `cli` writes it; definitions files and blocks among what it is a function of, and the three sources resolving to byte-identical descriptors, #399 `layout` against discussion #394 |
 | [Standard output](#standard-output) | #147 `cli` for the version and usage, #149 `cli` for `--emit-ir -` |
 | [Standard error: diagnostics](#standard-error-diagnostics) | #150 `cli`, over `internal/diag` and the spans of #31 `resolve` |
 | [A relayed generator line](#a-relayed-generator-line) | #150 `cli`, over the classification #42 `plugin` already performs, against the format #39 `plugin` fixes |
