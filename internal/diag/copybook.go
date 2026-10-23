@@ -5,7 +5,10 @@
 
 package diag
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // MissingCopybookError is a `copybook` child whose path names no file that can
 // be read.
@@ -41,8 +44,8 @@ func (e *MissingCopybookError) Diagnostic() Diagnostic {
 // Unwrap gives up the read failure.
 func (e *MissingCopybookError) Unwrap() error { return e.Err }
 
-// UndeclaredItemError is a record's description — a copybook, or a definitions
-// file — that reads and does not declare the top-level item the record names.
+// UndeclaredItemError is a record's description — a copybook, a definitions
+// file or a definitions block — that reads and does not declare the top-level item the record names.
 //
 // It is the cross-file diagnostic docs/layout/SPEC.md requires by name, in one
 // shape whichever source holds the description ("A copybook that is not there,
@@ -66,7 +69,8 @@ type UndeclaredItemError struct {
 	// anywhere else.
 	Source string
 
-	// Path is the description's path as the layout spells it.
+	// Path is the description's path as the layout spells it, or the block's
+	// name for a definitions block.
 	Path string
 
 	// Item is the top-level item as the layout spells it.
@@ -104,8 +108,15 @@ func (e *UndeclaredItemError) Diagnostic() Diagnostic {
 		source = "copybook"
 	}
 
+	// A block's name is a symbol of the layout and was never written in
+	// quotes; a path is text, and is quoted as the layout writes it.
+	named := strconv.Quote(e.Path)
+	if source == "definitions block" {
+		named = e.Path
+	}
+
 	return Diagnostic{
-		Message: fmt.Sprintf("the %s %q declares no %s", source, e.Path, e.Item),
+		Message: fmt.Sprintf("the %s %s declares no %s", source, named, e.Item),
 		Spans:   []Span{e.Pos, copybook},
 	}
 }

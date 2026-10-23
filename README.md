@@ -176,6 +176,12 @@ copybook checked in or on disk, to the same descriptor the copybook gave. When
 the vendor ships a new copybook, run `init` into a scratch directory and diff
 ([When a copybook
 changes](docs/cli/SPEC.md#when-a-copybook-changes-and-moving-a-record-between-sources)).
+Or hold the definitions inline instead: move a definitions file's lines into a
+`(definitions-block NAME …)` in the layout itself and name it with
+`(definitions NAME <top-level-name>)`, and the record resolves to the same
+descriptor again, with nothing beside the layout to commit at all
+([Definitions held three
+ways](docs/layout/SPEC.md#appendix-definitions-held-three-ways)).
 
 Four rules are worth knowing before a manifest is written, because each of them
 is a fault rather than something cpybkc works around:

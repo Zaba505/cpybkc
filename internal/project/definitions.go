@@ -18,6 +18,7 @@ import (
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/layoutschema"
+	"github.com/Zaba505/cpybkc/internal/resolve"
 )
 
 // described is one definitions file, read: the entries it holds, or why it
@@ -113,7 +114,7 @@ func readDefinitions(path string, spelled string) described {
 	}
 
 	if _, err := copybook.Build(built); err != nil {
-		return described{faults: []error{buildFault(path, spelled, err)}}
+		return described{faults: []error{buildFault(definitionsAt(spelled, path), err)}}
 	}
 
 	return described{entries: built}
@@ -151,22 +152,24 @@ func split(err error) []error {
 	return []error{err}
 }
 
-// buildFault is what `cobol-go` said, building or laying out a definitions file's
-// entries, as a fault at its position in that file.
+// buildFault is what `cobol-go` said, building or laying out the entries of a
+// definitions file or a block, as a fault at its position in that file or in
+// the layout holding the block.
 //
 // `cobol-go`'s errors carry a line and a column and no file, because
 // `cobol.Pos` names none; the entries were built with the positions of the
-// forms they came from, so the line and the column are the definitions file's,
-// and the file is the one this run opened. Each error type that carries a
-// position is named, and found with [errors.As], because nothing in `cobol-go`
-// lets a position be asked for generically yet (Zaba505/cobol-go#137). Any
-// other error has no position to point at, and is reported at the record's
-// `definitions` source instead, with `cobol-go`'s message as a note.
-func buildFault(path, spelled string, err error) *DefinitionsBuildError {
-	fault := &DefinitionsBuildError{Path: spelled, Err: err}
+// forms they came from, so the line and the column are those of the file or
+// the layout the forms are in, which is source's File. Each error type that
+// carries a position is named, and found with [errors.As], because nothing in
+// `cobol-go` lets a position be asked for generically yet
+// (Zaba505/cobol-go#137). Any other error has no position to point at, and is
+// reported at the record's `definitions` source instead, with `cobol-go`'s
+// message as a note.
+func buildFault(source resolve.Source, err error) *DefinitionsBuildError {
+	fault := &DefinitionsBuildError{Source: source, Err: err}
 
 	if pos, ok := cobolPos(err); ok && pos.Line > 0 {
-		fault.Pos = diag.Span{File: path, Line: pos.Line, Column: pos.Column}
+		fault.Pos = diag.Span{File: source.File, Line: pos.Line, Column: pos.Column}
 	}
 
 	return fault
@@ -207,23 +210,25 @@ func positioned[T error](pos func(T) cobol.Pos) func(error) (cobol.Pos, bool) {
 	}
 }
 
-// fileFaults is every fault reported inside definitions files, by the file and
-// by what it says, so that a fault found once per record — a layout fault in
-// an `01`-level two records bind — is reported once, naming both.
+// fileFaults is every fault reported inside definitions files and blocks, by
+// the file it is in and by what it says, so that a fault found once per record
+// — a layout fault in an `01`-level two records bind — is reported once, naming
+// both.
 type fileFaults map[fileFaultKey]*DefinitionsFaultError
 
 // fileFaultKey is a fault's identity for that purpose: the file it is in, and
-// what it renders as.
+// what it renders as. A block's faults are in the layout, and two blocks' are
+// told apart by their positions in it.
 type fileFaultKey struct {
 	file     string
 	rendered string
 }
 
-// report reports fault, inside the definitions file at path, as found by a
-// record whose `definitions` source is at — or adds that record to the one
-// already reported, where the same fault was found before.
-func (f fileFaults) report(faults *diag.List, path string, fault error, named Naming) {
-	key := fileFaultKey{file: path, rendered: fault.Error()}
+// report reports fault, inside the definitions file or the block source names,
+// as found by a record whose `definitions` source is at — or adds that record
+// to the one already reported, where the same fault was found before.
+func (f fileFaults) report(faults *diag.List, source resolve.Source, fault error, named Naming) {
+	key := fileFaultKey{file: source.File, rendered: fault.Error()}
 
 	if already, ok := f[key]; ok {
 		if !slices.Contains(already.NamedBy, named) {
@@ -233,7 +238,7 @@ func (f fileFaults) report(faults *diag.List, path string, fault error, named Na
 		return
 	}
 
-	reported := &DefinitionsFaultError{Err: fault, NamedBy: []Naming{named}}
+	reported := &DefinitionsFaultError{Err: fault, Kind: source.Kind, NamedBy: []Naming{named}}
 	f[key] = reported
 	faults.Fail(reported)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/Zaba505/cobol-go/copybook"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
 // Every `cobol-go` error type that carries a position is pointed at that
@@ -44,7 +45,7 @@ func TestEveryPositionedCobolGoErrorPointsIntoTheFile(t *testing.T) {
 			t.Run(fmt.Sprintf("%T", wrapped), func(t *testing.T) {
 				t.Parallel()
 
-				fault := buildFault("/srv/ledger/posting.cpy.sexpr", "posting.cpy.sexpr", wrapped)
+				fault := buildFault(definitionsAt("posting.cpy.sexpr", "/srv/ledger/posting.cpy.sexpr"), wrapped)
 
 				if want := (diag.Span{File: "/srv/ledger/posting.cpy.sexpr", Line: 7, Column: 3}); fault.Pos != want {
 					t.Errorf("%T is at %s, want %s", err, fault.Pos, want)
@@ -77,7 +78,8 @@ func TestAnUnpositionedCobolGoErrorFallsBackToTheRecord(t *testing.T) {
 	}
 
 	err := &DefinitionsFaultError{
-		Err:     buildFault("/srv/ledger/posting.cpy.sexpr", "posting.cpy.sexpr", cause),
+		Err:     buildFault(definitionsAt("posting.cpy.sexpr", "/srv/ledger/posting.cpy.sexpr"), cause),
+		Kind:    layoutmodel.DefinitionsFileSource,
 		NamedBy: named,
 	}
 
@@ -106,5 +108,39 @@ func TestAnUnpositionedCobolGoErrorFallsBackToTheRecord(t *testing.T) {
 	var dialect copybook.DialectError
 	if !errors.As(err, &dialect) {
 		t.Error("cobol-go's error is not reachable through the fault")
+	}
+}
+
+// In a block the same fallback reads the same way, naming the block bare as the
+// layout writes it, and each note says the definitions block was read as the
+// record's description.
+func TestAnUnpositionedCobolGoErrorInABlockFallsBackToTheRecord(t *testing.T) {
+	t.Parallel()
+
+	cause := copybook.DialectError{Field: "BinarySize", Reason: "names no staircase"}
+
+	named := []Naming{
+		{Record: "DEBIT", Pos: diag.Span{File: "ledger.sexpr", Line: 5, Column: 15}},
+		{Record: "CREDIT", Pos: diag.Span{File: "ledger.sexpr", Line: 6, Column: 16}},
+	}
+
+	err := &DefinitionsFaultError{
+		Err:     buildFault(blockAt("POSTING", "ledger.sexpr"), cause),
+		Kind:    layoutmodel.DefinitionsBlockSource,
+		NamedBy: named,
+	}
+
+	d := err.Diagnostic()
+
+	if want := "cobol-go does not build the definitions block POSTING"; d.Message != want {
+		t.Errorf("the message is %q, want %q", d.Message, want)
+	}
+
+	if len(d.Spans) != 3 || d.Spans[0] != named[0].Pos {
+		t.Fatalf("want the first record, the note and the second record; got %+v", d.Spans)
+	}
+
+	if d.Spans[2].Note != "the definitions block is read as record CREDIT's description" {
+		t.Errorf("the last span's note is %q, want it to name the block and the second record", d.Spans[2].Note)
 	}
 }

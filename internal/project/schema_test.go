@@ -56,7 +56,9 @@ const orders = `(encoding
 
 // schemaFaults is every fault in err that the schema check reported. A fault
 // beside them that the schema check did not report fails the test, because a
-// run that reported one is a run that read a layer it should not have.
+// run that reported one is a run that read a layer it should not have. One
+// inside a `definitions-block` is the schema check's too, carried as a fault in
+// that block so that it can name the records naming the block.
 func schemaFaults(t *testing.T, err error) []layoutschema.Diagnostic {
 	t.Helper()
 
@@ -68,6 +70,14 @@ func schemaFaults(t *testing.T, err error) []layoutschema.Diagnostic {
 			faults = append(faults, d)
 
 			return
+		}
+
+		if block, ok := err.(*project.DefinitionsFaultError); ok {
+			if d, ok := block.Err.(layoutschema.Diagnostic); ok {
+				faults = append(faults, d)
+
+				return
+			}
 		}
 
 		if joined, ok := err.(interface{ Unwrap() []error }); ok {

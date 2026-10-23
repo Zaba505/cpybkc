@@ -18,9 +18,9 @@ import (
 )
 
 // ledger is a layout whose header is a copybook that does not exist, whose
-// posting is a definitions file and whose trailer and summary are blocks. A run
-// that opened the copybook would report it missing, so a run reporting the
-// definitions alone is one that opened nothing.
+// posting is a definitions file and whose trailer is a block. A run that opened
+// the copybook would report it missing, so a run reporting a layout fault alone
+// is one that opened nothing.
 const ledger = `(encoding
   (charset cp037) (sign-convention ebcdic)
   (byte-order big-endian) (float-format ieee-754))
@@ -56,80 +56,12 @@ func ledgerProject(t *testing.T, layout string, files map[string]string) (string
 	return filepath.Join(dir, manifest.Name), path
 }
 
-// A record may name a block, and this build reads it and stops there: nothing
-// resolves a record held in a block until #409, so the record is refused at its
-// source and the block at its tag, as #402 refused them. A record held in a
-// definitions file is resolved (#405) and is not refused beside them.
-//
-// A layout carrying a block opens nothing — no copybook and no definitions
-// file. The definitions file is absent in one run and present and unreadable as
-// entries in the other, and both runs report the same thing: a run that opened
-// it would have had something to say about it.
-func TestABlockIsRefusedAtItAndNothingIsOpened(t *testing.T) {
-	t.Parallel()
-
-	for name, files := range map[string]map[string]string{
-		"the file absent":  nil,
-		"the file present": {"posting.cpy.sexpr": "this is not an entry body ((("},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			path, layout := ledgerProject(t, ledger, files)
-
-			run, err := project.Load(path)
-			if err == nil {
-				t.Fatalf("the project resolved a record held in a block nothing resolves: %v", run.Descriptor)
-			}
-
-			rendered := diag.Render(err)
-
-			var missing *diag.MissingCopybookError
-			if errors.As(err, &missing) || strings.Contains(rendered, "no copybook") {
-				t.Errorf("the run looked for a copybook:\n%s", rendered)
-			}
-
-			if strings.Contains(rendered, "posting.cpy.sexpr") {
-				t.Errorf("the run opened the definitions file, or refused the record naming it:\n%s", rendered)
-			}
-
-			want := []struct {
-				at   diag.Span
-				says string
-			}{
-				{at: diag.Span{File: layout, Line: 7, Column: 17}, says: `record TRAILER is held in the definitions block TRAILER, and this build does not resolve definitions blocks`},
-				{at: diag.Span{File: layout, Line: 12, Column: 2}, says: "the definitions block TRAILER is not resolved by this build"},
-			}
-
-			diagnostics := diag.Diagnostics(err)
-			if len(diagnostics) != len(want) {
-				t.Fatalf("want one diagnostic for the record held in the block and one for the block; got:\n%s", rendered)
-			}
-
-			for i, w := range want {
-				if diagnostics[i].Spans[0] != w.at || diagnostics[i].Message != w.says {
-					t.Errorf("diagnostic %d is %s: %s\nwant %s: %s", i, diagnostics[i].Spans[0], diagnostics[i].Message, w.at, w.says)
-				}
-			}
-
-			var source *project.DefinitionsSourceError
-			if !errors.As(err, &source) {
-				t.Errorf("no DefinitionsSourceError in:\n%s", rendered)
-			}
-
-			var block *project.DefinitionsBlockError
-			if !errors.As(err, &block) {
-				t.Errorf("no DefinitionsBlockError in:\n%s", rendered)
-			}
-		})
-	}
-}
-
-// A block's own faults are the layout reader's, and are reported as that rather
-// than as a block this build does not resolve: the adopter has a block to
-// rename or a record to point at it, and "this build does not resolve one" is
-// not theirs to act on until the layout is right.
-func TestABlocksFaultsAreTheReadersAndNotRefusals(t *testing.T) {
+// A block's name faults are the layout reader's, at the block's name, and a
+// run reporting one opens nothing: the copybook the ledger names does not exist,
+// and a run that opened it would have said so. A block no record names is
+// still judged, and holding nothing wrong it adds nothing beside the reader's
+// one diagnostic.
+func TestABlocksNameFaultsAreTheReaders(t *testing.T) {
 	t.Parallel()
 
 	for name, test := range map[string]struct {
@@ -160,7 +92,7 @@ func TestABlocksFaultsAreTheReadersAndNotRefusals(t *testing.T) {
 
 			diagnostics := diag.Diagnostics(err)
 			if len(diagnostics) != 1 {
-				t.Fatalf("want the reader's one diagnostic and no refusal beside it; got:\n%s", diag.Render(err))
+				t.Fatalf("want the reader's one diagnostic and nothing beside it; got:\n%s", diag.Render(err))
 			}
 
 			test.at.File = layout
@@ -245,9 +177,9 @@ func TestEntriesAmongALayoutsFormsAreTheSchemas(t *testing.T) {
 }
 
 // A block whose entries the schema refuses is reported in the schema's words,
-// and not refused as unresolved beside it: the adopter has a misspelled clause
-// to fix, and "this build does not resolve one" is not theirs to act on until
-// the block is well formed.
+// and nothing is read past it: the adopter has a misspelled clause to fix, and
+// whatever the block would have resolved to is not theirs to act on until it is
+// well formed.
 func TestAMisshapenBlockIsTheSchemasAlone(t *testing.T) {
 	t.Parallel()
 

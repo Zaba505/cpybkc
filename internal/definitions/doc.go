@@ -60,7 +60,7 @@
 // This package reads bodies it is handed and opens nothing.
 // [github.com/Zaba505/cpybkc/internal/project] opens a definitions file a record
 // names, holds it to the schema, and hands its body here to be read and judged
-// before building it (#405). A layout carrying a `definitions-block` is still
-// refused there, at the block's tag and at each record naming it, until #409
-// resolves a record held in one.
+// before building it (#405). A `definitions-block` is opened by nothing: it is a
+// form of the layout, and the same package hands its body here to be read and
+// judged once the layout's schema check has admitted it (#409).
 package definitions
