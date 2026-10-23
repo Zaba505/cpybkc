@@ -1,7 +1,8 @@
 // These tests cover the one piece of this module that is pure: assembling the
 // reference New pulls. That is deliberately the piece worth a test, because the
-// default it assembles is public API from the first release — a caller who
-// passes nothing gets `ghcr.io/zaba505/cpybkc:v0`, and CONTRIBUTING.md's *The
+// default it assembles is public API — below 1.0.0 any release may change it,
+// and none should by accident. A caller who passes nothing gets
+// `ghcr.io/zaba505/cpybkc:v0`, and CONTRIBUTING.md's *The
 // default image tag is the moving major tag* is the argument for that exact
 // string. Pinning it here is what turns a later accidental change into a red
 // build rather than a silent one; a comment cannot do that.

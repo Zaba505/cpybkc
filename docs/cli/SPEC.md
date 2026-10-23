@@ -118,10 +118,11 @@ become a usage message for everyone who had followed the instruction to leave
 one of them asked for. The bare form is what those callers already type, so
 it is what it keeps meaning.
 
-What that costs *this document* is a major version, and the price is written
-down under [How a covered thing would
-change](#how-a-covered-thing-would-change) rather than left for whoever
-implements the subcommand to discover.
+What that costs *this document* is a breaking change to a covered row. Below
+1.0.0 [any release may make one](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398), and what the same change would cost from 1.0.0 is written down under
+[How a covered thing would change](#how-a-covered-thing-would-change) rather
+than left for whoever implements the next subcommand to discover.
 
 ### The first operand is a subcommand name
 
@@ -1350,8 +1351,17 @@ implementation matter; this one is written down in
 
 ## Compatibility guarantees
 
-**Covered.** Within a major version of cpybkc each of these holds, and a change
-to any of them is a breaking change:
+**This table states what 1.0.0 will promise.** Below 1.0.0 [any release may
+break any row of
+it](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing), with
+no particular number, no overlap and no deprecation (#398); from 1.0.0 it binds
+as written. The same holds for every other place this document calls something
+covered for a major version, or a change one a minor release may make: each
+states what 1.0.0 will promise, and none of them needs saying again where it
+appears.
+
+**Covered.** From 1.0.0, within a major version of cpybkc each of these holds,
+and a change to any of them is a breaking change:
 
 | Guarantee | Value |
 | --- | --- |
@@ -1397,8 +1407,10 @@ is depending on something that may change in a patch release, with no notice:
   contract](../container/SPEC.md) covers on its own terms and separately. The
   release *number* a break in this document takes is the one thing that is not
   separable — it is a tag on that image and a `--version` line here — and it is
-  [settled
-  there](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version)
+  settled there: [below 1.0.0 it is any
+  number](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+  (#398), and [from 1.0.0 a new major
+  version](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version)
   (#213), which is a statement about numbering rather than about any guarantee
   in the table above.
 
@@ -1409,6 +1421,12 @@ version, and the transition **MUST** hold both forms simultaneously for at
 least one full minor release of that new major: a renamed flag means both
 spellings work, with the old one accepted and reported at `warning:` on use,
 and removed no earlier than the following minor release.
+
+This section is what 1.0.0 will promise, and binds as written from then. Below
+1.0.0 [any release may break a covered
+thing](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing), and
+a `0.y.z` owes the break no particular number, no overlap and no deprecation
+(#398).
 
 Adding a flag whose absence leaves every existing command line behaving exactly
 as it did is **not** a breaking change and **MAY** appear in a minor release.
@@ -1425,12 +1443,12 @@ deprecation somebody reads instead of a broken build somebody bisects.
 **Which release is a new major version** is settled in the [base-image
 contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
 because that number reaches a consumer as an image tag as well as as a
-`--version` line and one release publishes both: a break in either contract
-takes a new major, and below 1.0.0 the release that is one is
-[1.0.0](../container/SPEC.md#below-100-the-rule-produces-100) (#213). A covered
-thing here therefore does not change in a `0.y.z` at all.
+`--version` line and one release publishes both: from 1.0.0, a break in either
+contract takes a new major (#213). Below 1.0.0 the same document [leaves the
+number to the releaser](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing),
+and a reader who needs a command line held pins a full version tag or a digest.
 
-#### The subcommand is the first change under this rule, and it breaks it
+#### The subcommand is the first change to break a covered thing
 
 [`init`](#init-scaffolds-a-layout-from-copybooks) is a **breaking** change to
 the command set, and it is worth arguing rather than asserting, because it is
@@ -1447,36 +1465,29 @@ value, a command that writes a file. Turning a refusal into a filesystem write
 is a change of behaviour on a line nobody edited, and it is the kind that is
 found afterwards rather than at the failure.
 
-The transition rule above has nothing to hold in parallel here. What is being
+That argument now states what 1.0.0's table will promise. From 1.0.0, a change
+like this one — a refusal on the command set withdrawn — is a breaking change
+and takes a new major version, however additive it looks from inside the flag
+table.
+
+The transition rule above has nothing to hold in parallel for it. What is being
 withdrawn is a rejection, and a rejection has no second spelling to keep alive
 for a minor release — there is no old form to accept at `warning:`, because the
-old form *was* the warning. So the one requirement this section can state and
-have checked is the announcement: the release that first carries `init`
-**MUST** say the command set gained a member. That is the only shape a
-deprecation takes when the behaviour being replaced was an error message.
+old form *was* the warning. So the one thing a release can do for its callers is
+the announcement: the release notes say the command set gained a member. That is
+the only shape a deprecation takes when the behaviour being replaced was an
+error message, and from 1.0.0 it is what [How a covered thing would
+change](#how-a-covered-thing-would-change) asks of a change like this.
 
-Which release *number* carries it is **`1.0.0`** (#213). It took a decision
-outside this document to say so, which is why the paragraph above asked for an
-announcement and not for a version: cpybkc is below 1.0.0, where SemVer leaves
-a `0.y.z` release outside the stability rules altogether, and the same number
-is a floating tag on an image whose promises are the [base-image
-contract](../container/SPEC.md)'s rather than this one's. Both halves are
-settled there, together, because the number reaches a consumer as a tag as well
-as as a `--version` line: [the image's major version tracks this document's
-covered surface as well as its
-own](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version),
-so a break here takes a new major version of the release, and [below 1.0.0 the
-only release that is one](../container/SPEC.md#below-100-the-rule-produces-100)
-is 1.0.0.
-
-So this section now states two requirements rather than one. The release that
-first carries `init` **MUST** be `1.0.0`, and **MUST** say the command set
-gained a member. Neither is checked by anything, and for one reason: which
-release first carries `init` is a property of a diff, and every artifact a
-pipeline can read — the tag, the refs, the built binary — is the same whichever
-diff is under it. A releaser reads both requirements and satisfies both, which
-is what [`CONTRIBUTING.md`](../../CONTRIBUTING.md#which-number-a-breaking-change-takes)
-says in the place a release is actually cut from.
+`init` itself arrived below 1.0.0, and the policy permits it there. Every tag
+from `v0.0.0` to `v0.0.7` carries it — `git tag --contains c2ed0f7`, the #224
+commit, lists all eight — so no released `0.y.z` was without it, and [any
+release below 1.0.0 may break a covered
+thing](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398). #213 had required the release first carrying `init` to be `1.0.0`; that
+requirement is withdrawn with the rule it came from, and
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md#below-100-a-release-may-take-any-number)
+says so in the place a release is actually cut from.
 
 ## Out of Scope
 
@@ -1641,8 +1652,8 @@ the layout is resolved, not by `init`, which read no layout to compare against
 | [Cancellation](#cancellation) | #148 `cli` |
 | [The environment](#the-environment) | #41 and #43 `plugin` for the two variables read, #147 `cli` for reading no others |
 | [`--version`](#--version) | #147 `cli`; the IR version it reports, #17 `ir`; the version it reports being the release's, #181 `cli` |
-| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole |
-| [How a covered thing would change](#how-a-covered-thing-would-change) | #146 `cli`; the subcommand priced against it, #183 `cli`; which release number pays it and what it does to the image's major tag, #213 `container`, which answers `1.0.0` and settles both halves in [the base-image contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version) |
+| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole; #398 `container` says the table states what 1.0.0 will promise, and that below 1.0.0 any release may break it |
+| [How a covered thing would change](#how-a-covered-thing-would-change) | #146 `cli`; the subcommand priced against it, #183 `cli`; which release number pays it and what it does to the image's major tag, #213 `container`, which settles both halves in [the base-image contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version); #398 `container` makes it bind from 1.0.0, withdraws #213's requirement that `init` ship as `1.0.0`, and records that every tag from `v0.0.0` carries `init` |
 | The project manifest — out of scope, see above | #40 `plugin` |
 | Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli` |
 | Extending a layout that already exists — out of scope, see above | #212 `cli` |

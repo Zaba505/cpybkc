@@ -605,8 +605,8 @@ type CompanionOpts struct {
 	// The tag of the published cpybkc image to run.
 	//
 	// It defaults to the moving major tag "v0", which follows every release in
-	// that major version: a caller who passes nothing keeps up with fixes and
-	// stays inside the base-image contract's compatibility guarantees. Escalate
+	// that major version: a caller who passes nothing keeps up with every
+	// release, and below 1.0.0 any release may break a covered thing. Escalate
 	// deliberately — "v0" follows releases, "v0.3.1" pins one release, and only a
 	// digest pins the bytes. A digest is not a tag, so it goes to --image rather
 	// than here.

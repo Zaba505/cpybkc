@@ -1,5 +1,6 @@
 // These tests cover the vectors the curated functions hand the CLI, which are
-// public API in the same way imageref's default reference is: a caller who
+// public API in the same way imageref's default reference is — below 1.0.0 any
+// release may change them, and none should by accident: a caller who
 // passes no manifest gets an invocation of no arguments, and what that means —
 // the mounted project's own cpybkc.json, read from the working directory — is a
 // promise docs/cli/SPEC.md makes and this module relies on rather than restates.
