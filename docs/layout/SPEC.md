@@ -1463,8 +1463,8 @@ text and a block's body be interchangeable by moving lines.
 What a run reports when the route and the content disagree names what was
 found, not merely what was expected:
 
-- **A layout whose every top-level form is `entry`** — a definitions file named
-  as the manifest's layout. The run says so, with a span at the manifest's
+- **A layout whose top-level forms are one or more `entry` forms and nothing
+  else** — a definitions file named as the manifest's layout. The run says so, with a span at the manifest's
   `layout` and a span at the file's first entry, and reports nothing else about
   that file: a hundred unknown-top-level-form diagnostics, one per entry, would
   describe the wrong file accurately and the mistake not at all.

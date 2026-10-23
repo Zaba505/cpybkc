@@ -417,7 +417,7 @@ error: orders.sexpr:14:5: no copybook at cpy/orders.cpy
 ```
 
 A definitions file cpybkc cannot open is reported in the same shape, naming
-the path as the layout spells it and the absolute path cpybkc opened:
+the path as the layout spells it and the absolute path cpybkc looked for:
 
 ```
 error: ledger.sexpr:22:5: no definitions file at posting.cpy.sexpr
