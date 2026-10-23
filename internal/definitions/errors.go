@@ -8,6 +8,8 @@ package definitions
 import (
 	"fmt"
 
+	cobol "github.com/Zaba505/cobol-go"
+
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
@@ -187,4 +189,140 @@ func (e *UncheckedBodyError) Diagnostic() diag.Diagnostic {
 // span is a layout position as a diagnostic carries one.
 func span(pos layout.Pos) diag.Span {
 	return diag.Span{File: pos.File, Line: pos.Line, Column: pos.Column}
+}
+
+// UnknownNodeError is a node [Write] cannot transcribe: a clause or an operand
+// of a kind it does not know, or one `cobol-go`'s parser never builds — a nil
+// entry, a clause missing the operand it always carries, an unnamed 88.
+//
+// It is the failure that keeps the writer from dropping what it does not
+// understand. A clause kind the pinned `cobol-go` gains on a pin bump arrives
+// here until the notation has a form for it, which CONTRIBUTING's "Bumping the
+// cobol-go pin" requires in the same change.
+type UnknownNodeError struct {
+	// Node is what could not be written.
+	Node any
+
+	// Entry is the entry it belongs to, or nil when the entry itself is the
+	// node.
+	Entry *cobol.DataDescriptionEntry
+}
+
+// Error implements the error interface.
+func (e *UnknownNodeError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where. The span is the entry's line
+// and column in the copybook, which the caller knows the name of and this does
+// not.
+func (e *UnknownNodeError) Diagnostic() diag.Diagnostic {
+	d := diag.Diagnostic{Message: fmt.Sprintf("an entry body has no form for a %T", e.Node)}
+
+	if e.Entry != nil {
+		d.Message = fmt.Sprintf("an entry body has no form for a %T in %s", e.Node, entryLabel(e.Entry))
+		d.Spans = []diag.Span{{Line: e.Entry.Pos.Line, Column: e.Entry.Pos.Column}}
+	}
+
+	return d
+}
+
+// MisreadValueError is a condition-name whose VALUE list the pinned `cobol-go`
+// misreads, which conversion refuses rather than transcribing
+// (docs/layout/SPEC.md, "A condition-name cobol-go misreads is refused, not
+// transcribed").
+type MisreadValueError struct {
+	// Entry is the condition-name.
+	Entry *cobol.DataDescriptionEntry
+
+	// Word is the word `cobol-go` read as a value of its own: the prefix, ALL,
+	// or ARE.
+	Word *cobol.Word
+
+	// Construct names what the copybook wrote.
+	Construct string
+
+	// Story is the `cobol-go` story that reads it, which lifts the refusal.
+	Story string
+}
+
+// Error implements the error interface.
+func (e *MisreadValueError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where: at the word, in the copybook.
+func (e *MisreadValueError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf(
+			"%s writes %s in its VALUE list, which the pinned cobol-go reads as other values than it holds, so it is not converted until %s",
+			entryLabel(e.Entry), e.Construct, e.Story,
+		),
+		Spans: []diag.Span{{Line: e.Word.Pos.Line, Column: e.Word.Pos.Column}},
+	}
+}
+
+// entryLabel names an entry in a message: its level and its name.
+func entryLabel(entry *cobol.DataDescriptionEntry) string {
+	switch {
+	case entry.Name != nil:
+		return fmt.Sprintf("the %02d %s", entry.Level, entry.Name.Value)
+	default:
+		return fmt.Sprintf("the %02d %s", entry.Level, fillerName)
+	}
+}
+
+// KeyOrderError is a `(key <order> …)` whose order is neither ASCENDING nor
+// DESCENDING.
+//
+// It is the one closed-set value [Construct] cannot hand to the judge: every
+// other one `cobol-go` holds as the text it read, so printing an unknown one
+// and reading it back is how the judge refuses it, but a key's order is a
+// boolean there, and an order that is not ASCENDING would otherwise be built as
+// DESCENDING and read back as itself.
+type KeyOrderError struct {
+	// Pos is the order.
+	Pos layout.Pos
+
+	// Order is what it holds.
+	Order string
+}
+
+// Error implements the error interface.
+func (e *KeyOrderError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *KeyOrderError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("a key's order is ASCENDING or DESCENDING, as cobol-go holds one, and %s is neither", e.Order),
+		Spans:   []diag.Span{span(e.Pos)},
+	}
+}
+
+// InadmissibleEntryError is an entry `cobol-go` does not read back as itself:
+// docs/layout/SPEC.md's "cobol-go judges an entry" refusing it.
+//
+// The entry was printed with `cobol.Print` and the result read back in free
+// format with `cobol.Parse(WithFragment())`. Either step refused it, or what it
+// read back is a different entry, and the error quotes the printed COBOL so the
+// reader sees what `cobol-go` was shown.
+type InadmissibleEntryError struct {
+	// Pos is the entry form.
+	Pos layout.Pos
+
+	// Printed is the COBOL `cobol.Print` wrote for the entry, without its line
+	// end, or empty when it would not print it.
+	Printed string
+
+	// Reason is what `cobol-go` said: its error, or what it read back instead.
+	Reason string
+}
+
+// Error implements the error interface.
+func (e *InadmissibleEntryError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *InadmissibleEntryError) Diagnostic() diag.Diagnostic {
+	message := fmt.Sprintf("cobol-go does not read this entry back as itself: %s", e.Reason)
+	if e.Printed != "" {
+		message = fmt.Sprintf("cobol-go does not read this entry back as itself: printed as %q, %s", e.Printed, e.Reason)
+	}
+
+	return diag.Diagnostic{Message: message, Spans: []diag.Span{span(e.Pos)}}
 }

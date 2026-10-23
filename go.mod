@@ -40,6 +40,11 @@ require google.golang.org/protobuf v1.36.12
 // under one staircase can no longer be read under another. The move also brings
 // `Reader.ResetStream` (Zaba505/cobol-go#131) and case-insensitive data-name
 // matching (Zaba505/cobol-go#130); neither changed anything here.
+//
+// A definitions file transcribes this commit's data-description grammar clause
+// for clause, so a bump that adds or reshapes a clause trips the guard in
+// internal/definitions, and CONTRIBUTING.md's "Bumping the cobol-go pin" says
+// what the same change has to extend before it goes green.
 require github.com/Zaba505/cobol-go v0.0.0-20260819200647-d75f1875ab37
 
 // The grammar underneath the layout format. docs/layout/SPEC.md delegates the
