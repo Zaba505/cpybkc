@@ -2619,6 +2619,26 @@ than by carrying a copy of the tables above. What is left to it is what a
 declaration cannot say: the conditional arities, the spellings rejected by name,
 and the rules counting one form against another.
 
+Each fault is reported once, under one rule. A fault a declaration states — an
+unknown tag or child, a misplaced or extra argument, a repeated or missing
+child, a value outside a closed set, a reference naming nothing — is the schema
+check's alone, and is reported in the schema's words. A run checks the layout
+against the published schema after the grammar and before any layer reader
+reads it, over the whole layout and every form nested in it. When that check
+reports anything, the run reports exactly those diagnostics and reads no layer,
+so a layer reader never reports a fault a declaration states: a layout carrying
+one schema fault and one fault only a reader can find reports the schema fault,
+and the other waits for the run after it is fixed. The readers keep their own
+checks for a caller that reads a layout without the schema, and on a run what
+they report is only what a declaration cannot say.
+
+The cost of the rule is that second run, and it is the cheaper half. The
+alternative is one fault reported twice in two vocabularies — a `discriminate`
+naming no record would come out once as the schema's reference that names
+nothing and again as the reader's record the layout does not define — and a
+reader of two messages about one mistake fixes one of them and goes looking for
+the other.
+
 ### Who reports a fault in an entry body
 
 An [entry body](#definitions) is checked under the same split, by three parties
@@ -3207,4 +3227,4 @@ two postings name one file, and #399 says what a run reads when they do.
 | [Discrimination](#discrimination) | #28 `layout`; an arm's and a `take-alternative`'s alternative written as a data-name, by #395 against discussion #394; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
 | [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394 |
-| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394 |
+| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397 |

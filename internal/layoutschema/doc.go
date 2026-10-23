@@ -38,6 +38,16 @@
 // carried the conditional rules would be a second statement of them beside the
 // reader's, for the two to disagree about.
 //
+// # The schema a run checks against
+//
+// [Published] is the schema this binary was built with: the bytes of
+// schema/layout.sexpr, embedded through
+// [github.com/Zaba505/cpybkc/schema], which are the bytes a release publishes as
+// layout-schema.sexpr. Every run checks its layout against it before any layer
+// reader reads one (#397), so a run and an adopter's own validator hold a layout
+// to the same text. [Load] remains for a caller holding some other schema — a
+// test building one, or a tool checking the file before it is published.
+//
 // # Why diagnostics rather than an error
 //
 // [Schema.Check] returns every diagnostic it finds rather than the first,

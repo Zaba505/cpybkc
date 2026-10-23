@@ -17,6 +17,7 @@ import (
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
+	"github.com/Zaba505/cpybkc/internal/layoutschema"
 	"github.com/Zaba505/cpybkc/internal/manifest"
 	"github.com/Zaba505/cpybkc/internal/resolve"
 	"github.com/Zaba505/cpybkc/irpb"
@@ -61,20 +62,50 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 	return read.assemble(bound)
 }
 
-// readLayout opens a layout and parses it.
+// readLayout opens a layout, parses it and holds it to the published schema.
 //
 // The name every position in it carries is the path as this run opened it,
 // because that is the path an adopter can hand to an editor. The path the
 // manifest spelled is what a diagnostic about the file itself names, for the
 // reason a copybook's is: a message naming a path nobody wrote sends the reader
 // looking for a file they have not got.
+//
+// The schema check runs here, after the grammar and before any layer reader,
+// and a layout it reports anything about is returned with exactly those
+// diagnostics and read no further. See the package comment's "Where the schema
+// check runs": a fault a declaration states is the schema's alone, so a layer
+// reader that also saw it would report it a second time in other words.
 func readLayout(path, spelling string) (*layout.File, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, &MissingLayoutError{Path: spelling, LookedIn: absolute(path), Err: err}
 	}
 
-	return layout.Parse(path, bytes.NewReader(src))
+	// The grammar first. A layout it rejects has no forms for the schema to
+	// check, and the constructs it refuses by name — a quote shorthand, nil, a
+	// boolean, the empty list, an improper list — are ones the schema check would
+	// otherwise report too, so running it second is what keeps each of those
+	// reported once.
+	file, err := layout.Parse(path, bytes.NewReader(src))
+	if err != nil {
+		return nil, err
+	}
+
+	published, err := layoutschema.Published()
+	if err != nil {
+		return nil, err
+	}
+
+	diagnostics, err := published.Validate(path, bytes.NewReader(src))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(diagnostics) > 0 {
+		return nil, layoutschema.Err(diagnostics)
+	}
+
+	return file, nil
 }
 
 // layers is a layout, read: every layer of it, and nothing resolved against a

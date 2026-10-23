@@ -10,6 +10,8 @@
 // already implemented somewhere else — [github.com/Zaba505/cpybkc/internal/manifest]
 // reads the file, [github.com/Zaba505/cpybkc/internal/layout] and
 // [github.com/Zaba505/cpybkc/internal/layoutmodel] read the layout,
+// [github.com/Zaba505/cpybkc/internal/layoutschema] holds it to the published
+// schema,
 // [github.com/Zaba505/cpybkc/internal/resolve] resolves a copybook against it,
 // [github.com/Zaba505/cpybkc/internal/assemble] assembles the descriptor and
 // [github.com/Zaba505/cpybkc/internal/plugin] finds the executables — and what
@@ -40,6 +42,39 @@
 //
 // An absolute path is taken as it is written. That is the same rule read on a
 // path that needs no base, rather than an exception to it.
+//
+// # Where the schema check runs
+//
+// Between the grammar and the layer readers, over the whole layout (#397). A
+// layout is parsed by [github.com/Zaba505/cpybkc/internal/layout] first, then
+// held to the published schema by
+// [github.com/Zaba505/cpybkc/internal/layoutschema] — the schema embedded from
+// the bytes of schema/layout.sexpr, which a release publishes as
+// layout-schema.sexpr — and only a layout the schema admits reaches
+// [github.com/Zaba505/cpybkc/internal/layoutmodel]. That covers every run path,
+// generation and `--emit-ir` alike, because both go through [Load].
+//
+// Each fault is reported once, under one rule, which is docs/layout/SPEC.md's
+// "Validation and diagnostics":
+//
+//   - A fault a declaration states — an unknown tag or child, a misplaced or
+//     extra argument, a repeated or missing child, a value outside a closed set,
+//     a reference naming nothing — is the schema check's alone, in the
+//     schema's text.
+//   - When the schema check reports anything, the run reports exactly those
+//     diagnostics and reads no layer. So a layer reader never reports a fault a
+//     declaration states, and a fault only a reader can find is reported on the
+//     run after the schema's are fixed.
+//   - The layer readers keep their own checks, because a caller that reads a
+//     layout without the schema still needs them, so no reader code is removed
+//     for this. On a run, what a reader reports is only what a declaration
+//     cannot say.
+//
+// The grammar runs first rather than beside the schema for the same reason. The
+// constructs it refuses by name — a quote shorthand, nil, a boolean, the empty
+// list, an improper list — are ones the schema check refuses too, and a layout
+// the grammar rejects is returned with the grammar's faults before the schema
+// has seen it.
 //
 // # Which copybooks a run reads
 //

@@ -43,7 +43,7 @@ type Diagnostic struct {
 // formatting a line of its own, so that a fault the schema found and a fault a
 // reader found read the same in a terminal.
 func (d Diagnostic) String() string {
-	return diag.Diagnostic{Message: d.Message, Spans: []diag.Span{d.Span}}.String()
+	return d.Diagnostic().String()
 }
 
 // Validate parses a layout from r under the name name and checks it against the
