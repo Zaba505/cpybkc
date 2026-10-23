@@ -26,9 +26,14 @@ sequencing expression is **spelled**, and the IR owns what one **means**. A
 question about what happens when two discriminators match is an IR question even
 though the discriminators are written here.
 
-The record itself remains the copybook's, and the byte layout of the fields
-inside it remains [`cobol-go`'s `codec/SPEC.md`][codec-spec]'s. Field layout
-questions belong there; questions about the file around the records belong here.
+What a record *is* remains COBOL's. It is described by a copybook, or by a
+transcription of a copybook's entries that the layout holds or names — a
+[definitions file or a `definitions-block`](#definitions), for the adopter whose
+copybooks cannot be committed — and whichever holds it, `cobol-go` decides what
+each entry means. This document owns how an entry is **spelled** and nothing
+about what it says. The byte layout of the fields inside a record remains
+[`cobol-go`'s `codec/SPEC.md`][codec-spec]'s. Field layout questions belong
+there; questions about the file around the records belong here.
 
 [codec-spec]: https://github.com/Zaba505/cobol-go/blob/main/codec/SPEC.md
 
@@ -75,7 +80,12 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   file's](#the-binary-width-staircase-is-the-compilers-not-the-files).
   <https://github.com/Zaba505/cobol-go/blob/main/codec/SPEC.md>
 - **`cobol-go`'s root `SPEC.md`** — normative for the copybook syntax a record
-  definition binds to, and so for what counts as a resolvable field name.
+  definition binds to, and so for what counts as a resolvable field name. It is
+  normative for an [entry body](#definitions) as well: the entries and clauses
+  one transcribes are that document's data-description grammar, and whether an
+  entry is admissible is decided by `cobol-go`'s parser rather than by anything
+  written here ([cobol-go judges an
+  entry](#cobol-go-judges-an-entry-and-nothing-here-says-what-one-means)).
   <https://github.com/Zaba505/cobol-go/blob/main/SPEC.md>
 - **`z5labs/sexpr-go`**, *the S-expression grammar underneath this format* —
   normative for the lexis and the parse of a layout file: what is a symbol, a
@@ -99,6 +109,16 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
 > The grammar source overlaps none of the others. It governs how a layout file
 > is *read as text*, and the three above govern what the text is about, so there
 > is no disagreement between them to resolve.
+>
+> An entry body is the one place two lexes meet, and they meet without
+> overlapping. `sexpr-go` reads the file first and its rules are applied
+> whole; a COBOL word is then the symbol `sexpr-go` read, and a COBOL literal
+> is the content of a `sexpr-go` string, with that grammar's escapes already
+> undone. Neither grammar is asked to read the other's text. Where the two
+> would disagree about one spelling — a COBOL word `sexpr-go` reads as
+> something other than a symbol — the word is written in a form that says so,
+> and [the leaf rules](#the-leaves-a-level-a-data-name-and-literal-text) are
+> the whole of that list.
 
 ### Conformance language
 
@@ -276,6 +296,19 @@ Rejecting them keeps one spelling per layout. A construct with no meaning that
 nevertheless parses is a construct two generators will emit differently, and
 there is nothing for a diagnostic to say about it.
 
+All four are refused everywhere, an [entry body](#definitions) included:
+`#t`, `#f`, `nil` and `()` have no meaning in an entry either. What the
+Booleans bullet and the [`charset none`
+argument](#a-byte-is-not-a-character-and-such-an-item-has-no-charset) against
+a form whose only content is its own presence govern is a layout's **own**
+forms. An entry body follows the entry rules wherever it is held, inside a
+`definitions-block` included, and there a clause COBOL writes with no operand
+is a form with no arguments — `(global)` — because that is what the copybook
+said ([Presence, and an operand that may be
+absent](#presence-and-an-operand-that-may-be-absent)). It is a transcription
+of a clause, not a flag the format invented, and it is the one spelling the
+clause has.
+
 ### Notation used below
 
 Each form is given as a skeleton and a table of children.
@@ -317,13 +350,19 @@ diagnostic naming the tag and its position.
 Every reference into a copybook is written the same way, wherever it appears:
 
 ```
-(item <record-name> <name> …)
+(item <record-name> <data-name> …)
 ```
 
 The first argument is the name of a `record` form. The names after it are the
 path from that record's top-level item down to the item being named, one name
 per level, outermost first, ending at the item itself. The top-level item's own
 name is not repeated — the `record` form already stated it.
+
+Each name in the path is a COBOL name, so it is a
+[data-name](#the-leaves-a-level-a-data-name-and-literal-text): a symbol in the
+case the copybook wrote it, or `(word "nil")` for the one spelling the grammar
+would read as something else (#404). The record name before them is the
+layout's own identifier and stays a symbol.
 
 A reference names an item and not an occurrence of one. Where the path passes
 through an item that repeats, or ends at one, what the reference means depends
@@ -355,6 +394,15 @@ prohibition is a property of the notation rather than a rule an adopter is
 trusted with. There is no `offset` child on any form and no `length` child on
 any form, so a layout that states one is rejected as an unknown child rather
 than believed and then contradicted.
+
+The prohibition governs the layout's **own** forms. A `PICTURE` or an `OCCURS`
+count in an [entry body](#definitions), in a definitions file or a
+`definitions-block` alike, is not a layout restating a copybook: it is the
+record's description making its own statement, exactly as the copybook it was
+transcribed from made it, and it is the only place that statement is written.
+No form in an entry body states an offset, a width or a length either
+([cobol-go judges an
+entry](#cobol-go-judges-an-entry-and-nothing-here-says-what-one-means)).
 
 `lrecl` and `blksize` are not exceptions to it, and the distinction is worth
 stating exactly because it looks like one. Neither is derivable from anything a
@@ -500,9 +548,11 @@ not this one: it is the binary width staircase, which is a property of the
 compiler rather than of the bytes and is [not written in a layout at
 all](#the-binary-width-staircase-is-the-compilers-not-the-files). Nor is a
 charset of none a form of its own beside `rename`: `rename` is about names and
-this is about bytes, and a form whose only content is its own presence is the
-boolean this format does not take ([What this document
-delegates](#what-this-document-delegates)).
+this is about bytes, and among a layout's own forms a form whose only content
+is its own presence is the boolean this format does not take ([What this
+document delegates](#what-this-document-delegates)). A clause in an [entry
+body](#definitions) is not one of those forms: it transcribes what a copybook
+wrote, and follows the entry rules.
 
 **It is written on an override and never on the profile.** A layout stating
 `(charset none)` on its `encoding` form is a diagnostic. A file has a character
@@ -758,7 +808,7 @@ and an adopter who guesses gives up a diagnostic without being told.
 | Argument or child | Arity | Value |
 |---|---|---|
 | `<name>` | 1 | a symbol, unique among the layout's records |
-| `copybook` | 1 | a path, and the name of the item in it this record is |
+| `copybook` | 1 | a path, and the name of the item in it this record is — a [data-name](#the-leaves-a-level-a-data-name-and-literal-text) |
 | `alternative` | 0..n | one alternative of a `REDEFINES` outside a repeating group; see [Which alternative a record is](#which-alternative-a-record-is) |
 
 A record name is the layout's own identifier for a record type. It **MAY** be
@@ -846,6 +896,18 @@ depends on which is written first — and together they select exactly one of th
 combinations [`ir/SPEC.md`](../ir/SPEC.md#members-never-overlap-and-redefines-is-resolved-away)
 enumerates. How many a copybook writes, and whether a reference names an
 alternative at all, are `resolve`'s: both need the copybook.
+
+**Narrowing is this child's job, and `take-alternative`'s, wherever the entries
+are held.** A record whose description is an [entry body](#definitions) rather
+than a copybook says which alternative it is in exactly this way, and a table's
+redefine is still settled by
+[`take-alternative`](#every-occurrence-of-a-table-takes-one-alternative) or one
+of the two variant forms. An entry body is a transcription of every entry its
+copybook declares, the base of a redefined run included, and it is never edited
+to narrow: deleting the alternatives a file does not carry from a definitions
+file would make it a description of a record no copybook declares, and the
+statement that only one alternative is ever in the data would then be written
+nowhere a reader looks for it.
 
 **The pairing is stated and never inferred.** Matching a record form to the
 alternative containing its discriminator's target is a rule that works on the
@@ -1082,6 +1144,344 @@ count field left an ordinary field beside it. The second is also the escape from
 [`lrecl`](#lrecl-and-blksize-describe-the-dataset-not-the-stream)'s rejection of
 a variable record on a fixed-length dataset, wherever a table has nothing behind
 it.
+
+## Definitions
+
+An adopter whose vendor's copybooks cannot be committed still needs checked-in
+text that says everything those copybooks said, or regeneration depends on files
+no checked-in file records (discussion #394). This chapter is that text's
+notation. It is one production, an **entry body**, which may be held in a file
+of its own or inside the layout, and which transcribes `cobol-go`'s parse of a
+copybook entry for entry. What each entry *means* stays `cobol-go`'s; what is
+settled here is how one is spelled, so that cpybkc and any second implementation
+read the same text the same way (#395, #394).
+
+### An entry body, and the two places it is held
+
+An entry body is one top-level `entry` form per `cobol-go`
+`DataDescriptionEntry`, in source order, and nothing else.
+
+| Form | Arity | What it is |
+|---|---|---|
+| `entry` | 1..n | one data-description entry, as [An entry, and one form per clause](#an-entry-and-one-form-per-clause) spells it |
+
+An entry body is held in exactly one of two places:
+
+- **a definitions file**, a `.sexpr` document whose top-level forms are exactly
+  one entry body;
+- **a [`definitions-block`](#the-definitions-block-form)** in a layout,
+  `(definitions-block <name> <entry> …)`, whose body is exactly what a
+  definitions file holds, token for token.
+
+A block holds no nested block, no path and no header. A definitions file holds
+no block, and no header either: it is the entries and nothing beside them, so a
+file's text and a block's body are interchangeable by moving lines, and a
+reader of one is a reader of the other. Which of the two a record's description
+is held in, and how a record names it, is #399's.
+
+**Entries are flat.** An entry body is a list, never a tree: the hierarchy of a
+record comes from its level numbers, which `copybook.Build` folds into groups
+exactly as it folds a copybook's, and indentation means nothing to a reader.
+Nesting the forms would have been a second statement of the hierarchy beside the
+level numbers, for the two to disagree about — and a copybook states it once, in
+the numbers. The [printed form](#the-printed-form-init-writes) indents for the
+eye and for nothing else.
+
+### The `definitions-block` form
+
+```
+(definitions-block <name>
+  <entry> …)
+```
+
+| Argument | Arity | Value |
+|---|---|---|
+| `<name>` | 1 | a symbol, the layout's own identifier for the block |
+| `<entry>` | 1..n | an `entry` form; the block's body is an [entry body](#an-entry-body-and-the-two-places-it-is-held) |
+
+A `definitions-block` is a top-level form, `0..n` of them per layout, in the
+record-definitions layer. Its name is a symbol and is always one: it is the
+layout's own identifier, like a record's, and never a COBOL name, so it is never
+written `(word …)`.
+
+The tag is `definitions-block` rather than `definitions` because `definitions`
+is the record source #399 settles, and a diagnostic that names a form has to
+name one thing. How a record names a block, and what a block no record names is,
+are #399's.
+
+This section is not yet a row of [The top-level forms](#the-top-level-forms).
+That table and `schema/layout.sexpr` are held equal by a test, so the row lands
+with the declaration, in #400, and until then a layout carrying one is refused
+as an unknown top-level form.
+
+### An entry, and one form per clause
+
+```
+(entry <level> <name> <clause> …)
+```
+
+| Argument | Arity | Value |
+|---|---|---|
+| `<level>` | 1 | the level number, a [number](#the-leaves-a-level-a-data-name-and-literal-text) |
+| `<name>` | 1 | `FILLER`, or the entry's [data-name](#the-leaves-a-level-a-data-name-and-literal-text); see [What is written follows from what cobol-go reads](#what-is-written-follows-from-what-cobol-go-reads) |
+| `<clause>` | 0..n | one form per clause the entry carries, in source order |
+
+Every production of `cobol-go`'s data-description grammar at the commit cpybkc
+pins has exactly one spelling: one form per clause kind, twelve of them.
+
+| `cobol-go` | COBOL | Written |
+|---|---|---|
+| `RedefinesClause` | `REDEFINES` | `(redefines PST-DEBIT)` |
+| `PictureClause` | `PICTURE`, `PIC` | `(pic "S9(7)V99")` |
+| `UsageClause` | `USAGE`, or a usage written alone | `(usage COMP-3)` |
+| `ValueClause` | `VALUE`, `VALUES` | `(value "'A'" (through "'C'" "'F'") SPACE)` |
+| `OccursClause` | `OCCURS` | `(occurs "0" (to "50") (depending-on PST-COUNT) (key ASCENDING PST-KEY) (indexed-by PST-IX))` |
+| `SignClause` | `SIGN` | `(sign LEADING)`, `(sign TRAILING SEPARATE)` |
+| `SynchronizedClause` | `SYNCHRONIZED`, `SYNC` | `(synchronized)`, `(synchronized LEFT)` |
+| `JustifiedClause` | `JUSTIFIED`, `JUST` | `(justified)` |
+| `BlankWhenZeroClause` | `BLANK WHEN ZERO` | `(blank-when-zero)` |
+| `GlobalClause` | `GLOBAL` | `(global)` |
+| `ExternalClause` | `EXTERNAL` | `(external)` |
+| `RenamesClause` | `RENAMES` | `(renames PST-ACCOUNT)`, `(renames (through PST-TYPE PST-ACCOUNT))` |
+
+Noise words and alternate keyword spellings are not written. The optional
+`IS`, `TIMES`, `ON`, `KEY`, `WHEN` and `CHARACTER`, and `RIGHT` after
+`JUSTIFIED`, carry nothing `cobol-go` keeps; a keyword of several words is one
+tag (`depending-on`, `indexed-by`, `blank-when-zero`); and `PIC` and `PICTURE`,
+`SYNC` and `SYNCHRONIZED`, `JUST` and `JUSTIFIED`, `THRU` and `THROUGH`, `VALUE`
+and `VALUES` are one clause apiece in its parse. So each clause has one form,
+and two generators transcribing one copybook write one text. `ARE` after
+`VALUES` is the one noise word the pinned `cobol-go` does not read as noise, and
+[A condition-name cobol-go misreads is refused, not
+transcribed](#a-condition-name-cobol-go-misreads-is-refused-not-transcribed) is
+what follows.
+
+`through` is one form wherever it appears: `(through <from> <to>)`, a range in a
+`value` and the range a `renames` names. Which operands it may hold in which
+position — literals in a condition-name's range, data-names in a `RENAMES` — is
+`cobol-go`'s to judge, not a second rule here.
+
+A `value` holds one or more operands, each literal text, a data-name, or a
+`through`. That an ordinary item carries one value and a condition-name may
+carry several is `cobol-go`'s too.
+
+An `occurs` holds its count, then its phrases — `to`, `depending-on`, any number
+of `key`, and `indexed-by` — in that order, which is the order `cobol-go` holds
+and prints them in. `to`, `depending-on` and `indexed-by` appear at most once
+each. Each `key` is one phrase naming one key, `(key <order> <data-name>)`, as
+`cobol-go` holds it.
+
+### The leaves: a level, a data-name and literal text
+
+The leaf rules are stated once, here, and hold in every entry.
+
+**A level is a number:** `01`, `05`, `66`, `77`, `88`. Which levels exist, and
+which may follow which, is `cobol-go`'s.
+
+**Every COBOL word is a data-name.** That covers data-names, condition-names
+and index-names, and any word in a `VALUE` or `THROUGH` operand, figurative
+constants included — `SPACE`, `ZEROS`, `HIGH-VALUES`. A data-name is a symbol,
+in the case the copybook wrote it. It is written
+
+```
+(word "<spelling>")
+```
+
+only where `sexpr-go` would read the spelling as something other than that
+symbol, which today means only `nil`: `sexpr-go` reads `nil`, in lower case,
+as its empty value, and every other COBOL word `cobol-go` reads is a symbol to
+it. A `word` around a spelling that reads as a symbol is a diagnostic, so that
+every data-name has one spelling.
+
+**Every COBOL literal token, PICTURE string and OCCURS bound is text** holding
+exactly that token as COBOL writes it, delimiters included: `"'A'"`, `"-12.50"`,
+`"S9(7)V99"`, `"50"`. The token is the lexeme `cobol-go` holds — a literal a
+fixed-format copybook continued across lines is the one token `cobol-go` joined
+it into — and a text holding anything other than exactly one COBOL token is a
+diagnostic. A COBOL numeric literal is text rather than a `sexpr-go` number
+because the token is COBOL's: `cobol-go` keeps its lexeme raw, sign and trailing
+zeros included, and a number read by `sexpr-go`'s rules would be a second lexis
+deciding what the copybook wrote.
+
+**The operands of the four closed sets are upper-case symbols:** the `USAGE`,
+the `SIGN` position, the `SYNCHRONIZED` direction, and the `KEY` order —
+`COMP-3`, `LEADING`, `LEFT`, `ASCENDING`. They are upper case because `cobol-go`
+upper-cases them, so a copybook's `comp-3` is `COMP-3` in its parse and in the
+transcription. Which values are admitted is `cobol-go`'s to judge, not a list in
+this document: a usage `cobol-go` gains is one a definitions file may write the
+same day. `SEPARATE` on a `sign` is written as that one upper-case symbol. No
+other word is case-folded.
+
+### What is written follows from what cobol-go reads
+
+Order and repetition are not choices this notation makes. Each is a consequence
+of transcribing everything `cobol-go` reads.
+
+- **Entries, and the clauses within each entry, are written in source order.**
+  `cobol-go` holds both in the order the copybook wrote them, and an entry body
+  that reordered them would be a different parse.
+- **A clause the copybook repeats is repeated.** `cobol-go` parses a repeated
+  clause and `copybook.Build` reads the first, so dropping a later one would
+  drop a clause `cobol-go` read — and an entry whose meaning depended on which
+  duplicate a transcription kept would be one whose meaning was the
+  transcription's.
+- **At levels other than 66 and 88, an unnamed item is written `FILLER`**,
+  whether the copybook wrote `FILLER` or omitted the name. `cobol-go` reads
+  `FILLER` there as a keyword and without regard to case, so no data-name at
+  those levels is spelled `FILLER`.
+- **At 66 and 88 a name is always a name.** `cobol-go` holds a name spelled
+  `FILLER` there as a name, so it is written as the copybook spelled it.
+
+### Presence, and an operand that may be absent
+
+A clause COBOL writes with no operand is a form with no arguments: `(global)`,
+`(justified)`, `(blank-when-zero)`, `(synchronized)`. The form's presence is the
+clause, as the keyword's presence is in the copybook.
+
+An optional operand — `SEPARATE` on a `sign`, a direction on a `synchronized` —
+is the form's `at-most-one` last argument, and absent where the copybook wrote
+none. The dialect's `0..1` already means exactly this. The schema checker's
+refusal of an absent one is a defect, which #396 fixes; the dialect does not
+change.
+
+Neither is the boolean [What this document
+delegates](#what-this-document-delegates) refuses, and that section says why:
+its rule governs a layout's own forms, and an entry body follows these rules
+wherever it is held, inside a block included. `#t`, `#f`, `nil` and `()` stay
+refused everywhere.
+
+### cobol-go judges an entry, and nothing here says what one means
+
+Validity is `cobol-go`'s to judge. An entry is admissible exactly when printing
+the `DataDescriptionEntry` cpybkc built from it with `cobol.Print`, and reading
+the result back in free format with `cobol.Parse(WithFragment())`, gives back
+that entry, with positions and comments cleared. This holds in a definitions
+file and in a block alike, and it is the whole of what an entry has to satisfy
+beyond its shape (#401).
+
+That rule makes `cobol-go`'s parser the judge without making this document a
+second grammar. An entry `cobol-go` would not read back as itself — an 88
+carrying a `pic`, a usage it does not know, a name it would read as a keyword
+— is one whose meaning would be cpybkc's reading of it rather than `cobol-go`'s,
+and the point of a transcription is that there is one reader.
+
+What an admissible entry *means* is cited, never restated: the hierarchy, USAGE
+inheritance, widths, `REDEFINES`, `OCCURS DEPENDING ON` and `SYNCHRONIZED` slack
+are `copybook.Build`'s and `NewLayout`'s, applied to these entries exactly as
+they are applied to a copybook's. No form for an offset, a width or a length
+exists, in an entry body or anywhere else ([A layout states relationships and
+sizes, and nothing derived](#a-layout-states-relationships-and-sizes-and-nothing-derived)).
+
+### The printed form `init` writes
+
+A definitions file has a canonical printed form, and it is the form `init`
+writes:
+
+- one entry per line;
+- two spaces of indentation per depth;
+- the level, the name and each clause separated by single spaces;
+- levels as two digits.
+
+The depth is the one `cobol-go`'s printer gives an entry, spelled out here so
+that a second implementation can write it without reading that printer:
+
+- an entry at levels 01–49 is as deep as the number of entries enclosing it,
+  counted by level numbers alone — a 01–49 entry encloses the entries after it
+  until one at its level or lower;
+- 66 and 77 are at depth 0;
+- an 88 is one deeper than the nearest entry before it that is not an 88.
+
+`copybook.Build`'s tree is not the source of the depth, because it holds 88s and
+66s outside its children; the level numbers are.
+
+A block's canonical form is the file's, with every line indented two more
+spaces. The block opens on its own line, `(definitions-block <name>`, and closes
+on its last entry's line. `init` writes no block, and nothing checks this form:
+it is what a person moving a file's entries into a layout is advised to write,
+and any other whitespace reads the same. The [definitions
+file](#appendix-a-definitions-file) and the [block in a
+layout](#appendix-definitions-held-three-ways) appendices are both in it.
+
+### What a transcription leaves out
+
+Four things a copybook carries are not transcribed, each for its reason.
+
+- **Copybook comments.** Reason: `cobol-go` keeps them and nothing below it
+  reads them; the validity rule above clears them before it compares. A
+  definitions file or a block **MAY** carry `;` comments of its own, and nothing
+  reads those either.
+- **Noise words.** Reason: `cobol-go`'s parse holds none of them, so there is
+  nothing to transcribe, and writing them would give one clause two spellings.
+- **Reference-format columns** — the sequence area, the indicator area and the
+  identification area of a fixed-format copybook. Reason: they are where the
+  copybook's text sat, not statements about the record, and `cobol-go` reads
+  them away. An entry body has no columns, and the judge reads it back in free
+  format.
+- **The difference between `FILLER` and an omitted name.** Reason:
+  `copybook.Build` makes both one unnamed item, so nothing downstream of the
+  parser can observe the difference, and one spelling for one meaning is the
+  rule everywhere else in this format.
+
+**Every copybook cpybkc can read today** is one that both
+`cobol.Parse(WithFragment(), WithSourceFormat(FixedFormat))` and
+`copybook.Build` accept and that declares at least one entry. Every such
+copybook converts to an entry body that `cobol-go` reads back as the same
+entries (#401), with the one exception the next section states and argues.
+What the pinned `cobol-go` does not read at all is [out of
+scope](#what-the-pinned-cobol-go-does-not-read), with its reasons.
+
+### A condition-name cobol-go misreads is refused, not transcribed
+
+Most constructs the pinned `cobol-go` cannot read are refused through the parse
+failure, and so never reach a transcription. A condition-name's `VALUE` list is
+the exception. There the pinned `cobol-go` reads `X'00'`, `N'A'` and `ALL '*'`
+each as two values, a word and a literal, and reads `VALUES ARE 'A' 'B'` as
+three, with `ARE` the first; `copybook.Build` accepts all four. A transcription
+of what `cobol-go` read would be `(value X "'00'")` and
+`(value ARE "'A'" "'B'")`.
+
+Conversion **MUST NOT** write such an entry. Where a copybook writes a
+condition-name's `VALUE` list with a prefixed literal, an `ALL` literal or the
+phrase `VALUES ARE`, conversion refuses that copybook, naming the entry and the
+`cobol-go` story that reads the construct: Zaba505/cobol-go#140 for a prefixed
+literal, #142 for `ALL`, #135 for `VALUES ARE`. It writes no definitions file
+for it. How `init` reports a refusal beside the copybooks it does convert is
+#403's.
+
+Reason: a transcription is the one place the misreading would outlive the fix.
+A copybook is re-read at every pin, so the day `cobol-go` reads `X'00'` as one
+literal, every record bound to that copybook reads it so. A definitions file is
+checked-in text that is never re-read from its copybook — that is what it is
+for — and `(value X "'00'")` would go on stating, as the copybook's own, a
+reading `cobol-go` has been fixed to stop making. Nothing would then tell it
+apart from a value list an adopter wrote by hand, and an entry body printing
+`VALUE X '00'`, with its space, is one `cobol-go` will rightly go on reading as
+two values. Refusing keeps the rule a reader can predict: conversion carries no
+prefixed literal, no `ALL` literal and no `VALUES ARE` until `cobol-go` reads
+them, in this position as in every other, and the refusal says which story
+lifts it. An entry body cannot write one either, since `"X'00'"` is two tokens
+to the pinned `cobol-go` and so not literal text. Condition-names reach no
+descriptor today, so a record bound to the copybook itself loses nothing a run
+emits in the meantime.
+
+### Where the rest of it lands
+
+This chapter is the notation and nothing built on it. The stories filed with it
+under discussion #394 carry the rest:
+
+- #396, the schema checker admitting an absent `at-most-one` argument;
+- #397, a run checking a layout against the published schema;
+- #398, what may break before 1.0.0;
+- #399, how a record names a definitions file or a block, and what a run reads;
+- #400, the schema declarations and the reader for an entry body;
+- #401, the converter, the judge, and the round trip over every copybook;
+- #402, a record naming a file or a block;
+- #403, how `init` writes a definitions file per copybook;
+- #404, the data-name sort wherever a layout names an item;
+- #405 and #409, resolving a record held in a file and in a block;
+- #406 and #408, `init` scaffolding records and writing definitions files;
+- #407, where a `COPY` member is found;
+- #410, a worked example shipping definitions files and no copybook.
 
 ## Discrimination
 
@@ -1399,8 +1799,8 @@ a type code is a property of a record's shape rather than of its data.
 
 ```
 (discriminate-variant <item-ref>
-  (arm <name> <predicate>)
-  (arm <name> <predicate>)
+  (arm <data-name> <predicate>)
+  (arm <data-name> <predicate>)
   …)
 ```
 
@@ -1424,7 +1824,7 @@ group containing them repeats, are the copybook's and are `resolve`'s (#31,
 | Position | Sort | Arity | What it says |
 |---|---|---|---|
 | variant | item reference | 1 | the redefined item, inside a repeating group |
-| `arm` | `(arm <name> <predicate>)` | 2..n | an alternative, and what selects it |
+| `arm` | `(arm <data-name> <predicate>)` | 2..n | an alternative, by its [data-name](#the-leaves-a-level-a-data-name-and-literal-text), and what selects it |
 
 A `<predicate>` is `equals` or `one-of` — the same two strategies, testing the
 same [literals](#literals), and no third. `single-record-type` is not among
@@ -1518,8 +1918,8 @@ half of it that it states today.
 
 ```
 (schedule-variant <item-ref>
-  (arm <name> <occurrence> …)
-  (arm <name> <occurrence> …)
+  (arm <data-name> <occurrence> …)
+  (arm <data-name> <occurrence> …)
   …)
 ```
 
@@ -1538,7 +1938,7 @@ alternative and the occurrences it is taken for, counted from one.
 | Position | Sort | Arity | What it says |
 |---|---|---|---|
 | variant | item reference | 1 | the redefined item, inside a repeating group |
-| `arm` | `(arm <name> <occurrence> …)` | 2..n | an alternative, and the occurrences it is taken for |
+| `arm` | `(arm <data-name> <occurrence> …)` | 2..n | an alternative, by its [data-name](#the-leaves-a-level-a-data-name-and-literal-text), and the occurrences it is taken for |
 
 An arm takes **one or more** occurrences, because a schedule that takes one
 alternative for several entries is the shape that has nowhere else to go: the
@@ -1613,7 +2013,7 @@ the one thing it takes away from the byte-selected one
 ### Every occurrence of a table takes one alternative
 
 ```
-(take-alternative <item-ref> <name>)
+(take-alternative <item-ref> <data-name>)
 ```
 
 A redefine inside a repeating group is not always a choice. In a
@@ -1632,7 +2032,7 @@ none of the redefinitions.
 | Position | Sort | Arity | What it says |
 |---|---|---|---|
 | redefine | item reference | 1 | the redefined item, inside a repeating group |
-| alternative | symbol | 1 | the alternative every occurrence takes |
+| alternative | [data-name](#the-leaves-a-level-a-data-name-and-literal-text) | 1 | the alternative every occurrence takes |
 
 **What it says is that there is no variant**, and that is why it is not a
 one-armed `discriminate-variant`. A redefine every occurrence of which takes one
@@ -2039,18 +2439,56 @@ they already have — the same poorer signal
 [`ir/SPEC.md`](../ir/SPEC.md#while-ir_version_1-is-being-assembled) offers for
 the IR over the same period, and for the same reason. `schedule-variant` is
 added on those terms (#346), and `take-alternative` is added on the same ones
-(#341): each is a change to what a layout may say, made while version 1 is being
-settled, and each leaves the number where it is. Pinning the cpybkc that reads
+(#341), and so are `definitions-block`, `entry`, every clause and operand form
+of an [entry body](#definitions), `data-name` and `word` (#395, #400): each is a
+change to what a layout may say, made while version 1 is being settled, and each
+leaves the number where it is. Pinning the cpybkc that reads
 the layouts a generator writes is what closes the gap until `v1.0.0`.
 
 The version is not this document's. A spec carries no version number
 ([CONVENTIONS.md](../CONVENTIONS.md)); what is versioned is the interface, and
 the schema is where that number lives for this one.
 
+### One schema, and a definitions file is one block's body
+
+There is one schema. `schema/layout.sexpr` declares `definitions-block`,
+`entry`, every clause and operand form an [entry body](#definitions) holds, and
+the `data-name` sort and its `word` form, beside everything else a layout may
+say. A definitions file has no schema and no version of its own: it is checked
+as one block's body, against the same declarations, so a fault in its shape
+reads the same in a file as in a block.
+
+A second schema would have been a second version number for one notation, and
+the moment the two moved apart a definitions file valid in one layout's
+vocabulary and not in another's would be possible. A block's body and a file
+are one production, so they are one set of declarations.
+
+The declarations take this shape:
+
+- a block's entries are `definitions-block`'s repeating last argument, of a
+  sort whose one form is a contextual `entry`;
+- an entry's clauses are `entry`'s repeating last argument, of a `clause` sort;
+- every clause and operand form is contextual, declared into a sort. No form
+  the [Definitions](#definitions) chapter adds is a child form, so the set of
+  tags the schema reserves for child forms across every layout does not grow,
+  and a clause tag such as `value` claims nothing outside an entry;
+- a closed-set operand — a usage, a sign position, a synchronization direction,
+  a key order — is `symbol`, and its values are not listed;
+- no new sort reuses a name the layout already declares. `literal` is the
+  discriminator literal's, so an entry's literal text is a sort of another
+  name.
+
+The schema stays `(schema layout 1)`, under [the rule for changes made while
+version 1 is being
+settled](#the-version-is-in-the-file-and-it-moves-with-the-format). The
+declarations land in `schema/layout.sexpr` itself, with #400 — this chapter
+(#395) states them and changes no schema file — and no second schema file or
+release asset is introduced for them.
+
 ### What the schema does not say
 
 The schema states what a layout is **shaped** like. A layout it accepts is
-well-formed, not valid, and four classes of rule are deliberately outside it.
+well-formed, not valid, and five classes of rule are deliberately outside it.
 
 **Conditional arities.** `lrecl` is required under `F` and `FB`, `max-segment`
 under `VBS`, `delimiter` and `placement` under `line-sequential`. The schema
@@ -2079,7 +2517,16 @@ conventional.
 **Everything a copybook decides**, which is
 [Validation and diagnostics](#validation-and-diagnostics)'s second list entire.
 
-None of the four is a gap to be closed later by growing the vocabulary. A schema
+**Everything `cobol-go` judges** in an entry body: which levels, usages, sign
+positions, synchronization directions and key orders exist, which clauses an
+entry at a given level may carry, which operands a `through` or a `value` may
+hold where it stands, and every other question [cobol-go judges an
+entry](#cobol-go-judges-an-entry-and-nothing-here-says-what-one-means) hands to
+the parser. The closed sets are among them: a list of usages in the schema would
+be a second statement of `cobol-go`'s, for the two to disagree about the day
+`cobol-go` gains one.
+
+None of the five is a gap to be closed later by growing the vocabulary. A schema
 carrying a conditional arity would be a second statement of a rule the reader
 already enforces, kept in step by hand, for the two to disagree about — and the
 disagreement would surface as a layout the published schema accepts and the
@@ -2162,6 +2609,37 @@ than by carrying a copy of the tables above. What is left to it is what a
 declaration cannot say: the conditional arities, the spellings rejected by name,
 and the rules counting one form against another.
 
+### Who reports a fault in an entry body
+
+An [entry body](#definitions) is checked under the same split, by three parties
+rather than two, because the third thing an entry needs to know about is
+`cobol-go`'s parser rather than a copybook:
+
+- **The schema check** reports every fault a declaration states: an unknown
+  tag, a misplaced argument, a missing one, and a second operand where at most
+  one is admitted, such as `(sign LEADING SEPARATE SEPARATE)`. Its text is the
+  same in a definitions file and in a block, because the declarations are the
+  same ([One schema, and a definitions file is one block's
+  body](#one-schema-and-a-definitions-file-is-one-blocks-body)).
+- **The entry reader** reports what a declaration cannot say: a `word` around a
+  spelling that reads as a symbol; a literal text that is not exactly one COBOL
+  token; and, in an `occurs`, a `to`, `depending-on` or `indexed-by` written
+  twice or a phrase out of [the order the grammar admits
+  them](#an-entry-and-one-form-per-clause) — a rule counting one form against
+  another, which is the reader's everywhere in this format.
+- **The judge** reports an entry `cobol-go` refuses: one that does not read back
+  as itself under [the validity
+  rule](#cobol-go-judges-an-entry-and-nothing-here-says-what-one-means), with
+  the COBOL it printed and `cobol-go`'s message.
+
+Each fault is reported at its span, and once per definitions file or block,
+however many records name it. The span is in the definitions file for a fault
+in a file, and in the layout for a fault in a block. None of the three needs a
+copybook, so all three run before `resolve` touches a record held this way —
+a misspelled clause is reported as a misspelled clause and not as whatever it
+fails to resolve into, which is the argument the split above makes for a
+layout.
+
 ### Every diagnostic carries a span, and some carry two
 
 A diagnostic **MUST** name what it found and where, and **MUST NOT** report only
@@ -2241,29 +2719,89 @@ the generated reader where it is not.
 
 ### The copybook language
 
-Level numbers, `PIC` clauses, `OCCURS`, `REDEFINES` — the contents of a copybook
-are **not specified here**.
+A layout now spells a copybook's entries — [Definitions](#definitions) is that
+notation — and what it spells is the whole of what it says about the copybook
+language. Three things stay out.
 
-Reason: they are `cobol-go`'s, cited above. A layout file binds a record name to
-a copybook and an `01`-level inside it and stops there. Restating any of the
-copybook language would be a second reading of COBOL for the two repositories to
-disagree about, which is the outcome depending on `cobol-go` exists to prevent.
+**What an entry means is not specified here.** The hierarchy the level numbers
+make, what a `PICTURE` or a `USAGE` says, how wide an item is, what `REDEFINES`,
+`OCCURS DEPENDING ON` and `SYNCHRONIZED` do to the bytes around them: none of
+it is stated in this document, for an entry body or for a copybook.
+
+Reason: they are `cobol-go`'s, cited above, through `copybook.Build` and
+`NewLayout`. Restating any of the copybook language would be a second reading of
+COBOL for the two repositories to disagree about, which is the outcome
+depending on `cobol-go` exists to prevent — and a transcription whose meaning
+was restated here could disagree with the copybook it was transcribed from.
+
+**Which entries are valid is not specified here.** No list of levels, usages,
+clause combinations or operand kinds is kept in this document or in the schema.
+
+Reason: `cobol-go`'s parser judges an entry ([cobol-go judges an
+entry](#cobol-go-judges-an-entry-and-nothing-here-says-what-one-means)). A
+second statement of the rules would admit an entry `cobol-go` refuses, or
+refuse one it reads, and either would make an entry body mean something other
+than the copybook it stands for.
+
+**A copybook's source form is not transcribed.** Its comments, its noise words,
+its reference-format columns, and whether an unnamed item said `FILLER`.
+
+Reason: none of them reaches anything `cobol-go` builds, and each is given in
+full at [What a transcription leaves out](#what-a-transcription-leaves-out).
 
 `COPY` is part of that language, and it is where a shared header is joined to a
 per-type body; [Composition is the
 copybook's](#composition-is-the-copybooks-and-copy-is-where-it-is-written) is
 why the joining is not a layout form.
 
-`REDEFINES` is part of it too, and the one thing a layout says about a redefine
-is which alternative to read — never what a redefine is, where its bytes are, or
-which items overlay which. A redefine whose alternatives are whole record types
-is told apart by an ordinary `discriminate`; one inside a repeating group is
-told apart by
+`REDEFINES` is part of it too. An entry body transcribes one as `(redefines …)`,
+which is the copybook's statement carried over; beyond that, the one thing a
+layout says about a redefine is which alternative to read — never what a
+redefine is, where its bytes are, or which items overlay which. A redefine whose
+alternatives are whole record types is told apart by an ordinary
+`discriminate`; one inside a repeating group is told apart by
 [`discriminate-variant`](#a-discriminator-for-a-redefine-inside-a-table) or
 [`schedule-variant`](#a-schedule-for-a-redefine-chosen-by-position), or is told
 to take one alternative by
 [`take-alternative`](#every-occurrence-of-a-table-takes-one-alternative). All of
-them name items the copybook declared and nothing the copybook did not.
+them name items the record's description declared and nothing it did not.
+
+### What the pinned cobol-go does not read
+
+Four constructs a real copybook may hold are not read by the `cobol-go` cpybkc
+pins, and so are in no copybook [cpybkc can read
+today](#what-a-transcription-leaves-out) and in no entry body. Most positions
+refuse them through the parse failure; a condition-name's `VALUE` list does not,
+and [A condition-name cobol-go misreads is refused, not
+transcribed](#a-condition-name-cobol-go-misreads-is-refused-not-transcribed) is
+the rule there.
+
+**`COPY` without a resolver.** A copybook that writes `COPY` is parsed with no
+way to find the member it names.
+
+Reason: where a member is found is a question about the files a run reads, and
+#407 settles it on the CLI's side. A transcription of a copybook whose `COPY`
+was never expanded would be a transcription of part of a record.
+
+**Prefixed literals**, such as `X'00'` and `N'AB'` (Zaba505/cobol-go#140).
+
+Reason: the pinned tokenizer reads the prefix as a word and the rest as a
+second literal. Until it reads one token, there is no token for literal text to
+hold, and writing the two it reads would transcribe a misreading.
+
+**`ALL` literals**, such as `ALL '*'` (Zaba505/cobol-go#142).
+
+Reason: the same — the pinned parser reads `ALL` as a word beside its literal,
+and a transcription can only be as right as the parse it transcribes.
+
+**Words that begin with a digit**, such as `1000-INIT` or `1ST-FIELD`
+(Zaba505/cobol-go#141).
+
+Reason: the pinned tokenizer does not read them as words. Each also begins like
+a `sexpr-go` number, so when `cobol-go` does read them, the [leaf
+rules](#the-leaves-a-level-a-data-name-and-literal-text) will have a second
+spelling `sexpr-go` reads as something other than a symbol, and `(word …)` is
+already the form that holds one.
 
 ### The S-expression grammar
 
@@ -2349,6 +2887,8 @@ protections. An adopter who wants one writes four lines.
   read from, and in what order, is the same CLI concern. The format has no
   include form and needs none: every form is top-level and refers by name, so a
   shop's profile in a file of its own is the same statement wherever it is read.
+  A definitions file a record names is not this: it holds a record's
+  description, not a layout's forms, and how a record names one is #399's.
 
 ## Appendix: A layout, end to end
 
@@ -2545,15 +3085,116 @@ told to pass through, which is still EBCDIC characters with EBCDIC signs. In
 both directions the exception is per item, both are stated with the same form,
 and neither is a second profile.
 
+## Appendix: A definitions file
+
+`posting.cpy.sexpr`, the entries of a vendor's posting copybook that its licence
+keeps out of the repository, in the [printed form `init`
+writes](#the-printed-form-init-writes). The record carries a type code with two
+condition-names, a body redefined two ways, a small fixed table and a filler to
+an 80-byte record.
+
+```
+(entry 01 POSTING-RECORD)
+  (entry 05 PST-TYPE (pic "X"))
+    (entry 88 PST-IS-DEBIT (value "'D'"))
+    (entry 88 PST-IS-CREDIT (value "'C'"))
+  (entry 05 PST-ACCOUNT (pic "X(10)"))
+  (entry 05 PST-DEBIT)
+    (entry 10 PST-DR-AMOUNT (pic "S9(9)V99") (usage COMP-3))
+    (entry 10 PST-DR-REASON (pic "X(4)") (value SPACES))
+  (entry 05 PST-CREDIT (redefines PST-DEBIT))
+    (entry 10 PST-CR-AMOUNT (pic "S9(9)V99") (usage COMP-3))
+    (entry 10 FILLER (pic "X(4)"))
+  (entry 05 PST-REFS (occurs "3"))
+    (entry 10 PST-REF (pic "X(5)"))
+  (entry 05 FILLER (pic "X(44)"))
+```
+
+Every line is one entry and every entry is a top-level form; the indentation is
+the [depth rule](#the-printed-form-init-writes) and nothing reads it. The two
+88s sit one deeper than `PST-TYPE`, the nearest entry before them that is not an
+88. `(redefines PST-DEBIT)` is the copybook's own statement, carried over, and
+what it does to the bytes is `copybook.Build`'s; which of the two alternatives a
+record is, is said in the layout, by the `alternative` children the [next
+appendix](#appendix-definitions-held-three-ways) writes. The literal text
+`"'D'"` holds the COBOL token with its apostrophes, and `SPACES` is a data-name,
+as every COBOL word is.
+
+## Appendix: Definitions held three ways
+
+A ledger file whose three kinds of record are described three ways, record by
+record: the header by the shop's own copybook, which is committed; the postings
+by the definitions file above, because their copybook cannot be; and the
+trailer, three items long, by a `definitions-block` in the layout itself. The
+record forms name their sources in the spelling #399 settles.
+
+```
+(encoding
+  (charset cp037)
+  (sign-convention ebcdic)
+  (byte-order big-endian)
+  (float-format hfp))
+
+(framing
+  (recfm FB)
+  (lrecl 80))
+
+;; The shop's own copybook, committed beside the layout.
+(record LEDGER-HEADER (copybook "cpy/ledger-header.cpy" LEDGER-HEADER-REC))
+
+;; The vendor's copybook cannot be committed, so its entries are a definitions
+;; file. One 01-level, redefined two ways, and a record for each alternative.
+(record DEBIT-POSTING
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
+  (alternative (item DEBIT-POSTING PST-DEBIT)))
+
+(record CREDIT-POSTING
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
+  (alternative (item CREDIT-POSTING PST-CREDIT)))
+
+;; Three items, written where they are used.
+(definitions-block TRAILER
+  (entry 01 LEDGER-TRAILER)
+    (entry 05 LT-TYPE (pic "X"))
+    (entry 05 LT-POSTING-COUNT (pic "9(7)"))
+    (entry 05 FILLER (pic "X(72)")))
+
+(record LEDGER-TRAILER (definitions TRAILER LEDGER-TRAILER))
+
+(discriminate LEDGER-HEADER  (equals (item LEDGER-HEADER LH-TYPE) "H"))
+(discriminate DEBIT-POSTING  (equals (item DEBIT-POSTING PST-TYPE) "D"))
+(discriminate CREDIT-POSTING (equals (item CREDIT-POSTING PST-TYPE) "C"))
+(discriminate LEDGER-TRAILER (equals (item LEDGER-TRAILER LT-TYPE) "T"))
+
+(sequence
+  (seq LEDGER-HEADER
+       (* (alt DEBIT-POSTING CREDIT-POSTING))
+       LEDGER-TRAILER))
+```
+
+Nothing after the record forms knows which source a record was described by. An
+item reference is rooted at a record name and reaches into its description the
+same way whether that is a copybook, a file or a block, so the discriminators
+and the sequencing read exactly as they would over three copybooks. That is the
+point of the split: where the entries are held is a fact about the record's
+source and about nothing downstream of it.
+
+The block is in the canonical printed form for a block — the file's form, two
+spaces further in, opening on its own line and closing on its last entry's
+line. Its name, `TRAILER`, is the layout's own identifier and not a COBOL name;
+`LEDGER-TRAILER` after it, in the record form, is the `01`-level inside it. The
+two postings name one file, and #399 says what a run reads when they do.
+
 ## Appendix: Mapping to Stories
 
 | Section | Implemented by |
 |---|---|
-| [The surface syntax](#the-surface-syntax) | #22 `layout` |
-| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293 |
+| [The surface syntax](#the-surface-syntax) | #22 `layout`; the data-name sort in an item reference, and the delegated refusals governing a layout's own forms while an entry body follows the entry rules, by #395 against discussion #394 |
+| [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293; that a form whose only content is its presence is refused among a layout's own forms and not in an entry body, by #395 |
 | [Physical framing](#physical-framing) | #26 `layout` |
-| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164 |
-| [Discrimination](#discrimination) | #28 `layout`; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
+| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394 |
+| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations and the reader by #400, the absent `at-most-one` argument by #396, the converter and the judge by #401, a record naming a file or a block by #399 and #402, and the data-name sort in a layout's item positions by #404 |
+| [Discrimination](#discrimination) | #28 `layout`; an arm's and a `take-alternative`'s alternative written as a data-name, by #395 against discussion #394; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
-| [The published schema](#the-published-schema) | #23 `layout` |
-| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout` |
+| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400 |
+| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394 |
