@@ -69,7 +69,7 @@ func resolveReading(
 	}
 
 	return Resolve(field, Options{
-		Copybook:  "test.cpy",
+		Source:    CopybookAt("test.cpy"),
 		Dialect:   copybook.IBMEnterprise(),
 		Encoding:  mainframe(),
 		Reading:   r,

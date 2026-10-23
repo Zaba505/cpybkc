@@ -55,11 +55,12 @@
 // The round trip over every copybook the repository holds and a kitchen sink
 // covering the grammar is what holds the two directions to each other (#401).
 //
-// # Nothing opens a file yet
+// # Who opens a file
 //
-// This package reads bodies it is handed. No run opens a definitions file: a
-// layout carrying a `definitions-block` is refused by
-// [github.com/Zaba505/cpybkc/internal/project] at the block's tag, and a record
-// naming a file or a block at its source, until #405 and #409 resolve a record
-// held in one.
+// This package reads bodies it is handed and opens nothing.
+// [github.com/Zaba505/cpybkc/internal/project] opens a definitions file a record
+// names, holds it to the schema, and hands its body here to be read and judged
+// before building it (#405). A layout carrying a `definitions-block` is still
+// refused there, at the block's tag and at each record naming it, until #409
+// resolves a record held in one.
 package definitions

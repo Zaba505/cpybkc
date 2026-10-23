@@ -118,7 +118,7 @@ func sequencingOf(t *testing.T, source string, copybooks map[string]string) Sequ
 
 		opts.Records = append(opts.Records, SequencedRecord{
 			Name:          discriminator.Record,
-			Copybook:      strings.ToLower(discriminator.Record) + ".cpy",
+			Source:        CopybookAt(strings.ToLower(discriminator.Record) + ".cpy"),
 			Item:          recordOf(t, src),
 			Discriminator: discriminator.Strategy,
 		})

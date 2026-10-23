@@ -33,10 +33,10 @@
 // Two base directories and no third one, which is docs/cli/SPEC.md's "A path is
 // relative to the file that states it": the manifest's `layout` and each
 // generator's `out` are relative to the **manifest**, and a layout's `copybook`
-// path is relative to the **layout**. Nothing is resolved against a search path,
-// a variable or a project root — there is no `--include`, no `-I` and no
-// `COPYPATH` — because a search path makes one layout name different copybooks
-// on two machines with no difference between them that any file records, and
+// and `definitions` paths are relative to the **layout**. Nothing is resolved
+// against a search path, a variable or a project root — there is no
+// `--include`, no `-I` and no `COPYPATH` — because a search path makes one
+// layout name different copybooks on two machines with no difference between them that any file records, and
 // generated code that compiles with the wrong offsets is the one failure a file
 // library cannot detect.
 //
@@ -76,30 +76,49 @@
 // the grammar rejects is returned with the grammar's faults before the schema
 // has seen it.
 //
-// # A definitions source is read and refused
+// # A record held in a definitions file
 //
-// A layout may hold `definitions-block` forms, and a record may name a
-// definitions file or a block as its source (docs/layout/SPEC.md,
-// "Definitions"). The schema check holds every entry in a block to the
-// published declarations like any other form, and the layer readers read every
-// source and every block, so a block no record names or a block name defined
-// twice is reported as that. Nothing resolves a record held in a file or a
-// block yet (#405, #409), so a run that has read the layout refuses each block
-// at its tag with a [DefinitionsBlockError] and each record held either way at
-// its source with a [DefinitionsSourceError], and opens nothing — no copybook
-// beside them and no definitions file. It says the construct is not resolved by
-// this build rather than that the layout is wrong, on the precedent
-// [ScheduledVariantError] set, and it never says that there is no copybook at a
-// definitions file's path.
+// A record may name a definitions file as its source (docs/layout/SPEC.md,
+// "Definitions"), and a run resolves it to the descriptor the copybook it was
+// converted from gives, byte for byte (#405). The file is read once however
+// many records name it, at its path relative to the layout, and in a layout's
+// order: the grammar, then whether its top level holds an entry at all, then
+// the body check against the published schema (#400), then the entry reader and
+// the judge (#401), then `copybook.Build`. A stage that reports anything stops
+// the file there, which is #397's rule applied per document. A fresh item tree
+// is built for each record naming the file, as for a copybook.
+//
+// Every fault inside the file is reported once for the file, at its position in
+// the file as the run opened it, with a span at each record naming it — a
+// [DefinitionsFaultError]. That includes `cobol-go`'s build and layout faults,
+// whose line and column are the file's because the entries were built with the
+// positions of the forms they came from ([DefinitionsBuildError]). Faults about
+// the line naming the file are reported per record, as a copybook's are: a
+// file that is not there ([MissingDefinitionsError]), a file holding no entry
+// ([NotDefinitionsError]), and a file not declaring the item the record names.
+//
+// # A block is read and refused
+//
+// A layout may hold `definitions-block` forms, and a record may name one. The
+// schema check holds every entry in a block to the published declarations like
+// any other form, and the layer readers read every source and every block, so a
+// block no record names or a block name defined twice is reported as that.
+// Nothing resolves a record held in a block yet (#409), so a run that has read
+// the layout refuses each block at its tag with a [DefinitionsBlockError] and
+// each record naming one at its source with a [DefinitionsSourceError], and
+// opens nothing — no copybook and no definitions file beside them. It says the
+// construct is not resolved by this build rather than that the layout is wrong,
+// on the precedent [ScheduledVariantError] set.
 //
 // A layout that is all entries — a definitions file named as the manifest's
 // `layout` — is classified before the schema check and reported as that alone,
 // with a [DefinitionsFileAsLayoutError] carrying a span at the manifest's
 // `layout` and one at the file's first entry.
 //
-// # Which copybooks a run reads
+// # Which files a run reads
 //
-// Exactly the ones the layout's `record` forms name (#157). The manifest lists
+// Exactly the copybooks and definitions files the layout's `record` forms name
+// (#157). The manifest lists
 // none and constrains none: a layout naming a copybook is never a fault for not
 // having been declared, because there is no declaration for it to be missing
 // from. The only fault about a copybook is one that cannot be opened, or one

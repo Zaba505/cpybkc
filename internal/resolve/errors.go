@@ -243,6 +243,10 @@ type UnknownAlternativeError struct {
 	// Alternative is the name the layout wrote.
 	Alternative string
 
+	// Kind is which kind of source holds the record's description, which is
+	// what the message calls it.
+	Kind layoutmodel.SourceKind
+
 	// Names are the alternatives the copybook does declare, in the order it
 	// declares them.
 	Names []string
@@ -262,8 +266,8 @@ func (e *UnknownAlternativeError) Error() string { return e.Diagnostic().String(
 func (e *UnknownAlternativeError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
-			"in record %s, no alternative of %s is named %s: the copybook declares %s",
-			e.Record, e.Redefined, e.Alternative, joinAnd(e.Names)),
+			"in record %s, no alternative of %s is named %s: the %s declares %s",
+			e.Record, e.Redefined, e.Alternative, noun(e.Kind), joinAnd(e.Names)),
 		Spans: []diag.Span{e.Pos},
 	}
 }

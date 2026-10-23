@@ -463,11 +463,12 @@ type SequencedRecord struct {
 	// sequencing expression writes.
 	Name string
 
-	// Copybook is the copybook's path as the layout spells it, carried so
-	// that a diagnostic about an item can name the file the fault is in.
-	Copybook string
+	// Source is where the record's description is held, carried so that a
+	// diagnostic about an item can name the file the fault is in and what
+	// kind of file it is.
+	Source Source
 
-	// Item is the copybook's top-level item this record is bound to.
+	// Item is the description's top-level item this record is bound to.
 	Item *copybook.Field
 
 	// Discriminator is the strategy the layout's `discriminate` form chose

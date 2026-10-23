@@ -93,9 +93,9 @@ type Record struct {
 	// copybook spells and a layout-side binding is not one.
 	Name string
 
-	// Copybook is the copybook's path as the layout spells it, carried so
-	// that a diagnostic about an item can name the file the fault is in.
-	Copybook string
+	// Source is where the record's description is held, carried so that a
+	// diagnostic about an item can name the file the fault is in.
+	Source resolve.Source
 
 	// Resolved is the record itself.
 	Resolved *resolve.Record
@@ -240,8 +240,8 @@ type assembler struct {
 // overlap" accepts, seen from the side that has to resolve a reference through
 // it.
 type scope struct {
-	name     string
-	copybook string
+	name   string
+	source resolve.Source
 
 	// record is the identifier of the record node itself, which is what a
 	// transition admitting this record type points at.
@@ -342,19 +342,19 @@ func (a *assembler) record(record Record) {
 	}
 
 	if _, already := a.byName[record.Name]; already {
-		a.faults.Fail(&DuplicateRecordError{Record: record.Name, Copybook: record.Copybook})
+		a.faults.Fail(&DuplicateRecordError{Record: record.Name, Source: record.Source})
 
 		return
 	}
 
 	node := a.reserve()
 	s := &scope{
-		name:     record.Name,
-		copybook: record.Copybook,
-		record:   node.Id,
-		binary:   record.Resolved.Binary,
-		nodes:    make(map[*resolve.Node]uint64),
-		fields:   make(map[*copybook.Field]uint64),
+		name:   record.Name,
+		source: record.Source,
+		record: node.Id,
+		binary: record.Resolved.Binary,
+		nodes:  make(map[*resolve.Node]uint64),
+		fields: make(map[*copybook.Field]uint64),
 	}
 	a.byName[record.Name] = s
 
@@ -583,15 +583,15 @@ func (a *assembler) recordNames() []string {
 	return found
 }
 
-// span is where in a record's copybook an item is.
+// span is where in a record's description an item is.
 //
-// A nil item has no line, and what comes back for one is the copybook itself,
-// which diag renders as the file alone rather than as a line zero nothing can
-// jump to.
+// A nil item has no line, and what comes back for one is the description's
+// file itself, which diag renders as the file alone rather than as a line zero
+// nothing can jump to.
 func (a *assembler) span(s *scope, field *copybook.Field) diag.Span {
 	span := diag.Span{}
 	if s != nil {
-		span.File = s.copybook
+		span.File = s.source.File
 	}
 
 	if field != nil {

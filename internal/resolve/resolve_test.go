@@ -89,7 +89,7 @@ func resolveAll(t *testing.T, src string, redefines ...Redefine) []*Record {
 	t.Helper()
 
 	records, err := Resolve(recordOf(t, src), Options{
-		Copybook:  "test.cpy",
+		Source:    CopybookAt("test.cpy"),
 		Dialect:   copybook.IBMEnterprise(),
 		Encoding:  mainframe(),
 		Reading:   layoutmodel.ODOSlide,

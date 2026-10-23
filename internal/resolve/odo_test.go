@@ -41,7 +41,7 @@ func reading(t *testing.T, src string, r layoutmodel.Reading) ([]*Record, error)
 	t.Helper()
 
 	return Resolve(recordOf(t, src), Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
 		Reading:  r,
@@ -291,7 +291,7 @@ func TestANonSlidingRecordFitsAFixedLengthDataset(t *testing.T) {
 `
 
 	records, err := Resolve(recordOf(t, src), Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
 		Reading:  layoutmodel.NoODOSlide,
@@ -674,7 +674,7 @@ func TestASlidingTableInsideAnArmIsStillRefused(t *testing.T) {
 		field := recordOf(t, src)
 
 		_, err := Resolve(field, Options{
-			Copybook: "test.cpy",
+			Source:   CopybookAt("test.cpy"),
 			Dialect:  copybook.IBMEnterprise(),
 			Encoding: mainframe(),
 			Reading:  r,

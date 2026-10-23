@@ -48,7 +48,7 @@ func framed(t *testing.T, src string, framing *layoutmodel.Framing) ([]*Record, 
 	t.Helper()
 
 	return Resolve(recordOf(t, src), Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
 		Reading:  layoutmodel.ODOSlide,
@@ -125,7 +125,7 @@ func TestEveryAlternativeOfARecordIsPaddedToLRECL(t *testing.T) {
    05 WIDE PIC X(20).
    05 NARROW REDEFINES WIDE PIC X(6).
 `), Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
 		Framing:  fixed(40),

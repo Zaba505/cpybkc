@@ -178,13 +178,13 @@ func options(t *testing.T, source string, copybooks map[string]string, redefines
 
 		sequencing.Records = append(sequencing.Records, resolve.SequencedRecord{
 			Name:          discriminator.Record,
-			Copybook:      path,
+			Source:        resolve.CopybookAt(path),
 			Item:          record,
 			Discriminator: discriminator.Strategy,
 		})
 
 		resolved, err := resolve.Resolve(record, resolve.Options{
-			Copybook:          path,
+			Source:            resolve.CopybookAt(path),
 			Dialect:           copybook.IBMEnterprise(),
 			Framing:           framing,
 			Reading:           layoutmodel.ODOSlide,
@@ -201,7 +201,7 @@ func options(t *testing.T, source string, copybooks map[string]string, redefines
 
 		opts.Records = append(opts.Records, Record{
 			Name:     discriminator.Record,
-			Copybook: path,
+			Source:   resolve.CopybookAt(path),
 			Resolved: resolved[0],
 		})
 	}
@@ -954,7 +954,7 @@ func TestARecordNothingAdmitsIsRefused(t *testing.T) {
 	opts := options(t, countedRun, countedRunCopybooks())
 	opts.Records = append(opts.Records, Record{
 		Name:     "ORPHAN",
-		Copybook: "orphan.cpy",
+		Source:   resolve.CopybookAt("orphan.cpy"),
 		Resolved: opts.Records[0].Resolved,
 	})
 
@@ -979,7 +979,7 @@ func TestTwoRecordTypesUnderOneNameAreRefused(t *testing.T) {
 	opts := options(t, countedRun, countedRunCopybooks())
 	opts.Records = append(opts.Records, Record{
 		Name:     "HEADER",
-		Copybook: "twice.cpy",
+		Source:   resolve.CopybookAt("twice.cpy"),
 		Resolved: opts.Records[1].Resolved,
 	})
 
@@ -990,8 +990,8 @@ func TestTwoRecordTypesUnderOneNameAreRefused(t *testing.T) {
 		t.Fatalf("the fault is %v, want a DuplicateRecordError", err)
 	}
 
-	if fault.Record != "HEADER" || fault.Copybook != "twice.cpy" {
-		t.Errorf("the fault names %s in %s, want HEADER in twice.cpy", fault.Record, fault.Copybook)
+	if fault.Record != "HEADER" || fault.Source.File != "twice.cpy" {
+		t.Errorf("the fault names %s in %s, want HEADER in twice.cpy", fault.Record, fault.Source.File)
 	}
 }
 

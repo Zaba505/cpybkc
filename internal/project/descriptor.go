@@ -54,8 +54,8 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 		return nil, err
 	}
 
-	// A layout's `copybook` path is relative to the **layout**, not to the
-	// manifest. That is what makes a layout portable: a layout and the
+	// A layout's `copybook` and `definitions` paths are relative to the
+	// **layout**, not to the manifest. That is what makes a layout portable: a layout and the
 	// copybooks it names travel together, so a project vendoring somebody
 	// else's layout does not have to rewrite the paths inside it.
 	bound, err := bind(filepath.Dir(path), read.records)
@@ -140,19 +140,18 @@ func entriesOnly(file *layout.File, body []string) (layout.Pos, bool) {
 }
 
 // refuseDefinitions refuses every `definitions-block` the layout carries, at its
-// tag, and every record whose source is a definitions file or a block, at that
-// source, because nothing resolves a record held either way yet (#405 for a
-// file, #409 for a block).
+// tag, and every record whose source is a block, at that source, because
+// nothing resolves a record held in a block yet (#409). A record held in a
+// definitions file is resolved (#405) and is not refused here.
 //
 // It runs after every layer reader, so a block or a source refused here is one
 // the schema admitted and the readers found nothing wrong with — a block no
 // record names, or a record naming a block twice defined, is reported as that
-// and not as unresolved. And it runs before any copybook is opened, so a layout
-// carrying either opens nothing: what the run would read once both resolve is
-// the layout and the files its records name, and a copybook opened for the
-// records beside them would report faults about a run that is not going to
-// happen. A definitions file is never opened, and a record naming one is never
-// reported as a copybook that is not there.
+// and not as unresolved. And it runs before any file is opened, so a layout
+// carrying a block opens nothing: what the run would read once blocks resolve
+// is the layout and the files its records name, and a copybook or a definitions
+// file opened for the records beside them would report faults about a run that
+// is not going to happen.
 //
 // Everything refused is reported rather than the first, in the order the
 // layout writes it, for the reason every stage reports everything it found.
@@ -177,17 +176,11 @@ func refuseDefinitions(file *layout.File, records []layoutmodel.Record) error {
 			faults.Fail(&DefinitionsBlockError{Pos: span(form.TagPos), Name: name})
 		default:
 			record, ok := byPos[form.Pos]
-			if !ok || record.Kind == layoutmodel.CopybookSource {
+			if !ok || record.Kind != layoutmodel.DefinitionsBlockSource {
 				continue
 			}
 
-			faults.Fail(&DefinitionsSourceError{
-				Pos:    span(record.Source),
-				Record: record.Name,
-				Kind:   record.Kind,
-				Path:   record.Path,
-				Block:  record.Block,
-			})
+			faults.Fail(&DefinitionsSourceError{Pos: span(record.Source), Record: record.Name, Block: record.Block})
 		}
 	}
 
@@ -313,7 +306,7 @@ func (l *layers) resolve(
 
 	for _, b := range bound.bound {
 		resolved, err := resolve.Resolve(b.Item, resolve.Options{
-			Copybook:          b.Record.Path,
+			Source:            b.Source,
 			Dialect:           dialect(),
 			Framing:           l.framing,
 			Reading:           l.reading,
@@ -322,7 +315,7 @@ func (l *layers) resolve(
 			EncodingOverrides: overrides[b.Record.Name],
 		})
 		if err != nil {
-			faults.Fail(err)
+			bound.resolveFault(&faults, b, err)
 
 			continue
 		}
@@ -334,13 +327,13 @@ func (l *layers) resolve(
 
 		records = append(records, assemble.Record{
 			Name:     b.Record.Name,
-			Copybook: b.Record.Path,
+			Source:   b.Source,
 			Resolved: alternative,
 		})
 
 		sequenced = append(sequenced, resolve.SequencedRecord{
 			Name:          b.Record.Name,
-			Copybook:      b.Record.Path,
+			Source:        b.Source,
 			Item:          b.Item,
 			Discriminator: l.discriminator(b.Record.Name),
 		})
@@ -351,6 +344,36 @@ func (l *layers) resolve(
 	}
 
 	return records, sequenced, nil
+}
+
+// resolveFault reports what resolving one record failed with.
+//
+// `resolve`'s own faults already point into the record's description, through
+// the [resolve.Source] they were handed, and are reported as they are. What is
+// not one of those is `cobol-go`'s — a layout fault, from laying the record out
+// — and carries a line and a column and no file. For a copybook it is reported
+// as `cobol-go` wrote it, as it always has been. For a definitions file it is
+// pointed at its position in the file ([buildFault]), and reported once for the
+// file however many records bound the item it is about, naming each of them —
+// the rule every fault inside a definitions file is held to.
+func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
+	if bound.Source.Kind != layoutmodel.DefinitionsFileSource {
+		faults.Fail(err)
+
+		return
+	}
+
+	for _, fault := range split(err) {
+		if _, ok := fault.(diag.Error); ok {
+			faults.Fail(fault)
+
+			continue
+		}
+
+		b.reported.report(faults, bound.Source.File,
+			buildFault(bound.Source.File, bound.Source.Spelling, fault),
+			Naming{Record: bound.Record.Name, Pos: span(bound.Record.Source)})
+	}
 }
 
 // alternatives resolves each `record` form's `alternative` children to the
@@ -414,7 +437,7 @@ func choose(
 	faults.Fail(&AlternativesError{
 		Pos:      span(b.Record.Pos),
 		Record:   b.Record.Name,
-		Path:     b.Record.Path,
+		Source:   b.Source,
 		Item:     b.Record.Item,
 		Chosen:   alternativeNames(chosen),
 		Resolved: combinations(resolved),

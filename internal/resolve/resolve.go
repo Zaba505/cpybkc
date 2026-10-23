@@ -21,12 +21,13 @@ var ErrNilRecord = errors.New("resolve: nil record")
 
 // Options are what resolving a record needs beyond the copybook item itself.
 type Options struct {
-	// Copybook is the copybook's path as the layout spells it, carried so
-	// that a diagnostic can name the file the fault is in. It is not resolved
-	// against anything here: where a copybook was looked for is the CLI's,
-	// and a diagnostic naming a path the adopter never wrote sends them
-	// looking for a file they have not got.
-	Copybook string
+	// Source is where the record's description is held — a copybook, a
+	// definitions file or a block — carried so that a diagnostic can name the
+	// file the fault is in and what kind of file it is. It is not resolved
+	// against anything here: where a file was looked for is the CLI's, and a
+	// diagnostic naming a path the adopter never wrote sends them looking for
+	// a file they have not got.
+	Source Source
 
 	// Dialect is the compiler-side half of the layout: the binary width
 	// staircase, whether SYNCHRONIZED inserts slack, what an oversized
@@ -784,6 +785,7 @@ func (r *resolver) variant(c cluster, in layoutmodel.Axes) run {
 		member := c.find(alternative.Name)
 		if member == nil {
 			r.faults.Fail(&UnknownAlternativeError{
+				Kind:        r.opts.Source.Kind,
 				Pos:         r.span(redefined.Field),
 				Record:      r.record.Name,
 				Redefined:   itemName(redefined.Field),
@@ -956,11 +958,7 @@ func layoutSpan(pos layout.Pos) diag.Span {
 // back for one is the copybook itself, which diag renders as the file alone
 // rather than as a line zero nothing can jump to.
 func (r *resolver) span(field *copybook.Field) diag.Span {
-	span := diag.Span{File: r.opts.Copybook}
-	if field != nil {
-		span.Line, span.Column = field.Pos.Line, field.Pos.Column
-	}
-	return span
+	return r.opts.Source.Span(field)
 }
 
 // pad returns the nodes a member list gets for node, followed by the slack

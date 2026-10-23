@@ -276,7 +276,7 @@ func TestATextLiteralAgainstAnItemNoCharsetGovernsIsReportedAsThat(t *testing.T)
 		EncodingOverrides: []EncodingOverride{noneOn(t, record, "T-TYPE")},
 		Records: []SequencedRecord{{
 			Name:          "ONLY",
-			Copybook:      "only.cpy",
+			Source:        CopybookAt("only.cpy"),
 			Item:          record,
 			Discriminator: discrimination.Records[0].Strategy,
 		}},
@@ -326,9 +326,9 @@ func TestADiscriminatorTestingAFieldOfAnotherRecordIsRejected(t *testing.T) {
 			`(record ONLY (copybook "only.cpy" T-REC))
 (sequence (* ONLY))`,
 			[]SequencedRecord{{
-				Name:     "ONLY",
-				Copybook: "only.cpy",
-				Item:     recordOf(t, typed),
+				Name:   "ONLY",
+				Source: CopybookAt("only.cpy"),
+				Item:   recordOf(t, typed),
 				Discriminator: layoutmodel.Strategy{
 					Kind:     layoutmodel.Equals,
 					Item:     layoutmodel.ItemRef{Record: "OTHER", Path: []string{"T-TYPE"}},
@@ -497,13 +497,13 @@ func TestARecordLengthDiscriminatorIsRefusedNamingBothRecords(t *testing.T) {
 		[]SequencedRecord{
 			{
 				Name:          "LONGER",
-				Copybook:      "p.cpy",
+				Source:        CopybookAt("p.cpy"),
 				Item:          recordOf(t, prefixed),
 				Discriminator: layoutmodel.Strategy{Kind: strategyRecordLength},
 			},
 			{
 				Name:          "SHORTER",
-				Copybook:      "t.cpy",
+				Source:        CopybookAt("t.cpy"),
 				Item:          recordOf(t, typed),
 				Discriminator: layoutmodel.Strategy{Kind: layoutmodel.SingleRecordType},
 			},
@@ -531,9 +531,9 @@ func TestAPositionalLastDiscriminatorIsRefused(t *testing.T) {
 		`(record ONLY (copybook "only.cpy" T-REC))
 (sequence (* ONLY))`,
 		[]SequencedRecord{{
-			Name:     "ONLY",
-			Copybook: "only.cpy",
-			Item:     recordOf(t, typed),
+			Name:   "ONLY",
+			Source: CopybookAt("only.cpy"),
+			Item:   recordOf(t, typed),
 			Discriminator: layoutmodel.Strategy{
 				Kind:     strategyPositional,
 				Literals: []layoutmodel.Literal{{Kind: layoutmodel.TextLiteral, Text: "last"}},
@@ -558,9 +558,9 @@ func TestAPositionalFirstDiscriminatorLowersToTheStartState(t *testing.T) {
 
 	first := func() SequencedRecord {
 		return SequencedRecord{
-			Name:     "HEAD",
-			Copybook: "t.cpy",
-			Item:     recordOf(t, typed),
+			Name:   "HEAD",
+			Source: CopybookAt("t.cpy"),
+			Item:   recordOf(t, typed),
 			Discriminator: layoutmodel.Strategy{
 				Kind:     strategyPositional,
 				Literals: []layoutmodel.Literal{{Kind: layoutmodel.TextLiteral, Text: "first"}},
@@ -569,9 +569,9 @@ func TestAPositionalFirstDiscriminatorLowersToTheStartState(t *testing.T) {
 	}
 
 	body := SequencedRecord{
-		Name:     "BODY",
-		Copybook: "p.cpy",
-		Item:     recordOf(t, prefixed),
+		Name:   "BODY",
+		Source: CopybookAt("p.cpy"),
+		Item:   recordOf(t, prefixed),
 		Discriminator: layoutmodel.Strategy{
 			Kind:     layoutmodel.Equals,
 			Item:     layoutmodel.ItemRef{Record: "BODY", Path: []string{"P-TYPE"}},

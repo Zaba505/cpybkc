@@ -43,8 +43,12 @@ type PredicateTargetError struct {
 	// Pos is the item reference in the layout.
 	Pos diag.Span
 
-	// Copybook is the copybook the record is bound to.
+	// Copybook is the description the record is bound to.
 	Copybook diag.Span
+
+	// Kind is which kind of source holds that description, which is what the
+	// second span's note calls it.
+	Kind layoutmodel.SourceKind
 
 	// Record is the record being discriminated, and Item the reference as the
 	// layout wrote it.
@@ -65,7 +69,7 @@ func (e *PredicateTargetError) Diagnostic() diag.Diagnostic {
 			"the discriminator for record %s tests %s, and %s: a predicate names a field contained in the "+
 				"record its transition admits",
 			e.Record, e.Item, e.Found),
-		Spans: spans(e.Pos, e.Copybook, "the record "+e.Record+" is bound to this copybook"),
+		Spans: spans(e.Pos, e.Copybook, "the record "+e.Record+" is bound to this "+noun(e.Kind)),
 	}
 }
 

@@ -56,15 +56,16 @@ func ledgerProject(t *testing.T, layout string, files map[string]string) (string
 	return filepath.Join(dir, manifest.Name), path
 }
 
-// A record may name a definitions file or a block, and this build reads it and
-// stops there: nothing resolves a record held either way until #405 and #409,
-// so each `definitions` source is refused at the source, saying so, and each
-// block at its tag, as #400 refused it.
+// A record may name a block, and this build reads it and stops there: nothing
+// resolves a record held in a block until #409, so the record is refused at its
+// source and the block at its tag, as #402 refused them. A record held in a
+// definitions file is resolved (#405) and is not refused beside them.
 //
-// The definitions file is never opened. It is absent in one run and present
-// and unreadable as entries in the other, and both runs report the same thing:
-// a run that opened it would have had something to say about it.
-func TestADefinitionsSourceIsRefusedAtItAndNothingIsOpened(t *testing.T) {
+// A layout carrying a block opens nothing — no copybook and no definitions
+// file. The definitions file is absent in one run and present and unreadable as
+// entries in the other, and both runs report the same thing: a run that opened
+// it would have had something to say about it.
+func TestABlockIsRefusedAtItAndNothingIsOpened(t *testing.T) {
 	t.Parallel()
 
 	for name, files := range map[string]map[string]string{
@@ -78,7 +79,7 @@ func TestADefinitionsSourceIsRefusedAtItAndNothingIsOpened(t *testing.T) {
 
 			run, err := project.Load(path)
 			if err == nil {
-				t.Fatalf("the project resolved records held in definitions nothing resolves: %v", run.Descriptor)
+				t.Fatalf("the project resolved a record held in a block nothing resolves: %v", run.Descriptor)
 			}
 
 			rendered := diag.Render(err)
@@ -88,18 +89,21 @@ func TestADefinitionsSourceIsRefusedAtItAndNothingIsOpened(t *testing.T) {
 				t.Errorf("the run looked for a copybook:\n%s", rendered)
 			}
 
+			if strings.Contains(rendered, "posting.cpy.sexpr") {
+				t.Errorf("the run opened the definitions file, or refused the record naming it:\n%s", rendered)
+			}
+
 			want := []struct {
 				at   diag.Span
 				says string
 			}{
-				{at: diag.Span{File: layout, Line: 6, Column: 17}, says: `record POSTING is held in the definitions file "posting.cpy.sexpr", and this build does not resolve definitions files or blocks`},
-				{at: diag.Span{File: layout, Line: 7, Column: 17}, says: `record TRAILER is held in the definitions block TRAILER, and this build does not resolve definitions files or blocks`},
+				{at: diag.Span{File: layout, Line: 7, Column: 17}, says: `record TRAILER is held in the definitions block TRAILER, and this build does not resolve definitions blocks`},
 				{at: diag.Span{File: layout, Line: 12, Column: 2}, says: "the definitions block TRAILER is not resolved by this build"},
 			}
 
 			diagnostics := diag.Diagnostics(err)
 			if len(diagnostics) != len(want) {
-				t.Fatalf("want one diagnostic per source and per block; got:\n%s", rendered)
+				t.Fatalf("want one diagnostic for the record held in the block and one for the block; got:\n%s", rendered)
 			}
 
 			for i, w := range want {
