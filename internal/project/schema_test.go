@@ -214,6 +214,9 @@ func TestASchemaFaultHoldsBackEveryReaderFault(t *testing.T) {
 		path, _ := schemaProject(t, twice)
 
 		_, err := project.Load(path)
+		if err == nil {
+			t.Fatal("a layout discriminating one record twice resolves")
+		}
 
 		var duplicate *layoutmodel.DuplicateDiscriminatorError
 		if !errors.As(err, &duplicate) {
