@@ -282,7 +282,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg copybook", err))
 				}
 			}
-			return (*Cpybkc).Init(&parent, ctx, source, copybook)
+			var out string
+			if inputArgs["out"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["out"]), &out)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg out", err))
+				}
+			}
+			return (*Cpybkc).Init(&parent, ctx, source, copybook, out)
 		case "Run":
 			var parent Cpybkc
 			err = json.Unmarshal(parentJSON, &parent)

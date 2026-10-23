@@ -140,8 +140,10 @@ func TestOneRecordPerZeroOneLevelInTheOrderTheCopybooksWereGiven(t *testing.T) {
 		t.Errorf("derived %v, want %v", got, want)
 	}
 
-	if got := derived.records[0].path; got != "a/header.cpy" {
-		t.Errorf("the first record names the copybook %q, want the path as it was typed", got)
+	// The definitions file beside the layout, named after the copybook's final
+	// path element: the directory it was typed in is no part of it.
+	if got := derived.records[0].source; got != "header.cpy.sexpr" {
+		t.Errorf("the first record names the definitions file %q, want header.cpy.sexpr", got)
 	}
 }
 
@@ -161,14 +163,24 @@ func TestWithinOneCopybookTheOrderIsDeclarationOrder(t *testing.T) {
 func TestThePathIsWrittenAsItWasTypedAndNeverResolved(t *testing.T) {
 	t.Parallel()
 
-	// A path a layout's own reader would resolve against the layout, handed to
-	// `init` from somewhere else entirely. cpybkc writes it back unchanged: a
-	// path it rewrote on the adopter's behalf is one they cannot find in what
-	// they typed.
+	// A path handed to `init` from somewhere else entirely. The definitions
+	// file's header names it unchanged — a path cpybkc rewrote on the adopter's
+	// behalf is one they cannot find in what they typed — and the record names
+	// the definitions file bare, beside the layout, so no path in the scaffold
+	// depends on the directory the command was typed in.
 	derived := deriveOf(t, book("../shared/copybooks/header.cpy", header))
 
-	if got := string(derived.Bytes()); !strings.Contains(got, `(copybook "../shared/copybooks/header.cpy" LEDGER-HEADER)`) {
-		t.Errorf("the copybook child does not carry the path as typed:\n%s", got)
+	if got := string(derived.Bytes()); !strings.Contains(got, `(definitions "header.cpy.sexpr" LEDGER-HEADER)`) {
+		t.Errorf("the record does not name the definitions file beside the layout:\n%s", got)
+	}
+
+	files := derived.Definitions()
+	if len(files) != 1 {
+		t.Fatalf("wrote %d definitions files over one copybook, want one", len(files))
+	}
+
+	if !strings.HasPrefix(string(files[0].Bytes), `; The entries of the copybook "../shared/copybooks/header.cpy"`) {
+		t.Errorf("the definitions file's header does not name the copybook as typed:\n%s", files[0].Bytes)
 	}
 }
 
@@ -696,30 +708,49 @@ func TestACopybookThatIsNotOneIsReportedByThePathThatWasTyped(t *testing.T) {
 	}
 }
 
-// Until the definitions files land (#408), a copybook with nothing a record
-// could be written over is a refusal: there is nothing else to write for it.
-func TestACopybookDeclaringNoZeroOneLevelIsReported(t *testing.T) {
+// docs/cli/SPEC.md, "`init`'s streams and exit codes": a copybook no record
+// derives from still gets its definitions file, and a note. A member holding
+// nothing but level-77 work items is the ordinary way to arrive here.
+func TestACopybookDeclaringNoNamedLevelIsTranscribedAndNoted(t *testing.T) {
 	t.Parallel()
 
-	_, err := Derive([]Copybook{book("work.cpy", work)})
-	if err == nil {
-		t.Fatal("a copybook declaring no 01-level was accepted")
+	derived := deriveOf(t, book("header.cpy", header), book("work.cpy", work))
+
+	if got, want := recordNames(derived), []string{"LEDGER-HEADER"}; !slices.Equal(got, want) {
+		t.Errorf("wrote the records %v, want %v", got, want)
 	}
 
-	var missing *NoRecordError
-	if !errors.As(err, &missing) {
-		t.Fatalf("the fault is %v, want a missing record", err)
+	files := derived.Definitions()
+	if len(files) != 2 || files[1].Name != "work.cpy.sexpr" {
+		t.Fatalf("wrote the definitions files %v, want one per copybook", files)
+	}
+
+	if !strings.Contains(string(files[1].Bytes), "(entry 77 WORK-COUNT") {
+		t.Errorf("the definitions file does not carry the 77-level:\n%s", files[1].Bytes)
+	}
+
+	note := noteNaming(t, derived, "no record is derived")
+	for _, want := range []string{"work.cpy: ", "declares no named 01-level", "still written"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note does not carry %q:\n%s", want, note)
+		}
 	}
 }
 
+// A copybook that declares no entry at all has nothing to transcribe, and stays
+// a refusal (#31).
 func TestACopybookDeclaringNoEntryAtAllIsReported(t *testing.T) {
 	t.Parallel()
 
 	_, err := Derive([]Copybook{book("empty.cpy", "      * a comment, and nothing it describes\n")})
 
-	var missing *NoRecordError
+	var missing *NoEntryError
 	if !errors.As(err, &missing) {
-		t.Fatalf("the fault is %v, want a missing record", err)
+		t.Fatalf("the fault is %v, want a copybook declaring no entry", err)
+	}
+
+	if missing.Path != "empty.cpy" {
+		t.Errorf("the fault names %s, want empty.cpy", missing.Path)
 	}
 }
 
@@ -743,7 +774,7 @@ func TestACopybookThatDoesNotBuildIsReported(t *testing.T) {
 func TestEveryFaultIsReportedRatherThanTheFirst(t *testing.T) {
 	t.Parallel()
 
-	_, err := Derive([]Copybook{book("first.cpy", work), book("second.cpy", work)})
+	_, err := Derive([]Copybook{book("first.cpy", "      * nothing\n"), book("second.cpy", "      * nothing\n")})
 	if err == nil {
 		t.Fatal("two unusable copybooks were accepted")
 	}
@@ -815,6 +846,12 @@ func TestTheWorkedExampleDerivesLedgersRecordsAndAlternatives(t *testing.T) {
 	var got []string
 
 	for _, record := range derived.records {
+		// Every record names the definitions file posting.cpy converts to,
+		// which is what the layout beside it would name once moved.
+		if record.source != "posting.cpy.sexpr" {
+			t.Errorf("%s names %s, want the definitions file posting.cpy.sexpr", record.name, record.source)
+		}
+
 		chosen := make([]string, 0, len(record.alternatives))
 		for _, alternative := range record.alternatives {
 			if len(alternative.path) == 0 {
@@ -912,10 +949,11 @@ func workedExampleCombinations(t *testing.T) []string {
 	return combinations
 }
 
-// docs/cli/SPEC.md: this story widens what `init` accepts and narrows nothing,
-// so a scaffold over copybooks it accepted before the notes landed is the file it
-// wrote then, byte for byte. The golden files were written by the derivation as
-// it stood before (#406), and are not regenerated by anything here.
+// The scaffold over a fixed set of copybooks, byte for byte. The golden files
+// were written by the derivation as #406 left it and moved once, by #408, when
+// every record's source became the definitions file beside the layout; the
+// rest of each file is unchanged from #406's. Nothing here regenerates them,
+// so a scaffold that moves is a test that fails and a diff that says how.
 func TestTheScaffoldIsUnchangedForEveryCopybookAcceptedBefore(t *testing.T) {
 	t.Parallel()
 
@@ -945,6 +983,19 @@ func TestTheScaffoldIsUnchangedForEveryCopybookAcceptedBefore(t *testing.T) {
 
 		if got := deriveOf(t, books...).Bytes(); string(got) != string(want) {
 			t.Errorf("the scaffold differs from %s:\n%s", golden, got)
+		}
+	}
+
+	// And the definitions files beside the ledger's, which are what an adopter
+	// diffs when the vendor ships a new copybook.
+	for _, file := range deriveOf(t, ledger...).Definitions() {
+		want, err := os.ReadFile(filepath.Join("testdata", "ledger", file.Name))
+		if err != nil {
+			t.Fatalf("reading the golden definitions file: %v", err)
+		}
+
+		if string(file.Bytes) != string(want) {
+			t.Errorf("%s differs from its golden file:\n%s", file.Name, file.Bytes)
 		}
 	}
 }

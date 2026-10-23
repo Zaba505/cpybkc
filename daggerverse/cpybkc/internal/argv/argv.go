@@ -15,7 +15,10 @@
 // second, unversioned reading of the document the CLI already implements.
 package argv
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // manifestFlag names the project manifest a run reads. It is spelled here
 // exactly as docs/cli/SPEC.md fixes it, and the separated form is the one the
@@ -33,10 +36,11 @@ const initSubcommand = "init"
 // and the repetition is what a list argument on the module becomes here.
 const copybookFlag = "--copybook"
 
-// outFlag names where the scaffold goes. It has no default in the CLI and none
-// here: the caller of [Init] supplies the destination, because where the file
-// lands inside the container is a property of how this module mounts things and
-// not of the vector.
+// outFlag names the layout a scaffolding run writes, with a definitions file per
+// copybook beside it. It has no default in the CLI and none here: the caller of
+// [Init] supplies the directory, because where the files land inside the
+// container is a property of how this module mounts things and not of the
+// vector, and the user supplies the layout's name.
 const outFlag = "--out"
 
 // emitIRFlag names where the run's resolved descriptor goes, and it is what
@@ -89,40 +93,49 @@ func Generate(manifest string) ([]string, error) {
 }
 
 // Init is the vector for a scaffolding run over copybooks in a project mounted
-// at the container's working directory, with the scaffold written to out.
+// at the container's working directory, with the layout written to dir under
+// the name layout and a definitions file per copybook beside it.
 //
 // The subcommand leads and every copybook is a flag of its own, which is the
-// whole shape of `cpybkc init --copybook <path> … --out <dest>`. The order the
+// whole shape of `cpybkc init --copybook <path> … --out <layout>`. The order the
 // copybooks were given is kept, because it is not decoration: the scaffold holds
 // one record per 01-level in the order the copybooks were read, so reordering
 // the vector would reorder somebody's layout.
 //
 // A copybook is a path the CLI resolves against its working directory — the
-// mounted project's root — and writes into the scaffold as it was typed. That is
-// why they arrive here as strings rather than as files: the paths are what the
-// adopter has to find again in their own tree.
+// mounted project's root — and writes, as it was typed, into the header of the
+// definitions file converted from it. That is why they arrive here as strings
+// rather than as files: the paths are what the adopter has to find again in
+// their own tree.
 //
-// out is the caller's rather than a constant here, and it is the only argument
-// of the two that this package does not get from a user. Where a scaffold lands
-// inside the container is a property of how the module mounts things, so it is
-// stated there and passed in; what belongs here is that the destination is one
-// flag and that the flag is not optional.
+// dir is the caller's rather than a constant here, and it is the one argument
+// this package does not get from a user. Where the files land inside the
+// container is a property of how the module mounts things, so it is stated there
+// and passed in. layout is the user's: it is the name the layout has in the
+// directory the module hands back, and it is the name a manifest's `layout` field
+// then has to match, which is why this module does not choose it any more than
+// the CLI does (docs/cli/SPEC.md, "Where the scaffold is written").
 //
-// Two things are refused before the vector leaves, on the grounds
-// [Generate] already states for a manifest on a stream: a vector with no
-// copybook in it names nothing to read, and a copybook named "-" names an input
-// whose path the scaffold has to record and a stream has none. Neither describes
-// a run the CLI could perform for any state of any filesystem, so paying for a
-// pull and an exec to be told so buys nothing.
+// Four things are refused before the vector leaves, on the grounds [Generate]
+// already states for a manifest on a stream: a vector with no copybook in it
+// names nothing to read; a copybook named "-" names an input a definitions file
+// has to be named after, and a stream has no name; a layout named "-" asks for a
+// stream where the CLI writes a set of files; and a layout name that is not a
+// bare file name — empty, ".", "..", or holding a slash — names somewhere other
+// than the one directory this module hands back. None describes a run the CLI
+// could perform into that directory for any state of any filesystem, so paying
+// for a pull and an exec to be told so buys nothing.
 //
 // Everything else stays the CLI's, including the rules that are decidable from a
 // line. A byte-equal duplicate is a usage error whose diagnostic names the value
-// (docs/cli/SPEC.md, "A flag appears at most once"), and leaving it there is what
-// keeps this package from holding a second copy of a rule that document is
+// (docs/cli/SPEC.md, "A flag appears at most once"), and so are two copybooks
+// whose definitions files would share a name or one whose definitions file would
+// be named as the layout is ("The vector `init` takes"); leaving them there is
+// what keeps this package from holding a second copy of rules that document is
 // entitled to revise. A value naming a directory, or one that cannot be opened,
 // is a status 1 that needs a look at the filesystem — a better diagnostic than
 // anything guessable from out here.
-func Init(copybooks []string, out string) ([]string, error) {
+func Init(copybooks []string, dir, layout string) ([]string, error) {
 	if len(copybooks) == 0 {
 		return nil, fmt.Errorf(
 			"%s reads the copybooks it is given and this run names none: a scaffold is derived from the 01-levels "+
@@ -135,9 +148,21 @@ func Init(copybooks []string, out string) ([]string, error) {
 	for i, copybook := range copybooks {
 		if copybook == standardOutput {
 			return nil, fmt.Errorf(
-				"copybook %d cannot be %q: the scaffold states a path for each record's copybook, and a copybook "+
-					"on a stream has none to state", i+1, standardOutput)
+				"copybook %d cannot be %q: a definitions file is named after its copybook, and a copybook on a "+
+					"stream has no name to name one after", i+1, standardOutput)
 		}
+	}
+
+	switch {
+	case layout == standardOutput:
+		return nil, fmt.Errorf(
+			"out cannot be %q: %s writes a layout and a definitions file per copybook beside it, and a stream is "+
+				"no directory for them to be in", standardOutput, initSubcommand)
+	case layout == "" || layout == "." || layout == ".." || strings.Contains(layout, "/"):
+		return nil, fmt.Errorf(
+			"out is the layout's file name in the directory this function hands back, with its definitions files "+
+				"beside it, and %q is not a file name; name the file here and choose where it goes at export",
+			layout)
 	}
 
 	args := make([]string, 0, 2*len(copybooks)+3)
@@ -147,7 +172,7 @@ func Init(copybooks []string, out string) ([]string, error) {
 		args = append(args, copybookFlag, copybook)
 	}
 
-	return append(args, outFlag, out), nil
+	return append(args, outFlag, strings.TrimSuffix(dir, "/")+"/"+layout), nil
 }
 
 // EmitIR is the vector for an emitting run over a project mounted at the
@@ -161,7 +186,7 @@ func Init(copybooks []string, out string) ([]string, error) {
 // for a generating run — and the dash is refused here for the same reason and
 // with the same message, because it is the same argument.
 //
-// dest is the caller's rather than a constant here, for the reason [Init]'s out
+// dest is the caller's rather than a constant here, for the reason [Init]'s dir
 // is: where the descriptor lands inside the container is a property of how the
 // module mounts things. It is not examined. The one value that would be worth
 // refusing is the dash, and no caller of this package can pass it — a

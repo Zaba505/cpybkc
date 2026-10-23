@@ -7,6 +7,7 @@ package scaffold
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
@@ -19,9 +20,9 @@ import (
 // reached.
 var ErrNoCopybooks = errors.New("there is no copybook to derive a scaffold from")
 
-// ErrNoDestination is [Write] handed nowhere to put the scaffold, for
+// ErrNoDestination is [Write] handed nowhere to put the layout, for
 // [ErrNoCopybooks]'s reason.
-var ErrNoDestination = errors.New("name a file to write the scaffold to, or " + Stdout + " for standard output")
+var ErrNoDestination = errors.New("name the file to write the layout to; its definitions files go beside it")
 
 // Every fault here leads with the copybook or the destination it is about and
 // says nothing else about where it is. There is no layout under `init` — that is
@@ -59,48 +60,176 @@ func (e *SourceError) Diagnostic() diag.Diagnostic {
 	}
 }
 
-// NoRecordError is a copybook that parsed and declares nothing a `record` form
-// could be written over — no named 01-level, or no entry at all.
+// NoEntryError is a copybook that parsed and declares no entry at all.
 //
-// A copybook is a record description, and one holding no named 01-level
-// contributes no record to a scaffold. Reporting it is what stops a run
-// succeeding over a file the adopter expected records out of — a member holding
-// nothing but level-77 work items is the ordinary way to arrive here, and it
-// parses perfectly well.
-//
-// It is a refusal only until definitions files exist (#408). docs/cli/SPEC.md,
-// "`init`'s streams and exit codes", makes a copybook with entries and no named
-// 01-level a note once there is a definitions file to write for it, and keeps
-// refusing one that declares no entry at all; until then there is nothing at all
-// to write for either, and a run that exited 0 having written nothing about a
-// copybook it was given would read as success.
-type NoRecordError struct {
+// A copybook is a record description, and one holding nothing — comments, or
+// nothing — has nothing to transcribe: the definitions file converted from it
+// would be a header naming a copybook and no entry under it, which no record
+// could name and the layout reader would refuse as not being a definitions file
+// at all. docs/cli/SPEC.md, "`init`'s streams and exit codes", keeps it a
+// refusal (#31) where a copybook declaring entries and no named 01-level is a
+// note: that one is still transcribed whole.
+type NoEntryError struct {
 	// Path is the --copybook value as it was typed.
 	Path string
 }
 
 // Error implements error.
-func (e *NoRecordError) Error() string { return e.Diagnostic().String() }
+func (e *NoEntryError) Error() string { return e.Diagnostic().String() }
 
 // Diagnostic implements [diag.Error].
-func (e *NoRecordError) Diagnostic() diag.Diagnostic {
+func (e *NoEntryError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
-		Message: "this copybook declares no named 01-level, so there is no record to derive from it",
+		Message: "this copybook declares no entry at all, so there is nothing in it to transcribe",
 		Spans:   []diag.Span{{File: e.Path}},
 	}
 }
 
-// DestinationError is a --out path with something already at it.
+// TranscriptionError is a copybook that parsed and built and still cannot be
+// written as a definitions file — today, a condition-name whose VALUE list the
+// pinned `cobol-go` misreads (docs/layout/SPEC.md, "A condition-name cobol-go
+// misreads is refused, not transcribed").
+//
+// It is the copybook's to report rather than the writer's, because the writer
+// knows the line and column it refused and not the file: a position in a
+// copybook is a position in the file as it was typed, and that is what this
+// adds to every span that has a line and no file.
+type TranscriptionError struct {
+	// Path is the --copybook value as it was typed.
+	Path string
+
+	// Err is what the writer refused.
+	Err error
+}
+
+// Error implements error.
+func (e *TranscriptionError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap returns the writer's refusal.
+func (e *TranscriptionError) Unwrap() error { return e.Err }
+
+// Diagnostic implements [diag.Error].
+func (e *TranscriptionError) Diagnostic() diag.Diagnostic {
+	var inner diag.Error
+	if !errors.As(e.Err, &inner) {
+		return diag.Diagnostic{
+			Message: "this copybook cannot be transcribed as a definitions file",
+			Spans:   []diag.Span{{File: e.Path}, {Note: e.Err.Error()}},
+		}
+	}
+
+	d := inner.Diagnostic()
+	spans := make([]diag.Span, 0, len(d.Spans)+1)
+
+	for _, span := range d.Spans {
+		if span.File == "" && span.Line != 0 {
+			span.File = e.Path
+		}
+
+		spans = append(spans, span)
+	}
+
+	if len(spans) == 0 || !spans[0].Stated() {
+		spans = append([]diag.Span{{File: e.Path}}, spans...)
+	}
+
+	return diag.Diagnostic{Message: d.Message, Spans: spans}
+}
+
+// ReadBackError is a definitions file that does not read back as the entries of
+// the copybook it was converted from.
+//
+// docs/cli/SPEC.md, "`init`'s streams and exit codes": before anything is
+// written, every definitions file is read back from the bytes about to be
+// written and its entries compared with the copybook's, positions and comments
+// cleared. When this fires it is cpybkc's own defect, and it is caught here
+// rather than in the adopter's next run because a definitions file is never
+// re-read from its copybook — a transcription that was wrong when it was written
+// stays wrong in every run after.
+type ReadBackError struct {
+	// Path is the --copybook value as it was typed.
+	Path string
+
+	// Line and Column are the copybook's entry whose transcription differed,
+	// and Item names it. All three are zero where no one entry is to blame — a
+	// file that did not read at all, or read back as a different number of
+	// entries.
+	Line, Column int
+	Item         string
+
+	// Err is what the read said, where the read itself failed.
+	Err error
+}
+
+// Error implements error.
+func (e *ReadBackError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap returns what the read said.
+func (e *ReadBackError) Unwrap() error { return e.Err }
+
+// Diagnostic implements [diag.Error].
+func (e *ReadBackError) Diagnostic() diag.Diagnostic {
+	const defect = "; this is a defect in cpybkc, and nothing was written"
+
+	if e.Item == "" {
+		d := diag.Diagnostic{
+			Message: "the definitions file converted from this copybook does not read back as its entries" + defect,
+			Spans:   []diag.Span{{File: e.Path}},
+		}
+
+		if e.Err != nil {
+			d.Spans = append(d.Spans, diag.Span{Note: e.Err.Error()})
+		}
+
+		return d
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the definitions file converted from this copybook reads %s back as a different entry", e.Item) +
+			defect,
+		Spans: []diag.Span{{File: e.Path, Line: e.Line, Column: e.Column}},
+	}
+}
+
+// DefinitionsNameError is two copybooks whose definitions files would have one
+// name between them.
+//
+// The command line refuses this as a usage error before anything is opened
+// (docs/cli/SPEC.md, "The vector `init` takes"), and the check is here as well
+// because [Derive] is reachable without one: a set of files with two of one name
+// in it is not one [Write] could put in a directory.
+type DefinitionsNameError struct {
+	// First and Second are the two --copybook values, as typed.
+	First, Second string
+
+	// Name is the name both derive.
+	Name string
+}
+
+// Error implements error.
+func (e *DefinitionsNameError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic implements [diag.Error].
+func (e *DefinitionsNameError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the definitions files converted from this copybook and from %s would both be named %s",
+			e.Second, e.Name),
+		Spans: []diag.Span{{File: e.First}, {File: e.Second, Note: "this copybook derives the same name"}},
+	}
+}
+
+// DestinationError is a destination with something already at it: the --out
+// path, or a definitions file's place beside it.
 //
 // docs/cli/SPEC.md, "Where the scaffold is written, and why nothing is ever
 // overwritten": whatever is there — a regular file, a directory, a symbolic
 // link, including one that dangles — the run fails and nothing is written. Both
 // paths are named because a relative path in a shared tree sends a reader to the
-// wrong directory, and the path as typed is the one they can find in what they
-// wrote.
+// wrong directory, and the path as derived is the one they can find from what
+// they wrote.
 type DestinationError struct {
-	// Path is the --out value as it was typed, and Absolute the path cpybkc
-	// looked at.
+	// Path is the destination as it was derived from what was typed, and
+	// Absolute the path cpybkc looked at.
 	Path     string
 	Absolute string
 }
@@ -119,7 +248,7 @@ func (e *DestinationError) Diagnostic() diag.Diagnostic {
 
 // WriteError is a destination that was free and still could not be written.
 type WriteError struct {
-	// Path is the --out value as it was typed, or [Stdout].
+	// Path is the destination as it was derived from what was typed.
 	Path string
 
 	// Err is what the write failed with.
@@ -133,19 +262,9 @@ func (e *WriteError) Error() string { return e.Diagnostic().String() }
 func (e *WriteError) Unwrap() error { return e.Err }
 
 // Diagnostic implements [diag.Error].
-//
-// Standard output is named in the message rather than led with as a file,
-// because "-" is not a place a reader can go and look at.
 func (e *WriteError) Diagnostic() diag.Diagnostic {
-	if e.Path == Stdout {
-		return diag.Diagnostic{
-			Message: "the scaffold could not be written to standard output",
-			Spans:   []diag.Span{{Note: e.Err.Error()}},
-		}
-	}
-
 	return diag.Diagnostic{
-		Message: "the scaffold could not be written here",
+		Message: "this file could not be written, and nothing else this run wrote was kept",
 		Spans:   []diag.Span{{File: e.Path}, {Note: e.Err.Error()}},
 	}
 }

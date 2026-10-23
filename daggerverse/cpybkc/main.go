@@ -205,16 +205,20 @@
 // state that table is kept in order to be able to say.
 //
 // A function is still allowed to decline one *spelling* of a flag without
-// declining the flag, and that stays deliberately. Init supplies --out itself,
-// at a path inside the container the caller never types, and hands back the
-// File; `--out -` is not offered, because a File-returning function cannot
-// express a stream. EmitIr supplies --emit-ir's destination on the same terms
-// and declines `--emit-ir -` for the same reason. A stream destination is the
-// whole of that class, and both spellings stay Run's, which is the command being
+// declining the flag, and that stays deliberately. EmitIr supplies --emit-ir's
+// destination itself, at a path inside the container the caller never types,
+// and hands back the File; `--emit-ir -` is not offered, because a
+// File-returning function cannot express a stream. A stream destination is the
+// whole of that class, and the spelling stays Run's, which is the command being
 // reachable rather than out of reach:
 //
-//	dagger call run --source . --args=init,--copybook,posting.cpy,--out,- stdout
 //	dagger call run --source . --args=--emit-ir,- stdout
+//
+// Init is not in that class any more. Its --out names a layout whose
+// definitions files go beside it, and the CLI refuses `--out -` outright (#408),
+// so there is no stream spelling of a scaffolding run for Run to keep: Init takes
+// the layout's name as its out argument and hands back the directory holding
+// the layout and its definitions files.
 //
 // One thing the flag table cannot say, and this comment therefore should. cpybkc
 // passes its whole environment through to a generator, which is how
@@ -274,29 +278,26 @@ const executableMode = 0o755
 // left to be discovered.
 const projectDir = "/src"
 
-// scaffoldDir is where Init has cpybkc write the scaffold, and scaffoldPath is
-// the file inside it.
+// scaffoldDir is where Init has cpybkc write the layout and the definitions
+// files beside it, and it is the directory Init hands back.
 //
 // It is deliberately **outside** [projectDir]. `cpybkc init` replaces nothing:
 // a destination that is occupied fails the run, whatever is in it
-// (docs/cli/SPEC.md, "Nothing at <dest> is ever replaced"), and that rule is the
-// one unrecoverable act this command could otherwise perform — the `discriminate`
-// forms and the `sequence` in an edited layout are the part no copybook holds.
-// Writing into a directory of this module's own, which nothing was mounted into,
-// is what makes the rule hold here without the module reasoning about the
-// caller's tree at all: there is nothing at the path, ever, whatever is in
-// theirs.
+// (docs/cli/SPEC.md, "Where the scaffold is written, and why nothing is ever
+// overwritten"), and that rule is the one unrecoverable act this command could
+// otherwise perform — the `discriminate` forms and the `sequence` in an edited
+// layout are the part no copybook holds. Writing into a directory of this
+// module's own, emptied first and with nothing mounted into it, is what makes
+// the rule hold here without the module reasoning about the caller's tree at
+// all: there is nothing at any of the paths, ever, whatever is in theirs. It is
+// also what makes the directory handed back hold exactly what the run wrote.
 //
-// The caller never types either constant. The file comes back as a
-// *dagger.File, and where it lands is what they name at export — which keeps
-// *where the file goes is the one thing the adopter knows and cpybkc does not*
-// true of this module as well as of the CLI. The name below is only what the
-// file is called on the way out; the manifest's `layout` field names the
-// adopter's copy, and this module has no business choosing that.
-const (
-	scaffoldDir  = "/scaffold"
-	scaffoldPath = scaffoldDir + "/layout.sexpr"
-)
+// The caller never types it. The directory comes back as a *dagger.Directory,
+// and where it lands is what they name at export — which keeps *where the files
+// go is the one thing the adopter knows and cpybkc does not* true of this module
+// as well as of the CLI. What the layout is called in it is theirs too, as Init's
+// out argument, because the manifest's `layout` field has to match it.
+const scaffoldDir = "/scaffold"
 
 // descriptorDir is where EmitIr has cpybkc write the run's resolved descriptor,
 // and descriptorPath is the file inside it.
@@ -827,10 +828,11 @@ func (m *Cpybkc) Generate(
 		Directory(projectDir), nil
 }
 
-// Init scaffolds a layout from copybooks and hands back the file to edit:
+// Init transcribes copybooks into definitions files and scaffolds a layout over
+// them, and hands back the directory holding both:
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
-//	  init --source . --copybook posting.cpy export --path ledger.sexpr
+//	  init --source . --copybook posting.cpy --out ledger.sexpr export --path .
 //
 // It is the first thing an adopter runs, before there is a manifest, a layout or
 // a generator to speak of, and it is the run that made the case for mapping
@@ -838,36 +840,48 @@ func (m *Cpybkc) Generate(
 // nothing to copy from is a poor place to make them assemble an argument vector
 // by hand.
 //
-// What comes back is **not a valid layout** and is not meant to be. `init`
-// writes what the copybooks decide — a record per 01-level, an alternative per
-// REDEFINES — and leaves the half no copybook holds as commented forms for a
-// person to answer: which field discriminates, and in what order the records
-// come. docs/cli/SPEC.md's `init` section is what that file says and what it
-// deliberately does not.
+// What comes back is a directory holding the layout, named out, and one
+// definitions file per copybook beside it, named after the copybook's final path
+// element with `.sexpr` appended — and nothing else. The definitions files are
+// complete: every entry and clause of each copybook, read back before anything
+// was written, so an adopter whose copybooks cannot be committed commits these
+// in their place and regenerates with no copybook at all (discussion #394). The
+// layout is **not a valid layout** and is not meant to be. `init` writes what the
+// copybooks decide — a record per 01-level naming its definitions file, an
+// alternative per REDEFINES — and leaves the half no copybook holds as commented
+// forms for a person to answer: which field discriminates, and in what order the
+// records come. docs/cli/SPEC.md's `init` section is what those files say and
+// what they deliberately do not.
 //
-// Nothing is written to the host, exactly as with Generate: the File that comes
-// back is a value, and exporting it is the caller's separate step. What it is
-// called is theirs — this module writes the scaffold to a path of its own inside
-// the container, outside the mounted project and where nothing was mounted, so
-// the run cannot land on something the caller already has, and the name it takes
-// in their tree is the one they give `export`.
+// Nothing is written to the host, exactly as with Generate: the Directory that
+// comes back is a value, and exporting it is the caller's separate step. This
+// module has cpybkc write into a directory of its own inside the container,
+// outside the mounted project and where nothing was mounted, so the run cannot
+// land on something the caller already has; the layout's name in it is the one
+// the caller gives out, which is the name their manifest's `layout` field then
+// has to match.
 //
-// *Where* it goes is theirs within one constraint, and it is the one thing here
-// a caller cannot infer from the signature. The scaffold names each copybook by
-// the path it was given, which is relative to the root of source, and a layout's
-// own paths are relative to the layout — so the file belongs at that root, beside
-// the copybooks it names. Exported into a subdirectory it is a layout whose
-// copybook paths resolve nowhere, and nothing at export time will say so. A
-// project that keeps its layout somewhere else moves the paths as it moves the
-// file; they are the adopter's to edit, like the rest of what `init` leaves
-// blank.
+// *Where* it goes is theirs at export, and nothing is lost by moving it. Every
+// record names its definitions file bare, relative to the layout, and the files
+// are beside it — so the directory is right wherever it is exported whole. The
+// one thing that does not survive is exporting the layout and the definitions
+// files to different places, which is the CLI's rule as much as this module's.
 //
-// The destination this module supplies is a file rather than a stream, so
-// `--out -` is not offered here. A caller who wants the scaffold on standard
-// output still has Run, which is the same arrangement --emit-ir has:
+// # A return type that changed below 1.0.0
 //
-//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
-//	  run --source . --args=init,--copybook,posting.cpy,--out,- stdout
+// Init used to hand back a *dagger.File holding the scaffold alone. It hands
+// back a *dagger.Directory now, because `init`'s output became a set of files
+// (#403, #408), and it takes the layout's name, because a directory needs one
+// for the file the manifest names. A function's name, arguments, defaults and
+// return type are public API, and below 1.0.0 any release may change them
+// (docs/container/SPEC.md, "Below 1.0.0, any release may break a covered thing",
+// #398) — which is the policy this change is made under, and the reason it is
+// made without an overlap. A caller that exported the old File runs `export
+// --path .` on the directory instead.
+//
+// `--out -`, which the old File could not express and which Run used to carry,
+// is refused by the CLI now (#408), so there is no stream spelling of this run
+// left for Run to keep.
 func (m *Cpybkc) Init(
 	ctx context.Context,
 	// The project the copybooks are in: the directory their paths are relative
@@ -884,15 +898,17 @@ func (m *Cpybkc) Init(
 	// once per copybook, in the order the scaffold should hold their records in.
 	//
 	// Paths rather than files, because the path is data: docs/cli/SPEC.md has
-	// the scaffold record each copybook's path *as it was typed*, and a layout's
-	// own paths are relative to the layout. A file handed over on its own would
-	// have cpybkc write a container path the adopter cannot find anywhere in
-	// their tree.
+	// each definitions file named after its copybook's final path element and
+	// headed with the path *as it was typed*. A file handed over on its own
+	// would have cpybkc name a container path the adopter cannot find anywhere
+	// in their tree.
 	//
-	// At least one is required, and none may be "-": a copybook on a stream has
-	// no path for the scaffold to state. Everything else is the CLI's to refuse —
-	// a value naming a directory is a run that failed rather than a line that
-	// was wrong, and it says so with a diagnostic naming the path.
+	// At least one is required, and none may be "-": a definitions file is named
+	// after its copybook, and a copybook on a stream has no name. Everything else
+	// is the CLI's to refuse — two copybooks whose definitions files would share
+	// a name is a usage error naming both, and a value naming a directory is a
+	// run that failed rather than a line that was wrong, and it says so with a
+	// diagnostic naming the path.
 	//
 	// One boundary belongs to the command line rather than to cpybkc: `dagger
 	// call` renders a list argument as `--copybook a.cpy --copybook b.cpy` or as
@@ -900,8 +916,22 @@ func (m *Cpybkc) Init(
 	// contains a comma cannot be spelled here. That one is Run's, where the
 	// vector is passed through as written.
 	copybook []string,
-) (*dagger.File, error) {
-	args, err := argv.Init(copybook, scaffoldPath)
+	// The layout's file name in the directory handed back, which is the CLI's
+	// --out with the directory taken away: the module chooses where the files
+	// are written inside the container, and the caller chooses where they land
+	// at export.
+	//
+	// It is required, as --out is, and for --out's reason: the name is the one
+	// the manifest's `layout` field has to match, so a name of this module's own
+	// would be one the adopter then has to correct. It is a bare file name — not
+	// "-", which the CLI refuses because a stream is no directory for the
+	// definitions files to be beside, and not a path, which would name somewhere
+	// other than the directory this function hands back. A name a definitions
+	// file would also take — `--copybook vendor/layout --out layout.sexpr` — is
+	// the CLI's to refuse, naming both.
+	out string,
+) (*dagger.Directory, error) {
+	args, err := argv.Init(copybook, scaffoldDir, out)
 	if err != nil {
 		return nil, err
 	}
@@ -921,7 +951,7 @@ func (m *Cpybkc) Init(
 
 	return scaffold.
 		WithExec(args, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
-		File(scaffoldPath), nil
+		Directory(scaffoldDir), nil
 }
 
 // EmitIr writes the run's resolved descriptor and hands back the file:
@@ -953,9 +983,10 @@ func (m *Cpybkc) Init(
 // where nothing was mounted, so the run cannot land on something the caller
 // already has.
 //
-// The one spelling this does not offer is `--emit-ir -`, which stays Run's for
-// the reason `--out -` does — a File-returning function has no stream to hand
-// back — and which is a spelling rather than a flag:
+// The one spelling this does not offer is `--emit-ir -`, which stays Run's
+// because a File-returning function has no stream to hand back, and which is a
+// spelling rather than a flag. It is the last spelling of that kind: `init`'s
+// `--out -` used to be the other, and the CLI refuses it now (#408).
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  run --source . --args=--emit-ir,- stdout
@@ -1051,10 +1082,10 @@ func (m *Cpybkc) EmitIr(
 // the one failure this path is arranged to make impossible, since a destination
 // that is occupied fails a scaffolding run whatever is in it.
 //
-// Owned, because both files are written through a temporary file created beside
-// the destination and linked into place — the write is atomic or it does not
-// happen — so the process needs a directory it can create in, not merely a path
-// nothing occupies.
+// Owned, because every file either function has written is written through a
+// temporary file created beside its destination and linked into place — the
+// write is atomic or it does not happen — so the process needs a directory it
+// can create in, not merely a path nothing occupies.
 //
 // It is one function rather than two copies for the reason [Cpybkc.user] is:
 // Init and EmitIr are making the same arrangement for the same reasons, and two
@@ -1086,8 +1117,8 @@ func (m *Cpybkc) writable(container *dagger.Container, user, dir string) (*dagge
 // function. A flag this module has not caught up with is reachable through it in
 // the meantime, which is what keeps a gap an inconvenience rather than a wall. A
 // spelling no Dagger type can express is reachable through it permanently: a
-// destination that is a stream rather than a file — `--out -`, `--emit-ir -` —
-// which a File-returning function cannot hand back. And a flag whose question
+// destination that is a stream rather than a file — `--emit-ir -` — which a
+// File-returning function cannot hand back. And a flag whose question
 // has a Dagger-native answer that is not a function here stays on purpose, which
 // is --version, --help and -h and is meant to be the whole of that class.
 //

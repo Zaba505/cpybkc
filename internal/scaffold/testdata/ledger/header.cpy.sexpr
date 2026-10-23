@@ -1,0 +1,7 @@
+; The entries of the copybook "header.cpy", transcribed by cpybkc init.
+(entry 01 LEDGER-HEADER)
+  (entry 05 HDR-TYPE (pic "X(2)"))
+  (entry 05 HDR-LEDGER-ID (pic "X(10)"))
+  (entry 05 HDR-PERIOD (pic "9(6)"))
+  (entry 05 HDR-CURRENCY (pic "X(3)"))
+  (entry 05 HDR-COUNT (pic "9(3)"))

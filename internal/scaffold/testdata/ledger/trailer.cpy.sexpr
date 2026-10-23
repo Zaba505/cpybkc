@@ -1,0 +1,6 @@
+; The entries of the copybook "trailer.cpy", transcribed by cpybkc init.
+(entry 01 LEDGER-TRAILER)
+  (entry 05 TRL-TYPE (pic "X(2)"))
+  (entry 05 TRL-COUNT (pic "9(6)"))
+  (entry 05 TRL-NET (pic "S9(13)V99") (usage COMP-3))
+  (entry 05 FILLER (pic "X(8)"))

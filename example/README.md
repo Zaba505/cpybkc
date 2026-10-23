@@ -32,11 +32,19 @@ this repository whose whole job is to show an adopter what their own project
 looks like — and a worked example that can only be run by a manifest format the
 CLI does not have is not a worked example.
 
-So each directory here is exactly what `cpybkc init` derives and exactly what an
-adopter checks in: `cpybkc.json`, the layout, the copybooks, the generated
-directories, and the record. It is also what makes them independent — an example
-whose layout is being reworked does not put every other example's generated tree
-in the same diff, and `--manifest` names one of them rather than the tree.
+So each directory here is exactly what an adopter checks in: `cpybkc.json`, the
+layout, its record descriptions, the generated directories, and the record. In
+`ledger`, `claim`, `member` and `policy` the record descriptions are the
+copybooks themselves, which the layout names directly — a layout may still do
+that, and a shop that can commit its copybooks loses nothing by it. `cpybkc
+init` no longer writes that shape: it transcribes each copybook into a
+[definitions file](../docs/layout/SPEC.md#definitions) beside the layout and has
+the records name those instead (#403), so an adopter whose copybooks cannot be
+committed checks in the definitions files in their place.
+
+A directory per example is also what makes them independent — an example whose
+layout is being reworked does not put every other example's generated tree in
+the same diff, and `--manifest` names one of them rather than the tree.
 
 The cost is a `cpybkc.json` per example rather than one file, and duplication is
 what would make that a cost. There is none: two examples have different layouts,

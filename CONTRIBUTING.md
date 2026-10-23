@@ -829,8 +829,9 @@ and cannot do it here has found a gap to file, not a decision to respect. That
 is the stance (#253), and everything else in this section follows from it.
 
 `Generate` takes a source directory and a manifest and hands back a
-`Directory`; `Init` takes a source directory and copybook paths and hands back
-the layout scaffold as a `File`; `EmitIr` takes a source directory, a manifest
+`Directory`; `Init` takes a source directory, copybook paths and the layout's
+name and hands back a `Directory` holding the layout scaffold and a definitions
+file per copybook; `EmitIr` takes a source directory, a manifest
 and a format and hands back the run's resolved descriptor as a `File`; `Run`
 takes an argument vector verbatim and hands back a `Container`. The first two
 are the two commands cpybkc has, under the CLI's own names — a second name for
@@ -846,12 +847,31 @@ mapping the commands by name at all: it is the run an adopter reaches **first**,
 before there is a manifest or a layout for anything else to read, so it is the
 one invocation they have nothing to copy from. It takes copybook *paths* into
 `--source` rather than files, because
-[`docs/cli/SPEC.md`](docs/cli/SPEC.md) has the scaffold record each path as it
-was typed and a layout's own paths are relative to the layout; and it supplies
-`--out` itself, at a path outside the mounted project, so *nothing at `<dest>`
-is ever replaced* holds without the module reasoning about the caller's tree at
-all. Where the file goes in that tree is what they name at `export`, which is
-the one thing the adopter knows and cpybkc does not.
+[`docs/cli/SPEC.md`](docs/cli/SPEC.md) names each definitions file after its
+copybook's path and heads it with the path as it was typed.
+
+**`Init` takes the layout's name, and chooses the directory itself** (#408).
+`init`'s output is a set of files — the layout and a definitions file per
+copybook beside it — so `Init` hands back a `Directory` rather than the `File`
+it used to, and its `out` argument is the CLI's `--out` with the directory taken
+away: a bare file name, the one the manifest's `layout` field will have to
+match, which is why the module does not choose it any more than the CLI does.
+The directory is the module's own, outside the mounted project and emptied
+first, so *nothing at any destination is ever replaced* holds without the
+module reasoning about the caller's tree at all, and the directory handed back
+holds exactly what the run wrote. A name that is `-` or a path is refused
+before the exec; a name a definitions file would also take is the CLI's to
+refuse, naming both. The alternative — fixing the name at `layout.sexpr` and
+refusing a copybook that derives it — was weighed and declined: it is a name of
+the module's own that every adopter would then rename, and `--out` would stop
+being mapped onto anything. `internal/argv`'s
+`TestInitTakesTheLayoutsNameAndNothingElse` pins the choice. The change of
+return type is a break, and it is made without an overlap because below 1.0.0
+[any release may make
+one](docs/container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398); `Init`'s own documentation says so. Where the directory goes in the
+caller's tree is what they name at `export`, which is the one thing the adopter
+knows and cpybkc does not.
 
 `EmitIr` is `cpybkc --emit-ir` (#251), and it is the run somebody reaches for
 when they are already having a bad time: the resolved descriptor is what to
@@ -908,14 +928,14 @@ recorded as **settled**, which is the class `Exception.Settled` exists to name.
 
 That second one is why a named function may still decline one spelling of a
 flag without declining the flag, and the sentence is kept deliberately because
-#228 and #251 both lean on it. `Init` does not offer `--out -`, which a
-`File`-returning function cannot express, and `EmitIr` does not offer
-`--emit-ir -` for the same reason. A destination that is a stream rather than a
-file is the whole of that class today, and each command is still spellable
-through the escape hatch —
-`run --source . --args=init,--copybook,posting.cpy,--out,-` and
-`run --source . --args=--emit-ir,-` — exactly as it was before either function
-existed.
+#251 leans on it. `EmitIr` does not offer `--emit-ir -`, which a
+`File`-returning function cannot express. A destination that is a stream rather
+than a file is the whole of that class today, and the command is still
+spellable through the escape hatch — `run --source . --args=--emit-ir,-` —
+exactly as it was before the function existed. `Init` used to be the other
+member of the class, declining `--out -`; the CLI refuses that spelling outright
+now, because `init` writes a set of files and a stream is no directory for them
+to be beside (#408), so there is nothing left of it for `run` to carry.
 
 It returns a container rather than a directory for the same reason: the
 invocations that arrive here are the ones whose answer is not a tree —
@@ -1284,13 +1304,15 @@ exercised only what it needed would leave the rest of the module's surface
 covered by nothing.
 
 **`init` is checked against the escape hatch, not against a second expectation.**
-The curated scaffolding function has to hand back the scaffold
-`run --args=init,…,--out,-` writes over the same three copybooks in
-[`example/ledger/`](example/ledger/), byte for byte (#228). That is cheap, it needs no second
-reading of what a scaffold should contain — `internal/scaffold`'s tests own that
-— and it is the property `init`'s escape-hatch entry stood in for while there was
-no function: a caller who reached for `run` before it existed gets the same file
-from the function that replaced it. That generalises, which matters now that
+The curated scaffolding function has to hand back a directory holding exactly
+the files `run --args=init,…,--out,<path>` writes over the same three copybooks
+in [`example/ledger/`](example/ledger/) — the layout and a definitions file per
+copybook — byte for byte, and nothing else (#228, #408). That is cheap, it needs
+no second reading of what a scaffold or a definitions file should contain —
+`internal/scaffold`'s tests own that — and it is the property `init`'s
+escape-hatch entry stood in for while there was no function: a caller who
+reached for `run` before it existed gets the same files from the function that
+replaced it. That generalises, which matters now that
 every command is meant to have a function: what makes a new one safe to add is
 that the run it replaces is still spellable through `run` and still produces the
 same bytes. It runs against the base
