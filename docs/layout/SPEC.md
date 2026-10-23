@@ -909,7 +909,7 @@ by #402.
 ### What a record may reach
 
 Five rules bound what a source may name, and together they are why a run never
-has to follow a chain of files.
+has to follow a chain of files that one description names in another.
 
 - **Only a definitions file is imported, and only by a record.** There is no
   top-level import form, and no form but `definitions` names a file of entries.
@@ -929,7 +929,8 @@ has to follow a chain of files.
   transitive imports, so there are no cycles to detect, no order to read files
   in, and no question of whether two spellings reached along two chains name
   one file. A run reads the layout and then, one step away, the descriptions its
-  records name, and stops.
+  records name, and stops — a copybook's members aside, which the layout names
+  too (below).
 
 - **Several records naming one path read it once. Several records naming one
   block have it judged once.**
@@ -957,6 +958,15 @@ has to follow a chain of files.
   it. A block is a form of the layout that holds it, so another layout has no way
   to name it, and the format offers none: a file is the shared spelling, with a
   path both layouts can state.
+
+**A copybook reaches its members, and only through the layout.** A copybook is
+COBOL, and a `COPY` in it names a member, which may name another. That chain is
+COBOL's, expanded by `cobol-go`, which refuses a cycle in it; what cpybkc adds
+is that every name on it is looked up among the layout's [`copy-member`
+forms](#a-copy-member-is-found-where-the-layout-says), so every file a run reads
+is still one the layout states by its path, and no file is reached by a name
+the layout does not map. A definitions file and a block, which hold no `COPY`,
+reach nothing.
 
 Two spellings follow from those rules and are refused. **Record-local entries**
 — `entry` forms written inside a `record`, or a `definitions-block` written
@@ -1118,16 +1128,20 @@ What joins them is COBOL's own `COPY`, in a copybook the adopter writes:
     COPY ORDDTL.
 ```
 
-which the layout then binds like any other item:
+which the layout then binds like any other item, saying where each member the
+`COPY` statements name is found:
 
 ```
+(copy-member STDHDR "cpy/stdhdr.cpy")
+(copy-member ORDDTL "cpy/orddtl.cpy")
 (record ORDER-DETAIL (copybook "cpy/order-detail.cpy" ORDER-DETAIL-REC))
 ```
 
-Three lines, once per record type, in the language the composition is already
-written in. Where a shop's composition lives in a program's `FD` rather than in
-a copybook — which is where it usually lives, an `FD` being this text under
-another heading — those lines are a copy of ones that exist rather than a new
+Three lines of COBOL, once per record type, in the language the composition is
+already written in, and one `copy-member` form per member, once per layout.
+Where a shop's composition lives in a program's `FD` rather than in a copybook
+— which is where it usually lives, an `FD` being this text under another
+heading — those lines are a copy of ones that exist rather than a new
 statement about the file.
 
 A record composed with `COPY` and held in a definitions file or a block is held
@@ -1136,7 +1150,10 @@ copies contribute, in the order the expansion puts them, as one entry body.
 `COPY` is a statement in a copybook and not an entry, so there is no form for
 it in an entry body, and a block cannot concatenate — it is one `01`-level's
 entries, exactly as a file is. Where a `COPY` member is found when the copybook
-is read is #407's.
+is read is [the layout's to say](#a-copy-member-is-found-where-the-layout-says)
+(#407), and `init` converts a composed copybook to exactly that expansion
+([Where the members come
+from](../cli/SPEC.md#where-the-members-come-from)).
 
 The format declines to do the joining itself for a reason that is not economy
 of vocabulary. **Two `01`-levels laid end to end are not a COBOL construct, so
@@ -1168,6 +1185,88 @@ a type code in a header every alternative includes is an `equals` on an item
 reference, written once per record because the reference is rooted at the
 record.
 
+### A `COPY` member is found where the layout says
+
+```
+(copy-member <member> "<path>")
+```
+
+| Argument | Arity | Value |
+|---|---|---|
+| `<member>` | 1 | the member as a `COPY` statement names it: a text-name, or `(of <text-name> <library-name>)` for `COPY <text-name> OF <library-name>` and its `IN` spelling |
+| `<path>` | 1 | text: the path of the file holding the member, relative to the layout |
+
+A `copy-member` form says which file a member is when a copybook a record names
+writes `COPY`. It is the only way a member is found: a run looks for no member
+by its name, in no directory, with no suffix, and a `COPY` naming a member no
+`copy-member` form names is a fault. How the path resolves, why there is no
+search, and what each fault looks like are the CLI's ([Where a `COPY` member is
+found](../cli/SPEC.md#where-a-copy-member-is-found)), as every path's
+resolution is.
+
+**The names are spelled as data-names are**
+([The leaves](#the-leaves-a-level-a-data-name-and-literal-text)): a symbol, in
+the case the copybook wrote it, or `(word "…")` where `sexpr-go` would read the
+spelling as something else. A text-name a `COPY` writes as a literal —
+`COPY 'stdhdr'.` — is written by its content, without its delimiters, because
+`cobol-go` hands a resolver the name with its delimiters removed and does not
+say which way it was written; the word and the literal are one member.
+
+**A `COPY` names a form's member when the text-names are equal and the
+library-names are equal**, each compared without regard to case, or when
+neither has a library-name. That is COBOL's comparison for a word, and the one
+`cobol-go`'s own resolvers apply to every text-name, so `COPY stdhdr.` names
+`(copy-member STDHDR …)`. There is no fallback between the two shapes: `COPY
+STDHDR OF PAYLIB.` is not satisfied by `(copy-member STDHDR …)`, and `COPY
+STDHDR.` is not satisfied by `(copy-member (of STDHDR PAYLIB) …)`. A library
+qualifies a name because the shop has more than one member of it, and reading
+the unqualified one in the qualified one's place is reading the other file.
+
+**One map, for every copybook the layout's records name.** A member nested in
+another member is found through the same forms, and so is a member written by
+any of the copybooks, so a member name means one file throughout a run — the
+shape of a compile, where one library serves every `COPY` in the program.
+
+- **Two forms naming one member** are the layout reader's diagnostic, with two
+  spans, at the second and at the first, exactly as [a block defined
+  twice](#a-blocks-name-and-a-block-no-record-names) is. Two forms naming one
+  *path* under two members are not a fault: a shop may know one member by two
+  names, and the file is still read once.
+- **A form no `COPY` reaches** is an error at its member, for the reason a
+  [block no record names](#a-blocks-name-and-a-block-no-record-names) is: a
+  member map entry nothing reads is more often a misspelled member than one
+  kept for later. Reaching is decided over every copybook a record's source
+  names, and every member those copy, transitively. The unreached form's file
+  is not opened.
+- **Only a copybook reaches a member.** A definitions file and a block are
+  entry bodies, which hold no `COPY` — a composed record held in either is
+  already its [expanded entries](#composition-is-the-copybooks-and-copy-is-where-it-is-written).
+  A layout whose records name no copybook therefore has no use for
+  `copy-member`, and any it holds is unreached.
+
+**Why the forms are the layout's, and not written inside each `copybook`
+source.** Writing `(copybook "cpy/order-detail.cpy" ORDER-DETAIL-REC
+(copy-member STDHDR "cpy/stdhdr.cpy"))` would keep everything a record depends
+on inside the record, which is the argument [What a record may
+reach](#what-a-record-may-reach) makes against a layout-wide import. It is not
+taken, for two reasons. Two records may name one copybook, and the copybook is
+[read once](#what-a-record-may-reach); with a member map per record, the two
+could expand it two ways, and "read once" would have to choose between them.
+And a member is typically copied by every record type's copybook — the shared
+header is the reason composition exists — so the per-record form would state
+one fact once per record type, in places that could drift apart. The
+dependency is the copybook's, not the record's: the copybook wrote `COPY
+STDHDR`, and the layout only answers which file that name is, once. A record's
+own form still names its whole source and the item in it.
+
+The [published schema](#the-published-schema) declares `copy-member` as a
+top-level form whose first argument is of a sort admitting a data-name or an
+`of` form, and whose second is text, and declares `of` with two data-name
+arguments. The declarations, the reader and the resolver behind them are
+#423's, and so is `copy-member`'s row in [the top-level
+forms](#the-top-level-forms) table — arity `0..n`, layer record definitions —
+which is checked against the schema and so lands with the declaration.
+
 ### A copybook that is not there, and an item that is not in it
 
 Both checks need the record's description, so both are `resolve`'s (#32) rather
@@ -1189,7 +1288,9 @@ no definitions file at posting.cpy.sexpr
 ```
 
 with the absolute path on a continuation line, as [Finding the
-inputs](../cli/SPEC.md#finding-the-inputs) states for both. A block opens
+inputs](../cli/SPEC.md#finding-the-inputs) states for both. A member file a
+`copy-member` form names takes the same shape, `no copy member at
+cpy/stdhdr.cpy`, with its span at the form's path. A block opens
 nothing, so the missing-file diagnostic never applies to one: a block name the
 layout does not define is the schema's reference fault ([A block's
 name](#a-blocks-name-and-a-block-no-record-names)).
@@ -1683,7 +1784,7 @@ layout](#appendix-definitions-held-three-ways) appendices are both in it.
 
 ### What a transcription leaves out
 
-Four things a copybook carries are not transcribed, each for its reason.
+Five things a copybook carries are not transcribed, each for its reason.
 
 - **Copybook comments.** Reason: `cobol-go` keeps them and nothing below it
   reads them; the validity rule above clears them before it compares. A
@@ -1696,16 +1797,27 @@ Four things a copybook carries are not transcribed, each for its reason.
   copybook's text sat, not statements about the record, and `cobol-go` reads
   them away. An entry body has no columns, and the judge reads it back in free
   format.
+- **The `COPY` statement.** Reason: `cobol-go` replaces it with its member's
+  text before the parser runs, so nothing of it is in the parse; the member's
+  entries are transcribed where it stood, which is what [a composed
+  record](#composition-is-the-copybooks-and-copy-is-where-it-is-written) held
+  in a file or a block is.
 - **The difference between `FILLER` and an omitted name.** Reason:
   `copybook.Build` makes both one unnamed item, so nothing downstream of the
   parser can observe the difference, and one spelling for one meaning is the
   rule everywhere else in this format.
 
 **Every copybook cpybkc can read today** is one that both
-`cobol.Parse(WithFragment(), WithSourceFormat(FixedFormat))` and
-`copybook.Build` accept and that declares at least one entry. Every such
+`cobol.Parse(WithFragment(), WithSourceFormat(FixedFormat),
+WithCopyBooks(<the member map>))` and `copybook.Build` accept and that declares
+at least one entry — the member map being the layout's `copy-member` forms for
+a run and `init`'s `--copy-member` flags for a conversion, handed to [one
+resolver](../cli/SPEC.md#where-a-copy-member-is-found) (#407). Every such
 copybook converts to an entry body that `cobol-go` reads back as the same
-entries (#401), with the one exception the next section states and argues.
+entries (#401), with the one exception the next section states and argues. A
+copybook that writes `COPY` is among them, and converts as its expanded
+entries: what `cobol-go` read, with each member's entries where its `COPY`
+stood, and nothing of the `COPY` statement itself.
 What the pinned `cobol-go` does not read at all is [out of
 scope](#what-the-pinned-cobol-go-does-not-read), with its reasons.
 
@@ -1761,7 +1873,7 @@ under discussion #394 carry the rest:
 - #404, the data-name sort wherever a layout names an item;
 - #405 and #409, resolving a record held in a file and in a block;
 - #406 and #408, `init` scaffolding records and writing definitions files;
-- #407, where a `COPY` member is found;
+- #407, where a `COPY` member is found, and #423, reading one;
 - #410, a worked example shipping definitions files and no copybook.
 
 ## Discrimination
@@ -2735,7 +2847,7 @@ of an [entry body](#definitions), `data-name` and `word` (#395, #400), and so
 are `definitions`, the `record-source` sort `record` takes it in, and the
 `definitions-origin` sort and `block-name` reference beneath it (#399, #402),
 and so is the `data-name` sort given to every position that names a COBOL item
-(#404):
+(#404), and so are `copy-member` and the `of` form inside it (#407, #423):
 each is a change to what a layout may say, made while version 1 is being settled, and each
 leaves the number where it is. Pinning the cpybkc that reads
 the layouts a generator writes is what closes the gap until `v1.0.0`.
@@ -2984,7 +3096,15 @@ it**, and names the file the way an adopter can open it:
 - a span into a definitions file names the file **as the run opened it**, so
   that a reader holding the diagnostic can open the same file the run read;
 - a span into a block names **the layout**, as the run opened it, because the
-  block is a form of the layout and its entries are lines in that file.
+  block is a form of the layout and its entries are lines in that file;
+- a span into an entry a copybook's `COPY` brought in names **the member**, by
+  the path its [`copy-member`](#a-copy-member-is-found-where-the-layout-says)
+  form states, at the entry's line and column there, and carries one
+  continuation line per `COPY` that reached it, innermost first. A span into
+  the copybook that wrote the `COPY`, at the position the entry has in the
+  member, would point at a line that says something else; [Where a `COPY`
+  member is found](../cli/SPEC.md#where-a-copy-member-is-found) shows the
+  shape, and names the `cobol-go` change it needs.
 
 A record moved from a copybook to a file or a block therefore keeps every
 diagnostic it had, pointing at the same entry in the place that entry now lives.
@@ -3102,20 +3222,13 @@ them name items the record's description declared and nothing it did not.
 
 ### What the pinned cobol-go does not read
 
-Four constructs a real copybook may hold are not read by the `cobol-go` cpybkc
+Three constructs a real copybook may hold are not read by the `cobol-go` cpybkc
 pins, and so are in no copybook [cpybkc can read
 today](#what-a-transcription-leaves-out) and in no entry body. Most positions
 refuse them through the parse failure; a condition-name's `VALUE` list does not,
 and [A condition-name cobol-go misreads is refused, not
 transcribed](#a-condition-name-cobol-go-misreads-is-refused-not-transcribed) is
 the rule there.
-
-**`COPY` without a resolver.** A copybook that writes `COPY` is parsed with no
-way to find the member it names.
-
-Reason: where a member is found is a question about the files a run reads, and
-#407 settles it on the CLI's side. A transcription of a copybook whose `COPY`
-was never expanded would be a transcription of part of a record.
 
 **Prefixed literals**, such as `X'00'` and `N'AB'` (Zaba505/cobol-go#140).
 
@@ -3535,12 +3648,12 @@ trailer.
 
 | Section | Implemented by |
 |---|---|
-| [The surface syntax](#the-surface-syntax) | #22 `layout`; the data-name sort in an item reference, and the delegated refusals governing a layout's own forms while an entry body follows the entry rules, by #395 against discussion #394; that sort declared on an item reference's path and read there, so `(word "nil")` names an item named `nil`, by #404 against discussion #394 |
+| [The surface syntax](#the-surface-syntax) | #22 `layout`; the data-name sort in an item reference, and the delegated refusals governing a layout's own forms while an entry body follows the entry rules, by #395 against discussion #394; that sort declared on an item reference's path and read there, so `(word "nil")` names an item named `nil`, by #404 against discussion #394; `copy-member` among the top-level forms, decided by #407 `cli` and tabled with its declaration by #423 `cli` |
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293; that a form whose only content is its presence is refused among a layout's own forms and not in an entry body, by #395 |
 | [Physical framing](#physical-framing) | #26 `layout` |
-| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394; a record's source — a copybook, a definitions file or a block — what a record may reach, block names and their faults, the one shape of a missing description or item across the three sources, composition carried to a file or a block, and the three sources resolving to byte-identical descriptors, settled by #399 against discussion #394; the `definitions-block` top-level form declared by #400 against discussion #394; the `definitions` form declared and read, its block faults reported at their spans, and a record held in a file or a block refused at its source until it resolves, by #402 against discussion #394, and resolved by #405 for a file and #409 for a block; the data-name sort declared on `copybook`'s and `definitions`' top-level name and read there, so a record binds an `01`-level named `nil`, by #404 against discussion #394; a record held in a definitions file resolved — the file read once relative to the layout, body-checked, judged and built into a fresh tree per record — to the descriptor its copybook gives, byte for byte over every corpus entry and example, by #405 against discussion #394 |
-| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations, the check of a definitions file as one block's body, the entry reader, and a run refusing a block at its tag until #409 resolves one, by #400 against discussion #394, the absent `at-most-one` argument by #396, the converter, the judge and the round trip over every copybook by #401 against discussion #394, a record naming a file or a block by #399 and by #402 against discussion #394, how a definitions file and a layout are told apart, and what each is reported as when reached the wrong way, by #399 against discussion #394, and the data-name sort in a layout's item positions by #404 against discussion #394; that `init` writes nothing when a copybook's conversion is refused, by #403 against discussion #394 |
+| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394; a record's source — a copybook, a definitions file or a block — what a record may reach, block names and their faults, the one shape of a missing description or item across the three sources, composition carried to a file or a block, and the three sources resolving to byte-identical descriptors, settled by #399 against discussion #394; the `definitions-block` top-level form declared by #400 against discussion #394; the `definitions` form declared and read, its block faults reported at their spans, and a record held in a file or a block refused at its source until it resolves, by #402 against discussion #394, and resolved by #405 for a file and #409 for a block; the data-name sort declared on `copybook`'s and `definitions`' top-level name and read there, so a record binds an `01`-level named `nil`, by #404 against discussion #394; a record held in a definitions file resolved — the file read once relative to the layout, body-checked, judged and built into a fresh tree per record — to the descriptor its copybook gives, byte for byte over every corpus entry and example, by #405 against discussion #394; the `copy-member` form — a member found where the layout says and nowhere else, its matching, its two faults, its being the layout's rather than each source's — what a copybook reaches through it, and a composed copybook held as its expansion, settled by #407 `cli`, implemented by #423 `cli` |
+| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations, the check of a definitions file as one block's body, the entry reader, and a run refusing a block at its tag until #409 resolves one, by #400 against discussion #394, the absent `at-most-one` argument by #396, the converter, the judge and the round trip over every copybook by #401 against discussion #394, a record naming a file or a block by #399 and by #402 against discussion #394, how a definitions file and a layout are told apart, and what each is reported as when reached the wrong way, by #399 against discussion #394, and the data-name sort in a layout's item positions by #404 against discussion #394; that `init` writes nothing when a copybook's conversion is refused, by #403 against discussion #394; a copybook that writes `COPY` among those cpybkc can read, converting as its expanded entries, the `COPY` statement left out of a transcription, and the withdrawal of the out-of-scope entry refusing `COPY`, by #407 `cli`, implemented by #423 `cli` |
 | [Discrimination](#discrimination) | #28 `layout`; an arm's and a `take-alternative`'s alternative written as a data-name, by #395 against discussion #394, and declared and read as one in both `arm` forms and in `take-alternative` by #404 against discussion #394; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
-| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared in `schema/layout.sexpr` and the definitions-file check added by #400 against discussion #394; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394; the `record-source` sort and `definitions-origin`, stated by #399 against discussion #394 and declared by #402 against discussion #394; the `data-name` sort given to every layout position that names a COBOL item, with the version left at 1, by #404 against discussion #394 |
-| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397; the schema check's and the entry reader's halves of an entry body's faults, with one text in a file and in a block, by #400 against discussion #394; a record's second span pointing into its description whichever source holds it, a file named as the run opened it and a block as the layout, by #399 against discussion #394; a block defined twice, a block no record names and a block nothing defines reported at their spans, every reference fault listing what the layout declares for its sort, a run of entries among a layout's forms reported once, a top-level form met in another position told it is one, and a definitions file named as the layout reported alone, by #402 against discussion #394; a needless `(word …)` in a layout position naming an item reported in the entry reader's words, at the `word` form, by #404 against discussion #394; a missing definitions file, a top-level name it does not declare, a file holding no entry, a non-entry form in one, and every fault inside one — the grammar's, the body check's, the entry reader's, the judge's and `cobol-go`'s build and layout faults at their line in the file — reported once per file with a span at each record naming it, by #405 against discussion #394 |
+| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared in `schema/layout.sexpr` and the definitions-file check added by #400 against discussion #394; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394; the `record-source` sort and `definitions-origin`, stated by #399 against discussion #394 and declared by #402 against discussion #394; the `data-name` sort given to every layout position that names a COBOL item, with the version left at 1, by #404 against discussion #394; `copy-member` and `of` added at version 1, by #407 `cli`, declared by #423 `cli` |
+| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397; the schema check's and the entry reader's halves of an entry body's faults, with one text in a file and in a block, by #400 against discussion #394; a record's second span pointing into its description whichever source holds it, a file named as the run opened it and a block as the layout, by #399 against discussion #394; a block defined twice, a block no record names and a block nothing defines reported at their spans, every reference fault listing what the layout declares for its sort, a run of entries among a layout's forms reported once, a top-level form met in another position told it is one, and a definitions file named as the layout reported alone, by #402 against discussion #394; a needless `(word …)` in a layout position naming an item reported in the entry reader's words, at the `word` form, by #404 against discussion #394; a missing definitions file, a top-level name it does not declare, a file holding no entry, a non-entry form in one, and every fault inside one — the grammar's, the body check's, the entry reader's, the judge's and `cobol-go`'s build and layout faults at their line in the file — reported once per file with a span at each record naming it, by #405 against discussion #394; a span into a member, with a continuation line per `COPY`, by #407 `cli`, implemented by #423 `cli` once `cobol-go` reports member provenance |
