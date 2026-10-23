@@ -153,9 +153,11 @@ dagger check image-contract                        # the check `ci` runs
 dagger call image-contract --platform=linux/amd64  # one platform of it
 ```
 
-The one-platform form is a `dagger call`, because `dagger check` passes a check
-no arguments — so read its `CHECKS` summary rather than its exit status, which is
-0 whether the contract held or not (see [Running one stage](#running-one-stage)).
+The one-platform form has to be a `dagger call`, because `dagger check` cannot
+pass a check any arguments. A `dagger call` on a check exits 0 whether the
+contract held or not, so for that one form read the `CHECKS` summary it prints
+rather than its exit status (see [Running one stage](#running-one-stage)).
+`dagger check image-contract` exits non-zero on a failure as usual.
 
 The published image is a **public contract**. A Dockerfile in somebody else's
 repository says `FROM ghcr.io/zaba505/cpybkc:v0` and names a path inside it, so
