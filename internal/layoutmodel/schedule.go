@@ -177,7 +177,14 @@ func (r *discriminationReader) scheduledArm(
 		return ScheduledArm{}, false
 	}
 
-	name, ok := form.Elements[0].(layout.Symbol)
+	// The alternative is a COBOL name, and so a data-name (#404).
+	name, _, ok, err := dataName(form.Elements[0])
+	if err != nil {
+		r.Fail(err)
+
+		return ScheduledArm{}, false
+	}
+
 	if !ok {
 		r.Fail(&ScheduledArmFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
 
@@ -185,12 +192,12 @@ func (r *discriminationReader) scheduledArm(
 	}
 
 	if len(form.Elements) == 1 {
-		r.Fail(&EmptyScheduledArmError{Pos: form.Pos, Variant: variant, Alternative: name.Value})
+		r.Fail(&EmptyScheduledArmError{Pos: form.Pos, Variant: variant, Alternative: name})
 
 		return ScheduledArm{}, false
 	}
 
-	arm := ScheduledArm{Pos: form.Pos, Alternative: name.Value}
+	arm := ScheduledArm{Pos: form.Pos, Alternative: name}
 
 	// Every occurrence is read whatever the ones before it said, for the reason
 	// every reader here collects: a schedule written out of order is written out
@@ -198,7 +205,7 @@ func (r *discriminationReader) scheduledArm(
 	sound := true
 
 	for _, element := range form.Elements[1:] {
-		occurrence, ok := r.occurrence(element, variant, name.Value)
+		occurrence, ok := r.occurrence(element, variant, name)
 		if !ok {
 			sound = false
 
@@ -211,7 +218,7 @@ func (r *discriminationReader) scheduledArm(
 			continue
 		}
 
-		scheduled[occurrence.Value] = scheduledAt{pos: occurrence.Pos, arm: name.Value}
+		scheduled[occurrence.Value] = scheduledAt{pos: occurrence.Pos, arm: name}
 		arm.Occurrences = append(arm.Occurrences, occurrence)
 	}
 

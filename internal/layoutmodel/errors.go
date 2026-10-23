@@ -1882,7 +1882,7 @@ func (e *RecordFormError) Error() string {
 // CopybookFormError is a `copybook` child that is not `(copybook "<path>"
 // <top-level-name>)`.
 //
-// The path is text and the item is a symbol, and the message names both
+// The path is text and the item is a data-name, and the message names both
 // spellings: a path written as a symbol is the mistake an adopter makes coming
 // from a format where a bare word is a filename, and it is one this message
 // should answer without them having to find the schema.

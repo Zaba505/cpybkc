@@ -184,7 +184,7 @@ func TestARecordNamesItsSourceInOneOfThreeSpellings(t *testing.T) {
 		{
 			name:    "a top-level name that is text",
 			layout:  baseLayout + "(record POSTING (definitions \"posting.cpy.sexpr\" \"POSTING-RECORD\"))\n",
-			refusal: `top-level-name of form "definitions" is a symbol`,
+			refusal: `top-level-name of form "definitions" is (word ...) or a symbol`,
 		},
 		{
 			name:    "an origin that is a number",

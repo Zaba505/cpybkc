@@ -419,7 +419,7 @@ func (r *reader) dataName(node layout.Node) (DataName, bool) {
 
 		name := DataName{Pos: node.Pos, Name: spelling.Value, Word: true}
 
-		if readsAsSymbol(spelling.Value) {
+		if ReadsAsSymbol(spelling.Value) {
 			r.Fail(&NeedlessWordError{Pos: node.Pos, Spelling: spelling.Value})
 
 			return name, false
@@ -433,9 +433,13 @@ func (r *reader) dataName(node layout.Node) (DataName, bool) {
 	return DataName{}, false
 }
 
-// readsAsSymbol reports whether sexpr-go reads spelling, alone, as exactly that
+// ReadsAsSymbol reports whether sexpr-go reads spelling, alone, as exactly that
 // symbol — which is when a `(word …)` around it is needless.
-func readsAsSymbol(spelling string) bool {
+//
+// It is exported because a layout's own positions that name a COBOL item take
+// the same data-name sort an entry does, and one spelling rule read two ways
+// would let a name be written bare in one place and only as a word in another.
+func ReadsAsSymbol(spelling string) bool {
 	file, err := sexpr.Parse(strings.NewReader(spelling))
 	if err != nil || len(file.Nodes) != 1 {
 		return false

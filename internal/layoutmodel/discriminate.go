@@ -410,8 +410,8 @@ func recordNames(file *layout.File) []recordDefinition {
 		// it is: a copybook, a definitions file or a block.
 		if len(form.Elements) > 1 {
 			if child, ok := form.Elements[1].(layout.Form); ok && slices.Contains(sourceTags, child.Tag) && len(child.Elements) == 2 {
-				if item, ok := child.Elements[1].(layout.Symbol); ok {
-					record.item, record.itemPos = item.Value, item.Pos
+				if item, itemPos, ok, _ := dataName(child.Elements[1]); ok {
+					record.item, record.itemPos = item, itemPos
 				}
 			}
 		}
@@ -666,14 +666,21 @@ func (r *discriminationReader) taken(into *Discrimination, form layout.Form) {
 
 	r.variantItem(form, item)
 
-	name, ok := form.Elements[1].(layout.Symbol)
+	// The alternative is a COBOL name, and so a data-name (#404).
+	name, _, ok, err := dataName(form.Elements[1])
+	if err != nil {
+		r.Fail(err)
+
+		return
+	}
+
 	if !ok {
 		r.Fail(&TakeAlternativeFormError{Pos: form.Elements[1].Position(), Found: describe(form.Elements[1])})
 
 		return
 	}
 
-	into.Taken = append(into.Taken, TakenAlternative{Pos: form.Pos, Redefine: item, Alternative: name.Value})
+	into.Taken = append(into.Taken, TakenAlternative{Pos: form.Pos, Redefine: item, Alternative: name})
 }
 
 // arm reads one `(arm <name> <predicate>)`.
@@ -697,7 +704,14 @@ func (r *discriminationReader) arm(node layout.Node, variant ItemRef) (Arm, bool
 		return Arm{}, false
 	}
 
-	name, ok := form.Elements[0].(layout.Symbol)
+	// The alternative is a COBOL name, and so a data-name (#404).
+	name, _, ok, err := dataName(form.Elements[0])
+	if err != nil {
+		r.Fail(err)
+
+		return Arm{}, false
+	}
+
 	if !ok {
 		r.Fail(&ArmFormError{Pos: form.Elements[0].Position(), Found: describe(form.Elements[0])})
 
@@ -720,10 +734,10 @@ func (r *discriminationReader) arm(node layout.Node, variant ItemRef) (Arm, bool
 		return Arm{}, false
 	}
 
-	if found, ok := armTargetFault(predicate.Item, variant, name.Value); ok {
+	if found, ok := armTargetFault(predicate.Item, variant, name); ok {
 		r.Fail(&ArmTargetError{
 			Pos:         predicate.Item.Pos,
-			Alternative: name.Value,
+			Alternative: name,
 			Item:        predicate.Item,
 			Variant:     variant,
 			Found:       found,
@@ -732,7 +746,7 @@ func (r *discriminationReader) arm(node layout.Node, variant ItemRef) (Arm, bool
 		return Arm{}, false
 	}
 
-	return Arm{Pos: form.Pos, Alternative: name.Value, Predicate: predicate}, true
+	return Arm{Pos: form.Pos, Alternative: name, Predicate: predicate}, true
 }
 
 // overlap reports two arms of one variant that name one target and one literal.
