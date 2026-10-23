@@ -921,11 +921,18 @@ resolved against the working directory, as [every path typed on the command
 line is](#a-path-is-relative-to-the-file-that-states-it), and written as typed
 into every diagnostic about it.
 
+A literal's delimiters are there for the split and nothing else. The member
+is the literal's **content**, exactly as a `copy-member` form writes it, so
+`'STDHDR'` and `STDHDR` are one member — `cobol-go` hands a resolver the name
+with its delimiters removed and does not say which way it was written — and
+two `--copy-member` values giving them are two values naming one member.
+
 A member is matched to a `COPY` exactly as a `copy-member` form is
 ([A `COPY` member is found where the layout
 says](../layout/SPEC.md#a-copy-member-is-found-where-the-layout-says)) —
-without regard to case, the library part included, and with no fallback from a
-qualified `COPY` to an unqualified member — and the map is handed to the [one
+by content, without regard to case, the library part included, and with no
+fallback from a qualified `COPY` to an unqualified member — and the map is
+handed to the [one
 resolver](#where-a-copy-member-is-found) a run uses. So a `COPY` is expanded by
 `init` exactly as it is by a run whose layout names the same files.
 

@@ -1138,9 +1138,10 @@ which the layout then binds like any other item, saying where each member the
 ```
 
 Three lines of COBOL, once per record type, in the language the composition is
-already written in, and one `copy-member` form per member, once per layout. Where a shop's composition lives in a program's `FD` rather than in
-a copybook — which is where it usually lives, an `FD` being this text under
-another heading — those lines are a copy of ones that exist rather than a new
+already written in, and one `copy-member` form per member, once per layout.
+Where a shop's composition lives in a program's `FD` rather than in a copybook
+— which is where it usually lives, an `FD` being this text under another
+heading — those lines are a copy of ones that exist rather than a new
 statement about the file.
 
 A record composed with `COPY` and held in a definitions file or a block is held
