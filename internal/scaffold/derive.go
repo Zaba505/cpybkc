@@ -458,10 +458,11 @@ func unwrittenCount(n int) string {
 // property is that it differs from another invented one, so every record type
 // deriving a shared name is noted and none is written.
 func (s *Scaffold) take(books []Copybook, levels []level) {
-	// Who derived each name, in the order they were met. Read and never ranged
-	// over, which is what keeps the derivation a function of its inputs. A
-	// name the grammar would not read back is not entered: it is noted for
-	// that reason and not written either way.
+	// Who derived each name, in the order they were met. It is ranged over only
+	// to build a map that is itself only read, which is what keeps the
+	// derivation a function of its inputs. A name the grammar would not read
+	// back is not entered: it is noted for that reason and not written either
+	// way.
 	derivers := make(map[string][]string)
 
 	for _, l := range levels {
@@ -471,6 +472,17 @@ func (s *Scaffold) take(books []Copybook, levels []level) {
 			}
 
 			derivers[candidate.name] = append(derivers[candidate.name], l.item.Name+" in "+l.book.Path)
+		}
+	}
+
+	// The list each colliding note quotes, joined once per name rather than
+	// once per note: every record type deriving a name is noted, and each of
+	// those notes names all of them.
+	shared := make(map[string]string)
+
+	for name, all := range derivers {
+		if len(all) > 1 {
+			shared[name] = strings.Join(all, ", ")
 		}
 	}
 
@@ -497,11 +509,11 @@ func (s *Scaffold) take(books []Copybook, levels []level) {
 				continue
 			}
 
-			if all := derivers[candidate.name]; len(all) > 1 {
+			if all, collides := shared[candidate.name]; collides {
 				s.notes = append(s.notes, fmt.Sprintf(
 					"%s: %s derives the record name %s, which %d record types derive (%s), "+
 						"so none of them is written",
-					l.book.Path, l.item.Name, candidate.name, len(all), strings.Join(all, ", "),
+					l.book.Path, l.item.Name, candidate.name, len(derivers[candidate.name]), all,
 				))
 
 				continue
