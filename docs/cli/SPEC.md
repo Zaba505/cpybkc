@@ -175,7 +175,7 @@ always was.
 
 ```
 cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-cpybkc init --copybook <path> … --out <dest>
+cpybkc init --copybook <path> … --out <path>
 cpybkc --version
 cpybkc --help
 ```
@@ -521,19 +521,31 @@ a real generator process rather than claimed by either document (#157).
 ## `init` scaffolds a layout from copybooks
 
 ```
-cpybkc init --copybook <path> … --out <dest>
+cpybkc init --copybook <path> … --out <path>
 ```
 
-`init` reads the copybooks it is given, writes a layout scaffold holding
-everything those copybooks decide, and exits. It resolves no layout, starts no
-generator and reads no manifest (#183). Paths it is handed are still resolved in
-the ordinary way; what it does not do is the resolution the rest of this
-document means by the word — copybooks against a layout, into a descriptor.
+`init` reads the copybooks it is given, writes one [definitions
+file](../layout/SPEC.md#definitions) per copybook and a layout scaffold whose
+records name them, and exits. It resolves no layout, starts no generator and
+reads no manifest (#183). Paths it is handed are still resolved in the ordinary
+way; what it does not do is the resolution the rest of this document means by
+the word — record descriptions against a layout, into a descriptor.
 
-What it is for is the split in the next subsection. A layout is two kinds of
-statement in one file, and only one of them is knowledge the adopter has;
-today all of it is typed by hand, and the half that is not theirs is the half
-they cannot check by reading.
+An adopter runs it once over their copybooks and commits what it writes in
+place of the copybooks. When the vendor ships a new copybook, they run it again
+into a scratch directory and diff ([When a copybook changes, and moving a
+record between sources](#when-a-copybook-changes-and-moving-a-record-between-sources)).
+That is what makes a copybook that cannot be committed — a vendor's, under a
+licence that keeps it out of the repository — no obstacle to regenerating from
+checked-in files (discussion #394).
+
+What it is for is the split in the next subsection. A layout and its record
+descriptions are two kinds of statement, and only one of them is knowledge the
+adopter has. The descriptions are the copybook's, and `init` writes them whole,
+into definitions files beside the layout; the layout states what a copybook
+cannot, and `init` writes the questions it raises and none of the answers.
+Without `init` all of it is typed by hand, and the half that is not the
+adopter's is the half they cannot check by reading.
 
 ### What a copybook decides, and what only the adopter can
 
@@ -541,7 +553,8 @@ they cannot check by reading.
 
 | Form | Where it comes from |
 | --- | --- |
-| `record` | one per `01`-level, in each copybook named |
+| a definitions file | one per copybook named, holding every entry and clause of it ([What the scaffold states, form by form](#what-the-scaffold-states-form-by-form)) |
+| `record` | one per record type each named `01`-level resolves to, in each copybook named, less what is [noted](#how-a-combinations-record-name-is-chosen) |
 | `alternative` | one per `REDEFINES` outside a repeating group, on each record ([Which alternative a record is](../layout/SPEC.md#which-alternative-a-record-is)) |
 
 **Derived as far as a copybook goes, and left commented** — the form and its
@@ -569,7 +582,9 @@ each of those six record types needs and the one `sequence`, which are the file'
 actual description and are recoverable from nothing. The six commented `rename`s
 sit between the two: which records need one is recoverable, and the substitutes
 are a reading of what the file *means*, so `init` writes the question and not the
-answer. What `init` claims is that first column and nothing beyond it.
+answer. Beside the layout it writes `posting.cpy.sexpr`, the copybook's
+seventeen entries transcribed, and all six records name it. What `init` claims
+is that first column and nothing beyond it.
 
 The measure is stated against the copybook rather than against
 `example/ledger/ledger.sexpr`, because the layout beside it names **two** of
@@ -586,7 +601,62 @@ layout end.
 | Flag | Value | Default | May repeat |
 | --- | --- | --- | --- |
 | `--copybook` | a path to a copybook | none; at least one **MUST** be given | yes |
-| `--out` | a path, or `-` for standard output | none; **MUST** be given | no |
+| `--out` | a path, naming the layout | none; **MUST** be given | no |
+
+`--copybook` is unchanged: repeatable, and given at least once. `--out` names
+the layout and nothing else; it is never `-`
+([Where the scaffold is written](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten)).
+
+**`init` MUST write one definitions file per `--copybook`, beside the layout.**
+Beside means in the directory `--out` names the layout in. A definitions file's
+name **MUST** be the final element of the `--copybook` value as it was typed,
+with `.sexpr` appended: `--copybook cpy/posting.cpy` gives `posting.cpy.sexpr`,
+and `--copybook vendor/PXTRACT` gives `PXTRACT.sexpr`. Nothing about the name
+is chosen by cpybkc beyond the suffix — the extension the copybook carried, or
+the absence of one, is kept — so the adopter can always tell which copybook a
+definitions file came from by reading its name, and the name is the same on
+every run over the same command line.
+
+Each name is written into the layout's records bare, as `(definitions
+"posting.cpy.sexpr" …)`. A path in a layout is [relative to the
+layout](#a-path-is-relative-to-the-file-that-states-it), and the file is beside
+it, so the path the scaffold states is right wherever the two are moved
+together.
+
+**No flag is added.** Where the definitions files go and what they are called
+both follow from flags `init` already takes, and a flag that named them
+separately would be a second place to say what the layout's records already
+say, for the two to disagree about. `init` writes no `definitions-block`: the
+owner decided on discussion #394 that `init` writes definitions files, and
+#399's answer to it says so. Moving a file's entries into the layout is an
+edit the adopter makes, and [When a copybook changes, and moving a record
+between sources](#when-a-copybook-changes-and-moving-a-record-between-sources)
+writes it down.
+
+**Two derivations are a usage error.** Both are decidable from the vector
+before anything is opened, and both **MUST** be reported naming both of the
+values involved, with status 2:
+
+- two `--copybook` values whose derived names are equal under Unicode simple
+  case folding — `a/posting.cpy` and `b/posting.cpy`, or `cpy/POSTING` and
+  `vendor/posting`;
+- a derived name equal, under the same folding, to the layout's own name, the
+  final element of `--out` — `--copybook vendor/layout --out layout.sexpr`
+  derives `layout.sexpr` for the definitions file.
+
+Case folding is the comparison because the files are written into one
+directory, and on a case-insensitive filesystem two names differing only in
+case are one file: the second link would find the first's name taken, so one
+command line would fail on one machine and succeed on another. Refusing the
+pair on every filesystem keeps the outcome a function of the command line.
+
+The workaround for two copybooks that share a final path element is two `init`
+runs, each into a scratch directory of its own, then renaming one of the two
+definitions files and changing the path in every `definitions` source that
+names it. A rename by cpybkc — a numeric suffix, a directory prefix folded into
+the name — would be a name derived from the order of the flags or from a
+directory the layout never mentions, and it is the adopter, not cpybkc, who
+knows which of the two copybooks should keep the name.
 
 `init` **MUST NOT** accept a flag this table does not list. `--manifest`,
 `--emit-ir` and `--emit-ir-format` are the default action's and **MUST** be
@@ -618,14 +688,16 @@ the only action in this vector taking an input that is not named by a flag, so
 that the rule a reader has just learned holds everywhere but here.
 
 A value is a path, resolved against the working directory as [every path typed
-on the command line is](#a-path-is-relative-to-the-file-that-states-it), and it
-is written into the scaffold's `copybook` child **as it was typed** — a layout's
-own paths are relative to the layout, so a path that reached cpybkc from a
-different directory than the scaffold's is the adopter's to correct, and a path
-cpybkc rewrote on their behalf would be one they cannot find in what they typed.
+on the command line is](#a-path-is-relative-to-the-file-that-states-it). It is
+written **as it was typed** into the header comment of the definitions file
+converted from it, and into every diagnostic and every note about it — a path
+cpybkc rewrote on the adopter's behalf would be one they cannot find in what
+they typed. No record names the copybook itself: each names the definitions
+file beside the layout, so no path in the scaffold depends on the directory the
+command was typed in.
 
-A value **MUST NOT** be `-`. The scaffold has to state a path for each record's
-copybook, and a copybook arriving on a stream has none to state; the refusal is
+A value **MUST NOT** be `-`. A definitions file is named after its copybook, and
+a copybook arriving on a stream has no name to name one after; the refusal is
 decidable from the vector alone, so it is a usage error and nothing is opened.
 
 A value naming a **directory MUST** fail the run ([Exit codes](#exit-codes),
@@ -646,50 +718,78 @@ into the flags, in a line a reviewer can read.
 Whether two `--copybook` values name one file on disk is **not** decided.
 Byte-equal values are a duplicate and a usage error ([A flag appears at most
 once](#a-flag-appears-at-most-once)); two different spellings that resolve to
-one file are two copybooks as far as `init` is concerned, and the scaffold holds
-each `01`-level twice under two record names. That is the same refusal to
+one file are two copybooks as far as `init` is concerned. Where the two share a
+final path element — `cpy/posting.cpy` and `./cpy/posting.cpy` — their derived
+names are equal and the vector is refused [before anything is
+opened](#the-vector-init-takes). Where they do not — a symlink by another name
+— each gets its own definitions file, and every `01`-level the two declare
+derives one record name twice, which is a [derived record-name
+collision](#how-a-combinations-record-name-is-chosen): each colliding record is
+noted, none of them is written, and the run exits 0 with both definitions files
+written. That is the same refusal to
 compare spellings that [Finding the inputs](#finding-the-inputs) argues at
 length, and for the same reason: behind a symlink, a bind mount or a
 case-insensitive filesystem there is no comparison that is right every time.
 
 ### Where the scaffold is written, and why nothing is ever overwritten
 
-`--out <dest>` names where the scaffold goes. `<dest>` is a path, or `-` for
-standard output. It **MUST** be given, and `init` without it **MUST** be a usage
-error.
+`--out <path>` names the layout, and the definitions files go beside it. It
+**MUST** be given, and `init` without it **MUST** be a usage error.
 
 There is no default because no default is defensible. A name of cpybkc's own —
 `layout.sexpr` in the working directory — is a name the adopter then has to
 match in the manifest's `layout` field, so the tool would have chosen an
-identifier for a file it does not own. Standard output as the default would make
-the ordinary gesture one that prints thirty lines into a terminal and writes
-nothing, and it would put the scaffold on the data channel without anybody
-naming it there, which [Standard output](#standard-output) refuses in as many
-words. Where the file goes is the one thing in this command the adopter knows
-and cpybkc does not.
+identifier for a file it does not own. Where the files go is the one thing in
+this command the adopter knows and cpybkc does not.
 
-**Nothing at `<dest>` is ever replaced.** Where `<dest>` is a path and anything
-exists at it — a regular file, a directory, a symbolic link, including one that
-dangles — cpybkc **MUST** fail the run, write nothing, and report a diagnostic
-naming the path as it was typed and the absolute path it looked at. It **MUST
-NOT** truncate, append to, or write through what it found, and the file
-**MUST** be written in full or not at all, as [`--emit-ir`](#emitting-the-ir)'s
-destination is.
+**`--out -` MUST be a usage error**, with status 2, and no release keeps the
+old behaviour of writing the scaffold to standard output alongside. The reason
+is the owner's decision on discussion #394: `init`'s output is a set of files,
+one per copybook beside the layout, and a stream is one unnamed sequence of
+bytes. Putting the layout on standard output would leave the definitions files
+its records name without a directory to be beside, and putting the files there
+too would need a framing of several files on one stream that no reader of a
+layout or of a definitions file understands. Below 1.0.0 [any release may
+withdraw it](../container/SPEC.md#below-100-any-release-may-break-a-covered-thing)
+(#398). A run that wants the output somewhere it can read without committing to
+it names a scratch directory, which is what [When a copybook
+changes](#when-a-copybook-changes-and-moving-a-record-between-sources) does.
 
-Where `<dest>` is `-` there is nothing to replace and nothing to write
-atomically, so the requirement takes the only form a stream admits: cpybkc
-**MUST NOT** write the first byte of the scaffold to standard output until the
-whole of it has been derived. A stream cannot be un-written, and a run that
-emitted four `record` forms and then failed on the fifth copybook would leave a
-fragment on a pipe that reads as a short layout rather than as a failure. Buying
-that with a buffer is cheap — the scaffold is the size of the copybooks' `01`
-levels — and it is what makes [a cancelled run leave no partial
-file](#cancellation) true for both spellings of the destination rather than one.
+**Nothing at any destination is ever replaced, and the set is written whole or
+not at all.** A run's destinations are the layout and each definitions file it
+derived a name for, and:
+
+- **Every destination MUST be checked before anything is written.** Where
+  anything exists at one — a regular file, a directory, a symbolic link,
+  including one that dangles — cpybkc **MUST** fail the run, write nothing, and
+  report a diagnostic per occupied destination, naming the path as it was
+  derived from what was typed and the absolute path it looked at. It **MUST
+  NOT** truncate, append to, or write through what it found.
+- **Each file MUST be written to a temporary file beside its destination and
+  then linked to it**, the definitions files first and the layout last. A link,
+  unlike a rename, refuses a name that is taken, so a file that appeared at a
+  destination after the check is still not replaced: the link fails, and so
+  does the run. Each temporary file is removed once it is linked or the run
+  ends.
+- **Any failure or cancellation MUST remove every file this run linked.** A run
+  that fails or is [cancelled](#cancellation) leaves the directory as it found
+  it — no definitions file without its layout, and no layout naming a
+  definitions file that is not there.
+
+The layout comes last because it is the file that names the others. A
+directory holding definitions files and no layout is one an adopter reads as a
+run that did not finish, and the removal above makes that a moment rather than
+a state; a layout without its definitions files would be one a reader reports
+as a missing file, at a span in the layout, as though the layout were wrong.
 
 Overwriting a layout an adopter has edited is the one unrecoverable thing this
 command could do. The derived half is recomputable — the copybooks are still
 there and the scaffold is one command away — but the `discriminate` forms and
-the `sequence` are the part no copybook holds, and nothing recovers them. Every
+the `sequence` are the part no copybook holds, and nothing recovers them. A
+definitions file is held to the same rule even though it is recomputable,
+because it is the one an adopter whose copybook cannot be committed has no
+copybook to recompute from, and because a run that replaced some of its
+destinations and refused others would leave a set no single run wrote. Every
 other rule in this project already implies the refusal: a manifest's unknown
 field is reported rather than ignored (#40), a duplicate flag is refused rather
 than resolved by precedence, and no path is searched for. It is stated here
@@ -713,11 +813,22 @@ the adopter's editor.
 
 ### The scaffold is deliberately incomplete
 
-The file `init` writes is **not a valid layout**, and cpybkc **MUST NOT** write
-one its own reader accepts as complete. It **MUST** parse as S-expressions, and
-it **MUST** fail the layout reader's validation until the adopter finishes it:
-`encoding` and `framing` are absent, every `record` is missing its
-`discriminate`, and there is no `sequence`.
+The layout `init` writes — the **scaffold**, as the rest of this document calls
+it — is **not a valid layout**, and cpybkc **MUST NOT** write one its own reader
+accepts as complete. It **MUST** parse as S-expressions, and it **MUST** fail the
+layout reader's validation until the adopter finishes it: `encoding` and
+`framing` are absent, every `record` is missing its `discriminate`, and there is
+no `sequence`.
+
+**The definitions files are complete, and are no part of that
+incompleteness.** Each is the whole of its copybook's entries, a file the
+layout reader [reads and checks](../layout/SPEC.md#definitions) as it reads any
+definitions file, and nothing in one is left for the adopter to finish. What
+is missing is missing from the layout, because what is missing is exactly what
+no copybook holds; a definitions file holds only what a copybook does, so
+there is nothing it could leave out that the adopter would be the one to
+supply. An adopter who finishes the layout and changes no definitions file has
+a project that resolves.
 
 This is the feature rather than a wart, and the reason is a rule this document
 already carries. [More than one fault found in one pass **MUST** be reported
@@ -781,10 +892,16 @@ the shape rather than text an implementation has to reproduce.
    ([The encoding profile](../layout/SPEC.md#the-encoding-profile)).
 3. `framing`, commented: `recfm` with a placeholder, and a note that which other
    children are admitted follows from the value chosen.
-4. `record` forms, **uncommented and complete**: one per `01`-level in each
-   copybook, in the order the copybooks were named and, within one, in
-   declaration order; each with its `copybook` child and one `alternative` child
-   per `REDEFINES` outside a repeating group.
+4. `record` forms, **uncommented and complete**: one per record type each named
+   `01`-level resolves to, in the order the copybooks were named and, within
+   one, in declaration order; each carrying `(definitions "<name>.sexpr"
+   <01-name>)` as its source — `<name>.sexpr` the definitions file converted
+   from that `01`-level's copybook, and `<01-name>` the `01`-level — and one
+   `alternative` child per `REDEFINES` outside a repeating group. A record
+   [noted](#how-a-combinations-record-name-is-chosen) rather than written is
+   absent here, and absent from items 6–9 too: no `rename`, `discriminate` or
+   `sequence` names a record the layout does not carry, so uncommenting one
+   never produces a reference to nothing.
 5. `copybook-reading`, commented, when and only when some named copybook carries
    an `OCCURS DEPENDING ON` — with both readings named and neither chosen. Which
    compiler wrote the data is not in the copybook.
@@ -812,6 +929,26 @@ everything about that line except the one thing only the adopter knows — and t
 alternative is an adopter reading two specifications to find out what the form
 is called.
 
+**Each definitions file MUST hold every entry and every clause of its
+copybook**, in the [notation](../layout/SPEC.md#definitions) #395 settles and in
+[the canonical printed form](../layout/SPEC.md#the-printed-form-init-writes):
+one entry per line, in source order, every clause the copybook carries on its
+entry. That includes the entries of an `01`-level no record derives from — a
+`77`, an unnamed `01`, an `01` every combination of which was noted — because
+the file is the copybook's transcription and not the layout's selection from
+it. It **MUST** carry none of the copybook's comments, and **MUST** carry
+exactly one comment of its own, first: a header naming the copybook as it was
+typed on the command line. That is a `;` comment, which [nothing
+reads](../layout/SPEC.md#what-a-transcription-leaves-out); it is not the
+header *form* a definitions file never has, and moving the file's entries into
+a block leaves it behind with nothing lost.
+
+Two runs of one build over one set of copybooks **MUST** produce byte-identical
+files throughout — the layout and every definitions file. A definitions file is
+what an adopter diffs when the vendor ships a new copybook, and a file whose
+bytes moved with nothing in the copybook having moved would bury the one change
+the diff is run to find.
+
 ### How a combination's record name is chosen
 
 An `01`-level with two independent two-way `REDEFINES` outside a repeating group
@@ -825,10 +962,48 @@ them, mechanically:
   alternative, in the order the redefines appear in the copybook, joined by a
   single `-` — `POSTING-RECORD-PST-DEBIT-PST-TAIL`.
 - Where that produces one symbol for two combinations, or a symbol another
-  record already carries, cpybkc **MUST** fail the run naming both. Duplicate
-  data names are legal COBOL, so this is reachable; disambiguating it would mean
-  inventing a name whose only property is that it differs from another invented
-  one.
+  record already carries, cpybkc **MUST** note every colliding combination and
+  **MUST NOT** write any of them. Duplicate data names are legal COBOL, so this
+  is reachable; disambiguating it would mean inventing a name whose only
+  property is that it differs from another invented one, and writing one of the
+  colliding records and not the others would be cpybkc choosing which of them
+  the adopter meant.
+
+**What `init` cannot write a record for, it notes, and the run goes on.** Four
+things stop a record from being written, and each **MUST** be a `note:`
+diagnostic rather than a refusal:
+
+- **an unnamed `REDEFINES` alternative** — a `FILLER` that redefines. An
+  `alternative` child names its alternative by an [item
+  reference](../layout/SPEC.md#an-item-reference), and an item with no name
+  cannot be reached by one, so no record selecting it can be written;
+- **a derived record-name collision**, as above, where every colliding
+  combination is noted and none is written;
+- **a per-`01` `resolve.Describe` failure** — an `01`-level the copybook
+  parses and builds, but that cpybkc's own resolution cannot describe as a
+  record;
+- **a derived record name the S-expression grammar cannot read as a symbol**,
+  so that the `record` form carrying it would not parse as the name it was
+  derived as.
+
+Each note **MUST** name the copybook as it was typed, the `01`-level, and what
+was not written — the record names, or the combinations where there is no name
+to give — and the run exits `0`. A copybook no record derives from at all —
+one holding only `77`-levels, or no named `01`-level, or one every combination
+of which was noted — still gets its definitions file, and **MUST** get a note
+saying no record was derived from it.
+
+Reason: everything in that list is a statement about the layout, never about
+the copybook. The definitions file is complete whatever was noted, and it is
+the part of the output nobody can type reliably by hand; a record `init` could
+not name is one line the adopter writes against that file, with the note
+telling them which. Failing the run would withhold every definitions file to
+report a gap in one record, and an adopter whose copybook cannot be committed
+would have no way past it but to transcribe the copybook themselves. The full
+failure rule, notes and refusals together, is under [`init`'s streams and exit
+codes](#inits-streams-and-exit-codes); it is written so that the notes can be
+implemented before definitions files exist (#406), and the rest with them
+(#408).
 
 The names are long and nobody would choose them, and that is affordable for a
 reason the format states: a record name is the layout's own identifier, and
@@ -922,13 +1097,15 @@ the seventh that it ran over the first six.
 
 That project is not left with nothing, which is the part worth saying plainly.
 The derivation is the whole of what this command performs and it is available to
-them unchanged: `cpybkc init --copybook new.cpy --out -` writes that copybook's
-`record` forms — and the commented questions they raise — to standard output,
-which is [the spelling `--out` already carries](#the-vector-init-takes) and the
-one destination the rule above has nothing to refuse, from where the adopter's
-editor picks them up and puts them where they belong in the layout they already
-have. `--out` with a scratch path does the same into a file. What `init`
-declines is not the derivation; it is the *merge*.
+them unchanged: `cpybkc init --copybook vendor/new.cpy --out /tmp/new/layout.sexpr`
+writes that copybook's definitions file, `/tmp/new/new.cpy.sexpr`, and a
+scaffold holding its `record` forms and the commented questions they raise,
+into a scratch directory the rule above has nothing to refuse. From there the
+adopter moves the definitions file beside the layout they already have, and
+their editor picks up the `record` forms and puts them where they belong in
+it. The records name `"new.cpy.sexpr"` bare, relative to the layout, so once
+the file sits beside the layout the path they state is already right. What
+`init` declines is not the derivation; it is the *merge*.
 
 **What is emitted is the whole scaffold, and the adopter prunes it.** Not a
 fragment: the header comment, the commented `encoding` and the commented
@@ -945,9 +1122,14 @@ that has to be edited rather than pasted.
 So the prune is not uniform, and what the adopter does with each part is worth
 writing down. The header comment, the commented `encoding` and the commented
 `framing` are deleted, because their layout has already answered them — as is a
-commented `copybook-reading`, where it has. The `record` forms and the commented
-`rename`, `discriminate` and `discriminate-variant` questions raised over them
-move across as they stand. The commented `sequence` is the one part that is read
+commented `copybook-reading`, where it has. The definitions file moves across
+whole, as a file, into the directory beside the layout; if a file of that name
+is already there, the adopter meets it in their own `mv` rather than in a write
+cpybkc made, and renames the new one and the paths its records state as
+[the vector's workaround](#the-vector-init-takes) does. The `record` forms and
+the commented `rename`, `discriminate` and `discriminate-variant` questions
+raised over them move across as they stand. The commented `sequence` is the one
+part that is read
 rather than moved: the new record names come out of it and into the sequencing
 expression the layout already carries, at whatever position in that expression
 the adopter's file puts them. That last act is the only one this command could
@@ -997,6 +1179,53 @@ change](#how-a-covered-thing-would-change) — made when an adopter has asked fo
 it rather than before. What this section claims is that the paste is small
 enough that nobody will.
 
+### When a copybook changes, and moving a record between sources
+
+A definitions file is checked in so that a run never needs the copybook it came
+from, and that leaves one question `init` has to answer: what the adopter does
+when the vendor ships a new copybook. The answer is the same command into a
+scratch directory, and a diff:
+
+```
+cpybkc init --copybook vendor/posting.cpy --out /tmp/next/layout.sexpr
+diff -u posting.cpy.sexpr /tmp/next/posting.cpy.sexpr
+```
+
+The diff is the vendor's change, entry by entry, in the notation the adopter
+already reads. It is that and nothing else because the definitions file is
+[byte-identical](#what-the-scaffold-states-form-by-form) across runs of one
+build and carries none of the copybook's comments, so a comment the vendor
+reworded is not a line in it. The adopter then copies the new file over the
+old one — their act, in their shell, and not cpybkc's — and the layout reader
+reports, at its spans, every item reference the new entries no longer
+satisfy. `/tmp/next/layout.sexpr` is there to be read, not moved: its commented
+questions say what a record the new copybook added would need.
+
+**A record can move between its three possible sources**, and each move is
+checked the same way: run `cpybkc --emit-ir` before the edit and after it, and
+compare the two files byte for byte. [Three sources, one
+descriptor](../layout/SPEC.md#three-sources-one-descriptor) requires them to
+be equal, so any difference is a mistake in the move.
+
+- **Copybook to file.** Convert the copybook with `init` into a scratch
+  directory, move the definitions file from there to beside the layout, and
+  swap `(copybook "x.cpy" N)` for
+  `(definitions "x.cpy.sexpr" N)` in each record that names the copybook.
+- **File to block.** Add `(definitions-block NAME …)` to the layout, holding
+  the file's entries; in every record of that layout that names the file,
+  change `"x.cpy.sexpr"` to `NAME`; and delete the file once no other layout
+  names it.
+- **Block to file.** Write the block's body, dedented, to a file; remove the
+  block; and in each record that names it, change `NAME` to the file's path.
+
+Nothing else in the layout changes, and nothing has to. Alternatives,
+discriminators, renames, overrides and the sequencing expression are all rooted
+at **record names**, never at a copybook, a file or a block ([Record
+definitions](../layout/SPEC.md#record-definitions), [an item
+reference](../layout/SPEC.md#an-item-reference)), so the source is the one
+argument of the one form that says where a record's entries are held, and the
+only thing a move edits.
+
 ### No flag states what only an adopter knows
 
 cpybkc **MUST NOT** accept a flag that states an `encoding` axis, a `framing`
@@ -1039,26 +1268,70 @@ continuation](#standard-error-diagnostics), on standard error. It starts no
 generator, so no line it writes carries a generator's name — and the absence of
 one already means the line is cpybkc's.
 
-The scaffold is data. It reaches standard output when, and only when, `--out -`
-asked for it there; a run writing to a path writes nothing to standard output at
-all ([Standard output](#standard-output)).
+`init` writes **nothing** to standard output. Its output is a set of files, and
+`--out -` is [refused](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten);
+there is no spelling under which the scaffold or a definitions file reaches the
+data channel ([Standard output](#standard-output)).
+
+**The failure rule.** `init` writes the layout and every definitions file, or
+it writes none of them. What decides which is whether every copybook could be
+transcribed — never whether every record could be named.
+
+- **Notes, and the run exits `0`.** An unnamed `REDEFINES` alternative; a
+  derived record-name collision, where every colliding combination is noted
+  and none is written; a per-`01` `resolve.Describe` failure; and a derived
+  record name the S-expression grammar cannot read as a symbol. Each note names
+  the copybook as typed, the `01`-level, and what was not written ([How a
+  combination's record name is chosen](#how-a-combinations-record-name-is-chosen)).
+  A copybook no record derives from — only `77`-levels, no named `01`-level, or
+  every combination noted — still gets its definitions file, and a note. The
+  [combination count](#the-combination-count-is-reported-not-bounded) is a note
+  too.
+- **Refusals, and the run exits `1` having written nothing.** A copybook that
+  cannot be opened, parsed or built — a copybook that writes `COPY` included,
+  since no member it names can be found until #407 settles where — and a
+  copybook that declares no entry at all (#31). A copybook conversion refuses,
+  for a condition-name the pinned `cobol-go` misreads ([A condition-name
+  cobol-go misreads is refused, not
+  transcribed](../layout/SPEC.md#a-condition-name-cobol-go-misreads-is-refused-not-transcribed)),
+  is one that cannot be transcribed, and is refused the same way. Every such
+  copybook is reported, not only the first, and each diagnostic names it as
+  typed.
+- **The read-back.** Before writing, `init` **MUST** read each definitions file
+  back, from the bytes it is about to write, and require its entries to equal
+  the copybook's — the [judge's
+  comparison](../layout/SPEC.md#cobol-go-judges-an-entry-and-nothing-here-says-what-one-means),
+  positions and comments cleared. A mismatch fails the run, status `1`, with
+  nothing written, and the diagnostic names the copybook as typed and the item
+  whose entry differed. It is cpybkc's own defect when it fires, and it is
+  caught here rather than in the adopter's next run because a definitions file
+  is never re-read from its copybook: a transcription that was wrong when it
+  was written stays wrong in every run after.
+
+The rule is drawn so that it can be implemented in two halves: the notes over
+the `copybook` sources `init` writes today, before definitions files exist
+(#406), and the definitions files, their read-back and the refusals that
+withhold them with the rest (#408).
 
 The three statuses are unchanged, and `init`'s faults distribute across them:
 
-- `0` — the scaffold was written. It is `0` even though the scaffold is not a
-  valid layout, because [what was asked for was done](#exit-codes): the
-  incompleteness is the answer this command gives, not a failure to give one.
-- `1` — a `--copybook` value naming a **directory**; one that cannot be opened,
-  does not parse, or declares no `01`-level (#31); a destination that already
-  exists; a destination that cannot be written; two combinations whose derived
-  record names collide; and a run that is [cancelled](#cancellation), which
-  leaves no partial file and, under `--out -`, no partial output.
+- `0` — the scaffold and every definitions file were written, whatever was
+  noted. It is `0` even though the scaffold is not a valid layout, because
+  [what was asked for was done](#exit-codes): the incompleteness is the answer
+  this command gives, not a failure to give one.
+- `1` — a `--copybook` value naming a **directory**; a copybook refused as
+  above; a definitions file that does not read back as its copybook; a
+  destination that already exists; a destination that cannot be written; and
+  a run that is [cancelled](#cancellation). Each leaves no file this run wrote
+  behind it.
 - `2` — a first argument that is a non-flag and is not `init`; an operand under
   either action; `init` with no `--copybook` or no `--out`; `--copybook -`;
-  `--copybook` twice with equal values; and any flag `init` does not carry,
-  including `--manifest`, `--emit-ir` and `--emit-ir-format`. As everywhere
-  else, a `2` means cpybkc did nothing at all — no copybook was opened and no
-  file was created.
+  `--out -`; `--copybook` twice with equal values; two `--copybook` values whose
+  derived names are equal under case folding, or one whose derived name is the
+  layout's own ([The vector `init` takes](#the-vector-init-takes)); and any flag
+  `init` does not carry, including `--manifest`, `--emit-ir` and
+  `--emit-ir-format`. As everywhere else, a `2` means cpybkc did nothing at all
+  — no copybook was opened and no file was created.
 
 ### Why this is a subcommand and not a script over the published schema
 
@@ -1085,7 +1358,13 @@ Being in the tool is also what keeps it current. A form added to the layout
 format gains its scaffold line in the same release and the same review; a script
 outside learns about it when a reader rejects its output.
 
-What it is not is a converter. Every statement in the scaffold came from a
+Half of it is a converter, and the other half is not. The definitions files are
+a conversion, whole and checked: every entry and clause of a copybook, in the
+notation a reader of the layout format already reads, and read back before it is
+written. That half has to be in the tool for the reason above made sharper — a
+transcription by a second implementation that drifted from `cobol-go`'s parse
+would be checked-in text stating, as the copybook's own, a reading cpybkc does
+not make. The scaffold is not a conversion. Every statement in it came from a
 copybook, and the part an adopter is qualified to write is exactly the part left
 blank — which is the honest description of the split, and the reason the command
 can be trusted with the half it does write.
@@ -1096,9 +1375,12 @@ Standard output is the data channel. cpybkc **MUST** write to it only what was
 asked for by name:
 
 - the descriptor, when `--emit-ir -` asked for it there;
-- the layout scaffold, when `init --out -` asked for it there;
 - the version line, for `--version`;
 - usage, for `--help`.
+
+`init` puts nothing there: its output is a layout and the definitions files
+beside it, a set of files no single stream can carry, and [`--out -` is a usage
+error](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten).
 
 A run that generates writes **nothing** to standard output. No progress, no
 timing, no summary, no count of files written, and no line saying a run
@@ -1242,7 +1524,8 @@ Three statuses, and cpybkc **MUST NOT** exit with any other (#147):
 | `2` | The argument vector could not be understood. |
 
 `0` covers a completed generation, a written descriptor, a written layout
-scaffold, `--version` and `--help`.
+scaffold and its definitions files — with whatever `init` [noted](#inits-streams-and-exit-codes)
+about records it could not write — `--version` and `--help`.
 
 `1` covers every fault in the work itself: no manifest where one was named or
 defaulted, a manifest that does not parse or does not validate, a layout that
@@ -1250,14 +1533,17 @@ does not parse or does not resolve, a copybook that is missing or does not
 declare what a record names, a generator that does not resolve on `PATH`, a
 generator that exits non-zero or is killed by a signal, two generators
 colliding on one output path, a merge or a prune that fails, a descriptor that
-cannot be written, a scaffold that cannot be written or whose destination is
-occupied, and a run that is cancelled (#148, #149, #150, #183).
+cannot be written, a copybook `init` cannot transcribe, a definitions file that
+does not read back as its copybook, a scaffold or definitions file that cannot
+be written or whose destination is occupied, and a run that is cancelled (#148,
+#149, #150, #183, #403).
 
 `2` covers only the vector: an unrecognised flag, a flag repeated where its
 table forbids it, a missing value, an operand that is not a subcommand name or
 that is not the first argument, and a flag combination this document refuses —
 including a flag belonging to the other action, which
-[`init`](#the-vector-init-takes) refuses in both directions. A status of 2 means
+[`init`](#the-vector-init-takes) refuses in both directions, `init`'s `--out -`,
+and two names `init` would derive into one directory. A status of 2 means
 cpybkc did nothing at all — no file was opened, no file was created, no
 generator was started, and the project's tree was not touched.
 
@@ -1303,6 +1589,11 @@ project's output tree exactly as it found it, **MUST** remove the scratch
 directories and descriptor files it created ([The descriptor's location and
 lifetime](../plugin/SPEC.md#the-descriptors-location-and-lifetime)), and
 **MUST** exit `1` with an `error:` diagnostic saying the run was cancelled.
+
+Under `init` the tree it found is the directory `--out` names, and leaving it as
+found means removing every temporary file and every file this run linked —
+the definitions files as well as the scaffold ([Where the scaffold is
+written](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten)).
 
 A second signal **SHOULD** be left to its default disposition, so that a run
 holding a generator that will not exit can still be killed by repeating the
@@ -1403,8 +1694,9 @@ and a change to any of them is a breaking change:
 | --- | --- |
 | [The command set](#one-command-and-one-subcommand) | One command whose default action is generating, plus `init`; the first operand is a subcommand name from that closed set, and there is no second operand |
 | [The flags](#the-argument-vector) | The five above: each keeps its name, its value, its default and its meaning |
-| [`init`'s flags](#the-vector-init-takes) | `--copybook` and `--out`: each keeps its name, its value, its repeatability and its meaning, and neither action admits the other's input-naming flags |
-| [The scaffold](#the-scaffold-is-deliberately-incomplete) | It parses; it states nothing an adopter has to decide; it is not a layout a reader accepts as complete; and an occupied destination is never replaced |
+| [`init`'s flags](#the-vector-init-takes) | `--copybook` and `--out`: each keeps its name, its value, its repeatability and its meaning — `--copybook` names one copybook, never a stream, and `--out` names the layout, never a stream — and neither action admits the other's input-naming flags |
+| [The scaffold](#the-scaffold-is-deliberately-incomplete) | A layout and one definitions file per `--copybook`, beside the layout and named after the copybook's final path element with `.sexpr` appended, each record naming its definitions file; the layout parses, states nothing an adopter has to decide, and is not a layout a reader accepts as complete; the set is written whole or not at all; and no destination is ever replaced |
+| [The definitions text `init` writes](#what-the-scaffold-states-form-by-form) | Its forms — the [entry notation](../layout/SPEC.md#definitions), every entry and clause of the copybook; their order, which is source order; and its line layout, [the canonical printed form](../layout/SPEC.md#the-printed-form-init-writes). Comment wording is not covered |
 | [Manifest discovery](#finding-the-manifest) | `--manifest`, else `cpybkc.json` in the working directory, and no search |
 | [Path resolution](#a-path-is-relative-to-the-file-that-states-it) | A path in a file is relative to that file; a path on the command line is relative to the working directory |
 | [`--emit-ir`](#emitting-the-ir) | Replaces generation; writes the run's one descriptor, which is the same bytes every generator of that run is handed |
@@ -1412,6 +1704,12 @@ and a change to any of them is a breaking change:
 | [The diagnostic format](#standard-error-diagnostics) | The severity set, the separator, the generator's name, the two-space continuation indent, and the stream all of it goes to |
 | [Exit codes](#exit-codes) | `0`, `1`, `2`, and no other value |
 | [`--version`](#--version) | One line naming the program, its version and the IR version |
+
+The `init` rows changed with discussion #394 (#403): `--out -` was withdrawn,
+the scaffold became a set of files, and the definitions text joined the table.
+Each is read under #398's policy like every other row — it states what 1.0.0
+will promise — and this section reserves no release number, no overlap and no
+deprecation for the change.
 
 **Not covered**, and explicitly implementation detail. Depending on any of it
 is depending on something that may change in a patch release, with no notice:
@@ -1430,7 +1728,9 @@ is depending on something that may change in a patch release, with no notice:
 - The record a run keeps of what it generated — its name, its location and its
   contents (#45).
 - The scaffold's wording: every comment in it, the placeholder spelling, and its
-  whitespace. What is covered is above — that it parses, that it decides
+  whitespace — the scaffold's, the layout's, and not a definitions file's, whose
+  line layout is covered above. The wording of a definitions file's header
+  comment is not covered either. What is covered is above — that it parses, that it decides
   nothing, and that it is incomplete — and the order of its forms, which follows
   [the layout format's own table](../layout/SPEC.md#the-top-level-forms) and
   moves if that moves.
@@ -1572,9 +1872,11 @@ which is a property of the project.
 
 ### Scaffolding anything but a layout
 
-`init` writes one file, and it is a layout. There is no scaffolding of
-`cpybkc.json`, of a copybook, of a generator's options, or of a project
-directory.
+`init` writes a layout and the definitions files its records name — one per
+copybook — and nothing else. There is no scaffolding of `cpybkc.json`, of a
+copybook, of a generator's options, or of a project directory, and no
+`definitions-block` written into the layout in place of a file (the owner's
+decision on discussion #394).
 
 Reason: the manifest is deliberately not a spec (#40) — a handful of fields a
 person writes once, documented in the [README](../../README.md) and free to
@@ -1584,10 +1886,13 @@ derivation argument does not carry over either: nothing in a copybook says which
 generators a project wants or where their output goes, so a scaffolded manifest
 would be a template rather than a derivation, and a template is a thing an
 adopter copies out of the README in less time than it takes to read a flag. It
-would also make [never
+would also add to [never
 overwriting](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten)
-two rules over two files with two answers, at the moment one of them is already
-the only unrecoverable act this command can perform.
+a file of a different kind with a different answer, at the moment the rule
+already covers the only unrecoverable act this command can perform. The
+definitions files are not that exception: they are a derivation, not a
+template — every line in one is a line of its copybook — and the layout
+cannot name its records' descriptions without them.
 
 ### Extending a layout that already exists
 
@@ -1602,10 +1907,11 @@ Reason: argued in full under [`init` does not extend a layout that already
 exists](#init-does-not-extend-a-layout-that-already-exists) — the derivation is
 already theirs and only the paste is being declined, so the exclusion costs a
 project with a mature layout nothing it cannot do today. What the adopter does
-instead is run `cpybkc init --copybook <new.cpy> --out -`, or `--out` a scratch
-path: what comes back is the ordinary whole scaffold for that copybook. They
-move the `record` forms and the commented questions raised over them into the
-layout they have, delete the header, `encoding` and `framing` their layout has
+instead is run `cpybkc init --copybook <new.cpy> --out <scratch>/layout.sexpr`:
+what comes back is the ordinary whole scaffold for that copybook and its
+definitions file. They move the definitions file beside the layout they have,
+move the `record` forms and the commented questions raised over them into that
+layout, delete the header, `encoding` and `framing` their layout has
 already answered, and take the new record names out of the commented `sequence`
 and into the sequencing expression their layout already carries — the one part
 of the scaffold that is read rather than moved. Whether a derived record name
@@ -1627,8 +1933,15 @@ the layout is resolved, not by `init`, which read no layout to compare against
 - **Reading copybooks from a directory or from a stream.** Both refused in
   [Where the copybooks come from](#where-the-copybooks-come-from) — a directory
   because its contents would decide the scaffold with nothing recording it, a
-  stream because a scaffold has to state a path for each copybook and a stream
-  has none.
+  stream because a definitions file is named after its copybook and a stream
+  has no name.
+- **Writing the scaffold to a stream.** `--out -` is refused in [Where the
+  scaffold is written](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten):
+  `init`'s output is a set of files, and a stream carries one.
+- **A flag naming the definitions files, their directory, or the
+  `definitions-block` form instead.** Each follows from what `init` already
+  takes ([The vector `init` takes](#the-vector-init-takes)), and a flag stating
+  it again would be a second place for the records' paths to be decided.
 - **A verbosity flag.** No `--verbose`, `--quiet` or `--log-level`. Everything
   cpybkc writes is something a reader has to act on — a fault, a file it
   removed from their tree, or a line a generator wrote — so there is nothing
@@ -1662,36 +1975,37 @@ the layout is resolved, not by `init`, which read no layout to compare against
 | [One command, and one subcommand](#one-command-and-one-subcommand) | #147 `cli` for the one command; #183 `cli` decides the subcommand and that the default action keeps the bare form, #214 `cli` implements the dispatch; the entrypoint promise it answers to, #55 and #183 `container` |
 | [The first operand is a subcommand name](#the-first-operand-is-a-subcommand-name) | #147 `cli` reserved the position, #183 `cli` spends it, #214 `cli` parses it |
 | [The argument vector](#the-argument-vector) | #147 `cli`; the second synopsis line, #183 and #214 `cli` |
-| [`init` scaffolds a layout from copybooks](#init-scaffolds-a-layout-from-copybooks) | #183 `cli` specifies it; #214 `cli` the vector, #215 `cli` the derivation and the file |
-| [What a copybook decides, and what only the adopter can](#what-a-copybook-decides-and-what-only-the-adopter-can) | #183 `cli` draws the split, over the forms #25–#29 `layout` fix; the derivation itself, #215 `cli` |
-| [The vector `init` takes](#the-vector-init-takes) | #183 `cli`, implemented by #214 `cli` |
-| [Where the copybooks come from](#where-the-copybooks-come-from) | #183 `cli`, over the refusal to search #148 `cli` already states |
-| [Where the scaffold is written, and why nothing is ever overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten) | #183 `cli`, implemented by #215 `cli`; that the rule holds whatever is at the destination, and that a layout which already exists is not extended, #212 `cli` |
-| [The scaffold is deliberately incomplete](#the-scaffold-is-deliberately-incomplete) | #183 `cli`, over the layout reader #24 `layout` and the batched diagnostics #150 `cli` |
-| [What the scaffold states, form by form](#what-the-scaffold-states-form-by-form) | #183 `cli` decides it, #215 `cli` emits it, against the forms #25–#29 `layout` fix and the alternatives #164 `layout` settled |
-| [How a combination's record name is chosen](#how-a-combinations-record-name-is-chosen) | #183 `cli`, over the alternatives #164 `layout` settled and the collision #50 `gen-go` refuses |
+| [`init` scaffolds a layout from copybooks](#init-scaffolds-a-layout-from-copybooks) | #183 `cli` specifies it; #214 `cli` the vector, #215 `cli` the derivation and the file; a definitions file per copybook beside the layout, and the adopter committing them in place of the copybooks, #403 `cli` against discussion #394, implemented by #406 and #408 `cli` |
+| [What a copybook decides, and what only the adopter can](#what-a-copybook-decides-and-what-only-the-adopter-can) | #183 `cli` draws the split, over the forms #25–#29 `layout` fix; the derivation itself, #215 `cli`; the definitions-file row, and a record per named `01`-level less what is noted, #403 `cli` against discussion #394 |
+| [The vector `init` takes](#the-vector-init-takes) | #183 `cli`, implemented by #214 `cli`; `--out` naming the layout, one definitions file per `--copybook` and its name, no flag added, no `definitions-block` written, and the two derivations refused as usage errors, #403 `cli` against discussion #394 |
+| [Where the copybooks come from](#where-the-copybooks-come-from) | #183 `cli`, over the refusal to search #148 `cli` already states; `--copybook -` refused because a definitions file is named after its copybook, and two spellings of one file, #403 `cli` against discussion #394 |
+| [Where the scaffold is written, and why nothing is ever overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten) | #183 `cli`, implemented by #215 `cli`; that the rule holds whatever is at the destination, and that a layout which already exists is not extended, #212 `cli`; `--out -` refused, and the whole set checked, linked definitions files first and removed on failure, #403 `cli` against discussion #394 |
+| [The scaffold is deliberately incomplete](#the-scaffold-is-deliberately-incomplete) | #183 `cli`, over the layout reader #24 `layout` and the batched diagnostics #150 `cli`; the definitions files complete and outside the incompleteness, #403 `cli` against discussion #394 |
+| [What the scaffold states, form by form](#what-the-scaffold-states-form-by-form) | #183 `cli` decides it, #215 `cli` emits it, against the forms #25–#29 `layout` fix and the alternatives #164 `layout` settled; each record's `definitions` source, noted records absent throughout, and what a definitions file holds, in the notation #395 `layout` settles, #403 `cli` against discussion #394 |
+| [How a combination's record name is chosen](#how-a-combinations-record-name-is-chosen) | #183 `cli`, over the alternatives #164 `layout` settled and the collision #50 `gen-go` refuses; what is noted rather than written, #403 `cli` against discussion #394, the notes implemented by #406 `cli` |
 | [The combination count is reported, not bounded](#the-combination-count-is-reported-not-bounded) | #183 `cli`, implemented by #215 `cli` |
 | [`init` reads no manifest](#init-reads-no-manifest) | #183 `cli`, against the manifest reader #40 `plugin` |
-| [`init` does not extend a layout that already exists](#init-does-not-extend-a-layout-that-already-exists) | #212 `cli` — decided here, over the destination rule #183 `cli` states and the collision the layout reader #24 `layout` reports on the paste; no implementation story follows, because the derivation #215 `cli` already emits is the whole of what is offered |
+| [`init` does not extend a layout that already exists](#init-does-not-extend-a-layout-that-already-exists) | #212 `cli` — decided here, over the destination rule #183 `cli` states and the collision the layout reader #24 `layout` reports on the paste; no implementation story follows, because the derivation #215 `cli` already emits is the whole of what is offered; the procedure restated for definitions files and a scratch directory, #403 `cli` against discussion #394 |
+| [When a copybook changes, and moving a record between sources](#when-a-copybook-changes-and-moving-a-record-between-sources) | #403 `cli` against discussion #394, over the byte-identical property #399 `layout` states |
 | [No flag states what only an adopter knows](#no-flag-states-what-only-an-adopter-knows) | #183 `cli`, holding the line #25 `layout` draws for the four axes |
-| [`init`'s streams and exit codes](#inits-streams-and-exit-codes) | #183 `cli`, over the format #150 `cli` and the statuses #147 `cli` fix; implemented by #214 `cli` |
-| [Why this is a subcommand and not a script over the published schema](#why-this-is-a-subcommand-and-not-a-script-over-the-published-schema) | #183 `cli`, against the published schema #23 `layout` and the reader #24 `layout` |
+| [`init`'s streams and exit codes](#inits-streams-and-exit-codes) | #183 `cli`, over the format #150 `cli` and the statuses #147 `cli` fix; implemented by #214 `cli`; the whole failure rule — notes, refusals and the read-back — #403 `cli` against discussion #394, implemented by #406 and #408 `cli` |
+| [Why this is a subcommand and not a script over the published schema](#why-this-is-a-subcommand-and-not-a-script-over-the-published-schema) | #183 `cli`, against the published schema #23 `layout` and the reader #24 `layout`; the definitions files as the half that is a conversion, #403 `cli` against discussion #394 |
 | [Finding the manifest](#finding-the-manifest) | #148 `cli`, over the manifest reader #40 `plugin` |
 | [A path is relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it) | #148 `cli`; a text `definitions` path, #399 `layout` against discussion #394 |
 | [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli`; which copybooks a run reads, and that the manifest does not list them, #157 `cli`; which definitions files a run reads, that a block opens nothing, the missing-definitions diagnostic, and that a layout's own forms are read from one file, #399 `layout` against discussion #394 |
 | [Emitting the IR](#emitting-the-ir) | #149 `cli`, over the encoders #20 and #21 `ir` |
 | [Which descriptor is emitted](#which-descriptor-is-emitted) | #157 `cli` decided it — one descriptor per run, and the manifest's `inputs` removed to keep it true; #148 `cli` assembles it, #149 `cli` writes it; definitions files and blocks among what it is a function of, and the three sources resolving to byte-identical descriptors, #399 `layout` against discussion #394 |
-| [Standard output](#standard-output) | #147 `cli` for the version and usage, #149 `cli` for `--emit-ir -` |
+| [Standard output](#standard-output) | #147 `cli` for the version and usage, #149 `cli` for `--emit-ir -`; `init` writing nothing there, #403 `cli` against discussion #394 |
 | [Standard error: diagnostics](#standard-error-diagnostics) | #150 `cli`, over `internal/diag` and the spans of #31 `resolve` |
 | [A relayed generator line](#a-relayed-generator-line) | #150 `cli`, over the classification #42 `plugin` already performs, against the format #39 `plugin` fixes |
-| [Exit codes](#exit-codes) | #147 `cli` for the vector's own status and the single place they are emitted from, #148 and #149 `cli` for the failures that reach them |
-| [Cancellation](#cancellation) | #148 `cli` |
+| [Exit codes](#exit-codes) | #147 `cli` for the vector's own status and the single place they are emitted from, #148 and #149 `cli` for the failures that reach them; `init`'s, #403 `cli` against discussion #394 |
+| [Cancellation](#cancellation) | #148 `cli`; what `init` removes, #403 `cli` against discussion #394 |
 | [The environment](#the-environment) | #41 and #43 `plugin` for the two variables read, #147 `cli` for reading no others |
 | [`--version`](#--version) | #147 `cli`; the IR version it reports, #17 `ir`; the version it reports being the release's, #181 `cli` |
-| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole; #398 `container` says the table states what 1.0.0 will promise, and that below 1.0.0 any release may break it |
+| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole; #398 `container` says the table states what 1.0.0 will promise, and that below 1.0.0 any release may break it; the `init` rows for definitions files and the withdrawn `--out -`, and the definitions-text row, #403 `cli` against discussion #394 |
 | [How a covered thing would change](#how-a-covered-thing-would-change) | #146 `cli`; the subcommand priced against it, #183 `cli`; which release number pays it and what it does to the image's major tag, #213 `container`, which settles both halves in [the base-image contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version); #398 `container` makes it bind from 1.0.0, withdraws #213's requirement that `init` ship as `1.0.0`, and records that every tag from `v0.0.0` carries `init` |
 | The project manifest — out of scope, see above | #40 `plugin` |
-| Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli` |
-| Extending a layout that already exists — out of scope, see above | #212 `cli` |
+| Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli`; the definitions files as the layout's, a stream, and a flag naming them, #403 `cli` against discussion #394 |
+| Extending a layout that already exists — out of scope, see above | #212 `cli`; the procedure through a scratch directory, #403 `cli` against discussion #394 |
 | This document | #146 `cli` |
 | Conventions this document follows | #15 `setup` |
