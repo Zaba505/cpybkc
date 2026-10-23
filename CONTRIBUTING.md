@@ -1825,3 +1825,50 @@ be welcome. It arrives as another function on the root Dagger module, called by
 another `dagger call`, for the reason
 [`.github/workflows/ci.yaml`](.github/workflows/ci.yaml) already gives: raw
 steps beside it would be a second definition of what this repository checks.
+
+## Bumping the cobol-go pin
+
+A definitions file is checked-in text that is never re-read from its copybook,
+so what it can say is fixed by the notation in
+[`docs/layout/SPEC.md`'s Definitions chapter](docs/layout/SPEC.md#definitions),
+and that notation transcribes the data-description grammar of the `cobol-go`
+commit `go.mod` pins, clause for clause. A pin bump that changes that grammar
+changes what a copybook converts to, and nothing in a definitions file would
+say so.
+
+Two tests in `internal/definitions` stand guard, and both read `cobol-go`'s
+source at whatever version `go list -m` resolves:
+
+- `TestTheWriterKnowsEveryClause` requires every type with a `dataClause()`
+  method to be a case of the writer's clause switch, and every type with a
+  `cobol()` method to be a case of its operand switch or on the test's named
+  list of procedure-division operands (`AddressOf`, `FunctionReference`,
+  `Identifier`).
+- `TestTheNotationsTypesHaveNotChanged` holds the field shape of every clause
+  struct, and of `DataDescriptionEntry`, `ValueSpec`, `OccursKey`, `Word`,
+  `StringLiteral`, `NumericLiteral` and `Fragment`, to a fingerprint written out
+  in the test.
+
+**A bump that trips either one extends three things in the same change:**
+
+1. **The notation** — the clause table and the leaf rules in SPEC.md's
+   Definitions chapter, so that the new clause or field has exactly one
+   spelling, and the writer, the reader and `Construct` with it.
+2. **The entry vocabulary in [`schema/layout.sexpr`](schema/layout.sexpr)** —
+   the `clause` sort and its forms, since a form the schema does not declare is
+   refused before the reader sees it.
+3. **The kitchen sink**, `internal/definitions/testdata/kitchen-sink.cpy`, so
+   that the new production is one the round trip converts and reads back.
+
+Only then is the fingerprint updated. Updating it alone, to get a red build
+green, is the one move the guard exists to stop: the round trip would go on
+passing, because no fixture would use the new production, and the first
+copybook that did would convert without it.
+
+A bump can also change what an *existing* production reads as, with no type
+changing at all. Zaba505/cobol-go#135 is the one on the horizon: today `VALUES
+ARE` reads `ARE` as a condition value, which conversion refuses, and once it is
+fixed a copybook refused before converts on the new pin. The round trip over
+every copybook the repository holds is what notices a reading that moved under
+a tracked copybook; one that moves only under an adopter's is the release
+notes' to state.

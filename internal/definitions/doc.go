@@ -33,8 +33,9 @@
 //     order the grammar admits them ([OccursPhraseError]), which counts one
 //     form against another.
 //   - `cobol-go` judges what is left: whether an entry, printed and read back,
-//     is the entry it was built from (#401). Nothing here says what an entry
-//     means or whether `cobol-go` would accept it.
+//     is the entry it was built from. [Judge] applies that rule and reports a
+//     refusal as an [InadmissibleEntryError] at the entry; it says nothing of
+//     its own about what an entry means or whether `cobol-go` would accept it.
 //
 // # The model
 //
@@ -43,7 +44,16 @@
 // was written at, so that whatever is built from them later can point back at
 // the text. The model is the notation's, not `cobol-go`'s AST: a literal is the
 // text the body wrote, and turning it into a `cobol-go` literal — classified by
-// `cobol.Tokenize`, and positioned — is the converter's (#401).
+// `cobol.Tokenize`, and positioned — is [Construct]'s.
+//
+// # Both directions
+//
+// [Write] is the converter: it writes the entries `cobol-go` parsed out of a
+// copybook as an entry body in the canonical printed form, at a base depth, so
+// that one writer emits a definitions file and a block's body. [Read] and
+// [Construct] go back, and [Judge] holds what comes back to the validity rule.
+// The round trip over every copybook the repository holds and a kitchen sink
+// covering the grammar is what holds the two directions to each other (#401).
 //
 // # Nothing opens a file yet
 //
