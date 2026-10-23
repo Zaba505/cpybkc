@@ -373,7 +373,7 @@ type recordDefinition struct {
 	name string
 	pos  layout.Pos
 
-	// item is the top-level item the `copybook` child binds the record to, and
+	// item is the top-level item the record's source binds it to, and
 	// itemPos is where that name was written. Both are zero for a form this
 	// could not read a binding out of.
 	//
@@ -406,8 +406,10 @@ func recordNames(file *layout.File) []recordDefinition {
 
 		record := recordDefinition{name: symbol.Value, pos: form.Pos}
 
+		// The top-level name is the source's second argument whichever source
+		// it is: a copybook, a definitions file or a block.
 		if len(form.Elements) > 1 {
-			if child, ok := form.Elements[1].(layout.Form); ok && child.Tag == childCopybook && len(child.Elements) == 2 {
+			if child, ok := form.Elements[1].(layout.Form); ok && slices.Contains(sourceTags, child.Tag) && len(child.Elements) == 2 {
 				if item, ok := child.Elements[1].(layout.Symbol); ok {
 					record.item, record.itemPos = item.Value, item.Pos
 				}

@@ -57,8 +57,9 @@
 //
 // # Nothing opens a file yet
 //
-// This package reads bodies it is handed. No run opens a definitions file, and
-// a layout carrying a `definitions-block` is refused by
-// [github.com/Zaba505/cpybkc/internal/project] at the block's tag until #409
-// resolves a record held in one.
+// This package reads bodies it is handed. No run opens a definitions file: a
+// layout carrying a `definitions-block` is refused by
+// [github.com/Zaba505/cpybkc/internal/project] at the block's tag, and a record
+// naming a file or a block at its source, until #405 and #409 resolve a record
+// held in one.
 package definitions

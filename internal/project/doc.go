@@ -76,17 +76,26 @@
 // the grammar rejects is returned with the grammar's faults before the schema
 // has seen it.
 //
-// # A definitions block is checked and refused
+// # A definitions source is read and refused
 //
-// A layout may hold `definitions-block` forms (docs/layout/SPEC.md,
-// "Definitions"), and the schema check holds every entry in one to the
-// published declarations like any other form. Nothing resolves a record held in
-// a block yet (#409), so a run that meets one refuses it at its tag with a
-// [DefinitionsBlockError], after the schema check and before any layer reader,
-// and opens nothing — no copybook beside it and no definitions file, since no
-// run opens one of those yet either (#405). It says the block is not resolved by
+// A layout may hold `definitions-block` forms, and a record may name a
+// definitions file or a block as its source (docs/layout/SPEC.md,
+// "Definitions"). The schema check holds every entry in a block to the
+// published declarations like any other form, and the layer readers read every
+// source and every block, so a block no record names or a block name defined
+// twice is reported as that. Nothing resolves a record held in a file or a
+// block yet (#405, #409), so a run that has read the layout refuses each block
+// at its tag with a [DefinitionsBlockError] and each record held either way at
+// its source with a [DefinitionsSourceError], and opens nothing — no copybook
+// beside them and no definitions file. It says the construct is not resolved by
 // this build rather than that the layout is wrong, on the precedent
-// [ScheduledVariantError] set.
+// [ScheduledVariantError] set, and it never says that there is no copybook at a
+// definitions file's path.
+//
+// A layout that is all entries — a definitions file named as the manifest's
+// `layout` — is classified before the schema check and reported as that alone,
+// with a [DefinitionsFileAsLayoutError] carrying a span at the manifest's
+// `layout` and one at the file's first entry.
 //
 // # Which copybooks a run reads
 //

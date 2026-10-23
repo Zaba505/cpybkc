@@ -123,7 +123,7 @@ func (p *parser) manifest() (*Manifest, error) {
 
 		switch key {
 		case "layout":
-			m.Layout, _, err = p.requiredText("layout", "the layout file written as text", layoutFault)
+			m.Layout, m.LayoutSpan, err = p.requiredText("layout", "the layout file written as text", layoutFault)
 		case "generators":
 			m.Generators, err = p.generators()
 		default:

@@ -8,6 +8,7 @@ package layoutschema
 import (
 	"fmt"
 	"io"
+	"slices"
 
 	sexpr "github.com/z5labs/sexpr-go"
 )
@@ -108,6 +109,24 @@ func (s *Schema) CheckDefinitions(name string, file *sexpr.File) []Diagnostic {
 	}
 
 	return check.diagnostics
+}
+
+// BodyForms is the tags a block's body holds, and so the tags a definitions
+// file's top level holds — `entry`, for the published schema — in the order the
+// schema lists them, or nothing for a schema declaring no block.
+//
+// It is what tells a definitions file from a layout by its content
+// (docs/layout/SPEC.md, "How a definitions file and a layout are told apart"):
+// the two top-level vocabularies are disjoint, so a document whose every
+// top-level form is one of these is a definitions file, whichever way it was
+// reached.
+func (s *Schema) BodyForms() []string {
+	body, ok := s.blockBody()
+	if !ok {
+		return nil
+	}
+
+	return slices.Clone(s.sorts[body.sort.name].forms)
 }
 
 // blockBody is the declaration of a block's entries: the [BlockForm]'s last

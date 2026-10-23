@@ -58,6 +58,12 @@ func TestReadTakesAManifestApart(t *testing.T) {
 		t.Errorf("the layout is %q, want %q", m.Layout, "orders.sexpr")
 	}
 
+	// The value's own span, and not the key's: a fault about the file it names
+	// points at the spelling the adopter would edit.
+	if want := (diag.Span{File: Name, Line: 2, Column: 13}); m.LayoutSpan != want {
+		t.Errorf("the layout is at %s, want its value, at %s", m.LayoutSpan, want)
+	}
+
 	if len(m.Generators) != 2 {
 		t.Fatalf("the manifest declares %d generators, want 2", len(m.Generators))
 	}

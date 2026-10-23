@@ -1,4 +1,4 @@
-;; want: the name of a record form this layout defines
+;; want: the name of a record form this layout defines (it defines TRANSACTION)
 (encoding
   (charset cp037)
   (sign-convention ebcdic)

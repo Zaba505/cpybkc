@@ -40,6 +40,13 @@ type Manifest struct {
 	// "Record definitions"), and a manifest states no copybook of its own.
 	Layout string
 
+	// LayoutSpan is where the `layout` value was written, so that a fault
+	// found about the file it names after the manifest was read — a
+	// definitions file named as the layout (docs/layout/SPEC.md, "How a
+	// definitions file and a layout are told apart") — can point at the line
+	// of the manifest the adopter has to edit as well as into the file.
+	LayoutSpan diag.Span
+
 	// Generators are the generators to run, in the order they were declared.
 	Generators []Generator
 }

@@ -346,12 +346,13 @@ func quoteAll(names []string) []string {
 // resolve.
 //
 // docs/layout/SPEC.md admits the form and the published schema declares it, so
-// a layout carrying one has had the block's every entry held to the schema
-// before this is reported: a misspelled clause inside it is reported as that,
-// and never as this. What is not here is the rest of the way — a record naming
-// the block (#402), and resolving a record held in one (#409). Until both are,
-// the run refuses each block at its tag rather than reading past it, so no build
-// accepts a block and then ignores it.
+// a layout carrying one has had the block's every entry held to the schema, and
+// its name to the layout reader, before this is reported: a misspelled clause
+// inside it, or a block no record names, is reported as that, and never as
+// this. What is not here is the rest of the way — resolving a record held in
+// one (#409). Until it is, the run refuses each block at its tag rather than
+// reading past it, so no build accepts a block and then ignores it; the record
+// naming the block is refused beside it, as a [DefinitionsSourceError].
 //
 // The message says the construct is not resolved rather than that the layout is
 // wrong, on the precedent [ScheduledVariantError] set: an adopter who wrote a
@@ -377,6 +378,88 @@ func (e *DefinitionsBlockError) Diagnostic() diag.Diagnostic {
 			{Note: "definitions blocks are not resolved by this build: a block is checked against the " +
 				"published schema, and nothing resolves a record held in one yet, so the run reads nothing further"},
 		},
+	}
+}
+
+// DefinitionsSourceError is a record whose source is a definitions file or a
+// block, which this build reads and does not resolve.
+//
+// It is reported at the record's `definitions` source, for either kind, and
+// the file is never opened: whether it exists is a question for the build that
+// resolves one (#405), and answering it here would be a diagnostic about a run
+// that is not going to happen. Above all it never says there is no copybook at
+// the path — the record names no copybook, and that message would send the
+// adopter looking for a file they were right not to have.
+type DefinitionsSourceError struct {
+	// Pos is the record's `definitions` source.
+	Pos diag.Span
+
+	// Record is the record's name.
+	Record string
+
+	// Kind is which of the two `definitions` spellings the record wrote.
+	Kind layoutmodel.SourceKind
+
+	// Path is the definitions file's path as the layout spells it, for a file.
+	Path string
+
+	// Block is the block's name, for a block.
+	Block string
+}
+
+// Error implements the error interface.
+func (e *DefinitionsSourceError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DefinitionsSourceError) Diagnostic() diag.Diagnostic {
+	named := fmt.Sprintf("the definitions file %s", strconv.Quote(e.Path))
+	if e.Kind == layoutmodel.DefinitionsBlockSource {
+		named = "the definitions block " + e.Block
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("record %s is held in %s, and this build does not resolve definitions files or blocks", e.Record, named),
+		Spans: []diag.Span{
+			e.Pos,
+			{Note: "a record may name a definitions file or a block, and the layout is checked against the " +
+				"published schema and read; nothing resolves a record held either way yet, so the run opens nothing further"},
+		},
+	}
+}
+
+// DefinitionsFileAsLayoutError is a manifest's `layout` naming a definitions
+// file: a document whose every top-level form is an entry.
+//
+// docs/layout/SPEC.md's "How a definitions file and a layout are told apart"
+// asks for this one diagnostic, with a span at the manifest's `layout` and one
+// at the file's first entry, and nothing else about the file. The schema check
+// would report the entries as forms a layout does not carry at its top level,
+// which is accurate about the wrong file and says nothing about the mistake:
+// the manifest names the wrong kind of document.
+type DefinitionsFileAsLayoutError struct {
+	// Layout is the manifest's `layout` value.
+	Layout diag.Span
+
+	// Path is the layout's path as the manifest spells it.
+	Path string
+
+	// First is the file's first entry.
+	First diag.Span
+}
+
+// Error implements the error interface.
+func (e *DefinitionsFileAsLayoutError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DefinitionsFileAsLayoutError) Diagnostic() diag.Diagnostic {
+	first := e.First
+	first.Note = "its top-level forms are entries and nothing else, beginning here"
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the manifest's layout, %s, is a definitions file rather than a layout; "+
+			"a definitions file is named by a record, with (definitions %s <top-level-name>)",
+			strconv.Quote(e.Path), strconv.Quote(e.Path)),
+		Spans: []diag.Span{e.Layout, first},
 	}
 }
 

@@ -197,12 +197,38 @@
 
 (form record (in top-level) (arity one-or-more) (layer record-definitions)
   (argument name symbol exactly-one)
-  (child copybook exactly-one)
+  (argument source record-source exactly-one)
   (child alternative zero-or-more))
 
-(form copybook
+;; Where a record's description is held, and the top-level item in it the record
+;; is: a copybook, or a run of entries in a definitions file or a block. It is
+;; an argument of `record` rather than a child, because a record has exactly one
+;; and the two shapes are one position. A source is written inside a `record`
+;; and never at the top level.
+(sort record-source (form copybook) (form definitions))
+
+(form copybook (in record-source)
   (argument path text exactly-one)
   (argument top-level-name symbol exactly-one))
+
+;; (definitions "<path>" <top-level-name>) names a definitions file, relative to
+;; the layout; (definitions <block-name> <top-level-name>) names a
+;; `definitions-block` in this layout. Which of the two is decided by the
+;; argument's kind and nothing else: text is a path, a symbol is a block name.
+;; The top-level name takes the sort `copybook`'s does.
+;;
+;; A definitions file names no file and holds no block, and a block the same, so
+;; a source is one step from the layout and never a chain.
+(form definitions (in record-source)
+  (argument origin definitions-origin exactly-one)
+  (argument top-level-name symbol exactly-one))
+
+(sort definitions-origin text block-name)
+
+;; A symbol naming a `definitions-block` the same layout defines. Block names are
+;; a name space of their own: no position admits both a block name and a record
+;; name, so a block may share its symbol with a record.
+(reference block-name definitions-block name)
 
 ;; One alternative of a REDEFINES outside a repeating group, chosen by naming
 ;; it. How many a record needs — one per redefine the copybook writes outside a

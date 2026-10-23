@@ -17,9 +17,10 @@
 // Each layer of the format gets a reader here, and a type for what the layer
 // says. [ReadProfile] is the encoding profile (#25), [ReadFraming] is the
 // physical framing (#26), [ReadDiscrimination] is discrimination (#28),
-// [ReadSequence] is sequencing (#29), and [ReadRecords], [ReadRenames] and
-// [ReadCopybookReading] are the three parts of the record definitions layer —
-// its bindings (#27), its renames (#27, #30) and its `OCCURS DEPENDING ON`
+// [ReadSequence] is sequencing (#29), and [ReadRecords], [ReadBlocks],
+// [ReadRenames] and [ReadCopybookReading] are the four parts of the record
+// definitions layer — its bindings (#27, #402), the `definitions-block` forms a
+// binding may name (#402), its renames (#27, #30) and its `OCCURS DEPENDING ON`
 // reading (#27, #35). What they have in common is that a value handed back is
 // one the format admits: a [Profile] carries four stated axes because a profile
 // stating three is an error and not a value with a hole in it, a [Framing]
@@ -27,8 +28,8 @@
 // resolves to none is rejected while the layout is read, every `record` in a
 // [Discrimination] carries exactly one strategy out of a closed set, every node
 // of a [Sequence]'s expression is one of the eight terms the algebra is made of,
-// carrying what that term takes, every [Record] names a copybook and an item in
-// it, every [Rename] names its item in full and carries the substitute beside
+// carrying what that term takes, every [Record] names a source — a copybook, a
+// definitions file or a block — and an item in it, every [Rename] names its item in full and carries the substitute beside
 // the original rather than in place of it, and a [Reading] is one of the two
 // vendor readings or the statement that the layout made neither.
 //

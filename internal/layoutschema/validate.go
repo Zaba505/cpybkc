@@ -152,26 +152,55 @@ func (c *checker) collectReferents(file *sexpr.File) {
 
 // topLevel checks each of the layout's top-level forms, and then how many of
 // each it carries.
+//
+// A form the schema declares only in another position — an `entry`, which a
+// `definitions-block` holds — is not unknown, and is reported as misplaced,
+// naming where it is written. A contiguous run of them is one diagnostic, at
+// the run's first form: a run of entries pasted into a layout is one mistake,
+// and a diagnostic per entry would bury the one line that says so. Nothing
+// inside a misplaced form is checked, because there is no declaration of it
+// at the top level to check it against.
 func (c *checker) topLevel(file *sexpr.File) {
 	counts := make(map[string]int)
+
+	var run misplacedRun
 
 	for _, node := range file.Nodes {
 		list, tag, ok := c.topLevelForm(node, docLayout)
 		if !ok {
+			c.flush(&run)
+
 			continue
 		}
 
 		decl, exists := c.schema.contextual[contextKey{context: contextTopLevel, tag: tag.Value}]
 		if !exists {
+			if where := c.schema.writtenIn(tag.Value); where != "" {
+				if run.tag != tag.Value {
+					c.flush(&run)
+
+					run = misplacedRun{tag: tag.Value, pos: tag.Pos, where: where}
+				}
+
+				run.count++
+
+				continue
+			}
+
+			c.flush(&run)
 			c.report(tag.Pos, "unknown top-level form %q; %s carries %s", tag.Value, docLayout, and(c.schema.TopLevelForms()))
 
 			continue
 		}
 
+		c.flush(&run)
+
 		counts[tag.Value]++
 
 		c.form(list, decl)
 	}
+
+	c.flush(&run)
 
 	for _, decl := range c.schema.topLevel {
 		if decl.arity.admits(counts[decl.tag]) {
@@ -182,6 +211,31 @@ func (c *checker) topLevel(file *sexpr.File) {
 		// the start of the file: that is where the reader has to add one.
 		c.report(fileStart, "%s carries %s %s form, and this one carries %d", docLayout, decl.arity.label(), decl.tag, counts[decl.tag])
 	}
+}
+
+// misplacedRun is a contiguous run of top-level forms of one tag that the
+// schema declares only in another position, gathered so it is reported once.
+type misplacedRun struct {
+	tag   string
+	pos   sexpr.Pos
+	where string
+	count int
+}
+
+// flush reports the run gathered so far, if there is one, and empties it.
+func (c *checker) flush(run *misplacedRun) {
+	if run.count == 0 {
+		return
+	}
+
+	if run.count == 1 {
+		c.report(run.pos, "form %q is not a top-level form of %s: it is written %s", run.tag, docLayout, run.where)
+	} else {
+		c.report(run.pos, "form %q is not a top-level form of %s: it is written %s, and this is the first of %d written here in a row",
+			run.tag, docLayout, run.where, run.count)
+	}
+
+	*run = misplacedRun{}
 }
 
 // topLevelForm narrows one of a document's top-level nodes to a form and its
@@ -280,7 +334,7 @@ func (c *checker) children(nodes []sexpr.Node, pos sexpr.Pos, decl *formDecl) {
 
 		child, exists := c.schema.children[tag.Value]
 		if _, admitted := decl.childArity[tag.Value]; !exists || !admitted {
-			c.report(tag.Pos, "form %q has no child %q; it admits %s", decl.tag, tag.Value, and(decl.children))
+			c.report(tag.Pos, "form %q has no child %q; it admits %s%s", decl.tag, tag.Value, and(decl.children), c.schema.topLevelHint(tag.Value))
 
 			continue
 		}
@@ -325,7 +379,18 @@ func (c *checker) namedSort(node sexpr.Node, name string, where string) {
 		return
 	}
 
-	c.report(posOf(node), "%s is %s", where, c.describe(name))
+	// A top-level form standing where a value belongs — a `definitions-block`
+	// written as a record's source — is told that it is one, and where it is
+	// named from, which is the mistake far more often than a misspelled tag.
+	var hint string
+
+	if list, ok := node.(sexpr.List); ok && len(list.Elements) > 0 {
+		if tag, ok := list.Elements[0].(sexpr.Symbol); ok {
+			hint = c.schema.topLevelHint(tag.Value)
+		}
+	}
+
+	c.report(posOf(node), "%s is %s%s", where, c.describe(name), hint)
 }
 
 // satisfies reports whether node stands in a position of the named sort. It
@@ -411,7 +476,7 @@ func (c *checker) describe(name string) string {
 	}
 
 	if decl.isReference() {
-		return fmt.Sprintf("the name of a %s form this layout defines", decl.refForm)
+		return fmt.Sprintf("the name of a %s form this layout defines (%s)", decl.refForm, c.defines(name))
 	}
 
 	var admits []string
@@ -427,6 +492,25 @@ func (c *checker) describe(name string) string {
 	}
 
 	return and(admits)
+}
+
+// defines names what a reference sort may name in this layout, in the order the
+// layout defines them, so that a reference naming nothing is answered with the
+// names it could have meant: a misspelled record or block is then one glance
+// away from its spelling.
+func (c *checker) defines(name string) string {
+	var names []string
+
+	names = appendNew(names, c.declared[name]...)
+
+	switch len(names) {
+	case 0:
+		return "it defines none"
+	case 1:
+		return "it defines " + names[0]
+	default:
+		return "it defines " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
 }
 
 // admissible reports whether a node is one the layout format admits at all,
