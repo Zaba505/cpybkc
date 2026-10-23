@@ -223,6 +223,142 @@
 (form occurs-depending-on
   (argument value (values odoslide noodoslide) exactly-one))
 
+;;; Definitions ---------------------------------------------------------------
+
+;; A run of a copybook's entries, transcribed: SPEC.md's "Definitions". An entry
+;; body is held in a `definitions-block` in a layout, or in a definitions file of
+;; its own, and a definitions file is one block's body: the forms its top level
+;; holds are exactly what a block holds after its name, checked against these
+;; same declarations. There is no second schema and no second version for it.
+;;
+;; The block's name is the layout's own identifier, never a COBOL name, so it is
+;; a symbol and never a data-name. That a name is defined once, and that some
+;; record names every block, relate two forms and are the layout reader's.
+(form definitions-block (in top-level) (arity zero-or-more) (layer record-definitions)
+  (argument name symbol exactly-one)
+  (argument entry description-entry one-or-more))
+
+;; What an entry body holds. `entry` is reachable here and nowhere else: it is
+;; not a top-level form of a layout, and it is not a child form either, so the
+;; tags reserved for children across every layout do not grow.
+(sort description-entry (form entry))
+
+;; (entry <level> <name> <clause> ...) — one `cobol-go` DataDescriptionEntry.
+;; Entries are flat; the hierarchy is the level numbers', which `copybook.Build`
+;; folds. Which levels exist, and which clauses an entry at a level may carry,
+;; are `cobol-go`'s to judge rather than this file's to list.
+(form entry (in description-entry)
+  (argument level positive-number exactly-one)
+  (argument name data-name exactly-one)
+  (argument clause clause zero-or-more))
+
+;; A COBOL word: a symbol in the case the copybook wrote it, or `(word "...")`
+;; where `sexpr-go` would read the spelling as something other than that symbol
+;; — today only `nil`. That a `word` is needless around a spelling that reads as
+;; a symbol cannot be said here, and is the entry reader's.
+(sort data-name symbol (form word))
+
+(form word (in data-name)
+  (argument spelling text exactly-one))
+
+;; A COBOL literal token, delimiters included: "'A'", "-12.50", "50". The sort
+;; is not `literal`, which is the discriminator literal's. That the text holds
+;; exactly one COBOL token is the entry reader's, because the token is COBOL's.
+(sort cobol-literal text)
+
+;; What a value, or either end of a range, may be: literal text or a word.
+;; Which of the two a position takes is `cobol-go`'s to judge.
+(sort cobol-operand cobol-literal data-name)
+
+;; `through` is one form wherever it appears: a range of values, and the range
+;; a RENAMES names.
+(sort cobol-range (form through))
+
+(form through (in cobol-range)
+  (argument from cobol-operand exactly-one)
+  (argument to cobol-operand exactly-one))
+
+(sort value-operand cobol-operand cobol-range)
+
+(sort renamed-items data-name cobol-range)
+
+;; One form per clause kind of `cobol-go`'s data-description grammar, twelve.
+;; Every clause and operand form is contextual, declared into a sort. A
+;; closed-set operand — a usage, a sign position, a synchronization direction,
+;; a key order — is a symbol, and its values are `cobol-go`'s, not a list here.
+(sort clause
+  (form redefines)
+  (form pic)
+  (form usage)
+  (form value)
+  (form occurs)
+  (form sign)
+  (form synchronized)
+  (form justified)
+  (form blank-when-zero)
+  (form global)
+  (form external)
+  (form renames))
+
+(form redefines (in clause)
+  (argument redefined data-name exactly-one))
+
+(form pic (in clause)
+  (argument picture text exactly-one))
+
+(form usage (in clause)
+  (argument usage symbol exactly-one))
+
+(form value (in clause)
+  (argument operand value-operand one-or-more))
+
+;; The count, then the phrases. That `to`, `depending-on` and `indexed-by`
+;; appear at most once each, and that the phrases come in that order with the
+;; keys between, count one form against another and are the entry reader's.
+(form occurs (in clause)
+  (argument count cobol-literal exactly-one)
+  (argument phrase occurs-phrase zero-or-more))
+
+(sort occurs-phrase
+  (form to)
+  (form depending-on)
+  (form key)
+  (form indexed-by))
+
+(form to (in occurs-phrase)
+  (argument bound cobol-literal exactly-one))
+
+(form depending-on (in occurs-phrase)
+  (argument item data-name exactly-one))
+
+(form key (in occurs-phrase)
+  (argument order symbol exactly-one)
+  (argument item data-name exactly-one))
+
+(form indexed-by (in occurs-phrase)
+  (argument index data-name exactly-one))
+
+;; SEPARATE is an optional last argument, absent where the copybook wrote none.
+(form sign (in clause)
+  (argument position symbol exactly-one)
+  (argument separate (values SEPARATE) at-most-one))
+
+(form synchronized (in clause)
+  (argument direction symbol at-most-one))
+
+;; A clause COBOL writes with no operand is a form with no arguments: its
+;; presence is the clause.
+(form justified (in clause))
+
+(form blank-when-zero (in clause))
+
+(form global (in clause))
+
+(form external (in clause))
+
+(form renames (in clause)
+  (argument renamed renamed-items exactly-one))
+
 ;;; Discrimination ------------------------------------------------------------
 
 ;; SPEC.md requires exactly one `discriminate` per `record`. This schema states

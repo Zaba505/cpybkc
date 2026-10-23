@@ -31,6 +31,31 @@ func TestEveryWorkedExampleIsFound(t *testing.T) {
 	}
 }
 
+// TestEveryDefinitionsExampleIsFound is the same check over the two examples
+// docs/layout/SPEC.md's "Definitions" chapter shows: a definitions file, which
+// is entries and nothing else, and a layout holding a block of them.
+func TestEveryDefinitionsExampleIsFound(t *testing.T) {
+	t.Parallel()
+
+	file, err := Example(DefinitionsFileExample)
+	if err != nil {
+		t.Fatalf("%q: %v", DefinitionsFileExample, err)
+	}
+
+	if !strings.HasPrefix(file, "(entry ") || strings.Contains(file, "(encoding") {
+		t.Errorf("the example under %q is not an entry body:\n%s", DefinitionsFileExample, file)
+	}
+
+	layout, err := Example(DefinitionsExample)
+	if err != nil {
+		t.Fatalf("%q: %v", DefinitionsExample, err)
+	}
+
+	if !strings.Contains(layout, "(definitions-block ") {
+		t.Errorf("the example under %q holds no definitions block:\n%s", DefinitionsExample, layout)
+	}
+}
+
 // TestOneExamplePerSectionKeepsTheOthersWhereTheyAre is the property that makes
 // a heading per example the right answer, asserted rather than assumed: an
 // example added to the document ends the section before it, so what an existing

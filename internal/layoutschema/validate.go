@@ -71,12 +71,17 @@ func (s *Schema) Validate(name string, r io.Reader) ([]Diagnostic, error) {
 // Check holds a parsed layout to the schema and returns every diagnostic it
 // finds, in the order the layout states the forms they are about.
 func (s *Schema) Check(name string, file *sexpr.File) []Diagnostic {
-	check := &checker{schema: s, name: name, declared: make(map[string][]string)}
+	check := s.newChecker(name)
 
 	check.collectReferents(file)
 	check.topLevel(file)
 
 	return check.diagnostics
+}
+
+// newChecker starts one check of a file read under name.
+func (s *Schema) newChecker(name string) *checker {
+	return &checker{schema: s, name: name, declared: make(map[string][]string)}
 }
 
 // checker holds the state one Check accumulates.
@@ -151,21 +156,14 @@ func (c *checker) topLevel(file *sexpr.File) {
 	counts := make(map[string]int)
 
 	for _, node := range file.Nodes {
-		list, ok := c.formNode(node, "a layout is a list of forms")
+		list, tag, ok := c.topLevelForm(node, docLayout)
 		if !ok {
-			continue
-		}
-
-		tag, ok := list.Elements[0].(sexpr.Symbol)
-		if !ok {
-			c.report(posOf(list.Elements[0]), "a form opens with a symbol naming it")
-
 			continue
 		}
 
 		decl, exists := c.schema.contextual[contextKey{context: contextTopLevel, tag: tag.Value}]
 		if !exists {
-			c.report(tag.Pos, "unknown top-level form %q; a layout carries %s", tag.Value, and(c.schema.TopLevelForms()))
+			c.report(tag.Pos, "unknown top-level form %q; %s carries %s", tag.Value, docLayout, and(c.schema.TopLevelForms()))
 
 			continue
 		}
@@ -182,8 +180,28 @@ func (c *checker) topLevel(file *sexpr.File) {
 
 		// A missing form has no position of its own, so the diagnostic carries
 		// the start of the file: that is where the reader has to add one.
-		c.report(sexpr.Pos{Line: 1, Column: 1}, "a layout carries %s %s form, and this one carries %d", decl.arity.label(), decl.tag, counts[decl.tag])
+		c.report(fileStart, "%s carries %s %s form, and this one carries %d", docLayout, decl.arity.label(), decl.tag, counts[decl.tag])
 	}
+}
+
+// topLevelForm narrows one of a document's top-level nodes to a form and its
+// tag, diagnosing everything else. doc names the document, so that the same
+// rejection reads "a layout" in a layout and "a definitions file" in a
+// definitions file.
+func (c *checker) topLevelForm(node sexpr.Node, doc string) (sexpr.List, sexpr.Symbol, bool) {
+	list, ok := c.formNode(node, doc+" is a list of forms")
+	if !ok {
+		return sexpr.List{}, sexpr.Symbol{}, false
+	}
+
+	tag, ok := list.Elements[0].(sexpr.Symbol)
+	if !ok {
+		c.report(posOf(list.Elements[0]), "a form opens with a symbol naming it")
+
+		return sexpr.List{}, sexpr.Symbol{}, false
+	}
+
+	return list, tag, true
 }
 
 // form checks one form against its declaration: its positional arguments in

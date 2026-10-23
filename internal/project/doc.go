@@ -76,6 +76,18 @@
 // the grammar rejects is returned with the grammar's faults before the schema
 // has seen it.
 //
+// # A definitions block is checked and refused
+//
+// A layout may hold `definitions-block` forms (docs/layout/SPEC.md,
+// "Definitions"), and the schema check holds every entry in one to the
+// published declarations like any other form. Nothing resolves a record held in
+// a block yet (#409), so a run that meets one refuses it at its tag with a
+// [DefinitionsBlockError], after the schema check and before any layer reader,
+// and opens nothing — no copybook beside it and no definitions file, since no
+// run opens one of those yet either (#405). It says the block is not resolved by
+// this build rather than that the layout is wrong, on the precedent
+// [ScheduledVariantError] set.
+//
 // # Which copybooks a run reads
 //
 // Exactly the ones the layout's `record` forms name (#157). The manifest lists
