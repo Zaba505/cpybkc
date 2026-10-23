@@ -933,8 +933,8 @@ is called.
 copybook**, in the [notation](../layout/SPEC.md#definitions) #395 settles and in
 [the canonical printed form](../layout/SPEC.md#the-printed-form-init-writes):
 one entry per line, in source order, every clause the copybook carries on its
-entry. That includes the entries of an `01`-level no record derives from — a
-`77`, an unnamed `01`, an `01` every combination of which was noted — because
+entry. That includes every entry no record derives from — a `77`-level, an
+unnamed `01`-level, an `01`-level every combination of which was noted — because
 the file is the copybook's transcription and not the layout's selection from
 it. It **MUST** carry none of the copybook's comments, and **MUST** carry
 exactly one comment of its own, first: a header naming the copybook as it was
