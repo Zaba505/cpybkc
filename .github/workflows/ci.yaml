@@ -90,22 +90,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Pinned to the engineVersion the module itself declares, read out of
-      # dagger.json rather than repeated here. The CLI provisions an engine of
-      # its own version, so a number typed into this file could drift from the
-      # module's and leave CI running the pipeline on an engine the module has
-      # never been run against — which is the difference between this repository
-      # and every other one that the module exists to prevent. It is the same
-      # command CONTRIBUTING.md gives contributors, for the same reason.
+      # Pinned to the engineVersion the module itself declares, read out of the
+      # root dagger-module.toml rather than repeated here. The CLI provisions an
+      # engine of its own version, so a number typed into this file could drift
+      # from the module's and leave CI running the pipeline on an engine the
+      # module has never been run against — which is the difference between this
+      # repository and every other one that the module exists to prevent. It is
+      # the same command CONTRIBUTING.md gives contributors, for the same reason.
+      #
+      # The file is TOML, so it is read with a TOML parser — Python's tomllib,
+      # which is in the standard library of the python3 every hosted runner
+      # carries — rather than with a pattern over its text. `dagger generate`
+      # rewrites that file, and a sed that matched how it happens to be laid out
+      # today would install whatever it found, or nothing, after the next rewrite.
       # set -euo pipefail because a `run:` block is `bash -e` without it: a
       # failed download would otherwise leave `sh` reading empty input and
       # exiting 0, and the step would pass with no Dagger installed.
       - name: Install the Dagger CLI
         run: |
           set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("dagger-module.toml", "rb"))["engineVersion"].removeprefix("v"))')"
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
-            | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
-              BIN_DIR="$HOME/.local/bin" sh
+            | DAGGER_VERSION="$version" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # No arguments, because the module's source defaults to the repository
@@ -115,3 +121,19 @@ jobs:
       # while CI fails.
       - name: Run the pipeline
         run: dagger call ci
+
+      # dagger.lock is committed: it pins the image digests the pipeline pulls
+      # and the SDK module chain that writes the committed bindings, and any
+      # Dagger command may add to it. A pin is only a pin if it is complete, and
+      # nothing else notices a missing entry — this job records into a throwaway
+      # checkout — so a run that left the file changed is a failure here, naming
+      # the fix. `if: always()` because a pipeline that failed may still have
+      # resolved something new, and that is worth knowing in the same run.
+      - name: Check that the run left dagger.lock unchanged
+        if: always()
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code dagger.lock; then
+            echo "::error file=dagger.lock::this run changed dagger.lock. Run \`dagger generate -y\` (or \`dagger lock update\`) in a clone and commit dagger.lock with your change — CONTRIBUTING.md, \"After changing the module\"."
+            exit 1
+          fi

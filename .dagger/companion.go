@@ -26,14 +26,13 @@
 //
 // CompanionModule runs the module's functions — over the image this pull request
 // built rather than over the last release (#64). The three above read the
-// module's source, its dagger.json and its function names; this one is the only
+// module's source, its dagger-module.toml and its function names; this one is the only
 // place the calls are made, so it is the only place a composition that no longer
 // composes can fail.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -42,6 +41,7 @@ import (
 
 	"dagger/cpybkc/internal/coverage"
 	"dagger/cpybkc/internal/dagger"
+	"dagger/cpybkc/internal/enginelock"
 	"dagger/cpybkc/internal/surface"
 )
 
@@ -77,22 +77,27 @@ func (m *Cpybkc) CompanionCi(ctx context.Context) error {
 }
 
 // EngineLock checks that the companion module pins the same Dagger
-// engineVersion as this one.
+// engineVersion as this one, reading it out of each module's dagger-module.toml.
 //
-// This is a check and not a convention because the dependency edge only enforces
-// half of it, which was measured rather than assumed. With the companion pinned
-// *above* the engine in use, every root call fails outright:
+// This is a check and not a convention because the dependency edge enforces
+// little of it, which was measured rather than assumed — on v0.21.8, and again
+// on v1.0.0-beta.15 (#429), where it enforces less. With the companion pinned at
+// a higher *release*, every root call fails outright:
 //
-//	failed to resolve dep to source: module requires dagger v0.99.0,
-//	but you have v0.21.8
+//	load local module source: module requires dagger v1.1.0, but you have
+//	v1.0.0-beta.15
 //
-// With it pinned *below*, nothing fails: `dagger functions`, `dagger call ci`
-// and the rest load and run exactly as before. So the edge catches a companion
-// that has run ahead of the engine and misses one that has been left behind —
-// and behind is the direction drift actually goes, because lagging is what a
-// file nobody edited does. `dagger develop` rewrites each module's own
-// dagger.json independently, so the two can diverge through the ordinary
-// workflow rather than through neglect.
+// Pinned anywhere else, nothing fails. Below the engine (v1.0.0-beta.14),
+// `dagger functions`, `dagger call ci` and the rest load and run exactly as
+// before. And on beta.15 the engine compares the release and ignores the
+// prerelease, so a companion at v1.0.0-beta.99, or at v1.0.0 itself, loads too
+// — on v0.21.8 any higher version refused. So the edge catches only a companion
+// that has run a whole release ahead of the engine, and misses every one that
+// has been left behind — and behind is the direction drift actually goes,
+// because lagging is what a file nobody edited does. Each module's
+// dagger-module.toml is its own file, and nothing about `dagger generate` makes
+// it edit the other one, so the two can diverge through the ordinary workflow
+// rather than through neglect.
 //
 // That is what makes this different from the check #65 was closed for being.
 // That one compared a constant against the release it had just followed and
@@ -105,56 +110,40 @@ func (m *Cpybkc) CompanionCi(ctx context.Context) error {
 // independently, in another repository, and have already drifted. One tree, one
 // commit, and one version is what is being bought.
 //
+// The parsing and the comparison live in internal/enginelock, where a test can
+// reach them.
+//
 // +check
 // +cache="session"
 func (m *Cpybkc) EngineLock(ctx context.Context) error {
-	root, err := engineVersion(ctx, m.Source, "dagger.json")
+	rootPath := enginelock.Manifest
+	root, err := engineVersion(ctx, m.Source, rootPath)
 	if err != nil {
 		return err
 	}
 
-	companion, err := engineVersion(ctx, m.Source, companionModuleDir+"/dagger.json")
+	companionPath := companionModuleDir + "/" + enginelock.Manifest
+	companion, err := engineVersion(ctx, m.Source, companionPath)
 	if err != nil {
 		return err
 	}
 
-	if root != companion {
-		return fmt.Errorf(
-			"dagger.json pins engineVersion %s but %s/dagger.json pins %s: the two modules ship from one repository and are driven by one engine, so a bump is one commit that edits both (CONTRIBUTING.md, \"One engineVersion, held by a dependency edge and one check\")",
-			root, companionModuleDir, companion)
-	}
-
-	return nil
+	return enginelock.Agree(rootPath, root, companionPath, companion)
 }
 
-// engineVersion reads one module's pinned engine version out of its dagger.json.
-//
-// It decodes the field rather than grepping for it so that a reformatted
-// dagger.json — which `dagger develop` is entitled to write — cannot make the
-// check pass or fail on whitespace. An absent or empty engineVersion is an error
-// rather than a match against another absent one, because two modules that both
-// say nothing are not two modules that agree.
+// engineVersion reads one module's pinned engine version out of its
+// dagger-module.toml. See internal/enginelock for why it is decoded rather than
+// matched.
 func engineVersion(ctx context.Context, source *dagger.Directory, path string) (string, error) {
 	contents, err := source.File(path).Contents(ctx)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	var config struct {
-		EngineVersion string `json:"engineVersion"`
-	}
-	if err := json.Unmarshal([]byte(contents), &config); err != nil {
-		return "", fmt.Errorf("parsing %s: %w", path, err)
-	}
-
-	if config.EngineVersion == "" {
-		return "", fmt.Errorf("%s declares no engineVersion", path)
-	}
-
-	return config.EngineVersion, nil
+	return enginelock.Version(path, contents)
 }
 
-// generatedFile is the file `dagger develop` writes into a module, and the one
+// generatedFile is the file `dagger generate` writes into a module, and the one
 // file in either module that is nobody's opinion about anything. CliSurface
 // skips it: it declares methods on the module's own type that the module's
 // author did not write, and counting those as functions covering a flag would
@@ -843,7 +832,7 @@ var exampleEmitIRRuns = []struct {
 // # Why the module's own functions need a check at all
 //
 // CompanionCi, EngineLock and CliSurface read the module — its Go source, its
-// dagger.json and its function names. None of them makes a call, so a module
+// dagger-module.toml and its function names. None of them makes a call, so a module
 // whose calls no longer compose into a working image would fail none of them.
 // This is the only place `dagger call -m daggerverse/cpybkc …` actually happens,
 // and the module implements contracts specified elsewhere — docs/cli/SPEC.md's

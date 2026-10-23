@@ -9,141 +9,9 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type Z5Labs
-func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/main.go#L639)
-	q := r.query.Select("asZ5Labs")
-
-	return &Z5Labs{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Z5LabsApp
-func (r *Binding) AsZ5LabsApp() *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L45)
-	q := r.query.Select("asZ5LabsApp")
-
-	return &Z5LabsApp{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Z5LabsAppBuilder
-func (r *Binding) AsZ5LabsAppBuilder() *Z5LabsAppBuilder { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L73)
-	q := r.query.Select("asZ5LabsAppBuilder")
-
-	return &Z5LabsAppBuilder{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Z5LabsGoChain
-func (r *Binding) AsZ5LabsGoChain() *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L36)
-	q := r.query.Select("asZ5LabsGoChain")
-
-	return &Z5LabsGoChain{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Z5LabsAppBuilder in the environment
-func (r *Env) WithZ5LabsAppBuilderInput(name string, value *Z5LabsAppBuilder, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L73)
-	assertNotNil("value", value)
-	q := r.query.Select("withZ5LabsAppBuilderInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Z5LabsAppBuilder output to be assigned in the environment
-func (r *Env) WithZ5LabsAppBuilderOutput(name string, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L73)
-	q := r.query.Select("withZ5LabsAppBuilderOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Z5LabsApp in the environment
-func (r *Env) WithZ5LabsAppInput(name string, value *Z5LabsApp, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L45)
-	assertNotNil("value", value)
-	q := r.query.Select("withZ5LabsAppInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Z5LabsApp output to be assigned in the environment
-func (r *Env) WithZ5LabsAppOutput(name string, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L45)
-	q := r.query.Select("withZ5LabsAppOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Z5LabsGoChain in the environment
-func (r *Env) WithZ5LabsGoChainInput(name string, value *Z5LabsGoChain, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L36)
-	assertNotNil("value", value)
-	q := r.query.Select("withZ5LabsGoChainInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Z5LabsGoChain output to be assigned in the environment
-func (r *Env) WithZ5LabsGoChainOutput(name string, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L36)
-	q := r.query.Select("withZ5LabsGoChainOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Z5Labs in the environment
-func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/main.go#L639)
-	assertNotNil("value", value)
-	q := r.query.Select("withZ5LabsInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Z5Labs output to be assigned in the environment
-func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/main.go#L639)
-	q := r.query.Select("withZ5LabsOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // Z5labs is the root module type. Construct the Go language chain via Go;
 // everything this module does is reached from there.
-func (r *Query) Z5Labs() *Z5Labs { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/main.go#L639)
+func (r *Query) Z5Labs() *Z5Labs { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/main.go#L639)
 	q := r.query.Select("z5Labs")
 
 	return &Z5Labs{
@@ -153,18 +21,10 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (https://github.com/z5labs/devex/tr
 
 // Z5labs is the root module type. Construct the Go language chain via Go;
 // everything this module does is reached from there.
-type Z5Labs struct { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/main.go#L639)
+type Z5Labs struct { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/main.go#L639)
 	query *querybuilder.Selection
 
-	composeSelfTest          *Void
-	contributedTreeSelfTest  *Void
-	contributionPathSelfTest *Void
-	id                       *ID
-	imageConfigSelfTest      *Void
-	imageSbomSelfTest        *Void
-	sourceRedactionSelfTest  *Void
-	variantSetSelfTest       *Void
-	versionTagsSelfTest      *Void
+	id *ID
 }
 
 func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
@@ -210,7 +70,7 @@ func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
 // the components listed inside that document are the ones really linked into
 // the executable; that is the supplier's assertion, in a signed artifact,
 // checkable by anyone who pulls the image.
-func (r *Z5Labs) App(version string) *Z5LabsAppBuilder { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L164)
+func (r *Z5Labs) App(version string) *Z5LabsAppBuilder { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/prebuilt.go#L164)
 	q := r.query.Select("app")
 	q = q.Arg("version", version)
 
@@ -239,13 +99,12 @@ func (r *Z5Labs) App(version string) *Z5LabsAppBuilder { // z5labs (https://gith
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/composeselftest.go#L34)
-	if r.composeSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ComposeSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/composeselftest.go#L34)
 	q := r.query.Select("composeSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // ContributedTreeSelfTest checks what a contributed tree may hold: directories
@@ -266,13 +125,12 @@ func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (https:/
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/documentselftest.go#L35)
-	if r.contributedTreeSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ContributedTreeSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/documentselftest.go#L35)
 	q := r.query.Select("contributedTreeSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // ContributionPathSelfTest checks the rules that decide where a caller may
@@ -303,13 +161,12 @@ func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs 
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ContributionPathSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/contributeselftest.go#L40)
-	if r.contributionPathSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ContributionPathSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/contributeselftest.go#L40)
 	q := r.query.Select("contributionPathSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // Z5LabsDirectoryDocumentOpts contains options for Z5Labs.DirectoryDocument
@@ -317,11 +174,11 @@ type Z5LabsDirectoryDocumentOpts struct {
 	//
 	// An SPDX licence expression for the content, e.g. MIT or Apache-2.0.
 	//
-	License string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L188)
+	License string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L188)
 	//
 	// The version of the contributed content, if it has one.
 	//
-	Version string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L192)
+	Version string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L192)
 }
 
 // DirectoryDocument produces the SPDX document required to contribute dir to
@@ -347,7 +204,7 @@ type Z5LabsDirectoryDocumentOpts struct {
 //
 // name is required, because a directory has no name of its own to fall back
 // to. See FileDocument for license and version.
-func (r *Z5Labs) DirectoryDocument(dir *Directory, name string, opts ...Z5LabsDirectoryDocumentOpts) *File { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L179)
+func (r *Z5Labs) DirectoryDocument(dir *Directory, name string, opts ...Z5LabsDirectoryDocumentOpts) *File { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L179)
 	assertNotNil("dir", dir)
 	q := r.query.Select("directoryDocument")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -373,16 +230,16 @@ type Z5LabsFileDocumentOpts struct {
 	//
 	// An SPDX licence expression for the content, e.g. MIT or Apache-2.0.
 	//
-	License string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L102)
+	License string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L102)
 	//
 	// How the contribution is named in the image's document. Defaults to
 	// the file's own name.
 	//
-	Name string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L107)
+	Name string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L107)
 	//
 	// The version of the contributed content, if it has one.
 	//
-	Version string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L111)
+	Version string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L111)
 }
 
 // FileDocument produces the SPDX document required to contribute file to an
@@ -405,7 +262,7 @@ type Z5LabsFileDocumentOpts struct {
 // version is what the contributed content is a version of. There is no
 // default: content with no ecosystem usually has no version, and inventing
 // one would put a value in a field consumers compare.
-func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/document.go#L95)
+func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/document.go#L95)
 	assertNotNil("file", file)
 	q := r.query.Select("fileDocument")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -441,7 +298,7 @@ func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File 
 //
 // The returned object is GoChain rather than Go because the `go` module
 // this one depends on already owns that name — see GoChain's doc comment.
-func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/main.go#L655)
+func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/main.go#L655)
 	assertNotNil("source", source)
 	q := r.query.Select("go")
 	q = q.Arg("source", source)
@@ -537,13 +394,12 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ImageConfigSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/selftest.go#L245)
-	if r.imageConfigSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ImageConfigSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/selftest.go#L245)
 	q := r.query.Select("imageConfigSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // ImageSbomSelfTest checks the rule the image-level documents exist to keep:
@@ -564,13 +420,12 @@ func (r *Z5Labs) ImageConfigSelfTest(ctx context.Context) error { // z5labs (htt
 //
 // It runs in process over synthesized documents and needs no container, so it
 // is cheap enough to be a check of its own.
-func (r *Z5Labs) ImageSbomSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/sbomselftest.go#L36)
-	if r.imageSbomSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ImageSbomSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/sbomselftest.go#L36)
 	q := r.query.Select("imageSbomSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // SourceRedactionSelfTest checks redactURLCredentials against the rule rather
@@ -602,13 +457,12 @@ func (r *Z5Labs) ImageSbomSelfTest(ctx context.Context) error { // z5labs (https
 // could not parse would leak by exactly the path this check closes. The
 // assertions below print a row's name and its expectation, and print what
 // came back only after establishing that it does not carry the credential.
-func (r *Z5Labs) SourceRedactionSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/annotationsselftest.go#L54)
-	if r.sourceRedactionSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) SourceRedactionSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/annotationsselftest.go#L54)
 	q := r.query.Select("sourceRedactionSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // VariantSetSelfTest checks the rules that decide which sets of prebuilt
@@ -624,13 +478,12 @@ func (r *Z5Labs) SourceRedactionSelfTest(ctx context.Context) error { // z5labs 
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) VariantSetSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuiltselftest.go#L27)
-	if r.variantSetSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) VariantSetSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/prebuiltselftest.go#L27)
 	q := r.query.Select("variantSetSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // VersionTagsSelfTest checks the tag family a release is published under,
@@ -649,13 +502,12 @@ func (r *Z5Labs) VariantSetSelfTest(ctx context.Context) error { // z5labs (http
 // ImageEnvironmentSelfTest does — the function is unexported — and because a
 // table of thirty versions costs one in-process call here and thirty
 // publishes there.
-func (r *Z5Labs) VersionTagsSelfTest(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/selftest.go#L29)
-	if r.versionTagsSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) VersionTagsSelfTest() *Check { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/selftest.go#L29)
 	q := r.query.Select("versionTagsSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // AsNode returns this Z5Labs as a Node.
@@ -697,7 +549,7 @@ func (r *Z5Labs) AsNode() Node {
 // constructor arguments, because none of them is a property of the
 // artifact. The same App can be published to a mirror, to an internal
 // registry, or nowhere at all.
-type Z5LabsApp struct { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L45)
+type Z5LabsApp struct { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L45)
 	query *querybuilder.Selection
 
 	id *ID
@@ -750,7 +602,7 @@ func (r *Z5LabsApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsApp {
 // make a z5labs release what it is. An image that leaves through Publish has
 // been checked; an image somebody exported from here and pushed by hand is
 // theirs.
-func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L222)
+func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L222)
 	q := r.query.Select("container")
 	q = q.Arg("platform", platform)
 
@@ -762,7 +614,7 @@ func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (https:/
 // Containers returns every platform's image, in the order the platforms
 // were given to App. Same guarantee, and the same session bound, as
 // Container.
-func (r *Z5LabsApp) Containers(ctx context.Context) ([]Container, error) { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L236)
+func (r *Z5LabsApp) Containers(ctx context.Context) ([]Container, error) { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L236)
 	q := r.query.Select("containers")
 
 	q = q.Select("id")
@@ -946,7 +798,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L531)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L531)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 
@@ -986,7 +838,7 @@ func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]strin
 // `FROM` a published base: a stranger's Dockerfile adds bytes with no document
 // and has no mechanism to produce one, so that image's attestation describes
 // the base and nothing else.
-func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/compose.go#L168)
+func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/compose.go#L168)
 	assertNotNil("from", from)
 	q := r.query.Select("withApp")
 	q = q.Arg("from", from)
@@ -1027,7 +879,7 @@ func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (https://git
 // carries one file element per file in the tree, because "the contribution is
 // described" and "every file in the image is accounted for" are different
 // promises and only the second one is the point.
-func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/contribute.go#L341)
+func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/contribute.go#L341)
 	assertNotNil("dir", dir)
 	assertNotNil("document", document)
 	q := r.query.Select("withDirectory")
@@ -1063,7 +915,7 @@ func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *
 // useless. Platform-specific executables arrive as an App instead: App.WithApp
 // composes one, matched platform by platform, and lands its entry in the plugin
 // directory.
-func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/contribute.go#L281)
+func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/contribute.go#L281)
 	assertNotNil("file", file)
 	assertNotNil("document", document)
 	q := r.query.Select("withFile")
@@ -1084,7 +936,7 @@ func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp
 // unverified connection. It is spelled insecure rather than tlsVerify
 // because a bool defaulting to true cannot be turned off from the CLI —
 // which is also why this method takes no argument at all.
-func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L329)
+func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L329)
 	q := r.query.Select("withInsecure")
 
 	return &Z5LabsApp{
@@ -1104,7 +956,7 @@ func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (https://github.com/z5
 // Every identifying field in the provenance comes out of the exchanged
 // token's claims, because anything a caller could have supplied attests to
 // nothing.
-func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L283)
+func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L283)
 	assertNotNil("requestToken", requestToken)
 	q := r.query.Select("withOidc")
 	q = q.Arg("requestUrl", requestUrl)
@@ -1124,7 +976,7 @@ func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp
 // This exists for the same reason WithRegistryService does, and is used by
 // the test suite, which runs a real token endpoint rather than relaxing the
 // provenance requirement into the shape of the tests.
-func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L359)
+func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L359)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withOidcService")
 	q = q.Arg("svc", svc)
@@ -1150,7 +1002,7 @@ func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (https:
 // undirected takes the default seven-day TTL and can hand a later session a
 // stale object built from arguments it only appears to share — a registry
 // service, for one, whose engine-assigned address is long gone.
-func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L262)
+func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L262)
 	assertNotNil("auth", auth)
 	q := r.query.Select("withRegistry")
 	q = q.Arg("address", address)
@@ -1169,7 +1021,7 @@ func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) 
 // into an address ahead of time; this is how the publish learns it. Used by
 // the test suite against a local registry, and by anyone whose private
 // registry is itself a Dagger service.
-func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L343)
+func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L343)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withRegistryService")
 	q = q.Arg("svc", svc)
@@ -1233,7 +1085,7 @@ func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (ht
 // asserted: a local log's countersignature is trusted by nobody, so a
 // verifier still has to be told to ignore the log, and nothing here says
 // anything about the public services' availability.
-func (r *Z5LabsApp) WithSessionSigstore(fulcio *Service, rekor *Service) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L420)
+func (r *Z5LabsApp) WithSessionSigstore(fulcio *Service, rekor *Service) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L420)
 	assertNotNil("fulcio", fulcio)
 	assertNotNil("rekor", rekor)
 	q := r.query.Select("withSessionSigstore")
@@ -1268,7 +1120,7 @@ func (r *Z5LabsApp) WithSessionSigstore(fulcio *Service, rekor *Service) *Z5Labs
 // where the keyless mode gets an identity and an issuer and no such flag.
 // A caller who does not want to hand their consumers that flag should not
 // be supplying a key.
-func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/app.go#L314)
+func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/app.go#L314)
 	assertNotNil("key", key)
 	q := r.query.Select("withSigningKey")
 	q = q.Arg("key", key)
@@ -1292,7 +1144,7 @@ func (r *Z5LabsApp) AsNode() Node {
 //
 // Construct it with Z5labs.App. The file comment above records why the
 // intermediate type exists at all and why it is this shape.
-type Z5LabsAppBuilder struct { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L73)
+type Z5LabsAppBuilder struct { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/prebuilt.go#L73)
 	query *querybuilder.Selection
 
 	id *ID
@@ -1325,7 +1177,7 @@ func (r *Z5LabsAppBuilder) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsAp
 // way to report an error. Publish validates it a third time, which is what
 // keeps the refusal of SemVer build metadata a property of publishing rather
 // than of one constructor.
-func (r *Z5LabsAppBuilder) Build() *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L318)
+func (r *Z5LabsAppBuilder) Build() *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/prebuilt.go#L318)
 	q := r.query.Select("build")
 
 	return &Z5LabsApp{
@@ -1388,7 +1240,7 @@ type Z5LabsAppBuilderWithVariantOpts struct {
 	// What the executable is called in the image. Defaults to the file's
 	// own name.
 	//
-	Name string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L253)
+	Name string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/prebuilt.go#L253)
 }
 
 // WithVariant contributes one platform's executable, and the document
@@ -1437,7 +1289,7 @@ type Z5LabsAppBuilderWithVariantOpts struct {
 // A single-platform App is expressible and is not a degenerate case: one
 // WithVariant and a Build is a complete application, published as one variant
 // rather than as a multi-platform index pretending to be one.
-func (r *Z5LabsAppBuilder) WithVariant(platform Platform, entry *File, document *File, opts ...Z5LabsAppBuilderWithVariantOpts) *Z5LabsAppBuilder { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/prebuilt.go#L241)
+func (r *Z5LabsAppBuilder) WithVariant(platform Platform, entry *File, document *File, opts ...Z5LabsAppBuilderWithVariantOpts) *Z5LabsAppBuilder { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/prebuilt.go#L241)
 	assertNotNil("entry", entry)
 	assertNotNil("document", document)
 	q := r.query.Select("withVariant")
@@ -1491,7 +1343,7 @@ func (r *Z5LabsAppBuilder) AsNode() Node {
 //
 // A library is a Go you never build an application from, so there is no
 // separate library archetype.
-type Z5LabsGoChain struct { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L36)
+type Z5LabsGoChain struct { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L36)
 	query *querybuilder.Selection
 
 	ci *Void
@@ -1520,12 +1372,12 @@ type Z5LabsGoChainAppOpts struct {
 	//
 	//
 	// Default: "."
-	Pkg string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L196)
+	Pkg string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L202)
 	//
 	// The platforms to build for, e.g. linux/amd64. Empty takes the
 	// pipeline's pair, linux/amd64 and linux/arm64.
 	//
-	Platforms []Platform // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L201)
+	Platforms []Platform // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L207)
 }
 
 // App builds the application at pkg for every platform and returns it.
@@ -1576,7 +1428,7 @@ type Z5LabsGoChainAppOpts struct {
 //
 // pkg is the package to build, in `go build` package syntax, relative to
 // the source root. platforms defaults to linux/amd64 and linux/arm64.
-func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L185)
+func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5LabsApp { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L191)
 	q := r.query.Select("app")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `pkg` optional argument
@@ -1599,7 +1451,7 @@ func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5Lab
 // golangci-lint against the bundled policy unless WithLint supplied one,
 // and `go test ./...` with the race detector unless WithTest turned it off.
 // The stages run in parallel and their errors are aggregated.
-func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L131)
+func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L137)
 	if r.ci != nil {
 		return nil
 	}
@@ -1664,7 +1516,7 @@ func (r *Z5LabsGoChain) UnmarshalJSON(bs []byte) error {
 // `//go:build`-constrained files compile. The build belongs to App — the
 // terminal that produces container images — and these are the tags it
 // builds every platform's binary with.
-func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L119)
+func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L119)
 	q := r.query.Select("withBuild")
 	q = q.Arg("tags", tags)
 
@@ -1675,9 +1527,9 @@ func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (htt
 
 // Z5LabsGoChainWithLintOpts contains options for Z5LabsGoChain.WithLint
 type Z5LabsGoChainWithLintOpts struct {
-	Version string // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L82)
+	Version string // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L82)
 
-	Config *File // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L84)
+	Config *File // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L84)
 }
 
 // WithLint configures the lint stage.
@@ -1701,7 +1553,7 @@ type Z5LabsGoChainWithLintOpts struct {
 // would have dropped the config and run the bundled policy the caller
 // thought they had replaced. Nothing can un-set either one, which is not a
 // use case — a caller who wants the defaults does not call this.
-func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L80)
+func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L80)
 	q := r.query.Select("withLint")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -1727,7 +1579,7 @@ func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoCha
 // `with-test` would silently drop the race detector the pipeline otherwise
 // guarantees. Turning it off is a real weakening of the check, so the
 // caller states it.
-func (r *Z5LabsGoChain) WithTest(race bool) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/c10a12007999eb807f68cd9af9000fbaeab159cb/daggerverse/z5labs/go.go#L105)
+func (r *Z5LabsGoChain) WithTest(race bool) *Z5LabsGoChain { // z5labs (https://github.com/z5labs/devex/tree/fa34af9724d005a0496f8b478ee04f60f7fc0246/daggerverse/z5labs/go.go#L105)
 	q := r.query.Select("withTest")
 	q = q.Arg("race", race)
 

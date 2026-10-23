@@ -11,6 +11,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0
 )
 
+require github.com/BurntSushi/toml v1.6.0
+
 require (
 	github.com/99designs/gqlgen v0.17.89 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

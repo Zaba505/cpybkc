@@ -33,19 +33,28 @@ worktree](#the-pipeline-does-not-run-from-a-git-worktree).
 it reported.
 
 ```sh
-dagger call fmt           # gofmt, reported as a diff of what it would rewrite
-dagger call vet           # go vet ./...
-dagger call lint          # golangci-lint over ./... against .golangci.yml
-dagger call test          # go test -race ./...
-dagger call proto-lint    # buf lint over proto/ against buf.yaml
-dagger call ir-ci         # the whole standard again, over the irpb/ module
-dagger call example-parquet-ci  # and again, over every module nested under example/
-dagger call build         # builds cpybkc CGO-free and runs it in an empty image
-dagger call ir-artifacts  # builds the two IR artifacts a release attaches
-dagger call layout-artifact  # builds the layout schema a release attaches
-dagger call image-contract   # builds the published image, checks its contract
-dagger call worked-example   # builds docs/container/SPEC.md's worked example
+dagger check fmt           # gofmt, reported as a diff of what it would rewrite
+dagger check vet           # go vet ./...
+dagger check lint          # golangci-lint over ./... against .golangci.yml
+dagger check test          # go test -race ./...
+dagger check proto-lint    # buf lint over proto/ against buf.yaml
+dagger check ir-ci         # the whole standard again, over the irpb/ module
+dagger check example-parquet-ci  # and again, over every module nested under example/
+dagger check build         # builds cpybkc CGO-free and runs it in an empty image
+dagger check ir-artifacts  # builds the two IR artifacts a release attaches
+dagger check layout-artifact  # builds the layout schema a release attaches
+dagger check image-contract   # builds the published image, checks its contract
+dagger check worked-example   # builds docs/container/SPEC.md's worked example
+dagger check generated     # the committed codegen is what `dagger generate` writes
 ```
+
+**Run a stage with `dagger check`, not `dagger call`.** Each one is a `+check`
+function, and on Dagger v1 `dagger call` hands a check back as an object rather
+than failing on it: `dagger call engine-lock` over two modules that disagree
+prints the failure and exits 0, where `dagger check engine-lock` exits 1. That was measured on v1.0.0-beta.15
+(#429), and it is why `ci` itself is deliberately *not* a `+check` — it is the
+one function here you reach with `dagger call`, so that the gate CI runs exits
+non-zero when anything inside it fails.
 
 The first four are not a second definition of the pipeline. Each drives the same
 builder `ci` drives with one stage enabled instead of four, against the same lint
@@ -70,8 +79,9 @@ had broken, since no other stage reads it, so `ci` extracts it from that file,
 builds it, and replays its final stage onto the image `image-contract` just
 checked. Edit that example and this is the stage that will tell you about it.
 
-`dagger check` runs them all as a checklist, if you would rather see them
-together than pick one.
+`dagger check` with no name runs them all as a checklist, if you would rather
+see them together than pick one. `dagger check --generated` adds the Go SDK's
+own staleness check to the list, which `generated` already runs for you.
 
 ### The pipeline does not run from a git worktree
 
@@ -79,9 +89,17 @@ together than pick one.
 fails, including the ones that have nothing to do with an image:
 
 ```
-failed to sync: failed to create local fs: failed to create base fs:
-stat …/.git: not a directory
+! failed to compute cache key for Query.cpybkc: load contextual arg "gitDir":
+  load contextual directory "/.git": failed to select host directory: …
+  failed to create base fs: stat …/.git: not a directory
 ```
+
+That was re-measured on v1.0.0-beta.15 (#429), where it still holds: `dagger
+call ci` from a worktree under `.claude/worktrees/` fails in four seconds, before
+any function runs, and `dagger check` fails the same way. **`dagger generate`
+is the exception** — it never constructs the root module, so the `gitDir`
+default is never resolved; it runs from a worktree and
+regenerates the tree there exactly as it does in a clone.
 
 The reason is one line of git's design meeting one line of Dagger's. The shared
 pipeline archetype stamps the commit into every binary it builds and annotates
@@ -102,13 +120,14 @@ This is not a footnote for this repository: its own backlog cycle develops every
 issue in a per-issue worktree under `.claude/worktrees/`, so the gate a
 contributor is expected to run before pushing is the one that cannot run where
 they are working. Clone the repository somewhere else, copy the tree over, and run
-`dagger call ci` there.
+`dagger call ci` there. The cycle's "verify from an ordinary clone" step is
+confirmed rather than retired by the move to Dagger v1.
 
 ### Building the CLI
 
 ```sh
 dagger call binary export --path=cpybkc   # the executable itself
-dagger call build                         # the check `ci` runs over it
+dagger check build                        # the check `ci` runs over it
 ```
 
 The four Go stages already compile `cmd/cpybkc`, since they run over `./...`, so
@@ -130,9 +149,15 @@ publishes.
 ```sh
 # the image itself, for one platform
 dagger call image --platform=linux/arm64 export --path=cpybkc.tar
-dagger call image-contract                         # the check `ci` runs
+dagger check image-contract                        # the check `ci` runs
 dagger call image-contract --platform=linux/amd64  # one platform of it
 ```
+
+The one-platform form has to be a `dagger call`, because `dagger check` cannot
+pass a check any arguments. A `dagger call` on a check exits 0 whether the
+contract held or not, so for that one form read the `CHECKS` summary it prints
+rather than its exit status (see [Running one stage](#running-one-stage)).
+`dagger check image-contract` exits non-zero on a failure as usual.
 
 The published image is a **public contract**. A Dockerfile in somebody else's
 repository says `FROM ghcr.io/zaba505/cpybkc:v0` and names a path inside it, so
@@ -178,36 +203,92 @@ built from the version in `go.mod`.
 
 ```sh
 curl -fsSL https://dl.dagger.io/dagger/install.sh \
-  | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
+  | DAGGER_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("dagger-module.toml", "rb"))["engineVersion"].removeprefix("v"))')" \
     BIN_DIR="$HOME/.local/bin" sh
 ```
 
-The version comes out of `dagger.json` rather than being typed in, because the
-`engineVersion` the module declares is what CI installs too. A CLI that
-provisions a different engine is a difference between your machine and CI, which
-is the one thing this module exists to prevent.
+The version comes out of the root [`dagger-module.toml`](dagger-module.toml)
+rather than being typed in, because the `engineVersion` the module declares is
+what CI installs too. A CLI that provisions a different engine is a difference
+between your machine and CI, which is the one thing this module exists to
+prevent. The file is TOML and is read with a TOML parser — Python's `tomllib`,
+standard since 3.11 — rather than a pattern over its text, because `dagger
+generate` rewrites that file; CI reads it the same way.
+
+The engine is `v1.0.0-beta.15`, a prerelease, and it moves together with
+[`z5labs/devex`](https://github.com/z5labs/devex)'s rather than on its own
+(#429).
+
+#### Running another Dagger version beside this one
+
+**Every Dagger CLI deletes the engine containers of every other version on the
+same Docker daemon** when it starts one of its own. So if you also work on devex,
+or on anything else pinned to a different Dagger, each run here kills that
+project's engine and the next run there kills this one's, along with its cache.
+Set this to keep them both:
+
+```sh
+export DAGGER_LEAVE_OLD_ENGINE=1
+```
+
+It is only a problem across versions — a reason cpybkc and devex move their pins
+together — and it costs disk, since each engine keeps a cache of its own. Prune
+an engine you are done with with `docker rm -f dagger-engine-<version>`.
 
 ### After changing the module
 
-`.dagger/dagger.gen.go` and `.dagger/internal/` are generated **and committed**.
-Regenerate them after editing `.dagger/main.go` or `dagger.json`, and commit the
-result alongside the change:
+Both Dagger modules commit what codegen writes: each one's `dagger.gen.go`,
+`internal/dagger/`, `go.mod` and `go.sum`. Regenerate after changing either
+module's Go source or any of the workspace's configuration —
+[`dagger.toml`](dagger.toml), either `dagger-module.toml` — and commit the result
+alongside the change, **`dagger.lock` included**:
 
 ```sh
-dagger develop
+dagger generate -y
 ```
 
-They are committed rather than ignored because Dagger is moving to requiring
-generated code in the tree by v1.0, and because it means the module builds from
-a checkout alone instead of only after somebody has run `dagger develop`.
-`.dagger/.gitattributes` marks them `linguist-generated`, so they stay collapsed
-in diffs and out of the repository's language statistics.
+Run it from an ordinary clone; see [The pipeline does not run from a git
+worktree](#the-pipeline-does-not-run-from-a-git-worktree). `dagger develop` is
+gone on Dagger v1, and `dagger generate` is the only codegen command.
 
-A pull request whose `.dagger/main.go` or `dagger.json` moved without the
-generated files moving with it is a tree that does not build. Bumping a
-dependency pin counts: `dagger develop` rewrites `.dagger/internal/dagger/` from
-the dependency's schema, so the pin and the generated bindings have to land in
-the same commit.
+The generated code is committed rather than ignored because a v1 module builds
+from a checkout alone only if it is in the tree. Each module's `.gitattributes`
+marks it `linguist-generated`, so it stays collapsed in diffs and out of the
+repository's language statistics.
+
+[`dagger.lock`](dagger.lock) is committed for a different reason: it pins what
+the workspace resolves rather than what it declares. Two kinds of entry matter
+here. The Go SDK module (`github.com/dagger/go-sdk`) and its helpers are
+installed in `dagger.toml` without a version, and the lockfile is what turns
+that into one tag and one commit — so it pins the SDK chain that writes every
+committed generated file, and a `dagger generate` run against a newer SDK would
+write different files. And every image the pipeline pulls by tag is pinned by
+digest the first time it is resolved. Any Dagger command may add to the file,
+which is why every CI job that runs Dagger fails if it left `dagger.lock`
+changed, naming this section. If yours does, commit what your local run wrote.
+`dagger lock update` refreshes the pins deliberately.
+
+**`dagger call ci` fails on stale codegen.** Its `generated` part runs the Go
+SDK's own staleness check, which regenerates both modules and fails if anything
+differs. On v1.0.0-beta.15 that check was measured catching a binding with a
+line appended, a `go.mod` with a `require` removed, a `dagger-module.toml` with
+a key restored that codegen drops, and a companion function added without
+regenerating the root's client for it — so `ci` runs it rather than a
+comparison of its own (#429). `generated` also proves, on every run, that the
+check can fail: it makes the root's client for the companion stale in a copy of
+the workspace and requires that copy to fail. Before #429 nothing compared the
+committed files with what the engine writes, and two of them were edited by hand
+(#414, #425) because no installed CLI could regenerate the tree at all.
+
+So a passing `dagger call ci` prints `checks: 2/2 done (1 failed)` partway
+through. The failure is that proof, on the copy, doing what it is for. A stale
+tree fails `ci` itself, with a message that lists the files regeneration would
+change and says to run `dagger generate -y`.
+
+A pull request whose module source or configuration moved without the generated
+files moving with it is a red `ci`. Bumping a dependency pin counts: codegen
+rewrites `.dagger/internal/dagger/` from the dependency's schema, so the pin and
+the generated bindings land in the same commit.
 
 ## Why the module wraps the Z5Labs standard pipeline
 
@@ -240,8 +321,11 @@ the release notes, and the fact that this repository holds five Go modules.
 [`.dagger/main.go`](.dagger/main.go)'s package comment is the full list and the
 argument for each.
 
-Both dependencies in `dagger.json` are pinned to one `devex` commit, so a bump
-has to move them together.
+Both devex dependencies in the root [`dagger-module.toml`](dagger-module.toml)
+are pinned to one `devex` commit, so a bump has to move them together. The
+commit appears twice — in each dependency's `source`, and in the matching
+`clients` entry `dagger.toml` gives the root module's Go SDK scope — and both
+spellings move in the same commit.
 
 ## Linting
 
@@ -256,7 +340,7 @@ errcheck, govet, ineffassign, staticcheck and unused. Note that `staticcheck` in
 v2 subsumes what v1 called `gosimple` and `stylecheck`, so the same five names
 select more checks than they did under v1.
 
-If you run `golangci-lint` directly rather than through `dagger call lint`, use a
+If you run `golangci-lint` directly rather than through `dagger check lint`, use a
 v2 release or it will reject the config for the mirror-image reason.
 
 ### Linting the IR schema
@@ -264,7 +348,7 @@ v2 release or it will reject the config for the mirror-image reason.
 The resolved IR's protobuf schema lives at
 [`proto/cpybkc/ir/v1/ir.proto`](proto/cpybkc/ir/v1/ir.proto), and `buf.yaml` at
 the repository root configures the lint over it: buf's `STANDARD` category, with
-no exceptions and nothing ignored. `dagger call proto-lint` is what runs it, and
+no exceptions and nothing ignored. `dagger check proto-lint` is what runs it, and
 `ci` runs it too, so the gate covers the schema.
 
 That stage is this repository's own rather than the standard's, because the
@@ -301,7 +385,7 @@ Three consequences a contributor meets:
   parses `go.mod` by hand instead of using `golang.org/x/mod`.
 - **`go test ./...` from the repository root does not reach it.** That is Go's
   rule about nested modules, not a configuration, and it is why the pipeline
-  invokes the standard a second time as `dagger call ir-ci`. A change to `irpb/`
+  invokes the standard a second time as `dagger check ir-ci`. A change to `irpb/`
   is checked by `dagger call ci` like everything else, but through that call.
 - **The root `go.mod` requires it with a `replace`.** A module cannot be required
   at a version nobody has published yet, and the first `irpb/v0.1.0` can only tag
@@ -519,7 +603,7 @@ promise.
 
 **Nothing in the pipeline checks either**, and that is worth knowing before going
 looking for the check that would. Whether a change is breaking is a property of
-the change and not of the tag: `dagger call tag-scheme` can say that `v0.3.0` is
+the change and not of the tag: `dagger check tag-scheme` can say that `v0.3.0` is
 a canonical version pointing at HEAD, and that the family it implies is the
 archetype's, and it cannot say that the diff under it withdrew a rejection. The
 reading is the releaser's. A release that breaks a covered thing is still worth
@@ -579,7 +663,7 @@ binaries from the tree alone"*. Two things retired it:
   said, which is how `v0.0.0` shipped an image identifying itself as an
   unreleased development build.
 
-`dagger call image-contract` is what refuses a version that disagrees with the
+`dagger check image-contract` is what refuses a version that disagrees with the
 release it was cut from. It runs the published image's `--version` through its
 entrypoint, and runs the generator out of the image on a descriptor stating no
 IR version so that the refusal names the generator's own, and holds both to the
@@ -634,8 +718,8 @@ Dagger module's default](#the-default-image-tag-is-the-moving-major-tag)
 resolves through.
 
 ```sh
-dagger call tag-scheme             # the release decision, over the cases that matter
-dagger call release-notes-contract # the block a release's notes carry
+dagger check tag-scheme             # the release decision, over the cases that matter
+dagger check release-notes-contract # the block a release's notes carry
 ```
 
 Both are in `ci`, so the decision is checked on every pull request rather than
@@ -719,7 +803,7 @@ belongs here*).
 
 What is the module's own is the *mapping* — which function carries which flag —
 and that lives in this repository's pipeline, in
-[`.dagger/companion.go`](.dagger/companion.go), where `dagger call cli-surface`
+[`.dagger/companion.go`](.dagger/companion.go), where `dagger check cli-surface`
 fails on it. The rest it says in its module comment and in `dagger call --help`.
 What follows is the argument behind those, kept here because the argument is
 longer than the comment and outlives the reader who needs it.
@@ -744,34 +828,39 @@ here later sits beside it without either being renamed.
 
 ### One `engineVersion`, held by a dependency edge and one check
 
-The root [`dagger.json`](dagger.json) declares the companion as a **local**
-dependency (`"source": "daggerverse/cpybkc"`), and `dagger call engine-lock`
-asserts that the two `dagger.json` files pin the same engine. It takes both,
-and it is worth being exact about why, because the edge alone does only half
-the job.
+The root [`dagger-module.toml`](dagger-module.toml) declares the companion as a
+**local** dependency (`source = "daggerverse/cpybkc"`), and
+[`dagger.toml`](dagger.toml) makes it a local client of the root's Go SDK scope.
+`dagger check engine-lock` asserts that the two `dagger-module.toml` files
+declare the same engine, reading each with a TOML parser. It takes both, and it
+is worth being exact about why, because the edge alone does little of the job.
 
-The edge's half is one-directional, and it was measured rather than assumed.
-Setting the companion's `engineVersion` **above** the engine in use fails every
-root call outright:
+What the edge catches was measured rather than assumed, on v0.21.8 and again on
+v1.0.0-beta.15 (#429), where it catches less. Setting the companion's
+`engineVersion` to a higher **release** than the engine in use fails every root
+call outright:
 
 ```
-! failed to resolve dep to source: module requires dagger v0.99.0,
-  but you have v0.21.8
+! load local module source: resolve module dependency: load local module
+  source: module requires dagger v1.1.0, but you have v1.0.0-beta.15
 ```
 
-Setting it **below** the root's does not fail anything: `dagger functions`,
-`dagger call ci` and the rest load and run exactly as before. So the edge
-catches a companion that has run ahead of the engine, and it misses one that has
-been left behind — which is the direction drift actually goes, since lagging is
-what a file nobody edited does. `dagger develop` rewrites each module's own
-`dagger.json` independently, so the two can diverge through the ordinary
-workflow rather than through neglect.
+Anywhere else, nothing fails. Below the engine (`v1.0.0-beta.14`), `dagger
+functions`, `dagger call ci` and the rest load and run exactly as before. And
+beta.15 compares the release and ignores the prerelease, so a companion at
+`v1.0.0-beta.99`, or at `v1.0.0` itself, loads too — on v0.21.8 any higher
+version refused. So the edge catches a companion that has run a whole release
+ahead of the engine, and it misses every one that has been left behind — which
+is the direction drift actually goes, since lagging is what a file nobody edited
+does. Each module's `dagger-module.toml` is its own file, and nothing about
+`dagger generate` edits the other one, so the two can diverge through the
+ordinary workflow rather than through neglect.
 
-[`EngineLock`](.dagger/companion.go) covers that direction, and it is in `ci`,
-so it runs on every pull request:
+[`EngineLock`](.dagger/companion.go) covers all of that, and it is in `ci`, so it
+runs on every pull request:
 
 ```sh
-dagger call engine-lock
+dagger check engine-lock
 ```
 
 This is **not** the shape of check
@@ -793,7 +882,7 @@ served by one line.
 
 ### The companion module is checked like any other Go module here
 
-`dagger call companion-ci` runs the standard pipeline — fmt, vet, lint and `go
+`dagger check companion-ci` runs the standard pipeline — fmt, vet, lint and `go
 test -race` — over [`daggerverse/cpybkc/`](daggerverse/cpybkc/), and it is in
 `ci`. It is a third call rather than a wider source directory for the reason
 [`IrCi`](.dagger/main.go) is a second one: the companion is a separate Go
@@ -816,7 +905,7 @@ request, which needs an engine and a built image; this is the ordinary Go
 pipeline over the module's source, and the two catch different things.
 
 Both modules' generated code is committed, so a change to either is a
-`dagger develop` in that module and the generated files in the same commit —
+`dagger generate -y` and the generated files in the same commit —
 [*After changing the module*](#after-changing-the-module) applies to the
 companion exactly as it does to the root.
 
@@ -950,10 +1039,10 @@ now has to be argued in the diff, and the next section is how.
 
 What the stance risks is the CLI quietly growing a flag the module cannot
 express, which reads from out here exactly like a module that chose not to
-express it. `dagger call cli-surface` is the difference, and it is in `ci`:
+express it. `dagger check cli-surface` is the difference, and it is in `ci`:
 
 ```sh
-dagger call cli-surface
+dagger check cli-surface
 ```
 
 It reads the CLI's flag constants out of the [`cmd/cpybkc/`](cmd/cpybkc/) tree
@@ -1249,14 +1338,14 @@ table as somebody else's. The module comment carries the loop.
 ### The module's own calls are checked against the image this pull request built
 
 Everything above reads the module. `companion-ci` runs `go test` over its
-source, `engine-lock` reads its `dagger.json` and `cli-surface` reads its
+source, `engine-lock` reads its `dagger-module.toml` and `cli-surface` reads its
 function *names* — and none of the three makes a call, so a module whose calls
 no longer compose into a working image would fail none of them. `dagger call
 companion-module` is the one place `dagger call -m daggerverse/cpybkc …`
 actually happens, and it is in `ci` (#64):
 
 ```sh
-dagger call companion-module
+dagger check companion-module
 ```
 
 That matters more than it would for a contract, because the module is a
@@ -1353,7 +1442,7 @@ disagree about.
 
 ### The pipeline module is checked like any other Go module here
 
-`dagger call pipeline-ci` runs the standard pipeline over
+`dagger check pipeline-ci` runs the standard pipeline over
 [`.dagger/`](.dagger/), and it is in `ci`. It is a fourth call for the reason
 [`IrCi`](.dagger/main.go) is a second and
 [`CompanionCi`](.dagger/companion.go) a third: a nested `go.mod` is where `go
@@ -1371,7 +1460,7 @@ stopped working.
 
 ### The Parquet example is checked like any other Go module here
 
-`dagger call example-parquet-ci` runs the standard pipeline over every Go module
+`dagger check example-parquet-ci` runs the standard pipeline over every Go module
 nested under [`example/`](example/) — [`ledger/parquet/`](example/ledger/parquet/),
 the worked conversion of the example ledger, and
 [`policy/parquet/`](example/policy/parquet/), the wide sparse one beside it — and
@@ -1630,7 +1719,7 @@ What survives of it is the one thing the default depends on: that every release
 publishes the moving major tag. Since #185 the tag family is [derived and
 published by the shared
 pipeline](docs/container/SPEC.md#tags-and-what-pinning-one-buys), so
-`dagger call tag-scheme` no longer says it — that check covers only [whether a
+`dagger check tag-scheme` no longer says it — that check covers only [whether a
 commit is a release at
 all](#whether-a-commit-is-a-release-is-a-function-not-a-step). What says it now is
 `release` itself: after the push it reads back the references the publish

@@ -1,0 +1,16 @@
+[modules.cpybkc]
+source = "."
+entrypoint = true
+
+[modules.dagger-go-sdk]
+source = "github.com/dagger/go-sdk"
+
+[sdks.go]
+module = "dagger-go-sdk"
+
+[sdks.go.scopes."."]
+clients = ["./daggerverse/cpybkc", "github.com/z5labs/devex/daggerverse/go@fa34af9724d005a0496f8b478ee04f60f7fc0246", "github.com/z5labs/devex/daggerverse/z5labs@fa34af9724d005a0496f8b478ee04f60f7fc0246"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/cpybkc"]
+is-module = true

@@ -84,15 +84,15 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
 
-      # Pinned to the engineVersion the module itself declares, read out of
-      # dagger.json rather than repeated here — the same step, for the same
-      # reason, as ci.yaml's.
+      # Pinned to the engineVersion the module itself declares, read out of the
+      # root dagger-module.toml with a TOML parser rather than repeated here —
+      # the same step, for the same reason, as ci.yaml's.
       - name: Install the Dagger CLI
         run: |
           set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("dagger-module.toml", "rb"))["engineVersion"].removeprefix("v"))')"
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
-            | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
-              BIN_DIR="$HOME/.local/bin" sh
+            | DAGGER_VERSION="$version" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # The same four functions `dagger call ci` builds on every pull request
@@ -105,6 +105,20 @@ jobs:
           dagger call ir-protos export --path "$RUNNER_TEMP/ir-protos.tar.gz"
           dagger call layout-schema export --path "$RUNNER_TEMP/layout-schema.sexpr"
           dagger call conformance-bundle export --path "$RUNNER_TEMP/cpybkc-conformance.tar.gz"
+
+      # The same check ci.yaml makes, for the same reason: dagger.lock is
+      # committed, and a run that left it changed resolved something the tag's
+      # tree does not pin. Here it is after the build and before the upload, so a
+      # release whose tree resolved something unpinned does not attach assets
+      # built from it.
+      - name: Check that the run left dagger.lock unchanged
+        if: always()
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code dagger.lock; then
+            echo "::error file=dagger.lock::this run changed dagger.lock. Run \`dagger generate -y\` (or \`dagger lock update\`) in a clone and commit dagger.lock on main — CONTRIBUTING.md, \"After changing the module\"."
+            exit 1
+          fi
 
       # --clobber so that re-running a failed release job replaces the assets
       # instead of failing on a name that is already taken. Every artifact is a
@@ -193,12 +207,13 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # The same step as the artifacts job's, for the same reason.
       - name: Install the Dagger CLI
         run: |
           set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("dagger-module.toml", "rb"))["engineVersion"].removeprefix("v"))')"
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
-            | DAGGER_VERSION="$(jq -r .engineVersion dagger.json | tr -d v)" \
-              BIN_DIR="$HOME/.local/bin" sh
+            | DAGGER_VERSION="$version" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # The registry and the repository are two values now, because the shared
@@ -283,3 +298,17 @@ jobs:
             --notes "$RUNNER_TEMP/notes.md" \
             --reference "$IMAGE_REFERENCE" > "$RUNNER_TEMP/notes.new.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.new.md"
+
+      # The same check ci.yaml makes, for the same reason: dagger.lock is
+      # committed, and a run that left it changed resolved something the tag's
+      # tree does not pin. Here it is after the publish rather than before it,
+      # because it is a finding about the tree to fix on main, not a reason to
+      # withhold a release whose contract checks passed.
+      - name: Check that the run left dagger.lock unchanged
+        if: always()
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code dagger.lock; then
+            echo "::error file=dagger.lock::this run changed dagger.lock. Run \`dagger generate -y\` (or \`dagger lock update\`) in a clone and commit dagger.lock on main — CONTRIBUTING.md, \"After changing the module\"."
+            exit 1
+          fi

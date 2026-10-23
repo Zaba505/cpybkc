@@ -222,7 +222,8 @@ import (
 // The buf release ProtoLint runs, pinned by tag and by digest. The tag says
 // which release it is and the digest is what actually resolves, so a retagged
 // image cannot change what this repository lints against without the change
-// appearing in a diff — the same promise dagger.json's dependency pins make.
+// appearing in a diff — the same promise the devex commit pinned in
+// dagger-module.toml makes.
 const bufImage = "bufbuild/buf:1.72.0@sha256:65bd496a89c762ad7151ca9e7d885a45dacb3671a8e8ec39738b9f844d3405ea"
 
 const (
@@ -403,11 +404,12 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 // every platform it ships for, the worked examples docs/container/SPEC.md hands
 // an adopter, the release decision and the release notes a release is published
 // under, the companion module's coverage of the CLI's flags, and that module's
-// own functions driven over the image this run just built. This is the single entrypoint — CI is
+// own functions driven over the image this run just built, and that the code
+// `dagger generate` writes is committed as the pinned engine writes it. This is the single entrypoint — CI is
 // one `dagger call ci` and stays one, because a workflow step that reran any of
 // these stages would be a second definition of them.
 //
-// The seventeen parts run concurrently and all are reported, for the reason the
+// The eighteen parts run concurrently and all are reported, for the reason the
 // standard runs its own four that way: waiting on a Go stage to learn that the
 // schema is unlintable, or the reverse, is a second push to find out about the
 // second failure.
@@ -421,21 +423,35 @@ func (m *Cpybkc) appSource() *dagger.Directory {
 // release attaches (#202).
 //
 // ExampleParquetCi is the one that arrived at seventeen, for the worked Parquet
-// conversion's own module (#274).
+// conversion's own module (#274). Generated arrived at eighteen, with the move
+// to Dagger v1 (#429): it is the only part that reads the workspace rather than
+// Source, which is why callingWorkspace is Ci's argument. The Dagger CLI fills
+// it in; see Generated.
 //
-// ImageContract is one of the seventeen, and since #185 that stage builds an App —
+// ImageContract is one of the eighteen, and since #185 that stage builds an App —
 // so this call needs real git metadata and does not run from a git worktree. See
 // New.
 //
-// +check
+// Ci is deliberately not a +check, though every part it runs is one. On
+// Dagger v1 a +check function reached through `dagger call` hands back a Check
+// object rather than its error, and the command exits 0 whether the check passed
+// or failed — measured on v1.0.0-beta.15 (#429): `dagger call engine-lock` over
+// two modules that disagree printed the failure and exited 0, where
+// `dagger check engine-lock` exited 1. `dagger call ci` is the gate CI runs, the
+// gate a contributor runs and the backlog cycle's verify command, so a Ci that
+// could not fail it would be no gate at all. Left a plain function, it returns
+// its error, and the command exits non-zero on it. `dagger check` still runs
+// every part, and no longer runs them twice. z5labs/devex#444 dropped the
+// annotation from its builders' Ci for the same reason.
+//
 // +cache="session"
-func (m *Cpybkc) Ci(ctx context.Context) error {
+func (m *Cpybkc) Ci(ctx context.Context, callingWorkspace *dagger.Workspace) error {
 	var goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, imageErr, exampleErr error
 	var tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr error
-	var conformanceErr, parquetErr error
+	var conformanceErr, parquetErr, generatedErr error
 
 	var wg sync.WaitGroup
-	wg.Add(17)
+	wg.Add(18)
 
 	go func() {
 		defer wg.Done()
@@ -525,11 +541,16 @@ func (m *Cpybkc) Ci(ctx context.Context) error {
 		parquetErr = m.ExampleParquetCi(ctx)
 	}()
 
+	go func() {
+		defer wg.Done()
+		generatedErr = m.Generated(ctx, callingWorkspace)
+	}()
+
 	wg.Wait()
 
 	return errors.Join(goErr, irErr, protoErr, buildErr, artifactErr, layoutErr, conformanceErr, imageErr,
 		exampleErr, tagErr, notesErr, companionErr, engineErr, surfaceErr, moduleErr, pipelineErr,
-		parquetErr)
+		parquetErr, generatedErr)
 }
 
 // IrCi runs the same standard pipeline over irpb/, the published IR module.

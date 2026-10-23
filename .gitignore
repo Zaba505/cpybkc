@@ -21,13 +21,14 @@ profile.cov
 /bin/
 /dist/
 
-# Dagger codegen artifacts are deliberately NOT ignored. `dagger.gen.go` and
-# .dagger/internal/ are committed: Dagger is moving to requiring generated code
-# in the tree by v1.0, and committing it now means the module builds from a
-# checkout alone rather than only after somebody has run `dagger develop`. They
-# are marked linguist-generated in .dagger/.gitattributes so they stay out of
-# diffs and language stats. Regenerate with `dagger develop` and commit the
-# result.
+# Dagger codegen artifacts are deliberately NOT ignored. Each module's
+# `dagger.gen.go` and internal/dagger/ are committed, and so is dagger.lock: on
+# Dagger v1 a module builds from a checkout alone only if its generated code is
+# in the tree, and the lockfile pins the SDK chain that wrote it and the image
+# digests the pipeline pulls. The generated files are marked linguist-generated
+# in each module's .gitattributes so they stay out of diffs and language stats.
+# Regenerate with `dagger generate -y` and commit the result, dagger.lock
+# included; `dagger call ci` fails on a tree where that would change anything.
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
