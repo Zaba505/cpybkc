@@ -339,6 +339,7 @@ diagnostic naming the tag and its position.
 | `record` | 1..n | record definitions |
 | `copybook-reading` | 0..1 | record definitions |
 | `rename` | 0..n | record definitions |
+| `definitions-block` | 0..n | record definitions |
 | `discriminate` | one per `record` | discrimination |
 | `discriminate-variant` | one per variant | discrimination |
 | `schedule-variant` | one per variant | discrimination |
@@ -1430,10 +1431,11 @@ space of their own, scoped to the layout, and a block no record names is an
 error ([What a record may reach](#what-a-record-may-reach), [A block's name, and
 a block no record names](#a-blocks-name-and-a-block-no-record-names)).
 
-This section is not yet a row of [The top-level forms](#the-top-level-forms).
-That table and `schema/layout.sexpr` are held equal by a test, so the row lands
-with the declaration, in #400, and until then a layout carrying one is refused
-as an unknown top-level form.
+It is a row of [The top-level forms](#the-top-level-forms), and was added there
+with its declaration in `schema/layout.sexpr`, in #400, because a test holds that
+table and the schema equal. A run checks a block against the schema and refuses
+it at its tag, saying definitions blocks are not resolved by this build, until
+#409 resolves a record held in one; it opens nothing for it.
 
 ### How a definitions file and a layout are told apart
 
@@ -2765,9 +2767,11 @@ The declarations take this shape:
 The schema stays `(schema layout 1)`, under [the rule for changes made while
 version 1 is being
 settled](#the-version-is-in-the-file-and-it-moves-with-the-format). The
-declarations land in `schema/layout.sexpr` itself, with #400 — this chapter
-(#395) states them and changes no schema file — and no second schema file or
-release asset is introduced for them.
+declarations are in `schema/layout.sexpr` itself, added by #400 after this
+chapter (#395) stated them, and no second schema file or release asset is
+introduced for them. A definitions file is checked by holding its top-level
+forms to the declaration of a block's entries, and a diagnostic about its top
+level names a definitions file where one about a layout's names a layout.
 
 ### What the schema does not say
 
@@ -3525,9 +3529,9 @@ trailer.
 | [The surface syntax](#the-surface-syntax) | #22 `layout`; the data-name sort in an item reference, and the delegated refusals governing a layout's own forms while an entry body follows the entry rules, by #395 against discussion #394 |
 | [The encoding profile](#the-encoding-profile) | #25 `layout`; an item that carries bytes rather than text, and the conversion residue left out beside it, by #275; a worked example of the converted file the section calls the most common, by #273; why the binary width staircase `codec/SPEC.md` declares fifth is not one of these four, by #293; that a form whose only content is its presence is refused among a layout's own forms and not in an entry body, by #395 |
 | [Physical framing](#physical-framing) | #26 `layout` |
-| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394; a record's source — a copybook, a definitions file or a block — what a record may reach, block names and their faults, the one shape of a missing description or item across the three sources, composition carried to a file or a block, and the three sources resolving to byte-identical descriptors, settled by #399 against discussion #394; the `definitions` form declared and read by #402, and resolved by #405 for a file and #409 for a block |
-| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations and the reader by #400, the absent `at-most-one` argument by #396, the converter and the judge by #401, a record naming a file or a block by #399 and #402, how a definitions file and a layout are told apart, and what each is reported as when reached the wrong way, by #399 against discussion #394, and the data-name sort in a layout's item positions by #404 |
+| [Record definitions](#record-definitions) | #27, #30 `layout`; `copybook-reading` by #35 `resolve`; which alternative a `record` form is, a rename naming a record, and a rename being per record, settled by #164; that an alternative is chosen the same way whichever source holds a record's entries, the data-name sort in the copybook's top-level name, and the [prohibition on derived quantities](#a-layout-states-relationships-and-sizes-and-nothing-derived) governing a layout's own forms, by #395 against discussion #394; a record's source — a copybook, a definitions file or a block — what a record may reach, block names and their faults, the one shape of a missing description or item across the three sources, composition carried to a file or a block, and the three sources resolving to byte-identical descriptors, settled by #399 against discussion #394; the `definitions-block` top-level form declared by #400 against discussion #394; the `definitions` form declared and read by #402, and resolved by #405 for a file and #409 for a block |
+| [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations, the check of a definitions file as one block's body, the entry reader, and a run refusing a block at its tag until #409 resolves one, by #400 against discussion #394, the absent `at-most-one` argument by #396, the converter and the judge by #401, a record naming a file or a block by #399 and #402, how a definitions file and a layout are told apart, and what each is reported as when reached the wrong way, by #399 against discussion #394, and the data-name sort in a layout's item positions by #404 |
 | [Discrimination](#discrimination) | #28 `layout`; an arm's and a `take-alternative`'s alternative written as a data-name, by #395 against discussion #394; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
-| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394; the `record-source` sort and `definitions-origin`, stated by #399 against discussion #394 and declared by #402 |
-| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397; a record's second span pointing into its description whichever source holds it, a file named as the run opened it and a block as the layout, by #399 against discussion #394 |
+| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared in `schema/layout.sexpr` and the definitions-file check added by #400 against discussion #394; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394; the `record-source` sort and `definitions-origin`, stated by #399 against discussion #394 and declared by #402 |
+| [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394; the schema check run before any layer reader, and each fault reported once under one rule, by #397; the schema check's and the entry reader's halves of an entry body's faults, with one text in a file and in a block, by #400 against discussion #394; a record's second span pointing into its description whichever source holds it, a file named as the run opened it and a block as the layout, by #399 against discussion #394 |

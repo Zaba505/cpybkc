@@ -31,6 +31,16 @@ const (
 	// did not reach. It is the combination "All four, always, with no default
 	// for any" calls the one real files hit most often.
 	ConvertedExample = "## Appendix: A converted file, end to end"
+
+	// DefinitionsFileExample is a definitions file rather than a layout: the
+	// entries of a vendor's posting copybook, transcribed into an entry body
+	// in the printed form `init` writes.
+	DefinitionsFileExample = "## Appendix: A definitions file"
+
+	// DefinitionsExample is a layout describing its records three ways, record
+	// by record: by a copybook, by the definitions file above, and by a
+	// `definitions-block` held in the layout itself.
+	DefinitionsExample = "## Appendix: Definitions held three ways"
 )
 
 // fence opens and closes a Markdown code block in this document.

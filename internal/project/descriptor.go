@@ -45,6 +45,10 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 		return nil, err
 	}
 
+	if err := refuseBlocks(file); err != nil {
+		return nil, err
+	}
+
 	read, err := readLayers(file)
 	if err != nil {
 		return nil, err
@@ -106,6 +110,37 @@ func readLayout(path, spelling string) (*layout.File, error) {
 	}
 
 	return file, nil
+}
+
+// refuseBlocks refuses every `definitions-block` the layout carries, at its tag,
+// because nothing resolves a record held in one yet (#409).
+//
+// It runs after the schema check, so every block refused here is one whose
+// entries the schema admitted, and before every layer reader and every copybook,
+// so a layout carrying a block opens nothing: what the run would read once
+// blocks resolve is the layout, and a copybook opened for the records beside one
+// would report faults about a run that is not going to happen. Every block is
+// reported rather than the first, for the reason every stage reports everything
+// it found.
+func refuseBlocks(file *layout.File) error {
+	var faults diag.List
+
+	for _, form := range file.Forms {
+		if form.Tag != layoutschema.BlockForm {
+			continue
+		}
+
+		var name string
+		if len(form.Elements) > 0 {
+			if symbol, ok := form.Elements[0].(layout.Symbol); ok {
+				name = symbol.Value
+			}
+		}
+
+		faults.Fail(&DefinitionsBlockError{Pos: span(form.TagPos), Name: name})
+	}
+
+	return faults.Err()
 }
 
 // layers is a layout, read: every layer of it, and nothing resolved against a

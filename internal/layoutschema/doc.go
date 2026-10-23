@@ -48,6 +48,24 @@
 // to the same text. [Load] remains for a caller holding some other schema — a
 // test building one, or a tool checking the file before it is published.
 //
+// # A definitions file is one block's body
+//
+// The schema describes two kinds of document and declares one of them only by
+// way of the other. A layout is checked by [Schema.Check]. A definitions file —
+// a transcription of a copybook's entries, docs/layout/SPEC.md's "Definitions"
+// — has no schema and no version of its own: [Schema.CheckDefinitions] holds its
+// top-level forms to the declaration of what a `definitions-block` holds after
+// its name, so a fault inside an entry reads in the same words in a file as in a
+// block (#400). Only the top level differs, and a diagnostic there names the
+// document it is about — "a definitions file", where a layout's says "a
+// layout". [BlockForm] is the one tag this package names, because that link is
+// what a definitions file is.
+//
+// What a declaration cannot say about an entry body — a needless `(word …)`,
+// a text that is not exactly one COBOL token — is
+// [github.com/Zaba505/cpybkc/internal/definitions]' to report, and what
+// `cobol-go` judges is neither package's.
+//
 // # Why diagnostics rather than an error
 //
 // [Schema.Check] returns every diagnostic it finds rather than the first,

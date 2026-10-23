@@ -342,6 +342,44 @@ func quoteAll(names []string) []string {
 	return quoted
 }
 
+// DefinitionsBlockError is a `definitions-block` this build checks and does not
+// resolve.
+//
+// docs/layout/SPEC.md admits the form and the published schema declares it, so
+// a layout carrying one has had the block's every entry held to the schema
+// before this is reported: a misspelled clause inside it is reported as that,
+// and never as this. What is not here is the rest of the way — a record naming
+// the block (#402), and resolving a record held in one (#409). Until both are,
+// the run refuses each block at its tag rather than reading past it, so no build
+// accepts a block and then ignores it.
+//
+// The message says the construct is not resolved rather than that the layout is
+// wrong, on the precedent [ScheduledVariantError] set: an adopter who wrote a
+// correct block must not be sent to rewrite it.
+type DefinitionsBlockError struct {
+	// Pos is the block's tag.
+	Pos diag.Span
+
+	// Name is the block's name, or empty where the schema check would have
+	// refused its absence and so never let this be reached.
+	Name string
+}
+
+// Error implements the error interface.
+func (e *DefinitionsBlockError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DefinitionsBlockError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the definitions block %s is not resolved by this build", e.Name),
+		Spans: []diag.Span{
+			e.Pos,
+			{Note: "definitions blocks are not resolved by this build: a block is checked against the " +
+				"published schema, and nothing resolves a record held in one yet, so the run reads nothing further"},
+		},
+	}
+}
+
 // GeneratorError is a generator the manifest names that could not be resolved to
 // an executable.
 //
