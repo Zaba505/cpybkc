@@ -46,9 +46,13 @@ type SequenceItemError struct {
 	// Pos is the item reference in the layout.
 	Pos diag.Span
 
-	// Copybook is the copybook the record is bound to, where there is one to
-	// point into.
+	// Copybook is the description the record is bound to, where there is one
+	// to point into.
 	Copybook diag.Span
+
+	// Kind is which kind of source holds that description, which is what the
+	// second span's note calls it.
+	Kind layoutmodel.SourceKind
 
 	// Operator is the operator the reference stands under, as a layout
 	// spells it: `times` or `when`.
@@ -71,7 +75,7 @@ func (e *SequenceItemError) Error() string { return e.Diagnostic().String() }
 func (e *SequenceItemError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf("the %s reads %s, and %s", e.Operator, e.Item, e.Found),
-		Spans:   spans(e.Pos, e.Copybook, "the record "+e.Record+" is bound to this copybook"),
+		Spans:   spans(e.Pos, e.Copybook, "the record "+e.Record+" is bound to this "+noun(e.Kind)),
 	}
 }
 
@@ -492,11 +496,7 @@ func spans(at, copybook diag.Span, note string) []diag.Span {
 // layer named: the path comes from that record's `record` form rather than from
 // one set of [Options].
 func copybookSpan(record SequencedRecord, field *copybook.Field) diag.Span {
-	span := diag.Span{File: record.Copybook}
-	if field != nil {
-		span.Line, span.Column = field.Pos.Line, field.Pos.Column
-	}
-	return span
+	return record.Source.Span(field)
 }
 
 // renderGuards draws a guard list the way a message quotes one.

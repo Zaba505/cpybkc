@@ -87,6 +87,7 @@ func (c *compiler) discriminator(record SequencedRecord) *Predicate {
 		c.faults.Fail(&PredicateTargetError{
 			Pos:      layoutSpan(strategy.Item.Pos),
 			Copybook: copybookSpan(record, nil),
+			Kind:     record.Source.Kind,
 			Record:   record.Name,
 			Item:     strategy.Item,
 			Found:    "it is rooted at record " + quote(strategy.Item.Record),
@@ -100,9 +101,10 @@ func (c *compiler) discriminator(record SequencedRecord) *Predicate {
 		c.faults.Fail(&PredicateTargetError{
 			Pos:      layoutSpan(strategy.Item.Pos),
 			Copybook: copybookSpan(record, nil),
+			Kind:     record.Source.Kind,
 			Record:   record.Name,
 			Item:     strategy.Item,
-			Found:    "its copybook does not lay out",
+			Found:    "its " + record.Source.Noun() + " does not lay out",
 		})
 
 		return nil
@@ -118,6 +120,7 @@ func (c *compiler) discriminator(record SequencedRecord) *Predicate {
 		c.faults.Fail(&PredicateTargetError{
 			Pos:      layoutSpan(strategy.Item.Pos),
 			Copybook: copybookSpan(record, nil),
+			Kind:     record.Source.Kind,
 			Record:   record.Name,
 			Item:     strategy.Item,
 			Found:    found,

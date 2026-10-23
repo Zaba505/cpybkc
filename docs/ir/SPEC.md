@@ -2260,14 +2260,21 @@ one is.
 
 ## Names
 
-Every named node carries the original COBOL name, spelled as the copybook spells
-it, and **MAY** carry an override alongside it (#30). Both are language-neutral,
-and a producer **MUST NOT** apply the casing or identifier conventions of any
-language to either (#50).
+Every named node carries the original COBOL name, spelled as the record's
+description spells it — a copybook, or definitions transcribed from one — and
+**MAY** carry an override alongside it (#30). Both are language-neutral, and a
+producer **MUST NOT** apply the casing or identifier conventions of any language
+to either (#50).
 
 The original **MUST** be present even where an override is. A rename substitutes
 a name, and the substitute is carried beside the original rather than in place
-of it, so that generated code can still point back at the copybook it came from.
+of it, so that generated code can still point back at the description it came
+from.
+
+Which of the two holds the description changes nothing here. A definitions
+file transcribes a copybook's entries name for name, so a record bound to either
+carries the same originals, and the descriptor is the same bytes
+([`layout/SPEC.md`](../layout/SPEC.md#three-sources-one-descriptor), #405).
 
 **A record node resolved from a `REDEFINES` carries the `01`-level's name**, and
 not the alternative's. [Members never overlap, and `REDEFINES` is resolved
@@ -4430,7 +4437,9 @@ them. Options travel with the invocation instead, in
 
 ### How the IR is produced
 
-The algorithm that turns a copybook and a layout into IR is **not specified**.
+The algorithm that turns a layout, and each record's description as the
+record's description spells it — a copybook, or definitions transcribed from
+one — into IR is **not specified**.
 
 Reason: `resolve` (#32–#38) is an implementation, and its correctness criterion
 is that its output satisfies this document. Writing the algorithm down as well
@@ -4794,7 +4803,7 @@ records offer them.
 | [Offsets and widths](#offsets-and-widths) | #32, #34, #35 `resolve`, #77, #82, #84, #87, #88, #89, #90 `ir`; what a binary item's width depends on, and the requirement that a descriptor say which staircase it was resolved under, by #293 |
 | [Physical framing](#physical-framing) | #78, #88, #92, #94 `ir`, #26 `layout`, #52 `gen-go` |
 | [The encoding profile, applied](#the-encoding-profile-applied) | #33 `resolve`; an item that carries bytes rather than characters by #275; the fifth axis, the binary width staircase resolved from the dialect, by #293; which consumers the axis rule binds, settled by #297; a consumer reading under axes other than a field's resolved ones, how each axis re-expresses a literal it compares, the staircase it may not replace and what it refuses, by #379 against discussion #378, with the corpus and adapter contract stating the axes an entry is read under left to #383 |
-| [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164 |
+| [Names](#names) | #30 `layout`, #38 `resolve`; what a record node resolved from a `REDEFINES` is called, settled by #164; the original as the record's description spells it, a copybook or definitions transcribed from one, by #405 against discussion #394 |
 | [The sequencing automaton](#the-sequencing-automaton) | #36 `resolve`, #76, #77, #80, #84, #88 `ir`; the order a state's transitions are carried in, made a property of what each discriminator reads by #331; a bytes register's guard literal as the resolved axes spell it, and re-expressed by a consumer reading under others, by #379 |
 | [Discriminator predicates](#discriminator-predicates) | #28 `layout`, #37 `resolve`, #80, #84, #88, #90, #94 `ir`; whether a producer may emit an overlapping pair resolved by evaluation order, refused by #324 and admitted by #332 for the pair whose runs share no byte, against discussion #323; whether an arm may be selected by its position in the table rather than by an occurrence's bytes, admitted by #346 as a selector beside the predicate and not as a third member, against discussion #340; a predicate's literals as the resolved axes spell them, and re-expressed by a consumer reading under others, by #379 |
 | [Writing a file](#writing-a-file) | #79, #80, #82, #88, #89, #90 `ir`, #51, #52 `gen-go`; reader and writer agreement re-derived from the transition order, and the writer's evaluation of the transitions ordered ahead of the one it took, by #333; a scheduled arm made the descriptor's rather than the caller's by #346 |

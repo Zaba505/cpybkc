@@ -41,11 +41,13 @@ func (e *MissingCopybookError) Diagnostic() Diagnostic {
 // Unwrap gives up the read failure.
 func (e *MissingCopybookError) Unwrap() error { return e.Err }
 
-// UndeclaredItemError is a copybook that reads and does not declare the
-// top-level item the record names.
+// UndeclaredItemError is a record's description — a copybook, or a definitions
+// file — that reads and does not declare the top-level item the record names.
 //
-// It is the cross-file diagnostic docs/layout/SPEC.md requires by name: one
-// span into the layout at the `copybook` child, and one into the copybook. The
+// It is the cross-file diagnostic docs/layout/SPEC.md requires by name, in one
+// shape whichever source holds the description ("A copybook that is not there,
+// and an item that is not in it"): one span into the layout at the source, and
+// one into the description. The
 // second points at what is *there* — the `01`-levels the copybook does
 // declare — because an absent item has no position, and the list an adopter
 // needs in order to fix the record is the list of the ones they could have
@@ -55,10 +57,16 @@ func (e *MissingCopybookError) Unwrap() error { return e.Err }
 // and the span is then the file: leave [UndeclaredItemError.Copybook]'s line at
 // zero and it renders as the file alone.
 type UndeclaredItemError struct {
-	// Pos is the `copybook` child in the layout.
+	// Pos is the record's source in the layout.
 	Pos Span
 
-	// Path is the copybook's path as the layout spells it.
+	// Source is what the message calls the kind of description: "copybook",
+	// "definitions file" or "definitions block". Empty reads as a copybook,
+	// which is what every caller meant before a record could be held
+	// anywhere else.
+	Source string
+
+	// Path is the description's path as the layout spells it.
 	Path string
 
 	// Item is the top-level item as the layout spells it.
@@ -91,8 +99,13 @@ func (e *UndeclaredItemError) Diagnostic() Diagnostic {
 		copybook.Note = "it declares " + joinAnd(e.Declares)
 	}
 
+	source := e.Source
+	if source == "" {
+		source = "copybook"
+	}
+
 	return Diagnostic{
-		Message: fmt.Sprintf("the copybook %q declares no %s", e.Path, e.Item),
+		Message: fmt.Sprintf("the %s %q declares no %s", source, e.Path, e.Item),
 		Spans:   []Span{e.Pos, copybook},
 	}
 }

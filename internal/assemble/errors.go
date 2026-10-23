@@ -13,6 +13,7 @@ import (
 	"github.com/Zaba505/cobol-go/copybook"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
+	"github.com/Zaba505/cpybkc/internal/resolve"
 )
 
 // The faults this package reports fall into two halves, and the halves carry
@@ -64,9 +65,9 @@ type DuplicateRecordError struct {
 	// Record is the name given twice.
 	Record string
 
-	// Copybook is the second entry's copybook, which is the file the caller
-	// would look in to tell the two apart.
-	Copybook string
+	// Source is where the second entry's description is held, which is the
+	// file the caller would look in to tell the two apart.
+	Source resolve.Source
 }
 
 // Error implements the error interface.
@@ -77,7 +78,7 @@ func (e *DuplicateRecordError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
 			"two record types are named %s, so no transition can say which of them it admits", e.Record),
-		Spans: []diag.Span{{File: e.Copybook}},
+		Spans: []diag.Span{{File: e.Source.File}},
 	}
 }
 

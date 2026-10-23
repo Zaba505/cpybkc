@@ -2613,10 +2613,11 @@ func (*VariableCount_RegisterId) isVariableCount_Count() {}
 // member lists it has already inverted.
 type Names struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The name as the copybook spells it. Present even where an override is: a
+	// The name as the record's description spells it — a copybook, or
+	// definitions transcribed from one. Present even where an override is: a
 	// rename substitutes a name, and the substitute is carried beside the
 	// original rather than in place of it, so that generated code can still point
-	// back at the copybook it came from.
+	// back at the description it came from.
 	//
 	// Language-neutral. A producer MUST NOT apply the casing or identifier
 	// conventions of any language to either name; turning one into an identifier

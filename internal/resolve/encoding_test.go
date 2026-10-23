@@ -54,7 +54,7 @@ func resolveUnder(
 	}
 
 	records, err := Resolve(field, Options{
-		Copybook:          "test.cpy",
+		Source:            CopybookAt("test.cpy"),
 		Dialect:           copybook.IBMEnterprise(),
 		Encoding:          profile,
 		EncodingOverrides: overrides,
@@ -166,7 +166,7 @@ func TestNoNodeButAFieldCarriesAnEncoding(t *testing.T) {
    05 Z PIC X(2).
 `)
 	records, err := Resolve(field, Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  dialect,
 		Encoding: mainframe(),
 		EncodingOverrides: []EncodingOverride{
@@ -445,7 +445,7 @@ func TestAnOverrideReachesInsideAVariantsArms(t *testing.T) {
 
 	field := recordOf(t, tableSource)
 	records, err := Resolve(field, Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
 		EncodingOverrides: []EncodingOverride{{
@@ -507,7 +507,7 @@ func TestResolveRejectsAProfileWithAHoleInIt(t *testing.T) {
 	profile.FloatFormat = ""
 
 	_, err := Resolve(recordOf(t, "01 R.\n   05 A PIC X(4).\n"), Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: profile,
 	})
@@ -535,8 +535,8 @@ func TestResolveRejectsAnEmptyProfile(t *testing.T) {
 	t.Parallel()
 
 	_, err := Resolve(recordOf(t, "01 R.\n   05 A PIC X(4).\n"), Options{
-		Copybook: "test.cpy",
-		Dialect:  copybook.IBMEnterprise(),
+		Source:  CopybookAt("test.cpy"),
+		Dialect: copybook.IBMEnterprise(),
 	})
 
 	var incomplete *IncompleteProfileError
@@ -561,7 +561,7 @@ func TestTheCompletenessAssertionCatchesAFieldWithAnUnsetAxis(t *testing.T) {
 	t.Parallel()
 
 	record := recordOf(t, "01 R.\n   05 A PIC X(4).\n")
-	r := &resolver{opts: Options{Copybook: "test.cpy"}, record: record}
+	r := &resolver{opts: Options{Source: CopybookAt("test.cpy")}, record: record}
 
 	held := &Node{Kind: KindField, Field: fieldNamed(t, record, "A"), width: 4}
 	held.Encoding = mainframe()
@@ -596,7 +596,7 @@ func TestTheCompletenessAssertionPassesEveryResolutionThisPackageProduces(t *tes
 
 	field := recordOf(t, tableSource)
 	records, err := Resolve(field, Options{
-		Copybook: "test.cpy",
+		Source:   CopybookAt("test.cpy"),
 		Dialect:  copybook.IBMEnterprise(),
 		Encoding: mainframe(),
 		Redefines: []Redefine{{
@@ -611,7 +611,7 @@ func TestTheCompletenessAssertionPassesEveryResolutionThisPackageProduces(t *tes
 		t.Fatalf("resolving: %v", err)
 	}
 
-	r := &resolver{opts: Options{Copybook: "test.cpy"}, record: field}
+	r := &resolver{opts: Options{Source: CopybookAt("test.cpy")}, record: field}
 	r.assertResolved(records)
 	if r.faults.Failed() {
 		t.Fatalf("the assertion faulted on a resolution this package produced: %v", r.faults.Err())
@@ -814,7 +814,7 @@ func TestCharsetNoneIsHeldToItemsItCanMeanSomethingFor(t *testing.T) {
 
 			field := recordOf(t, testCase.source)
 			_, err := Resolve(field, Options{
-				Copybook:          "test.cpy",
+				Source:            CopybookAt("test.cpy"),
 				Dialect:           copybook.IBMEnterprise(),
 				Encoding:          mainframe(),
 				EncodingOverrides: []EncodingOverride{noneOn(t, field, testCase.item)},
@@ -853,7 +853,7 @@ func TestCharsetNoneNamesTheLayoutAndTheCopybook(t *testing.T) {
 
 	field := recordOf(t, "01 R.\n   05 G.\n      10 QTY PIC 9(4).\n")
 	_, err := Resolve(field, Options{
-		Copybook:          "cpy/region.cpy",
+		Source:            CopybookAt("cpy/region.cpy"),
 		Dialect:           copybook.IBMEnterprise(),
 		Encoding:          mainframe(),
 		EncodingOverrides: []EncodingOverride{noneOn(t, field, "G")},

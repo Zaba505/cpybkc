@@ -153,7 +153,7 @@ func resolvedUnder(t *testing.T, binary copybook.BinarySize, of staircaseCase, d
 	dialect := staircaseDialect(binary)
 
 	resolved, err := resolve.Resolve(records[0], resolve.Options{
-		Copybook: "bin.cpy",
+		Source:   resolve.CopybookAt("bin.cpy"),
 		Dialect:  dialect,
 		Framing:  framing,
 		Reading:  layoutmodel.ODOSlide,
@@ -170,7 +170,7 @@ func resolvedUnder(t *testing.T, binary copybook.BinarySize, of staircaseCase, d
 		Encoding: profile.Axes,
 		Records: []resolve.SequencedRecord{{
 			Name:          "BIN",
-			Copybook:      "bin.cpy",
+			Source:        resolve.CopybookAt("bin.cpy"),
 			Item:          records[0],
 			Discriminator: discrimination.Records[0].Strategy,
 		}},
@@ -182,7 +182,7 @@ func resolvedUnder(t *testing.T, binary copybook.BinarySize, of staircaseCase, d
 	descriptor, err := assemble.Assemble(assemble.Options{
 		Framing:   framing,
 		Automaton: automaton,
-		Records:   []assemble.Record{{Name: "BIN", Copybook: "bin.cpy", Resolved: resolved[0]}},
+		Records:   []assemble.Record{{Name: "BIN", Source: resolve.CopybookAt("bin.cpy"), Resolved: resolved[0]}},
 	})
 	if err != nil {
 		t.Fatalf("assembling under %s at %d digits: %v", binary, digits, err)
@@ -408,9 +408,9 @@ func TestAStaircaseNobodyDeclaredIsRefusedBeforeAnythingIsLaidOut(t *testing.T) 
 	}
 
 	_, err = resolve.Resolve(records[0], resolve.Options{
-		Copybook: "bin.cpy",
-		Dialect:  dialect,
-		Reading:  layoutmodel.ODOSlide,
+		Source:  resolve.CopybookAt("bin.cpy"),
+		Dialect: dialect,
+		Reading: layoutmodel.ODOSlide,
 		Encoding: layoutmodel.Axes{
 			Charset:        layoutmodel.CP037,
 			SignConvention: layoutmodel.SignEBCDIC,

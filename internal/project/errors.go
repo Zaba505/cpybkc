@@ -15,6 +15,7 @@ import (
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
+	"github.com/Zaba505/cpybkc/internal/resolve"
 )
 
 // errNoEntries is a copybook that parsed and holds no data description entries
@@ -159,8 +160,8 @@ type UnknownItemError struct {
 	// Name is the name in the path that resolved to nothing.
 	Name string
 
-	// Path is the copybook's path as the layout spells it.
-	Path string
+	// Source is where the record's description is held.
+	Source resolve.Source
 
 	// Parent is the item the name was looked for under.
 	Parent *copybook.Field
@@ -180,11 +181,7 @@ func (e *UnknownItemError) Error() string { return e.Diagnostic().String() }
 // copybook half of the message says is then a property of the error and not of
 // what a caller remembered to write.
 func (e *UnknownItemError) Diagnostic() diag.Diagnostic {
-	under := diag.Span{
-		File:   e.Path,
-		Line:   e.Parent.Pos.Line,
-		Column: e.Parent.Pos.Column,
-	}
+	under := e.Source.Span(e.Parent)
 
 	switch {
 	case len(e.Declares) == 0:
@@ -218,8 +215,8 @@ type AmbiguousItemError struct {
 	// Name is the name in the path that matched more than one item.
 	Name string
 
-	// Path is the copybook's path as the layout spells it.
-	Path string
+	// Source is where the record's description is held.
+	Source resolve.Source
 
 	// Matches is where each item it matched is declared.
 	Matches []diag.Span
@@ -231,8 +228,8 @@ func (e *AmbiguousItemError) Error() string { return e.Diagnostic().String() }
 // Diagnostic is what the error says, and where.
 func (e *AmbiguousItemError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
-		Message: fmt.Sprintf("%s names %d items of the copybook %s, and a reference names one",
-			e.Ref, len(e.Matches), strconv.Quote(e.Path)),
+		Message: fmt.Sprintf("%s names %d items of %s, and a reference names one",
+			e.Ref, len(e.Matches), e.Source),
 		Spans: append([]diag.Span{e.Pos}, e.Matches...),
 	}
 }
@@ -262,8 +259,8 @@ type AlternativesError struct {
 	// Record is the name it defines.
 	Record string
 
-	// Path is the copybook's path as the layout spells it.
-	Path string
+	// Source is where the record's description is held.
+	Source resolve.Source
 
 	// Item is the top-level item it is bound to.
 	Item string
@@ -285,7 +282,7 @@ func (e *AlternativesError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: fmt.Sprintf(
 			"record %s is bound to %s in %s, and chooses %s, which is none of the %d it describes",
-			strconv.Quote(e.Record), strconv.Quote(e.Item), strconv.Quote(e.Path),
+			strconv.Quote(e.Record), strconv.Quote(e.Item), e.Source,
 			chosenAs(e.Chosen), len(e.Resolved)),
 		Spans: []diag.Span{
 			e.Pos,
@@ -381,15 +378,13 @@ func (e *DefinitionsBlockError) Diagnostic() diag.Diagnostic {
 	}
 }
 
-// DefinitionsSourceError is a record whose source is a definitions file or a
-// block, which this build reads and does not resolve.
+// DefinitionsSourceError is a record whose source is a definitions block,
+// which this build reads and does not resolve.
 //
-// It is reported at the record's `definitions` source, for either kind, and
-// the file is never opened: whether it exists is a question for the build that
-// resolves one (#405), and answering it here would be a diagnostic about a run
-// that is not going to happen. Above all it never says there is no copybook at
-// the path — the record names no copybook, and that message would send the
-// adopter looking for a file they were right not to have.
+// It is reported at the record's `definitions` source, beside the
+// [DefinitionsBlockError] at the block's tag, until #409 resolves a record held
+// in a block. A record held in a definitions file is resolved, and is never
+// this.
 type DefinitionsSourceError struct {
 	// Pos is the record's `definitions` source.
 	Pos diag.Span
@@ -397,13 +392,7 @@ type DefinitionsSourceError struct {
 	// Record is the record's name.
 	Record string
 
-	// Kind is which of the two `definitions` spellings the record wrote.
-	Kind layoutmodel.SourceKind
-
-	// Path is the definitions file's path as the layout spells it, for a file.
-	Path string
-
-	// Block is the block's name, for a block.
+	// Block is the block's name.
 	Block string
 }
 
@@ -412,17 +401,13 @@ func (e *DefinitionsSourceError) Error() string { return e.Diagnostic().String()
 
 // Diagnostic is what the error says, and where.
 func (e *DefinitionsSourceError) Diagnostic() diag.Diagnostic {
-	named := fmt.Sprintf("the definitions file %s", strconv.Quote(e.Path))
-	if e.Kind == layoutmodel.DefinitionsBlockSource {
-		named = "the definitions block " + e.Block
-	}
-
 	return diag.Diagnostic{
-		Message: fmt.Sprintf("record %s is held in %s, and this build does not resolve definitions files or blocks", e.Record, named),
+		Message: fmt.Sprintf("record %s is held in the definitions block %s, and this build does not resolve definitions blocks",
+			e.Record, e.Block),
 		Spans: []diag.Span{
 			e.Pos,
-			{Note: "a record may name a definitions file or a block, and the layout is checked against the " +
-				"published schema and read; nothing resolves a record held either way yet, so the run opens nothing further"},
+			{Note: "a record may name a block, and the layout is checked against the published schema and read; " +
+				"nothing resolves a record held in one yet, so the run opens nothing further"},
 		},
 	}
 }
@@ -531,3 +516,206 @@ func and(items []string) string {
 		return strings.Join(items[:last], ", ") + ", and " + items[last]
 	}
 }
+
+// MissingDefinitionsError is a record naming a definitions file that cannot be
+// read.
+//
+// It is [CopybookError]'s shape for the other kind of file, which is what
+// docs/layout/SPEC.md's "A copybook that is not there, and an item that is not
+// in it" asks for — one shape whichever source a record names, so that a record
+// moved from a copybook to a file fails the same way it failed before:
+//
+//	error: ledger.sexpr:22:5: there is no definitions file to read at "posting.cpy.sexpr"
+//	  looked for /srv/ledger/posting.cpy.sexpr
+//
+// It carries one span, at the record's `definitions` source, and the absolute
+// path on a continuation line naming no place: there is no file to point into,
+// and a span invented for one would point at nothing. It is reported once per
+// record naming the path, for the reason a missing copybook is — each is a line
+// of the layout an adopter has to look at.
+type MissingDefinitionsError struct {
+	// Pos is the record's `definitions` source.
+	Pos diag.Span
+
+	// Path is the definitions file's path as the layout spells it.
+	Path string
+
+	// LookedIn is the absolute path cpybkc opened.
+	LookedIn string
+
+	// Err is what the read failed with.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *MissingDefinitionsError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *MissingDefinitionsError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("there is no definitions file to read at %s", strconv.Quote(e.Path)),
+		Spans:   []diag.Span{e.Pos, {Note: "looked for " + e.LookedIn}},
+	}
+}
+
+// Unwrap gives up the read failure.
+func (e *MissingDefinitionsError) Unwrap() error { return e.Err }
+
+// NotDefinitionsError is a record naming, as a definitions file, a file whose
+// top level holds no entry: a layout, or nothing at all, reached where a
+// definitions file belongs.
+//
+// docs/layout/SPEC.md's "How a definitions file and a layout are told apart"
+// asks for this one diagnostic, with a span at the record's `definitions`
+// source and one at the named file's first form, and nothing else about the
+// file. The body check would report every one of its forms as one a
+// definitions file does not hold, which describes the wrong file accurately and
+// the mistake — the record names the wrong kind of document — not at all.
+type NotDefinitionsError struct {
+	// Pos is the record's `definitions` source.
+	Pos diag.Span
+
+	// Record is the record's name.
+	Record string
+
+	// Path is the file's path as the layout spells it.
+	Path string
+
+	// First is the file's first form, or the file alone where it holds none.
+	First diag.Span
+}
+
+// Error implements the error interface.
+func (e *NotDefinitionsError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *NotDefinitionsError) Diagnostic() diag.Diagnostic {
+	first := e.First
+	if first.Line == 0 {
+		first.Note = "it holds no form at all"
+	} else {
+		first.Note = "its top-level forms are not entries, beginning here"
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("record %s names %s as a definitions file, and it holds no entry: "+
+			"a definitions file's top level is entry forms and nothing else, and a layout is named by the manifest",
+			e.Record, strconv.Quote(e.Path)),
+		Spans: []diag.Span{e.Pos, first},
+	}
+}
+
+// DefinitionsBuildError is what `cobol-go` said building or laying out a
+// definitions file's entries, at the position in that file it carries.
+//
+// docs/layout/SPEC.md's promise for a definitions file is that a mistake in it
+// is reported at its line and column there, which is better than a copybook's
+// path gives: a PICTURE `cobol-go` cannot read, a level out of sequence, a
+// REDEFINES of nothing. The message is `cobol-go`'s own, because what it found
+// is more specific than anything this package could say about it, and the
+// error is kept and reachable with [errors.As].
+//
+// An error of a type that carries no position has nowhere in the file to point,
+// and Pos is then unstated: [DefinitionsFaultError] reports it at the record's
+// `definitions` source, with `cobol-go`'s message as a note.
+type DefinitionsBuildError struct {
+	// Pos is where in the definitions file the fault is, as the run opened it,
+	// or unstated where `cobol-go` named no position.
+	Pos diag.Span
+
+	// Path is the definitions file's path as the layout spells it.
+	Path string
+
+	// Err is what `cobol-go` returned.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *DefinitionsBuildError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DefinitionsBuildError) Diagnostic() diag.Diagnostic {
+	if e.Pos.Stated() {
+		return diag.Diagnostic{Message: e.Err.Error(), Spans: []diag.Span{e.Pos}}
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("cobol-go does not build the definitions file %s", strconv.Quote(e.Path)),
+		Spans:   []diag.Span{{}, {Note: e.Err.Error()}},
+	}
+}
+
+// Unwrap gives up what `cobol-go` returned.
+func (e *DefinitionsBuildError) Unwrap() error { return e.Err }
+
+// Naming is one record naming a definitions file, as a fault inside the file
+// points back at it.
+type Naming struct {
+	// Record is the record's name.
+	Record string
+
+	// Pos is its `definitions` source.
+	Pos diag.Span
+}
+
+// DefinitionsFaultError is a fault inside a definitions file, reported once
+// however many records name the file.
+//
+// docs/layout/SPEC.md's "Who reports a fault in an entry body" requires every
+// fault in a description to be reported once, at its span in the file, rather
+// than once per record that happened to name it — and the file is one step from
+// the layout, so a reader holding the diagnostic also needs to know which
+// record's description it was being read as. That is what this adds: one span
+// per record naming the file, at its `definitions` source, carrying the
+// record's name. A fault naming nowhere in the file of its own — a `cobol-go`
+// error with no position — is reported at the first of them instead, and the
+// rest follow it.
+type DefinitionsFaultError struct {
+	// Err is the fault, as whoever found it reported it.
+	Err error
+
+	// NamedBy are the records naming the file, in the order the layout
+	// writes them.
+	NamedBy []Naming
+}
+
+// Error implements the error interface.
+func (e *DefinitionsFaultError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DefinitionsFaultError) Diagnostic() diag.Diagnostic {
+	named := e.NamedBy
+
+	// A fault that is not a diagnostic is the grammar's, whose text already
+	// leads with the position it is at; it is rendered as that, with nothing
+	// in front of it. Asserted on the error itself rather than through
+	// [errors.As], for [diag.Diagnostics]' reason: a wrapper's text is what
+	// the wrapper chose to say.
+	d := diag.Diagnostic{Message: e.Err.Error(), Spans: []diag.Span{{}}}
+
+	if carried, ok := e.Err.(diag.Error); ok {
+		d = carried.Diagnostic()
+
+		switch {
+		case len(d.Spans) == 0 && len(named) > 0:
+			d.Spans = []diag.Span{named[0].Pos}
+			named = named[1:]
+		case len(d.Spans) == 0:
+			d.Spans = []diag.Span{{}}
+		case !d.Spans[0].Stated() && len(named) > 0:
+			d.Spans[0] = named[0].Pos
+			named = named[1:]
+		}
+	}
+
+	for _, n := range named {
+		at := n.Pos
+		at.Note = "the definitions file is read as record " + n.Record + "'s description"
+		d.Spans = append(d.Spans, at)
+	}
+
+	return d
+}
+
+// Unwrap gives up the fault.
+func (e *DefinitionsFaultError) Unwrap() error { return e.Err }

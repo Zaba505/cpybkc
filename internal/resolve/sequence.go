@@ -98,7 +98,8 @@ func (c *compiler) field(e layoutmodel.Expression) *copybook.Field {
 			Item:     e.Item,
 			Record:   record.Name,
 			Copybook: copybookSpan(record, nil),
-			Found:    "its copybook does not lay out",
+			Kind:     record.Source.Kind,
+			Found:    "its " + record.Source.Noun() + " does not lay out",
 		})
 
 		return nil
@@ -117,6 +118,7 @@ func (c *compiler) field(e layoutmodel.Expression) *copybook.Field {
 			Item:     e.Item,
 			Record:   record.Name,
 			Copybook: copybookSpan(record, nil),
+			Kind:     record.Source.Kind,
 			Found:    found,
 		})
 

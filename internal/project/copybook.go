@@ -16,16 +16,21 @@ import (
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
+	"github.com/Zaba505/cpybkc/internal/resolve"
 )
 
-// binding is one `record` form with the copybook item it names, read.
+// binding is one `record` form with the item its description names, read.
 type binding struct {
 	// Record is the form, as the layout wrote it.
 	Record layoutmodel.Record
 
-	// Item is the copybook's top-level item the record is bound to, in a tree
-	// of this record's own; see the package comment for why it is not shared
-	// with another record naming the same item.
+	// Source is where the record's description is held, and the file every
+	// position in it is in.
+	Source resolve.Source
+
+	// Item is the description's top-level item the record is bound to, in a
+	// tree of this record's own; see the package comment for why it is not
+	// shared with another record naming the same item.
 	Item *copybook.Field
 }
 
@@ -35,8 +40,13 @@ type bindings struct {
 	diag.List
 
 	// dir is the directory the layout was read from, which is what every
-	// copybook path in it is resolved against.
+	// copybook and definitions file path in it is resolved against.
 	dir string
+
+	// reported is every fault inside a definitions file reported so far, so
+	// that one found again by a second record names that record beside the
+	// first instead of being reported twice.
+	reported fileFaults
 
 	// bound is the bindings in the order the layout defines them.
 	bound []binding
@@ -65,46 +75,90 @@ type source struct {
 	missing bool
 }
 
-// bind opens every copybook the layout's `record` forms name and binds each
-// record to the top-level item inside it.
+// bind opens every copybook and definitions file the layout's `record` forms
+// name and binds each record to the top-level item inside it.
 //
-// A copybook file is read and parsed **once** however many records name it —
-// the entries are the same whichever record asked for them, and a shared header
-// is read by every record in a layout — and a fresh item tree is built for each
-// of those records; see the package comment for why the tree is not shared.
+// A file is read **once** however many records name it — the entries are the
+// same whichever record asked for them, and a shared header is read by every
+// record in a layout — and a fresh item tree is built for each of those
+// records; see the package comment for why the tree is not shared.
 //
-// A file that could not be read is nevertheless reported **once per record that
-// names it**, in the order the records are written. The read is not repeated,
-// but the diagnostic is: two records bound to one missing copybook are two lines
-// of the layout an adopter has to look at, and reporting only the first is the
-// "run once per fault" this repository collects faults to avoid — they would fix
-// the path on one line, run again, and be told about the next.
+// A file that could not be opened is nevertheless reported **once per record
+// that names it**, in the order the records are written. The read is not
+// repeated, but the diagnostic is: two records bound to one missing copybook
+// are two lines of the layout an adopter has to look at, and reporting only the
+// first is the "run once per fault" this repository collects faults to avoid —
+// they would fix the path on one line, run again, and be told about the next.
+//
+// A fault *inside* a definitions file is the other way round. It is about the
+// file and not about the line naming it, so it is reported once, with a span at
+// every record naming the file (docs/layout/SPEC.md, "Who reports a fault in an
+// entry body").
+//
+// A record naming a block never reaches here: [refuseDefinitions] refuses it
+// first, until #409 resolves one.
 func bind(dir string, records []layoutmodel.Record) (*bindings, error) {
-	b := &bindings{dir: dir, byName: make(map[string]binding, len(records))}
+	b := &bindings{dir: dir, byName: make(map[string]binding, len(records)), reported: make(fileFaults)}
 
-	read := make(map[string]source)
+	copybooks := make(map[string]source)
+	files := make(map[string]described)
+
+	naming := make(map[string][]Naming)
+	for _, record := range records {
+		if record.Kind == layoutmodel.DefinitionsFileSource {
+			path := at(dir, record.Path)
+			naming[path] = append(naming[path], Naming{Record: record.Name, Pos: span(record.Source)})
+		}
+	}
 
 	for _, record := range records {
-		path := at(dir, record.Path)
+		var bound binding
 
-		file, already := read[path]
-		if !already {
-			file = readCopybook(path)
-			read[path] = file
-		}
+		switch record.Kind {
+		case layoutmodel.DefinitionsFileSource:
+			path := at(dir, record.Path)
 
-		if file.err != nil {
-			b.unreadable(record, path, file)
+			file, already := files[path]
+			if !already {
+				file = readDefinitions(path, record.Path)
+				files[path] = file
 
+				for _, fault := range file.faults {
+					b.Fail(&DefinitionsFaultError{Err: fault, NamedBy: naming[path]})
+				}
+			}
+
+			item := b.definitionsItem(record, path, file)
+			if item == nil {
+				continue
+			}
+
+			bound = binding{Record: record, Source: definitionsAt(record.Path, path), Item: item}
+		case layoutmodel.CopybookSource:
+			path := at(dir, record.Path)
+
+			file, already := copybooks[path]
+			if !already {
+				file = readCopybook(path)
+				copybooks[path] = file
+			}
+
+			if file.err != nil {
+				b.unreadable(record, path, file)
+
+				continue
+			}
+
+			item := b.item(record, file.fragment)
+			if item == nil {
+				continue
+			}
+
+			bound = binding{Record: record, Source: resolve.CopybookAt(record.Path), Item: item}
+		default:
 			continue
 		}
 
-		item := b.item(record, file.fragment)
-		if item == nil {
-			continue
-		}
-
-		bound := binding{Record: record, Item: item}
 		b.bound = append(b.bound, bound)
 		b.byName[record.Name] = bound
 	}
@@ -114,6 +168,52 @@ func bind(dir string, records []layoutmodel.Record) (*bindings, error) {
 	}
 
 	return b, nil
+}
+
+// definitionsAt is the source of a record bound to the definitions file the
+// layout spells as spelled and the run opened at path.
+func definitionsAt(spelled, path string) resolve.Source {
+	return resolve.Source{Kind: layoutmodel.DefinitionsFileSource, Spelling: spelled, File: path}
+}
+
+// definitionsItem builds this record's own tree out of a definitions file and
+// finds the top-level item the record names, or reports why it cannot.
+//
+// The faults inside the file have already been reported, once, by [bind]; a
+// record naming a file that has them binds nothing and says nothing more.
+func (b *bindings) definitionsItem(record layoutmodel.Record, path string, file described) *copybook.Field {
+	switch {
+	case file.missing != nil:
+		b.Fail(&MissingDefinitionsError{
+			Pos:      span(record.Source),
+			Path:     record.Path,
+			LookedIn: absolute(path),
+			Err:      file.missing,
+		})
+
+		return nil
+	case file.empty:
+		b.Fail(&NotDefinitionsError{Pos: span(record.Source), Record: record.Name, Path: record.Path, First: file.first})
+
+		return nil
+	case file.entries == nil:
+		return nil
+	}
+
+	items, err := copybook.Build(file.entries)
+	if err != nil {
+		// The file was built once when it was read, and built without a
+		// fault, so the same entries building with one here is not a thing
+		// that happens; it is reported rather than assumed away all the same.
+		b.Fail(&DefinitionsFaultError{
+			Err:     buildFault(path, record.Path, err),
+			NamedBy: []Naming{{Record: record.Name, Pos: span(record.Source)}},
+		})
+
+		return nil
+	}
+
+	return b.declared(record, "definitions file", path, items)
 }
 
 // readCopybook opens one copybook and parses it.
@@ -173,6 +273,17 @@ func (b *bindings) item(record layoutmodel.Record, fragment *cobol.Fragment) *co
 		return nil
 	}
 
+	return b.declared(record, "copybook", record.Path, items)
+}
+
+// declared is the top-level item of items the record names, or nil with the
+// fault reported: docs/layout/SPEC.md's "declares no" diagnostic, in the one
+// shape it takes whichever source holds the description.
+//
+// file is the file the description's positions are in — the path as the layout
+// spells it for a copybook, and as the run opened it for a definitions file —
+// and noun is what the message calls the kind of description.
+func (b *bindings) declared(record layoutmodel.Record, noun, file string, items []*copybook.Field) *copybook.Field {
 	declares := make([]string, 0, len(items))
 
 	for _, item := range items {
@@ -188,14 +299,16 @@ func (b *bindings) item(record layoutmodel.Record, fragment *cobol.Fragment) *co
 	// A copybook declaring no top-level item at all has nothing to point at but
 	// itself, and a span with the file and no line renders as the file alone —
 	// which is what docs/cli/SPEC.md's "or `file` alone where a line number
-	// would point at nothing" is for.
-	where := diag.Span{File: record.Path}
+	// would point at nothing" is for. A definitions file always holds an entry,
+	// so its span always has one to point at.
+	where := diag.Span{File: file}
 	if len(items) > 0 {
 		where.Line, where.Column = items[0].Pos.Line, items[0].Pos.Column
 	}
 
 	b.Fail(&diag.UndeclaredItemError{
 		Pos:      span(record.Source),
+		Source:   noun,
 		Path:     record.Path,
 		Item:     record.Item,
 		Copybook: where,
@@ -241,7 +354,7 @@ func (b *bindings) field(ref layoutmodel.ItemRef) *copybook.Field {
 				Pos:      span(ref.Pos),
 				Ref:      ref,
 				Name:     name,
-				Path:     bound.Record.Path,
+				Source:   bound.Source,
 				Parent:   found,
 				Declares: names(found),
 			})
@@ -252,8 +365,8 @@ func (b *bindings) field(ref layoutmodel.ItemRef) *copybook.Field {
 				Pos:     span(ref.Pos),
 				Ref:     ref,
 				Name:    name,
-				Path:    bound.Record.Path,
-				Matches: spansOf(bound.Record.Path, matches),
+				Source:  bound.Source,
+				Matches: spansOf(bound.Source, matches),
 			})
 
 			return nil
@@ -298,16 +411,13 @@ func names(parent *copybook.Field) []string {
 }
 
 // spansOf is where each of an ambiguous reference's matches was declared.
-func spansOf(path string, matches []*copybook.Field) []diag.Span {
+func spansOf(source resolve.Source, matches []*copybook.Field) []diag.Span {
 	spans := make([]diag.Span, 0, len(matches))
 
 	for _, match := range matches {
-		spans = append(spans, diag.Span{
-			File:   path,
-			Line:   match.Pos.Line,
-			Column: match.Pos.Column,
-			Note:   "it is declared here",
-		})
+		at := source.Span(match)
+		at.Note = "it is declared here"
+		spans = append(spans, at)
 	}
 
 	return spans
