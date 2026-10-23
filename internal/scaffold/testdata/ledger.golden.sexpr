@@ -1,0 +1,94 @@
+;; A layout scaffold, written by `cpybkc init` from the copybooks it was given.
+;;
+;; What is uncommented below is what those copybooks decide: one record per
+;; 01-level, and one alternative child per REDEFINES outside a repeating group.
+;; What is commented is what a copybook does not decide and you do -- the
+;; encoding, the physical framing, what tells one record type from another, and
+;; the order they may appear in.
+;;
+;; So this is not a layout yet. Run cpybkc against it and everything still
+;; missing is reported at once, each at the place it belongs; work down that
+;; list, uncomment the form it names and fill in every <placeholder>. A
+;; placeholder left as it stands is reported by name, so a form uncommented and
+;; left half-written is never quietly accepted.
+
+;; The encoding profile: all four axes, always, with no default for any.
+;; (encoding
+;;   (charset <charset>)
+;;   (sign-convention <sign-convention>)
+;;   (byte-order <byte-order>)
+;;   (float-format <float-format>))
+
+;; How the dataset frames a record. Which other children `framing` takes
+;; follows from the record format chosen: an lrecl under F and FB, a maximum
+;; segment under VBS, a delimiter and its placement under line-sequential.
+;; (framing
+;;   (recfm <recfm>))
+
+;; The record types these copybooks resolve to. Each names the copybook and the
+;; 01-level it is a description of and -- where a REDEFINES outside a repeating
+;; group gives that 01-level more than one description -- which one it means.
+(record LEDGER-HEADER (copybook "header.cpy" LEDGER-HEADER))
+(record POSTING-RECORD-PST-BODY-PST-TAIL
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL PST-BODY))
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL PST-TAIL)))
+(record POSTING-RECORD-PST-BODY-PST-TAIL-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL-REF PST-BODY))
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL-REF PST-TAIL-REF)))
+(record POSTING-RECORD-PST-DEBIT-PST-TAIL
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL PST-DEBIT))
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL PST-TAIL)))
+(record POSTING-RECORD-PST-DEBIT-PST-TAIL-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL-REF PST-DEBIT))
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL-REF PST-TAIL-REF)))
+(record POSTING-RECORD-PST-CREDIT-PST-TAIL
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL PST-CREDIT))
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL PST-TAIL)))
+(record POSTING-RECORD-PST-CREDIT-PST-TAIL-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL-REF PST-CREDIT))
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL-REF PST-TAIL-REF)))
+(record LEDGER-TRAILER (copybook "trailer.cpy" LEDGER-TRAILER))
+
+;; Several record types over one 01-level carry one name between them -- the
+;; one that 01-level gives them -- until a rename says otherwise, and a
+;; generator that cannot spell two of them alike refuses the collision rather
+;; than munging it. What each should be called is a reading of what the file
+;; means, and no copybook holds it.
+;; (rename POSTING-RECORD-PST-BODY-PST-TAIL <substitute>)
+;; (rename POSTING-RECORD-PST-BODY-PST-TAIL-REF <substitute>)
+;; (rename POSTING-RECORD-PST-DEBIT-PST-TAIL <substitute>)
+;; (rename POSTING-RECORD-PST-DEBIT-PST-TAIL-REF <substitute>)
+;; (rename POSTING-RECORD-PST-CREDIT-PST-TAIL <substitute>)
+;; (rename POSTING-RECORD-PST-CREDIT-PST-TAIL-REF <substitute>)
+
+;; What selects each record type: exactly one of these per record, including
+;; for a record carrying nothing to test -- requiring it is what makes that a
+;; statement you made rather than a gap in the file.
+;; (discriminate LEDGER-HEADER <strategy>)
+;; (discriminate POSTING-RECORD-PST-BODY-PST-TAIL <strategy>)
+;; (discriminate POSTING-RECORD-PST-BODY-PST-TAIL-REF <strategy>)
+;; (discriminate POSTING-RECORD-PST-DEBIT-PST-TAIL <strategy>)
+;; (discriminate POSTING-RECORD-PST-DEBIT-PST-TAIL-REF <strategy>)
+;; (discriminate POSTING-RECORD-PST-CREDIT-PST-TAIL <strategy>)
+;; (discriminate POSTING-RECORD-PST-CREDIT-PST-TAIL-REF <strategy>)
+;; (discriminate LEDGER-TRAILER <strategy>)
+
+;; The order records may appear in. Every record is named once below and the
+;; operator is deliberately left blank: this states no order, and which of
+;; seq, alt, *, +, ?, times and when describes your file is yours to choose.
+;; (sequence
+;;   (<operator>
+;;     LEDGER-HEADER
+;;     POSTING-RECORD-PST-BODY-PST-TAIL
+;;     POSTING-RECORD-PST-BODY-PST-TAIL-REF
+;;     POSTING-RECORD-PST-DEBIT-PST-TAIL
+;;     POSTING-RECORD-PST-DEBIT-PST-TAIL-REF
+;;     POSTING-RECORD-PST-CREDIT-PST-TAIL
+;;     POSTING-RECORD-PST-CREDIT-PST-TAIL-REF
+;;     LEDGER-TRAILER))

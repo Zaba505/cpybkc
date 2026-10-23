@@ -58,6 +58,14 @@ import (
 // docs/cli/SPEC.md holds every line cpybkc writes to being something they can
 // act on.
 //
+// So do the notes about what was not written. A record type no layout could
+// carry — an unnamed alternative, a name two record types derive, an 01-level
+// the resolver cannot describe, a name the S-expression grammar would not read
+// back — is left out of the scaffold and noted, and the run still exits 0: each
+// is a statement about the layout rather than about the copybook, and the rest
+// of the scaffold is no less written for it (docs/cli/SPEC.md, "How a
+// combination's record name is chosen").
+//
 // The notes go through the same log a generator's lines reach that stream
 // through, at the level docs/plugin/SPEC.md maps `note:` to, because that log is
 // where the one place that knows which writer standard error is put it. A line

@@ -271,3 +271,76 @@ func TestTwoRunsOverOneSetOfCopybooksWriteByteIdenticalFiles(t *testing.T) {
 		t.Error("two runs over one copybook wrote different files")
 	}
 }
+
+// Two spellings of one file are two copybooks as far as `init` is concerned
+// (docs/cli/SPEC.md, "Where the copybooks come from"), so every record they
+// declare is derived twice — a derived record-name collision, which is noted
+// rather than refused. Every colliding record is noted, none is written, and the
+// run exits 0.
+//
+// #408 replaces this test: once a definitions file is named after its copybook,
+// two spellings sharing a final path element are refused from the vector
+// before anything is opened.
+func TestTwoSpellingsOfOneFileNoteEveryRecordTheyDerive(t *testing.T) {
+	t.Parallel()
+
+	dir, copybook := copybookIn(t)
+	// Built by hand rather than with filepath.Join, which would clean the `.`
+	// away and hand back the first spelling.
+	again := dir + string(filepath.Separator) + "." + string(filepath.Separator) + "posting.cpy"
+	dest := filepath.Join(dir, "layout.sexpr")
+
+	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, copybookFlag, again, outFlag, dest)
+
+	if code != statusOK {
+		t.Fatalf("`cpybkc %s` over two spellings of one file exited %d, want %d:\n%s",
+			initSubcommand, code, statusOK, stderr)
+	}
+
+	// Six record types, each derived once per spelling.
+	if got := strings.Count(stderr, "none of them is written"); got != 12 {
+		t.Errorf("noted %d colliding record types, want all twelve:\n%s", got, stderr)
+	}
+
+	for _, path := range []string{copybook, again} {
+		if !strings.Contains(stderr, path+": no record is derived from this copybook") {
+			t.Errorf("no note says %s contributed no record:\n%s", path, stderr)
+		}
+	}
+
+	written, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("reading back the scaffold: %v", err)
+	}
+
+	if strings.Contains(string(written), "\n(record ") {
+		t.Errorf("a colliding record was written:\n%s", written)
+	}
+}
+
+// Until the definitions files land (#408), a copybook with nothing a record
+// could be written over still fails the run with nothing written, as
+// docs/cli/SPEC.md, "`init`'s streams and exit codes", stages it.
+func TestACopybookDeclaringNoNamedLevelStillFailsTheRun(t *testing.T) {
+	t.Parallel()
+
+	dir, copybook := copybookIn(t)
+	work := filepath.Join(dir, "work.cpy")
+	dest := filepath.Join(dir, "layout.sexpr")
+
+	writeFile(t, work, "       77  WORK-COUNT              PIC 9(4).\n")
+
+	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, copybookFlag, work, outFlag, dest)
+
+	if code != statusFailed {
+		t.Fatalf("a run over a copybook declaring no named 01-level exited %d, want %d", code, statusFailed)
+	}
+
+	if !strings.Contains(stderr, work) {
+		t.Errorf("the diagnostic does not name the copybook: %q", stderr)
+	}
+
+	if _, err := os.Stat(dest); err == nil {
+		t.Error("a scaffold was written over a copybook declaring no named 01-level")
+	}
+}

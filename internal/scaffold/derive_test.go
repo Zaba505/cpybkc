@@ -287,25 +287,79 @@ func TestAVariantIsOneFormOverAnLevelThatResolvesToSeveralRecordTypes(t *testing
 }
 
 // A layout names an alternative with an item reference, and a reference is a
-// path of names, so an item with no data-name is one no layout could name.
-// Refusing beats writing a reference with a hole in it that would parse and then
-// be reported against a line cpybkc wrote.
-func TestARedefineOverAnItemWithNoDataNameIsRefused(t *testing.T) {
+// path of names, so an item with no data-name is one no layout could name. The
+// record type choosing it is noted rather than written — a reference with a hole
+// in it would parse and then be reported against a line cpybkc wrote — and the
+// record type beside it, which chooses the named description, is written.
+func TestAnUnnamedAlternativeIsNotedAndTheRecordBesideItIsWritten(t *testing.T) {
 	t.Parallel()
 
-	_, err := Derive([]Copybook{book("filler.cpy", filler)})
-	if err == nil {
-		t.Fatal("a REDEFINES over an unnamed item was accepted")
+	derived := deriveOf(t, book("filler.cpy", filler))
+
+	if got, want := recordNames(derived), []string{"FILLER-RECORD-FLR-BODY"}; !slices.Equal(got, want) {
+		t.Errorf("wrote the records %v, want %v", got, want)
 	}
 
-	var unnameable *UnnamedAlternativeError
-	if !errors.As(err, &unnameable) {
-		t.Fatalf("the fault is %v, want an alternative no layout could name", err)
+	note := noteNaming(t, derived, "no data-name")
+	for _, want := range []string{"filler.cpy", "FILLER-RECORD", "line 4", "the record type choosing it is not written"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note does not carry %q:\n%s", want, note)
+		}
+	}
+}
+
+// unnamedVariant is a REDEFINES inside a repeating group whose alternative has
+// no data-name, so the `arm` every record type over the 01-level is owed for it
+// has nothing to name.
+const unnamedVariant = `       01  CARD-RECORD.
+           05  CRD-BODY            PIC X(2).
+           05  CRD-ALT             REDEFINES CRD-BODY PIC X(2).
+           05  CRD-LINE            OCCURS 2 TIMES.
+               10  CLN-BODY        PIC X(4).
+               10  FILLER          REDEFINES CLN-BODY PIC X(4).
+`
+
+// A redefine inside a repeating group is a variant every record type over the
+// 01-level carries, so an unnamed alternative there withholds all of them, and
+// the note names each by the name it would have had.
+func TestAnUnnamedAlternativeInsideARepeatingGroupNotesEveryRecordOfItsLevel(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("header.cpy", header), book("card.cpy", unnamedVariant))
+
+	if got, want := recordNames(derived), []string{"LEDGER-HEADER"}; !slices.Equal(got, want) {
+		t.Errorf("wrote the records %v, want %v", got, want)
 	}
 
-	if got := diag.Render(err); !strings.Contains(got, "filler.cpy") || !strings.Contains(got, "FILLER-RECORD") {
-		t.Errorf("the diagnostic names neither the copybook nor the 01-level:\n%s", got)
+	if len(derived.variants) != 0 {
+		t.Errorf("raised %d variants over records that were not written", len(derived.variants))
 	}
+
+	note := noteNaming(t, derived, "no data-name")
+	for _, want := range []string{"card.cpy", "CARD-RECORD-CRD-BODY", "CARD-RECORD-CRD-ALT", "line 6"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note does not carry %q:\n%s", want, note)
+		}
+	}
+}
+
+// noteNaming is the one note carrying marker, or a fatal test.
+func noteNaming(t *testing.T, s *Scaffold, marker string) string {
+	t.Helper()
+
+	var found []string
+
+	for _, note := range s.Notes() {
+		if strings.Contains(note, marker) {
+			found = append(found, note)
+		}
+	}
+
+	if len(found) != 1 {
+		t.Fatalf("found %d notes carrying %q, want one: %q", len(found), marker, s.Notes())
+	}
+
+	return found[0]
 }
 
 // `sequence` names every record once, and there is no shape it could take over
@@ -319,27 +373,128 @@ func TestDerivingFromNoCopybooksIsRefused(t *testing.T) {
 	}
 }
 
-func TestADerivedNameCollidingWithAnotherFailsTheRunNamingBoth(t *testing.T) {
+// docs/cli/SPEC.md: every combination deriving a shared name is noted and none
+// of them is written. Writing one would be cpybkc choosing which of them the
+// adopter meant, and disambiguating would be inventing a name.
+func TestADerivedNameCollidingWithAnotherIsNotedAndNeitherIsWritten(t *testing.T) {
 	t.Parallel()
 
 	// Two copybooks declaring one 01-level name is the ordinary way to reach
 	// this: duplicate data names are legal COBOL, and two spellings of one file
 	// reach it too.
-	_, err := Derive([]Copybook{book("one.cpy", header), book("two.cpy", header)})
-	if err == nil {
-		t.Fatal("two record types deriving one name were accepted")
-	}
+	derived := deriveOf(t, book("one.cpy", header), book("posting.cpy", posting), book("two.cpy", header))
 
-	var collision *NameCollisionError
-	if !errors.As(err, &collision) {
-		t.Fatalf("the fault is %v, want a name collision", err)
-	}
-
-	rendered := diag.Render(err)
-	for _, want := range []string{"LEDGER-HEADER", "one.cpy", "two.cpy"} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("the diagnostic does not name %s:\n%s", want, rendered)
+	for _, name := range recordNames(derived) {
+		if name == "LEDGER-HEADER" {
+			t.Fatal("a record whose name another record type derives too was written")
 		}
+	}
+
+	if got := len(derived.records); got != 6 {
+		t.Errorf("wrote %d records, want posting.cpy's six, which nothing collides with", got)
+	}
+
+	var collisions []string
+
+	for _, note := range derived.Notes() {
+		if strings.Contains(note, "derives the record name LEDGER-HEADER") {
+			collisions = append(collisions, note)
+		}
+	}
+
+	if len(collisions) != 2 {
+		t.Fatalf("noted %d of the two colliding record types: %q", len(collisions), derived.Notes())
+	}
+
+	for at, path := range []string{"one.cpy", "two.cpy"} {
+		if !strings.HasPrefix(collisions[at], path+": LEDGER-HEADER") {
+			t.Errorf("note %d does not lead with %s and the 01-level:\n%s", at, path, collisions[at])
+		}
+
+		// Each names the other, because the answer is to rename one of them
+		// and the adopter cannot tell which without seeing the pair.
+		for _, want := range []string{"LEDGER-HEADER in one.cpy", "LEDGER-HEADER in two.cpy", "none of them is written"} {
+			if !strings.Contains(collisions[at], want) {
+				t.Errorf("note %d does not carry %q:\n%s", at, want, collisions[at])
+			}
+		}
+	}
+}
+
+// overlong is an 01-level that parses and builds and that cpybkc's resolution
+// cannot lay out: under the dialect `init` reads with, a redefining item may not
+// be longer than what it redefines anywhere but at level 01.
+const overlong = `       01  LONG-RECORD.
+           05  LNG-BODY            PIC X(2).
+           05  LNG-WIDE            REDEFINES LNG-BODY PIC X(4).
+       01  SHORT-RECORD.
+           05  SHT-BODY            PIC X(2).
+`
+
+// A per-01 resolve.Describe failure is a statement about the record a layout
+// would carry, not about the copybook, so it is noted and the 01-level beside
+// it is written.
+func TestAnLevelTheResolverCannotDescribeIsNotedAndTheRestWritten(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("long.cpy", overlong))
+
+	if got, want := recordNames(derived), []string{"SHORT-RECORD"}; !slices.Equal(got, want) {
+		t.Errorf("wrote the records %v, want %v", got, want)
+	}
+
+	note := noteNaming(t, derived, "cannot be described")
+	for _, want := range []string{"long.cpy", "LONG-RECORD", "LNG-WIDE", "no record is written"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note does not carry %q:\n%s", want, note)
+		}
+	}
+}
+
+// nilRecord is an 01-level named `nil`, which is legal COBOL and which
+// `sexpr-go` reads as its empty value rather than as a symbol, so a `record`
+// form carrying it would not parse as the name it was derived as.
+const nilRecord = `       01  nil.
+           05  NIL-TYPE            PIC X(2).
+       01  KEPT-RECORD.
+           05  KPT-TYPE            PIC X(2).
+`
+
+func TestADerivedNameTheGrammarCannotReadAsASymbolIsNoted(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("nil.cpy", nilRecord))
+
+	if got, want := recordNames(derived), []string{"KEPT-RECORD"}; !slices.Equal(got, want) {
+		t.Errorf("wrote the records %v, want %v", got, want)
+	}
+
+	note := noteNaming(t, derived, "does not read back")
+	for _, want := range []string{"nil.cpy", `"nil"`, "not written"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note does not carry %q:\n%s", want, note)
+		}
+	}
+
+	if err := readLayout(t, string(derived.Bytes())); err == nil {
+		t.Fatal("the scaffold read as a finished layout")
+	}
+}
+
+// A copybook every 01-level of which is noted contributes no record form, and
+// the run says so rather than leaving the reader to count.
+func TestACopybookWhoseEveryLevelIsNotedContributesNoRecord(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("header.cpy", header), book("only-nil.cpy", "       01  nil.\n           05  N  PIC X.\n"))
+
+	if got, want := recordNames(derived), []string{"LEDGER-HEADER"}; !slices.Equal(got, want) {
+		t.Errorf("wrote the records %v, want %v", got, want)
+	}
+
+	note := noteNaming(t, derived, "no record is derived")
+	if !strings.HasPrefix(note, "only-nil.cpy: ") {
+		t.Errorf("the note does not lead with the copybook as it was typed:\n%s", note)
 	}
 }
 
@@ -541,6 +696,8 @@ func TestACopybookThatIsNotOneIsReportedByThePathThatWasTyped(t *testing.T) {
 	}
 }
 
+// Until the definitions files land (#408), a copybook with nothing a record
+// could be written over is a refusal: there is nothing else to write for it.
 func TestACopybookDeclaringNoZeroOneLevelIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -552,6 +709,34 @@ func TestACopybookDeclaringNoZeroOneLevelIsReported(t *testing.T) {
 	var missing *NoRecordError
 	if !errors.As(err, &missing) {
 		t.Fatalf("the fault is %v, want a missing record", err)
+	}
+}
+
+func TestACopybookDeclaringNoEntryAtAllIsReported(t *testing.T) {
+	t.Parallel()
+
+	_, err := Derive([]Copybook{book("empty.cpy", "      * a comment, and nothing it describes\n")})
+
+	var missing *NoRecordError
+	if !errors.As(err, &missing) {
+		t.Fatalf("the fault is %v, want a missing record", err)
+	}
+}
+
+// A copybook that parses and does not build — a PICTURE nothing can read — is
+// one that cannot be transcribed, and stays a refusal.
+func TestACopybookThatDoesNotBuildIsReported(t *testing.T) {
+	t.Parallel()
+
+	_, err := Derive([]Copybook{book("header.cpy", header), book("bad.cpy", "       01  BAD-RECORD.\n           05  BAD-ITEM  PIC Q(2).\n")})
+
+	var source *SourceError
+	if !errors.As(err, &source) {
+		t.Fatalf("the fault is %v, want a copybook this build cannot read", err)
+	}
+
+	if source.Path != "bad.cpy" {
+		t.Errorf("the fault names %s, want bad.cpy", source.Path)
 	}
 }
 
@@ -725,4 +910,41 @@ func workedExampleCombinations(t *testing.T) []string {
 	}
 
 	return combinations
+}
+
+// docs/cli/SPEC.md: this story widens what `init` accepts and narrows nothing,
+// so a scaffold over copybooks it accepted before the notes landed is the file it
+// wrote then, byte for byte. The golden files were written by the derivation as
+// it stood before (#406), and are not regenerated by anything here.
+func TestTheScaffoldIsUnchangedForEveryCopybookAcceptedBefore(t *testing.T) {
+	t.Parallel()
+
+	ledger := make([]Copybook, 0, 3)
+
+	for _, name := range []string{"header.cpy", "posting.cpy", "trailer.cpy"} {
+		source, err := os.ReadFile(filepath.Join("..", "..", "example", "ledger", name))
+		if err != nil {
+			t.Fatalf("reading the worked example's copybook: %v", err)
+		}
+
+		ledger = append(ledger, Copybook{Path: name, Source: source})
+	}
+
+	for golden, books := range map[string][]Copybook{
+		"ledger.golden.sexpr": ledger,
+		"accepted.golden.sexpr": {
+			book("header.cpy", header), book("posting.cpy", posting), book("order.cpy", table),
+			book("batch.cpy", depending), book("option.cpy", optional), book("pair.cpy", pair),
+			book("both.cpy", both),
+		},
+	} {
+		want, err := os.ReadFile(filepath.Join("testdata", golden))
+		if err != nil {
+			t.Fatalf("reading the golden scaffold: %v", err)
+		}
+
+		if got := deriveOf(t, books...).Bytes(); string(got) != string(want) {
+			t.Errorf("the scaffold differs from %s:\n%s", golden, got)
+		}
+	}
 }
