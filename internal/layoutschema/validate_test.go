@@ -238,6 +238,65 @@ func TestValidateReportsEveryFaultRatherThanTheFirst(t *testing.T) {
 	}
 }
 
+// TestAnAbsentAtMostOneArgumentValidates holds the checker to what the
+// dialect's `at-most-one` says: 0..1, for an argument as for a child. A tool
+// reading the published schema takes it that way, so a checker refusing
+// `(f)` against `(argument a symbol at-most-one)` would be cpybkc disagreeing
+// with its own contract. No published argument is optional yet, which is why
+// the fixture is a schema of its own rather than schema/layout.sexpr.
+func TestAnAbsentAtMostOneArgumentValidates(t *testing.T) {
+	const fixture = `(schema layout 1)
+(form f (in top-level) (arity zero-or-more) (layer encoding-profile)
+  (argument a symbol at-most-one))
+(form g (in top-level) (arity zero-or-more) (layer physical-framing)
+  (argument first symbol exactly-one)
+  (argument second symbol at-most-one))
+`
+
+	schema, err := Load(strings.NewReader(fixture))
+	if err != nil {
+		t.Fatalf("load the fixture schema: %v", err)
+	}
+
+	testCases := []struct {
+		name   string
+		source string
+		// refusal is a fragment of the one diagnostic the source draws, or
+		// empty when it should draw none.
+		refusal string
+	}{
+		{name: "the argument left out", source: "(f)"},
+		{name: "the argument written", source: "(f X)"},
+		{name: "one argument too many", source: "(f X Y)", refusal: "one argument too many"},
+		{name: "the argument of the wrong sort", source: `(f "X")`, refusal: "a of form \"f\""},
+		{name: "after a required argument, left out", source: "(g X)"},
+		{name: "after a required argument, written", source: "(g X Y)"},
+		{name: "after a required argument, one too many", source: "(g X Y Z)", refusal: "one argument too many"},
+		{name: "the required argument missing as well", source: "(g)", refusal: "first argument"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			diagnostics, err := schema.Validate("fixture.sexpr", strings.NewReader(testCase.source))
+			if err != nil {
+				t.Fatalf("validate: %v", err)
+			}
+
+			if testCase.refusal == "" {
+				if len(diagnostics) != 0 {
+					t.Errorf("refused a form the schema admits:\n%s", strings.Join(messages(diagnostics), "\n"))
+				}
+
+				return
+			}
+
+			if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, testCase.refusal) {
+				t.Errorf("want one diagnostic saying %q; got:\n%s", testCase.refusal, strings.Join(messages(diagnostics), "\n"))
+			}
+		})
+	}
+}
+
 // TestValidateFailsOnSourceThatIsNotSExpressions keeps a parse failure an error
 // rather than a diagnostic. It comes from the grammar this format delegates to
 // and leaves no layout to check, so reporting it as one finding among a list

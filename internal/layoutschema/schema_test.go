@@ -173,6 +173,17 @@ func TestLoadRefusesASchemaItCannotHold(t *testing.T) {
 			schema: "(schema layout 1)\n(form record (in top-level) (arity exactly-one) (layer record-definitions) (argument name symbol one-or-more) (child copybook exactly-one))\n(form copybook (argument path text exactly-one))",
 		},
 		{
+			// The optional twin of the case above: with (f X (g)) admitted,
+			// nothing says whether X is the argument or the first child, and the
+			// checker would have to guess from the node's shape.
+			name:   "an optional argument beside children",
+			schema: "(schema layout 1)\n(form record (in top-level) (arity exactly-one) (layer record-definitions) (argument name symbol at-most-one) (child copybook exactly-one))\n(form copybook (argument path text exactly-one))",
+		},
+		{
+			name:   "an optional argument that is not the last",
+			schema: "(schema layout 1)\n(form record (in top-level) (arity exactly-one) (layer record-definitions) (argument name symbol at-most-one) (argument path text exactly-one))",
+		},
+		{
 			name:   "a child form stating an arity",
 			schema: "(schema layout 1)\n(form encoding (in top-level) (arity exactly-one) (layer encoding-profile) (child charset exactly-one))\n(form charset (arity exactly-one) (argument value symbol exactly-one))",
 		},

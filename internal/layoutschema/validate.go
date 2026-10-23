@@ -206,17 +206,25 @@ func (c *checker) form(list sexpr.List, decl *formDecl) {
 // followed them.
 //
 // They are consumed in order by count, which is what [checkArgumentOrder]
-// guarantees is possible: every argument but the last takes exactly one node,
-// and a repeatable last argument takes everything left. A form that admits
-// children has no repeatable argument, so what is left when this returns is its
-// children and nothing else.
+// guarantees is possible: every argument but the last takes exactly one node, a
+// repeatable last argument takes everything left, and an optional one takes the
+// next node if there is one. A form that admits children has no repeatable and
+// no optional argument, so what is left when this returns is its children and
+// nothing else — and on a form that admits none, anything left is an argument
+// too many.
 func (c *checker) arguments(list sexpr.List, decl *formDecl) []sexpr.Node {
 	rest := list.Elements[1:]
 
 	for i, arg := range decl.args {
 		want := 1
-		if i == len(decl.args)-1 && arg.arity.repeatable() {
-			want = len(rest)
+
+		if i == len(decl.args)-1 {
+			switch {
+			case arg.arity.repeatable():
+				want = len(rest)
+			case arg.arity.min == 0:
+				want = min(1, len(rest))
+			}
 		}
 
 		if have := min(want, len(rest)); want > len(rest) || !arg.arity.admits(have) {

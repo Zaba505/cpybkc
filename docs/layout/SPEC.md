@@ -2396,6 +2396,16 @@ or more that `seq` and `alt` take. They are symbols rather than the notation
 above because `0..1` is not a lexeme the grammar admits — it opens like a number
 and is a malformed one.
 
+An arity means the same thing on an argument as on a child: an `at-most-one`
+argument may be left out. Arguments are matched by position, in the order they
+are declared, so the declarations are held to two rules that keep that matching
+free of guesses, and a schema breaking either is refused when it is loaded.
+Only the last argument of a form may repeat or be optional — an earlier one
+would leave two readings of the same list. And a form whose last argument
+repeats or is optional admits no children, because nothing would say where its
+arguments stop, or whether the node after the others is the argument or the
+first child (#396).
+
 ### The version is in the file, and it moves with the format
 
 The schema carries a single monotonic integer version, stated by the `schema`
@@ -3196,5 +3206,5 @@ two postings name one file, and #399 says what a run reads when they do.
 | [Definitions](#definitions) | the notation for an entry body, held in a definitions file or a `definitions-block`, its leaf rules, its canonical printed form, what it leaves out, and the refusal of a condition-name `cobol-go` misreads, settled by #395 against discussion #394; the schema declarations and the reader by #400, the absent `at-most-one` argument by #396, the converter and the judge by #401, a record naming a file or a block by #399 and #402, and the data-name sort in a layout's item positions by #404 |
 | [Discrimination](#discrimination) | #28 `layout`; an arm's and a `take-alternative`'s alternative written as a data-name, by #395 against discussion #394; the strategies lowered into IR predicates, the literals resolved to bytes, and the rules on a target that need a copybook, by #37 `resolve`; that neither a strategy nor the order two are written in becomes a default arm, refused by #324 and reopened by #332 for the batch shape whose two discriminators read runs sharing no byte, against discussion #323; the schedule that settles a variant by the position of an occurrence rather than by its bytes, added by #346 against discussion #340; the spelling for a redefine every occurrence of which takes one alternative, which is not a variant at all, added by #341; what a literal's bytes are once a consumer may read under axes other than the layout's, and what `(bytes …)` says then, by #379 against discussion #378 |
 | [Sequencing](#sequencing) | #29 `layout`; the expression compiled to an automaton, and the rules on `times` and `when` that need a copybook, by #36 `resolve`; what a `when` does and does not require, and where a guard lands on a repetition, settled by #144 against the compiler #36 had already produced |
-| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400 |
+| [The published schema](#the-published-schema) | #23 `layout`; one schema for a layout and an entry body, a definitions file checked as one block's body, and everything `cobol-go` judges left outside it, by #395 against discussion #394, declared by #400; an `at-most-one` argument that may be left out, and the argument-order rules the loader enforces, by #396 for #394 |
 | [Validation and diagnostics](#validation-and-diagnostics) | #24, #31 `layout`; who reports a fault in an entry body — the schema check, the entry reader or the judge — and where its span points, by #395 against discussion #394 |
