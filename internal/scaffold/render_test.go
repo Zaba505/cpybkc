@@ -251,3 +251,63 @@ func TestAPathWithACharacterTheGrammarEscapesStillParses(t *testing.T) {
 		})
 	}
 }
+
+// A scaffold every record of which was noted is still a file that parses, with
+// its `sequence` closed over nothing, so that uncommenting it is reported as a
+// placeholder rather than as one lexical fault.
+func TestAScaffoldHoldingNoRecordStillParses(t *testing.T) {
+	t.Parallel()
+
+	derived := deriveOf(t, book("one.cpy", header), book("two.cpy", header))
+
+	if len(derived.records) != 0 {
+		t.Fatalf("wrote %d records over two copybooks whose every name collides", len(derived.records))
+	}
+
+	text := string(derived.Bytes())
+
+	if strings.Contains(text, "\n(record ") {
+		t.Errorf("a record form was written over no record:\n%s", text)
+	}
+
+	if err := readLayout(t, text); err == nil {
+		t.Fatal("the layout reader accepted a scaffold")
+	}
+
+	if err := readLayout(t, uncomment(t, text, "sequence")); err == nil {
+		t.Fatal("an uncommented sequence over no record was accepted")
+	}
+}
+
+// wordNamed is a REDEFINES whose alternative is named `nil` — out of a
+// repeating group and inside one — which an item reference and an arm have to
+// write as `(word "nil")`, because `sexpr-go` reads the bare spelling as its
+// empty value (#420).
+const wordNamed = `       01  WORD-RECORD.
+           05  WRD-BODY            PIC X(2).
+           05  nil                 REDEFINES WRD-BODY PIC X(2).
+           05  WRD-LINE            OCCURS 2 TIMES.
+               10  WLN-BODY        PIC X(1).
+               10  nil             REDEFINES WLN-BODY PIC X(1).
+`
+
+func TestADataNameTheGrammarCannotReadIsWrittenAsAWord(t *testing.T) {
+	t.Parallel()
+
+	text := string(deriveOf(t, book("word.cpy", wordNamed)).Bytes())
+
+	for _, want := range []string{
+		`(alternative (item WORD-RECORD-nil (word "nil")))`,
+		`(arm (word "nil") <predicate>))`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the scaffold does not carry %s:\n%s", want, text)
+		}
+	}
+
+	if err := readLayout(t, uncomment(t, text, "discriminate-variant")); err == nil {
+		t.Fatal("an uncommented discriminate-variant with nothing filled in was accepted")
+	} else if got := diag.Render(err); !strings.Contains(got, predicateHole) {
+		t.Errorf("the reader did not name %s:\n%s", predicateHole, got)
+	}
+}

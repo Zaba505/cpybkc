@@ -14,6 +14,7 @@ import (
 	cobol "github.com/Zaba505/cobol-go"
 	"github.com/Zaba505/cobol-go/copybook"
 
+	"github.com/Zaba505/cpybkc/internal/definitions"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 	"github.com/Zaba505/cpybkc/internal/resolve"
@@ -90,9 +91,20 @@ type reference struct {
 	path   []string
 }
 
-// String renders the reference as the layout format spells it.
+// String renders the reference as the layout format spells it: the record name,
+// which is the layout's own symbol, and then each COBOL name on the path as a
+// data-name — bare where it reads as a symbol, and `(word "<spelling>")` where
+// it would not (docs/layout/SPEC.md, "The leaves: a level, a data-name and
+// literal text").
 func (r reference) String() string {
-	return "(item " + strings.Join(append([]string{r.record}, r.path...), " ") + ")"
+	names := make([]string, 0, len(r.path)+1)
+	names = append(names, r.record)
+
+	for _, name := range r.path {
+		names = append(names, definitions.Spell(name))
+	}
+
+	return "(item " + strings.Join(names, " ") + ")"
 }
 
 // Notes are the `note:` diagnostics the run owes: one per 01-level that resolved
@@ -146,33 +158,46 @@ func reading() layoutmodel.Reading { return layoutmodel.ReadingUnstated }
 // and a scaffold has to be byte-identical between two runs over one set of
 // copybooks.
 //
-// Every fault it finds is reported rather than the first: a set of copybooks
-// goes wrong in the same way in more than one file at once, and a reader that
-// stopped would be run once per copybook. Nothing is returned where anything
-// failed — a scaffold missing the records of the copybook that could not be read
-// is a file whose `sequence` is short and whose incompleteness reads exactly
-// like the incompleteness that is deliberate.
+// What it cannot write a record for, it notes, and the derivation goes on
+// (docs/cli/SPEC.md, "How a combination's record name is chosen"): an unnamed
+// REDEFINES alternative, a derived record name two record types share, an
+// 01-level [resolve.Describe] cannot describe, and a derived record name the
+// S-expression grammar would not read back as itself. Every one of those is a
+// statement about the layout and never about the copybook, so it withholds the
+// record it is about and nothing else. A copybook every 01-level of which was
+// noted contributes no record form, and a note says so.
+//
+// What fails the run is a copybook that cannot be read at all — one that does
+// not parse or build, or that declares no named 01-level — and every such fault
+// is reported rather than the first: a set of copybooks goes wrong in the same
+// way in more than one file at once, and a reader that stopped would be run once
+// per copybook. Nothing is returned where anything failed — a scaffold missing
+// the records of the copybook that could not be read is a file whose `sequence`
+// is short and whose incompleteness reads exactly like the incompleteness that
+// is deliberate. Until the definitions files land (#408) these stay refusals, as
+// docs/cli/SPEC.md, "`init`'s streams and exit codes", stages them.
 func Derive(books []Copybook) (*Scaffold, error) {
-	// A scaffold over no copybooks is not an empty scaffold: `sequence` names
-	// every record once, and there is no shape for it to take over none. The
-	// command line already refuses this as a usage error — `--copybook` is
-	// required and appears at least once — and the check is here as well
-	// because this function is reachable without one.
+	// A scaffold over no copybooks is not an empty scaffold: there is no
+	// copybook to have noted anything about, and so nothing to say why it holds
+	// no record. The command line already refuses this as a usage error —
+	// `--copybook` is required and appears at least once — and the check is
+	// here as well because this function is reachable without one.
 	if len(books) == 0 {
 		return nil, ErrNoCopybooks
 	}
 
 	var faults diag.List
 
-	s := new(Scaffold)
+	// Every 01-level is read before any record is written, because whether a
+	// record name collides is a property of the whole set of copybooks: the
+	// first record type to derive a name cannot be written until it is known
+	// that no later one derives it too.
+	var levels []level
 
-	// The names already derived, so that a second record type deriving one of
-	// them is refused naming both. It is read and never ranged over, which is
-	// what keeps the derivation a function of its inputs.
-	claimed := make(map[string]record)
+	read := make([]Copybook, 0, len(books))
 
 	for _, book := range books {
-		items, err := read(book)
+		items, err := readRecords(book)
 		if err != nil {
 			faults.Fail(err)
 
@@ -180,32 +205,30 @@ func Derive(books []Copybook) (*Scaffold, error) {
 		}
 
 		for _, item := range items {
-			shape, err := resolve.Describe(item, dialect(), reading())
-			if err != nil {
-				faults.Fail(&SourceError{Path: book.Path, Err: err})
-
-				continue
-			}
-
-			s.take(&faults, claimed, book, item, shape)
+			levels = append(levels, describeLevel(len(read), book, item))
 		}
+
+		read = append(read, book)
 	}
 
 	if faults.Failed() {
 		return nil, faults.Err()
 	}
 
+	s := new(Scaffold)
+	s.take(read, levels)
+
 	return s, nil
 }
 
-// read parses one copybook and returns the 01-levels a `record` form can be
-// written over.
+// readRecords parses one copybook and returns the 01-levels a `record` form can
+// be written over.
 //
 // Level-77 items and an 01-level with no data-name are not among them. A
 // level-77 is a standalone work item rather than a record description, and an
 // unnamed 01-level is one no `record` form could name; a copybook holding
 // nothing else declares no record, which is reported rather than passed over.
-func read(book Copybook) ([]*copybook.Field, error) {
+func readRecords(book Copybook) ([]*copybook.Field, error) {
 	// Fixed format, which is what a copybook out of a mainframe library is
 	// written in and what every other reader in this repository assumes.
 	// Nothing states a reference format, and `init` is handed a file rather
@@ -243,41 +266,63 @@ func read(book Copybook) ([]*copybook.Field, error) {
 	return records, nil
 }
 
-// take turns one 01-level's shape into the forms it decides.
-func (s *Scaffold) take(
-	faults *diag.List,
-	claimed map[string]record,
-	book Copybook,
-	item *copybook.Field,
-	shape resolve.Shape,
-) {
-	if len(shape.Tables) > 0 {
-		s.tables = true
+// level is one named 01-level, read: what it would derive, and what the run
+// already owes a note about before any name has been compared with another.
+type level struct {
+	// at is which of the copybooks read the 01-level is in. It is an index
+	// rather than the path because two copybooks may be named by one path when
+	// the caller is not the command line, which refuses that as a duplicate.
+	at   int
+	book Copybook
+	item *copybook.Field
+
+	// shape is what [resolve.Describe] answered. It is the zero value where
+	// Describe failed, which leaves nothing to derive.
+	shape resolve.Shape
+
+	// notes are the lines owed about this 01-level that no other 01-level can
+	// change: the combination count, the reading that decides a record type, an
+	// 01-level that could not be described, and an unnamed alternative.
+	notes []string
+
+	// candidates are the record types the 01-level resolves to that a layout
+	// could name, in the order [resolve.Describe] gave the combinations.
+	candidates []record
+
+	// unspellable is set where every record type of the 01-level carries an
+	// item no layout could name, so none of them is a candidate.
+	unspellable bool
+}
+
+// describeLevel reads one 01-level through [resolve.Describe] and decides
+// everything about it that does not depend on another 01-level.
+func describeLevel(at int, book Copybook, item *copybook.Field) level {
+	read := level{at: at, book: book, item: item}
+
+	shape, err := resolve.Describe(item, dialect(), reading())
+	if err != nil {
+		// A note rather than a fault. The copybook parsed and built, so it is
+		// transcribable; it is cpybkc's own resolution that cannot lay this
+		// 01-level out, which is a statement about the record a layout would
+		// carry and not about the copybook.
+		read.notes = append(read.notes, fmt.Sprintf(
+			"%s: %s cannot be described as a record (%v), so no record is written over it",
+			book.Path, item.Name, err,
+		))
+
+		return read
 	}
 
-	if unnamed := unreachable(item, shape); unnamed != nil {
-		faults.Fail(&UnnamedAlternativeError{
-			Path:   book.Path,
-			Item:   item.Name,
-			Line:   unnamed.Pos.Line,
-			Column: unnamed.Pos.Column,
-		})
-
-		return
-	}
+	read.shape = shape
 
 	// More than one record type over one 01-level is what raises a rename and
-	// what the run owes a note about. Both are decided once, here, rather than
-	// per record: they are properties of the 01-level.
-	several := len(shape.Combinations) > 1
-
-	// The note is written before the records it is about rather than after
-	// them. Both counts are known as soon as the shape is, so there is nothing
-	// to wait for, and a copybook whose combinations are numerous enough to be
+	// what the run owes a note about. The note is written before the records
+	// it is about rather than after them: both counts are known as soon as the
+	// shape is, and a copybook whose combinations are numerous enough to be
 	// worth warning about is the one where the work that follows this line is
 	// the expensive part.
-	if several {
-		s.notes = append(s.notes, fmt.Sprintf(
+	if len(shape.Combinations) > 1 {
+		read.notes = append(read.notes, fmt.Sprintf(
 			"%s: %s carries %d REDEFINES outside a repeating group, which resolve to %d record types",
 			book.Path, item.Name, redefines(shape), len(shape.Combinations),
 		))
@@ -300,29 +345,38 @@ func (s *Scaffold) take(
 			continue
 		}
 
-		s.notes = append(s.notes, fmt.Sprintf(
+		read.notes = append(read.notes, fmt.Sprintf(
 			"%s: %s redefines %s inside %s, a group that repeats under odoslide and does not under noodoslide; "+
 				"the record forms below are the noodoslide answer, and under odoslide this is one variant instead",
 			book.Path, item.Name, alternation.Item.Name, alternation.Table.Name,
 		))
 	}
 
-	root := ""
+	read.unspellable = read.unnamedVariant()
+	if read.unspellable {
+		return read
+	}
+
+	// The combinations choosing an item no layout could name, grouped by that
+	// item so that one unnamed alternative is one note however many record
+	// types choose it.
+	var (
+		holes    []*copybook.Field
+		choosing = make(map[*copybook.Field]int)
+	)
 
 	for _, combination := range shape.Combinations {
-		name := recordName(item.Name, combination)
+		if hole := unreachableIn(item, combination); hole != nil {
+			if choosing[hole] == 0 {
+				holes = append(holes, hole)
+			}
 
-		if held, taken := claimed[name]; taken {
-			faults.Fail(&NameCollisionError{
-				Name:      name,
-				Path:      held.path,
-				Item:      held.item,
-				Other:     book.Path,
-				OtherItem: item.Name,
-			})
+			choosing[hole]++
 
 			continue
 		}
+
+		name := recordName(item.Name, combination)
 
 		derived := record{name: name, path: book.Path, item: item.Name}
 		for _, alternative := range combination {
@@ -332,24 +386,150 @@ func (s *Scaffold) take(
 			})
 		}
 
-		claimed[name] = derived
-		s.records = append(s.records, derived)
+		read.candidates = append(read.candidates, derived)
+	}
 
-		if several {
-			s.renamed = append(s.renamed, name)
+	for _, hole := range holes {
+		read.notes = append(read.notes, fmt.Sprintf(
+			"%s: %s describes a run of bytes with an item that has no data-name, at line %d, column %d, "+
+				"and a layout names an alternative with an item reference, so %s",
+			book.Path, item.Name, hole.Pos.Line, hole.Pos.Column, unwrittenCount(choosing[hole]),
+		))
+	}
+
+	return read
+}
+
+// unnamedVariant reports a REDEFINES inside a repeating group that a layout
+// could not spell, and notes every record type of the 01-level as unwritten.
+//
+// A redefine inside a repeating group is one variant in every record type over
+// the 01-level rather than a choice any one of them makes, so every one of them
+// would carry an `arm`, or a variant reference, with a hole in it. That is every
+// record selecting it, in docs/cli/SPEC.md's words, which here is all of them.
+func (l *level) unnamedVariant() bool {
+	for _, alternation := range l.shape.Alternations {
+		if !alternation.InTable {
+			continue
 		}
 
-		if root == "" {
-			root = name
+		hole := unreachableIn(l.item, alternation.Alternatives)
+		if hole == nil {
+			continue
+		}
+
+		names := make([]string, 0, len(l.shape.Combinations))
+		for _, combination := range l.shape.Combinations {
+			names = append(names, recordName(l.item.Name, combination))
+		}
+
+		l.notes = append(l.notes, fmt.Sprintf(
+			"%s: %s describes a run of bytes inside a repeating group with an item that has no data-name, "+
+				"at line %d, column %d, and every record type over %s carries that variant, "+
+				"so none of them is written: %s",
+			l.book.Path, l.item.Name, hole.Pos.Line, hole.Pos.Column, l.item.Name, strings.Join(names, ", "),
+		))
+
+		return true
+	}
+
+	return false
+}
+
+// unwrittenCount says how many record types an unnamed alternative withheld.
+//
+// They are counted rather than named because there is no name to give them: the
+// name of a combination is built out of the names of what it chose, and one of
+// those is missing.
+func unwrittenCount(n int) string {
+	if n == 1 {
+		return "the record type choosing it is not written"
+	}
+
+	return fmt.Sprintf("the %d record types choosing it are not written", n)
+}
+
+// take writes every candidate no other 01-level contends for, and notes the
+// rest.
+//
+// A name is written only where exactly one record type derived it. Writing the
+// first and noting the others would be cpybkc choosing which of them the
+// adopter meant, and disambiguating would be inventing a name whose only
+// property is that it differs from another invented one, so every record type
+// deriving a shared name is noted and none is written.
+func (s *Scaffold) take(books []Copybook, levels []level) {
+	// Who derived each name, in the order they were met. Read and never ranged
+	// over, which is what keeps the derivation a function of its inputs. A
+	// name the grammar would not read back is not entered: it is noted for
+	// that reason and not written either way.
+	derivers := make(map[string][]string)
+
+	for _, l := range levels {
+		for _, candidate := range l.candidates {
+			if !definitions.ReadsAsSymbol(candidate.name) {
+				continue
+			}
+
+			derivers[candidate.name] = append(derivers[candidate.name], l.item.Name+" in "+l.book.Path)
 		}
 	}
 
-	// A redefine inside a repeating group is one variant however many record
-	// types the 01-level resolves to, so the reference is rooted at the first
-	// of them; where a layout carries the others it carries a form of its own
-	// for each, which is a thing the adopter is writing anyway.
-	if root != "" {
-		for _, alternation := range shape.Alternations {
+	written := make([]bool, len(books))
+
+	for _, l := range levels {
+		if len(l.shape.Tables) > 0 {
+			s.tables = true
+		}
+
+		s.notes = append(s.notes, l.notes...)
+
+		several := len(l.shape.Combinations) > 1
+		root := ""
+
+		for _, candidate := range l.candidates {
+			if !definitions.ReadsAsSymbol(candidate.name) {
+				s.notes = append(s.notes, fmt.Sprintf(
+					"%s: %s derives the record name %q, which the S-expression grammar does not read back as "+
+						"that symbol, so the record is not written",
+					l.book.Path, l.item.Name, candidate.name,
+				))
+
+				continue
+			}
+
+			if all := derivers[candidate.name]; len(all) > 1 {
+				s.notes = append(s.notes, fmt.Sprintf(
+					"%s: %s derives the record name %s, which %d record types derive (%s), "+
+						"so none of them is written",
+					l.book.Path, l.item.Name, candidate.name, len(all), strings.Join(all, ", "),
+				))
+
+				continue
+			}
+
+			s.records = append(s.records, candidate)
+			written[l.at] = true
+
+			if several {
+				s.renamed = append(s.renamed, candidate.name)
+			}
+
+			if root == "" {
+				root = candidate.name
+			}
+		}
+
+		// A redefine inside a repeating group is one variant however many
+		// record types the 01-level resolves to, so the reference is rooted at
+		// the first of them written; where a layout carries the others it
+		// carries a form of its own for each, which is a thing the adopter is
+		// writing anyway. Where none was written there is no record for the
+		// reference to be rooted at, and no variant to raise.
+		if root == "" {
+			continue
+		}
+
+		for _, alternation := range l.shape.Alternations {
 			if !alternation.InTable {
 				continue
 			}
@@ -360,12 +540,24 @@ func (s *Scaffold) take(
 			}
 
 			s.variants = append(s.variants, variant{
-				item: reference{record: root, path: pathTo(item, alternation.Item)},
+				item: reference{record: root, path: pathTo(l.item, alternation.Item)},
 				arms: arms,
 			})
 		}
 	}
 
+	// A copybook no record was derived from still says so. Its notes above
+	// name each 01-level and why, and this is the line that tells the reader
+	// the copybook contributes nothing to the file rather than leaving them to
+	// count.
+	for at, book := range books {
+		if !written[at] {
+			s.notes = append(s.notes, fmt.Sprintf(
+				"%s: no record is derived from this copybook, because every 01-level it declares is noted",
+				book.Path,
+			))
+		}
+	}
 }
 
 // recordName is the symbol one combination is called, per docs/cli/SPEC.md, "How
@@ -420,25 +612,22 @@ func pathTo(root, field *copybook.Field) []string {
 	return path
 }
 
-// unreachable is the first item in shape that a layout could not name, or nil
-// where every one of them can be named.
+// unreachableIn is the first item in chosen that a layout could not name, or
+// nil where every one of them can be named.
 //
 // An item with no data-name — one written FILLER, or one whose name was simply
 // omitted — has no spelling in an item reference or in an `arm`, and neither has
 // an unnamed group between it and the 01-level. Finding it here is what keeps a
 // reference cpybkc wrote from being reported against the adopter later.
 //
-// Every alternative of every alternation is walked, in a table and out of one.
-// Out of one each alternative is named by an `alternative` child; in one the
-// redefined item is named by the variant's reference and each alternative by an
-// `arm`, so there is no alternative a layout does not have to spell either way.
-func unreachable(root *copybook.Field, shape resolve.Shape) *copybook.Field {
-	for _, alternation := range shape.Alternations {
-		for _, target := range alternation.Alternatives {
-			for at := target; at != nil && at != root; at = at.Parent {
-				if unnamed(at) {
-					return at
-				}
+// chosen is a combination outside a repeating group, each of whose alternatives
+// a record names with an `alternative` child, or the alternatives of one
+// redefine inside a repeating group, which a variant names with an `arm` each.
+func unreachableIn(root *copybook.Field, chosen []*copybook.Field) *copybook.Field {
+	for _, target := range chosen {
+		for at := target; at != nil && at != root; at = at.Parent {
+			if unnamed(at) {
+				return at
 			}
 		}
 	}
@@ -451,7 +640,7 @@ func unreachable(root *copybook.Field, shape resolve.Shape) *copybook.Field {
 // Both halves are tested rather than only the empty name. `cobol-go` documents
 // Name as empty for a FILLER item, so today the second is implied by the first —
 // but Filler is the field that *means* "this item has no data-name", and
-// [read] already tests the pair when it decides which top-level items are
+// [readRecords] already tests the pair when it decides which top-level items are
 // records. A guard whose whole job is to catch an item no reference can name is
 // the wrong place to depend on two spellings of that staying in agreement.
 func unnamed(field *copybook.Field) bool { return field.Name == "" || field.Filler }

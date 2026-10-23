@@ -1,0 +1,164 @@
+;; A layout scaffold, written by `cpybkc init` from the copybooks it was given.
+;;
+;; What is uncommented below is what those copybooks decide: one record per
+;; 01-level, and one alternative child per REDEFINES outside a repeating group.
+;; What is commented is what a copybook does not decide and you do -- the
+;; encoding, the physical framing, what tells one record type from another, and
+;; the order they may appear in.
+;;
+;; So this is not a layout yet. Run cpybkc against it and everything still
+;; missing is reported at once, each at the place it belongs; work down that
+;; list, uncomment the form it names and fill in every <placeholder>. A
+;; placeholder left as it stands is reported by name, so a form uncommented and
+;; left half-written is never quietly accepted.
+
+;; The encoding profile: all four axes, always, with no default for any.
+;; (encoding
+;;   (charset <charset>)
+;;   (sign-convention <sign-convention>)
+;;   (byte-order <byte-order>)
+;;   (float-format <float-format>))
+
+;; How the dataset frames a record. Which other children `framing` takes
+;; follows from the record format chosen: an lrecl under F and FB, a maximum
+;; segment under VBS, a delimiter and its placement under line-sequential.
+;; (framing
+;;   (recfm <recfm>))
+
+;; The record types these copybooks resolve to. Each names the copybook and the
+;; 01-level it is a description of and -- where a REDEFINES outside a repeating
+;; group gives that 01-level more than one description -- which one it means.
+(record LEDGER-HEADER (copybook "header.cpy" LEDGER-HEADER))
+(record POSTING-RECORD-PST-BODY-PST-TAIL
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL PST-BODY))
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL PST-TAIL)))
+(record POSTING-RECORD-PST-BODY-PST-TAIL-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL-REF PST-BODY))
+  (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL-REF PST-TAIL-REF)))
+(record POSTING-RECORD-PST-DEBIT-PST-TAIL
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL PST-DEBIT))
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL PST-TAIL)))
+(record POSTING-RECORD-PST-DEBIT-PST-TAIL-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL-REF PST-DEBIT))
+  (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL-REF PST-TAIL-REF)))
+(record POSTING-RECORD-PST-CREDIT-PST-TAIL
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL PST-CREDIT))
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL PST-TAIL)))
+(record POSTING-RECORD-PST-CREDIT-PST-TAIL-REF
+  (copybook "posting.cpy" POSTING-RECORD)
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL-REF PST-CREDIT))
+  (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL-REF PST-TAIL-REF)))
+(record ORDER-RECORD (copybook "order.cpy" ORDER-RECORD))
+(record BATCH-RECORD (copybook "batch.cpy" BATCH-RECORD))
+(record OPTION-RECORD-OPT-BODY
+  (copybook "option.cpy" OPTION-RECORD)
+  (alternative (item OPTION-RECORD-OPT-BODY OPT-GROUP OPT-BODY)))
+(record OPTION-RECORD-OPT-CARD
+  (copybook "option.cpy" OPTION-RECORD)
+  (alternative (item OPTION-RECORD-OPT-CARD OPT-GROUP OPT-CARD)))
+(record SECOND-RECORD (copybook "pair.cpy" SECOND-RECORD))
+(record FIRST-RECORD (copybook "pair.cpy" FIRST-RECORD))
+(record BOTH-RECORD-BTH-BODY
+  (copybook "both.cpy" BOTH-RECORD)
+  (alternative (item BOTH-RECORD-BTH-BODY BTH-BODY)))
+(record BOTH-RECORD-BTH-CARD
+  (copybook "both.cpy" BOTH-RECORD)
+  (alternative (item BOTH-RECORD-BTH-CARD BTH-CARD)))
+
+;; A copybook here carries an OCCURS DEPENDING ON, so the layout has to say
+;; which reading the program that wrote your file used: `odoslide`, under which
+;; every item behind such a table moves with the count, or `noodoslide`, under
+;; which the table is fixed at the copybook's declared maximum and the count is
+;; an ordinary field beside it. It is a property of that compiler, and no
+;; copybook holds it.
+;; (copybook-reading
+;;   (occurs-depending-on <reading>))
+
+;; Several record types over one 01-level carry one name between them -- the
+;; one that 01-level gives them -- until a rename says otherwise, and a
+;; generator that cannot spell two of them alike refuses the collision rather
+;; than munging it. What each should be called is a reading of what the file
+;; means, and no copybook holds it.
+;; (rename POSTING-RECORD-PST-BODY-PST-TAIL <substitute>)
+;; (rename POSTING-RECORD-PST-BODY-PST-TAIL-REF <substitute>)
+;; (rename POSTING-RECORD-PST-DEBIT-PST-TAIL <substitute>)
+;; (rename POSTING-RECORD-PST-DEBIT-PST-TAIL-REF <substitute>)
+;; (rename POSTING-RECORD-PST-CREDIT-PST-TAIL <substitute>)
+;; (rename POSTING-RECORD-PST-CREDIT-PST-TAIL-REF <substitute>)
+;; (rename OPTION-RECORD-OPT-BODY <substitute>)
+;; (rename OPTION-RECORD-OPT-CARD <substitute>)
+;; (rename BOTH-RECORD-BTH-BODY <substitute>)
+;; (rename BOTH-RECORD-BTH-CARD <substitute>)
+
+;; What selects each record type: exactly one of these per record, including
+;; for a record carrying nothing to test -- requiring it is what makes that a
+;; statement you made rather than a gap in the file.
+;; (discriminate LEDGER-HEADER <strategy>)
+;; (discriminate POSTING-RECORD-PST-BODY-PST-TAIL <strategy>)
+;; (discriminate POSTING-RECORD-PST-BODY-PST-TAIL-REF <strategy>)
+;; (discriminate POSTING-RECORD-PST-DEBIT-PST-TAIL <strategy>)
+;; (discriminate POSTING-RECORD-PST-DEBIT-PST-TAIL-REF <strategy>)
+;; (discriminate POSTING-RECORD-PST-CREDIT-PST-TAIL <strategy>)
+;; (discriminate POSTING-RECORD-PST-CREDIT-PST-TAIL-REF <strategy>)
+;; (discriminate ORDER-RECORD <strategy>)
+;; (discriminate BATCH-RECORD <strategy>)
+;; (discriminate OPTION-RECORD-OPT-BODY <strategy>)
+;; (discriminate OPTION-RECORD-OPT-CARD <strategy>)
+;; (discriminate SECOND-RECORD <strategy>)
+;; (discriminate FIRST-RECORD <strategy>)
+;; (discriminate BOTH-RECORD-BTH-BODY <strategy>)
+;; (discriminate BOTH-RECORD-BTH-CARD <strategy>)
+
+;; A REDEFINES inside a repeating group is chosen once per occurrence rather
+;; than once per record, so it is a variant with an arm per alternative and
+;; never an alternative child. Which names are alternatives there is the
+;; copybook's; what selects each one is yours.
+;;
+;; Where no byte of an entry says which alternative it is and the entry's
+;; position decides -- entry 1 is the home address, entry 2 the work one --
+;; the alternative is scheduled rather than discriminated. Say so with
+;; schedule-variant instead of writing a predicate over bytes that decide
+;; nothing:
+;;
+;;   (schedule-variant <item-ref>
+;;     (arm <name> <occurrence> ...)
+;;     (arm <name> <occurrence> ...))
+;;
+;; Where every occurrence of the table takes one of them -- the others are
+;; storage the copybook declares and the file never carries -- nothing is
+;; chosen, and there is no variant. Say so with take-alternative instead of
+;; inventing a predicate to tell the one you have from one you have not:
+;;
+;;   (take-alternative <item-ref> <name>)
+;; (discriminate-variant (item ORDER-RECORD ORD-LINE LN-BODY)
+;;   (arm LN-BODY <predicate>)
+;;   (arm LN-CARD <predicate>))
+;; (discriminate-variant (item BOTH-RECORD-BTH-BODY BTH-LINE BLN-BODY)
+;;   (arm BLN-BODY <predicate>)
+;;   (arm BLN-CARD <predicate>))
+
+;; The order records may appear in. Every record is named once below and the
+;; operator is deliberately left blank: this states no order, and which of
+;; seq, alt, *, +, ?, times and when describes your file is yours to choose.
+;; (sequence
+;;   (<operator>
+;;     LEDGER-HEADER
+;;     POSTING-RECORD-PST-BODY-PST-TAIL
+;;     POSTING-RECORD-PST-BODY-PST-TAIL-REF
+;;     POSTING-RECORD-PST-DEBIT-PST-TAIL
+;;     POSTING-RECORD-PST-DEBIT-PST-TAIL-REF
+;;     POSTING-RECORD-PST-CREDIT-PST-TAIL
+;;     POSTING-RECORD-PST-CREDIT-PST-TAIL-REF
+;;     ORDER-RECORD
+;;     BATCH-RECORD
+;;     OPTION-RECORD-OPT-BODY
+;;     OPTION-RECORD-OPT-CARD
+;;     SECOND-RECORD
+;;     FIRST-RECORD
+;;     BOTH-RECORD-BTH-BODY
+;;     BOTH-RECORD-BTH-CARD))

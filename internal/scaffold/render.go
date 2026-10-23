@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Zaba505/cpybkc/internal/definitions"
 )
 
 // The two shapes a line of a scaffold takes.
@@ -162,7 +164,7 @@ func (s *Scaffold) definitions(out *strings.Builder) {
 // copybookChild is the `copybook` child naming the file as it was typed and the
 // 01-level inside it.
 func (r record) copybookChild() string {
-	return "(copybook " + quote(r.path) + " " + r.item + ")"
+	return "(copybook " + quote(r.path) + " " + definitions.Spell(r.item) + ")"
 }
 
 // reading raises the OCCURS DEPENDING ON question, when and only when some
@@ -276,7 +278,7 @@ func (s *Scaffold) variantDiscriminators(out *strings.Builder) {
 				closing = ")"
 			}
 
-			lines = append(lines, indent+"(arm "+arm+" "+predicateHole+")"+closing)
+			lines = append(lines, indent+"(arm "+definitions.Spell(arm)+" "+predicateHole+")"+closing)
 		}
 
 		comment(out, lines...)
@@ -299,6 +301,12 @@ func (s *Scaffold) sequence(out *strings.Builder) {
 
 	lines := make([]string, 0, len(s.records)+2)
 	lines = append(lines, "(sequence", indent+"("+operatorHole)
+
+	// Every record noted rather than written leaves nothing to name, and the
+	// form is still closed so that it stays one a reader can parse.
+	if len(s.records) == 0 {
+		lines[len(lines)-1] += "))"
+	}
 
 	for at, r := range s.records {
 		closing := ""

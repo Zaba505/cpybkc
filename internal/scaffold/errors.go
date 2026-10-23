@@ -7,7 +7,6 @@ package scaffold
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
@@ -61,13 +60,20 @@ func (e *SourceError) Diagnostic() diag.Diagnostic {
 }
 
 // NoRecordError is a copybook that parsed and declares nothing a `record` form
-// could be written over.
+// could be written over — no named 01-level, or no entry at all.
 //
 // A copybook is a record description, and one holding no named 01-level
 // contributes no record to a scaffold. Reporting it is what stops a run
 // succeeding over a file the adopter expected records out of — a member holding
 // nothing but level-77 work items is the ordinary way to arrive here, and it
 // parses perfectly well.
+//
+// It is a refusal only until definitions files exist (#408). docs/cli/SPEC.md,
+// "`init`'s streams and exit codes", makes a copybook with entries and no named
+// 01-level a note once there is a definitions file to write for it, and keeps
+// refusing one that declares no entry at all; until then there is nothing at all
+// to write for either, and a run that exited 0 having written nothing about a
+// copybook it was given would read as success.
 type NoRecordError struct {
 	// Path is the --copybook value as it was typed.
 	Path string
@@ -81,76 +87,6 @@ func (e *NoRecordError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
 		Message: "this copybook declares no named 01-level, so there is no record to derive from it",
 		Spans:   []diag.Span{{File: e.Path}},
-	}
-}
-
-// NameCollisionError is two record types whose derived names are one symbol.
-//
-// docs/cli/SPEC.md, "How a combination's record name is chosen", requires the
-// run to fail naming both rather than disambiguating: duplicate data names are
-// legal COBOL, so this is reachable, and the only way past it is a name whose
-// single property is that it differs from another invented one. Both places are
-// named because the answer is to rename one of them, and the adopter cannot tell
-// which without seeing the pair.
-type NameCollisionError struct {
-	// Name is the symbol both record types derived.
-	Name string
-
-	// Path and Item are the copybook and 01-level of the record type already
-	// carrying it; Other and OtherItem are the ones that collided with it.
-	Path      string
-	Item      string
-	Other     string
-	OtherItem string
-}
-
-// Error implements error.
-func (e *NameCollisionError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic implements [diag.Error].
-func (e *NameCollisionError) Diagnostic() diag.Diagnostic {
-	return diag.Diagnostic{
-		Message: fmt.Sprintf(
-			"the record name %s is derived twice, here from the 01-level %s and again from %s below, "+
-				"and a layout cannot carry one name on two record types",
-			e.Name, e.Item, e.OtherItem,
-		),
-		Spans: []diag.Span{
-			{File: e.Path},
-			{File: e.Other, Note: "and again here"},
-		},
-	}
-}
-
-// UnnamedAlternativeError is a REDEFINES over an item a layout could not name.
-//
-// A layout says which alternative a record is with an item reference, and a
-// reference is a path of names — so an alternative written FILLER, or one under
-// a group whose data-name was omitted, is one no layout can name. The scaffold
-// refuses rather than writing a reference with a hole in it, which would parse
-// and then be reported against a line cpybkc wrote.
-type UnnamedAlternativeError struct {
-	// Path is the --copybook value as it was typed, and Item the 01-level.
-	Path string
-	Item string
-
-	// Line and Column are where the unnamed item is declared.
-	Line   int
-	Column int
-}
-
-// Error implements error.
-func (e *UnnamedAlternativeError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic implements [diag.Error].
-func (e *UnnamedAlternativeError) Diagnostic() diag.Diagnostic {
-	return diag.Diagnostic{
-		Message: fmt.Sprintf(
-			"%s overlays a run of bytes with an item that has no data-name, "+
-				"and a layout names an alternative with an item reference",
-			e.Item,
-		),
-		Spans: []diag.Span{{File: e.Path, Line: e.Line, Column: e.Column}},
 	}
 }
 

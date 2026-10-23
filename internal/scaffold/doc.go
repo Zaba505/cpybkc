@@ -11,9 +11,21 @@
 // A layout is two kinds of statement in one file and only one of them is
 // knowledge the adopter has (docs/cli/SPEC.md, "What a copybook decides, and
 // what only the adopter can"). This package writes the first kind complete —
-// one `record` per 01-level, one `alternative` child per REDEFINES outside a
-// repeating group — and writes the second kind as commented forms with their
-// subjects filled in and their values left as placeholders.
+// one `record` per record type a named 01-level resolves to, one `alternative`
+// child per REDEFINES outside a repeating group — and writes the second kind as
+// commented forms with their subjects filled in and their values left as
+// placeholders.
+//
+// # What it cannot write, it notes
+//
+// A record type no layout could carry — one choosing an alternative with no
+// data-name, one whose derived name another record type derives too, one over an
+// 01-level the resolver cannot describe, one whose derived name the S-expression
+// grammar would not read back as itself — is left out and noted, and the rest
+// are written (docs/cli/SPEC.md, "How a combination's record name is chosen").
+// Every one of those is a statement about the layout and never about the
+// copybook, so withholding the whole scaffold to report it would withhold
+// everything that could be written to report a gap in one record.
 //
 // It invents nothing. Not an encoding axis, not a record format, not a
 // discrimination strategy and not a sequencing operator: a guessed value is the
