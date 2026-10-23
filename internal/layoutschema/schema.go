@@ -583,9 +583,10 @@ func sortRefOf(node sexpr.Node) (sortRef, error) {
 //
 // Arguments are consumed in order by count, so only the last may repeat and
 // only the last may be optional — anything else leaves two readings of the same
-// list. A form that both repeats its last argument and admits children is
-// refused for the same reason: there would be nothing to say where the
-// arguments stop and the children start.
+// list. A form whose last argument repeats or is optional and which also admits
+// children is refused for the same reason: there would be nothing to say where
+// the arguments stop and the children start, or whether the node after the
+// arguments before it is the last argument or the first child.
 func checkArgumentOrder(decl *formDecl) error {
 	for i, arg := range decl.args {
 		if i == len(decl.args)-1 {
@@ -601,8 +602,14 @@ func checkArgumentOrder(decl *formDecl) error {
 		return nil
 	}
 
-	if decl.args[len(decl.args)-1].arity.repeatable() {
+	last := decl.args[len(decl.args)-1]
+
+	if last.arity.repeatable() {
 		return fmt.Errorf("%s: form %q repeats its last argument and admits children, so nothing says where the arguments stop", at(decl.pos), decl.tag)
+	}
+
+	if last.arity.min == 0 {
+		return fmt.Errorf("%s: form %q has an optional last argument and admits children, so nothing says whether the node after its other arguments is that argument or a child", at(decl.pos), decl.tag)
 	}
 
 	return nil
