@@ -64,9 +64,10 @@ Out of scope, with reasons, in [Out of Scope](#out-of-scope).
   [`--version`](#--version) reports. What a descriptor contains is that
   document's; which command writes one is this document's.
 - **[`layout/SPEC.md`](../layout/SPEC.md)** — normative for what a layout
-  states, and the source of two questions it hands to the CLI by name: where a
-  copybook path is looked for, and where a layout's forms are read from. Both
-  are answered in [Finding the inputs](#finding-the-inputs). It is normative a
+  states, and the source of three questions it hands to the CLI by name: where a
+  copybook path is looked for, where a layout's forms are read from, and where
+  a member a copybook's `COPY` names is found. All three are answered in
+  [Finding the inputs](#finding-the-inputs). It is normative a
   second time for [`init`](#init-scaffolds-a-layout-from-copybooks): which forms
   a copybook decides, which it cannot, and what a file has to carry before a
   reader accepts it are all that document's, and the scaffold is held to them
@@ -330,9 +331,11 @@ One rule covers every path in a run, and it has two halves:
 
 - A relative path **stated in a file** is resolved against the directory of
   that file. A manifest's `layout` and `out` are relative to the manifest
-  (#40); a layout's `copybook` path is relative to the layout (#148), and so is
-  the path a text `definitions` argument states (#399).
-- A relative path **typed on the command line** — `--manifest`, `--emit-ir` —
+  (#40); a layout's `copybook` path is relative to the layout (#148), and so are
+  the path a text `definitions` argument states (#399) and the path a
+  `copy-member` form states (#407).
+- A relative path **typed on the command line** — `--manifest`, `--emit-ir`,
+  and `init`'s `--copybook` and `--copy-member` —
   is resolved against the working directory, because that is the directory the
   person typing it was standing in.
 
@@ -350,10 +353,10 @@ cannot afford.
 
 ### Finding the inputs
 
-[`layout/SPEC.md`](../layout/SPEC.md) hands two questions to the CLI by name,
-and this section answers both — and then the third, which nothing had asked
-until a manifest and a layout each looked like a place a copybook could be
-named from.
+[`layout/SPEC.md`](../layout/SPEC.md) hands three questions to the CLI by
+name, and this section answers them — and then a fourth, which nothing had
+asked until a manifest and a layout each looked like a place a copybook could
+be named from.
 
 **Where a copybook is looked for.** At the path its layout states, resolved as
 above, and nowhere else. cpybkc **MUST NOT** search a list of directories:
@@ -369,6 +372,15 @@ against a search path above holds for a file of entries as it does for a
 copybook, and a definitions file exists precisely so that what a run reads is
 checked in.
 
+**Where a member named by `COPY` is found.** At the path the layout's
+[`copy-member`](../layout/SPEC.md#a-copy-member-is-found-where-the-layout-says)
+form for that member states, resolved as above, and nowhere else. A
+`COPY STDHDR.` in a copybook is a *name*, not a path, and the layout is what
+says which file the name is: there is no directory a member is looked for in
+and no suffix tried after its name, so no difference between two machines can
+make one `COPY` read two files. [Where a `COPY` member is
+found](#where-a-copy-member-is-found) states the rest and argues it.
+
 **Where a layout's forms are read from.** From the one file the manifest's
 `layout` names. Composing a layout's own forms from several files is out of
 scope, with its reason, in `layout/SPEC.md`'s [Out of
@@ -376,12 +388,16 @@ Scope](../layout/SPEC.md#also-out-of-scope).
 
 **Which files a run reads**, and the answer #157 owed this section: the layout,
 plus exactly the copybooks and definitions files its layout's `record` forms
-name, and no others. A `definitions-block` opens nothing — it is a form of the
-layout, already read — and only the text form of `definitions` is a path; a
-symbol there names a block. A definitions file names no further file
-([What a record may reach](../layout/SPEC.md#what-a-record-may-reach)), so the
-list stops one step from the layout. Several records naming one path read it
-once.
+name, plus the member file of each `copy-member` form a `COPY` in one of those
+copybooks reaches, and no others. A `definitions-block` opens nothing — it is a
+form of the layout, already read — and only the text form of `definitions` is a
+path; a symbol there names a block. A definitions file names no further file
+([What a record may reach](../layout/SPEC.md#what-a-record-may-reach)), so that
+list stops one step from the layout. A copybook's `COPY` names a member, and a
+member may itself write `COPY`; each of those names is looked up among the
+layout's `copy-member` forms, so every file the chain reaches is still a file
+the layout names. Several records naming one path read it once, and a member
+copied from several places is read once.
 
 The manifest does not list them. It names the layout, the generators and their
 options — the things a layout has no opinion about — and it carries no `inputs`
@@ -424,14 +440,153 @@ error: ledger.sexpr:22:5: no definitions file at posting.cpy.sexpr
   looked for /srv/ledger/posting.cpy.sexpr
 ```
 
-Neither line ever applies to a block, which is in the layout and is never
-opened.
+A member file cpybkc cannot open is reported in the same shape again, naming
+the path as the `copy-member` form spells it, with the span at that path in
+the layout:
+
+```
+error: orders.sexpr:3:22: no copy member at cpy/stdhdr.cpy
+  looked for /srv/orders/cpy/stdhdr.cpy
+```
+
+None of these lines ever applies to a block, which is in the layout and is
+never opened.
 
 The absolute path is on a continuation line rather than in a second span,
 because `layout/SPEC.md` requires this diagnostic to carry no second span:
 there is no file to point into, and a span invented for one would point at
 nothing. A continuation line that names no place is what [the diagnostic
 format](#standard-error-diagnostics) allows for exactly this case.
+
+### Where a `COPY` member is found
+
+A copybook that writes `COPY STDHDR.` is read with `STDHDR`'s text in place of
+the statement — that is what `COPY` means, and `cobol-go` does the expanding
+(`cobol.WithCopyBooks`). What `cobol-go` cannot know is which file `STDHDR` is.
+It asks, through a resolver it is handed, and cpybkc's answer **MUST** be the
+file a [`copy-member`](../layout/SPEC.md#a-copy-member-is-found-where-the-layout-says)
+form names for that member, and no other:
+
+```
+(copy-member STDHDR "cpy/stdhdr.cpy")
+(copy-member ORDDTL "cpy/orddtl.cpy")
+(record ORDER-DETAIL (copybook "cpy/order-detail.cpy" ORDER-DETAIL-REC))
+```
+
+The path is resolved [relative to the
+layout](#a-path-is-relative-to-the-file-that-states-it), as every path a layout
+states is. A `COPY` naming a member no `copy-member` form names is a fault,
+not a cue to look somewhere else.
+
+**There is no search, and no convention for the name.** The resolvers
+`cobol-go` ships are searches: `FSCopyBooks` tries the text-name as written,
+upper-cased and lower-cased, each bare, with `.cpy` and with `.CPY`, in a
+directory it is given. Handing it the copybook's own directory, or the
+layout's, is the implicit directory [Finding the
+inputs](#finding-the-inputs) refuses, and its up to nine candidates are a
+search path compressed into one directory: which of `STDHDR`, `stdhdr.cpy` and
+`STDHDR.CPY` a run reads would turn on which of them happens to exist, on a
+filesystem whose case-sensitivity no file records. The failure is the one that
+section names — the same layout resolving to different copybooks on two
+machines, compiling, and producing the wrong offsets. A member is named in the
+layout instead, by its path, once.
+
+**A copybook's `COPY` line is not edited to make it findable.** `COPY
+'cpy/stdhdr.cpy'.`, with a literal path, would let the copybook say where its
+member is. It is not the answer, because the copybooks that compose with `COPY`
+are mostly not the adopter's to edit — a vendor's member that copies another is
+read as the vendor wrote it — and because the composing lines are usually
+copied from a program's `FD`, where they say `COPY STDHDR.`
+([Composition](../layout/SPEC.md#composition-is-the-copybooks-and-copy-is-where-it-is-written)).
+A `COPY` written with a literal is still a name to cpybkc, matched against
+`copy-member` forms like any other.
+
+**One member map per run, stated in the layout.** Every copybook the run reads,
+and every member they copy, is expanded against the same `copy-member` forms —
+the layout's. That is the shape of a compile, where one library serves every
+`COPY` in the program, and it is what lets a member name mean one file
+throughout a run: a member copied by six record types' copybooks is one
+statement in the layout, not six that could disagree. Why the forms are
+layout-wide rather than written inside each `copybook` source is the layout
+format's to argue, and [it
+does](../layout/SPEC.md#a-copy-member-is-found-where-the-layout-says).
+
+**Each member file is read once per run**, however many `COPY` statements name
+it, and the bytes read are the bytes every expansion of it uses. A member is
+read in the reference format of the copybook copying it, which for every
+copybook cpybkc reads is fixed format; a member nested inside another is
+expanded through the same forms, and a chain that returns to a member already
+open is `cobol-go`'s `CopyBookCycleError`, reported at the `COPY` that closes
+it with the chain on continuation lines. `REPLACING` is `cobol-go`'s too: it
+is applied as `cobol-go` applies it, and nothing here restates it.
+
+**The run and `init` read members through one resolver.** A run builds the
+member map from the layout's `copy-member` forms; [`init`](#where-the-members-come-from),
+which has no layout, builds it from its `--copy-member` flags. Either way the
+map is handed to one resolver — the only code in cpybkc that turns a `COPY` into
+a file — so that a copybook converted by `init` and the same copybook read by a
+run are expanded by the same rules into the same entries, and [Three sources,
+one descriptor](../layout/SPEC.md#three-sources-one-descriptor) holds for a
+composed record as it does for any other. The resolver, the `copy-member` form
+and `--copy-member` are introduced together, in one change (#423), and that
+change adds a composed copybook to the round trip every copybook cpybkc reads
+goes through (#401) and to the descriptor-equality suites for a definitions
+file (#405) and a block (#409).
+
+#### What a `COPY` fault looks like
+
+Each of these is a diagnostic in [the ordinary
+format](#standard-error-diagnostics), and each names the member the way the
+copybook spells it:
+
+- **A `COPY` naming a member no `copy-member` form names.** The span is at the
+  `COPY` statement, in the file that writes it, and a continuation line lists
+  the members the layout does name:
+
+  ```
+  error: cpy/order-detail.cpy:3:12: COPY ORDDTL names no copy-member in the layout
+    the layout names STDHDR
+  ```
+
+- **A member file that cannot be opened.** In the shape [Finding the
+  inputs](#finding-the-inputs) gives every missing file: the path as the
+  `copy-member` form spells it, the span at that path, and where it was looked
+  for.
+- **A cycle.** At the `COPY` that closes it, with the chain of members open at
+  that point, outermost first.
+
+A fault **inside** a member — an entry `cobol-go` refuses, an item a reference
+names that does not satisfy it, any diagnostic whose second span
+[points into a record's
+description](../layout/SPEC.md#every-diagnostic-carries-a-span-and-some-carry-two)
+— **MUST** point into the member, at the line and column the entry has there,
+and name the member as its `copy-member` form spells it. It carries one more
+continuation line per `COPY` statement that reached it, innermost first, each
+at that statement, so the reader can tell which expansion it was:
+
+```
+error: orders.sexpr:22:9: ORDER-DETAIL declares no item STD-TYPE
+  cpy/stdhdr.cpy:3:12: it declares STD-REC-TYPE and STD-REC-LEN
+  cpy/order-detail.cpy:2:12: copied by COPY STDHDR
+```
+
+A span into the copybook that wrote the `COPY`, at the position the entry has
+in the member, would point at a line that says something else.
+
+**This needs member provenance from `cobol-go`, which it does not have.** The
+pinned `cobol-go` reports a copied entry's position as "a position within the
+copybook" — the member — but a `cobol.Pos` is a line and a column and nothing
+else, so neither the entry nor its position says *which* member, and a
+`CopyBookNotFoundError` or `CopyBookCycleError` raised inside a member carries
+the position of a `COPY` in an unnamed file the same way. The change needed,
+for the owner to file in Zaba505/cobol-go, is **member provenance**: every
+position `cobol-go` reports from an expanded source — each entry's, each
+clause's, and each error's, `copybook.Build`'s and `NewLayout`'s included —
+says which library text it is in, by the text-name and library the resolver
+was asked for, and the chain of `COPY` statements that reached it; and it is a
+position in that text as written, not as a `REPLACING` phrase left it. Until
+it lands, the implementing change (#423) cannot meet the rule above and is
+blocked on it.
 
 ## Emitting the IR
 
@@ -521,7 +676,7 @@ a real generator process rather than claimed by either document (#157).
 ## `init` scaffolds a layout from copybooks
 
 ```
-cpybkc init --copybook <path> … --out <path>
+cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <path>
 ```
 
 `init` reads the copybooks it is given, writes one [definitions
@@ -601,9 +756,13 @@ layout end.
 | Flag | Value | Default | May repeat |
 | --- | --- | --- | --- |
 | `--copybook` | a path to a copybook | none; at least one **MUST** be given | yes |
+| `--copy-member` | a member a `COPY` names, `=`, and the path of its file | none | yes |
 | `--out` | a path, naming the layout | none; **MUST** be given | no |
 
-`--copybook` is unchanged: repeatable, and given at least once. `--out` names
+`--copybook` is unchanged: repeatable, and given at least once. `--copy-member`
+says where a member a copybook's `COPY` names is found, once per member, and
+is needed only for a copybook that writes `COPY` ([Where the members come
+from](#where-the-members-come-from)). `--out` names
 the layout and nothing else; it is never `-`
 ([Where the scaffold is written](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten)).
 
@@ -623,10 +782,12 @@ layout](#a-path-is-relative-to-the-file-that-states-it), and the file is beside
 it, so the path the scaffold states is right wherever the two are moved
 together.
 
-**No flag is added.** Where the definitions files go and what they are called
-both follow from flags `init` already takes, and a flag that named them
+**No flag names the definitions files.** Where they go and what they are called
+both follow from `--copybook` and `--out`, and a flag that named them
 separately would be a second place to say what the layout's records already
-say, for the two to disagree about. `init` writes no `definitions-block`: the
+say, for the two to disagree about. (`--copy-member`, added by #407, names an
+input and not an output: where a member is read from is knowledge a command
+line has to carry, because `init` has no layout to read it from.) `init` writes no `definitions-block`: the
 owner decided on discussion #394 that `init` writes definitions files, and
 #399's answer to it says so. Moving a file's entries into the layout is an
 edit the adopter makes, and [When a copybook changes, and moving a record
@@ -672,8 +833,8 @@ every subcommand, and `cpybkc init --version` prints the version line.
 
 [Flag form](#flag-form) and the rest of [The argument
 vector](#the-argument-vector) apply unchanged: both value spellings are
-accepted, `--copybook` is the one flag that repeats, and a missing value is a
-usage error.
+accepted, `--copybook` and `--copy-member` are the two flags that repeat, and a
+missing value is a usage error.
 
 ### Where the copybooks come from
 
@@ -730,6 +891,66 @@ written. That is the same refusal to
 compare spellings that [Finding the inputs](#finding-the-inputs) argues at
 length, and for the same reason: behind a symlink, a bind mount or a
 case-insensitive filesystem there is no comparison that is right every time.
+
+### Where the members come from
+
+A copybook that writes `COPY` is converted as its **expanded** entries, as
+[Composition](../layout/SPEC.md#composition-is-the-copybooks-and-copy-is-where-it-is-written)
+requires of a definitions file, so `init` has to read every member its `COPY`
+statements name. A run learns where a member is from the layout's
+`copy-member` forms ([Where a `COPY` member is
+found](#where-a-copy-member-is-found)); `init` has no layout, and learns it
+from `--copy-member`, one per member:
+
+```
+cpybkc init --copybook cpy/order-detail.cpy \
+  --copy-member STDHDR=cpy/stdhdr.cpy --copy-member ORDDTL=cpy/orddtl.cpy \
+  --out orders.sexpr
+```
+
+The value is the member, `=`, and the path of the file holding it. The member
+is written as the `COPY` statement writes it: a text-name — a COBOL word, or
+an alphanumeric literal in its delimiters — optionally followed by `OF` or `IN`
+and a library-name written the same way, so `STDHDR`, `'stdhdr.cpy'` and
+`STDHDR OF PAYLIB` — quoted for the shell, as a value with a space always is —
+are all members. The `=` ending the member is the first
+one outside a literal; a COBOL word holds no `=`, and a literal ends at its
+closing delimiter, so the split is unambiguous for every member a `COPY` can
+name, and everything after it is the path, whatever it holds. The path is
+resolved against the working directory, as [every path typed on the command
+line is](#a-path-is-relative-to-the-file-that-states-it), and written as typed
+into every diagnostic about it.
+
+A member is matched to a `COPY` exactly as a `copy-member` form is
+([A `COPY` member is found where the layout
+says](../layout/SPEC.md#a-copy-member-is-found-where-the-layout-says)) —
+without regard to case, the library part included, and with no fallback from a
+qualified `COPY` to an unqualified member — and the map is handed to the [one
+resolver](#where-a-copy-member-is-found) a run uses. So a `COPY` is expanded by
+`init` exactly as it is by a run whose layout names the same files.
+
+Four values are usage errors, each decidable from the vector before anything
+is opened, and each reported naming the value as typed: one with no `=` outside
+a literal; one whose member or path is empty, or whose member is not a COBOL
+word or literal, optionally `OF`/`IN` another; one whose path is `-`, because a
+fault inside a member is reported at the member's path and a stream has none;
+and two whose members are equal under that matching, naming both, because one
+`COPY` would have two files to read.
+
+A `--copy-member` that no `COPY` in any copybook names is **noted**, and the
+run carries on. A layout's `copy-member` form nothing reaches is an error,
+because a layout is a checked-in statement and an unreached one is more often a
+misspelling ([the same rule as a
+block](../layout/SPEC.md#a-blocks-name-and-a-block-no-record-names)); a command
+line is typed once, often from a script that serves several copybooks, and
+nothing it says outlives the run. The note is still there so that a misspelled
+member reads as one beside the refusal its `COPY` then produces.
+
+A member is **not** a copybook `init` converts. It gets no definitions file of
+its own and derives no record: its entries reach the definitions file of every
+copybook that copies it, in the place the `COPY` stood. An adopter who wants
+a member transcribed on its own names it with `--copybook` too, and the two
+flags do not interact.
 
 ### Where the scaffold is written, and why nothing is ever overwritten
 
@@ -930,13 +1151,17 @@ alternative is an adopter reading two specifications to find out what the form
 is called.
 
 **Each definitions file MUST hold every entry and every clause of its
-copybook**, in the [notation](../layout/SPEC.md#definitions) #395 settles and in
+copybook** — for a copybook that writes `COPY`, every entry and clause of its
+expansion, each member's entries where its `COPY` stood ([Where the members
+come from](#where-the-members-come-from)) — in the [notation](../layout/SPEC.md#definitions) #395 settles and in
 [the canonical printed form](../layout/SPEC.md#the-printed-form-init-writes):
 one entry per line, in source order, every clause the copybook carries on its
 entry. That includes every entry no record derives from — a `77`-level, an
 unnamed `01`-level, an `01`-level every combination of which was noted — because
 the file is the copybook's transcription and not the layout's selection from
-it. It **MUST** carry none of the copybook's comments, and **MUST** carry
+it. A scaffold carries no `copy-member` form: no record in it names a
+copybook, so no `COPY` is read when the layout is, and a `copy-member` form
+nothing reaches is an error. It **MUST** carry none of the copybook's comments, and **MUST** carry
 exactly one comment of its own, first: a header naming the copybook as it was
 typed on the command line. That is a `;` comment, which [nothing
 reads](../layout/SPEC.md#what-a-transcription-leaves-out); it is not the
@@ -1211,6 +1436,10 @@ be equal, so any difference is a mistake in the move.
   directory, move the definitions file from there to beside the layout, and
   swap `(copybook "x.cpy" N)` for
   `(definitions "x.cpy.sexpr" N)` in each record that names the copybook.
+  Where the copybook writes `COPY`, give `init` one `--copy-member` per
+  `copy-member` form the layout holds for its members, with the same paths;
+  then remove each `copy-member` form no remaining copybook source reaches,
+  which the run reports by name.
 - **File to block.** Add `(definitions-block NAME …)` to the layout, holding
   the file's entries; in every record of that layout that names the file,
   change `"x.cpy.sexpr"` to `NAME`; and delete the file once no other layout
@@ -1286,11 +1515,16 @@ transcribed — never whether every record could be named.
   A copybook no record derives from — only `77`-levels, no named `01`-level, or
   every combination noted — still gets its definitions file, and a note. The
   [combination count](#the-combination-count-is-reported-not-bounded) is a note
-  too.
+  too, and so is a `--copy-member` no `COPY` names ([Where the members come
+  from](#where-the-members-come-from)).
 - **Refusals, and the run exits `1` having written nothing.** A copybook that
-  cannot be opened, parsed or built — a copybook that writes `COPY` included,
-  since no member it names can be found until #407 settles where — and a
-  copybook that declares no entry at all (#31). A copybook conversion refuses,
+  cannot be opened, parsed or built, and a copybook that declares no entry at
+  all (#31). A copybook whose `COPY` names a member no `--copy-member` gives, a
+  member file that cannot be opened, and a `COPY` cycle are all a copybook that
+  cannot be parsed, reported in the shapes [What a `COPY` fault looks
+  like](#what-a-copy-fault-looks-like) gives, at the copybook as typed. A
+  copybook that writes `COPY` and whose members are all given converts as its
+  expanded entries, and is refused or not on the same terms as any other. A copybook conversion refuses,
   for a condition-name the pinned `cobol-go` misreads ([A condition-name
   cobol-go misreads is refused, not
   transcribed](../layout/SPEC.md#a-condition-name-cobol-go-misreads-is-refused-not-transcribed)),
@@ -1328,10 +1562,13 @@ The three statuses are unchanged, and `init`'s faults distribute across them:
   either action; `init` with no `--copybook` or no `--out`; `--copybook -`;
   `--out -`; `--copybook` twice with equal values; two `--copybook` values whose
   derived names are equal under case folding, or one whose derived name is the
-  layout's own ([The vector `init` takes](#the-vector-init-takes)); and any flag
+  layout's own ([The vector `init` takes](#the-vector-init-takes)); a
+  `--copy-member` value with no `=`, an empty or malformed member, an empty
+  path or the path `-`, and two whose members are equal ([Where the members
+  come from](#where-the-members-come-from)); and any flag
   `init` does not carry, including `--manifest`, `--emit-ir` and
   `--emit-ir-format`. As everywhere else, a `2` means cpybkc did nothing at all
-  — no copybook was opened and no file was created.
+  — no copybook or member was opened and no file was created.
 
 ### Why this is a subcommand and not a script over the published schema
 
@@ -1694,9 +1931,9 @@ and a change to any of them is a breaking change:
 | --- | --- |
 | [The command set](#one-command-and-one-subcommand) | One command whose default action is generating, plus `init`; the first operand is a subcommand name from that closed set, and there is no second operand |
 | [The flags](#the-argument-vector) | The five above: each keeps its name, its value, its default and its meaning |
-| [`init`'s flags](#the-vector-init-takes) | `--copybook` and `--out`: each keeps its name, its value, its repeatability and its meaning — `--copybook` names one copybook, never a stream, and `--out` names the layout, never a stream — and neither action admits the other's input-naming flags |
+| [`init`'s flags](#the-vector-init-takes) | `--copybook`, `--copy-member` and `--out`: each keeps its name, its value, its repeatability and its meaning — `--copybook` names one copybook, never a stream; `--copy-member` names one member, as a `COPY` writes it, and the path of its file, never a stream; and `--out` names the layout, never a stream — and neither action admits the other's input-naming flags |
 | [The scaffold](#the-scaffold-is-deliberately-incomplete) | A layout and one definitions file per `--copybook`, beside the layout and named after the copybook's final path element with `.sexpr` appended, each record naming its definitions file; the layout parses, states nothing an adopter has to decide, and is not a layout a reader accepts as complete; the set is written whole or not at all; and no destination is ever replaced |
-| [The definitions text `init` writes](#what-the-scaffold-states-form-by-form) | Its forms — the [entry notation](../layout/SPEC.md#definitions), every entry and clause of the copybook; their order, which is source order; and its line layout, [the canonical printed form](../layout/SPEC.md#the-printed-form-init-writes). Comment wording is not covered |
+| [The definitions text `init` writes](#what-the-scaffold-states-form-by-form) | Its forms — the [entry notation](../layout/SPEC.md#definitions), every entry and clause of the copybook, expanded where it writes `COPY`; their order, which is source order; and its line layout, [the canonical printed form](../layout/SPEC.md#the-printed-form-init-writes). Comment wording is not covered |
 | [Manifest discovery](#finding-the-manifest) | `--manifest`, else `cpybkc.json` in the working directory, and no search |
 | [Path resolution](#a-path-is-relative-to-the-file-that-states-it) | A path in a file is relative to that file; a path on the command line is relative to the working directory |
 | [`--emit-ir`](#emitting-the-ir) | Replaces generation; writes the run's one descriptor, which is the same bytes every generator of that run is handed |
@@ -1935,6 +2172,11 @@ the layout is resolved, not by `init`, which read no layout to compare against
   because its contents would decide the scaffold with nothing recording it, a
   stream because a definitions file is named after its copybook and a stream
   has no name.
+- **A directory of members, or a member found by its name.** No `--copy-lib`,
+  no `--include`, and no lookup of `COPY STDHDR` as `STDHDR.cpy` anywhere:
+  each member is named by `--copy-member`, with its path, for the reason [Where
+  a `COPY` member is found](#where-a-copy-member-is-found) refuses a search for
+  a run.
 - **Writing the scaffold to a stream.** `--out -` is refused in [Where the
   scaffold is written](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten):
   `init`'s output is a set of files, and a stream carries one.
@@ -1975,37 +2217,39 @@ the layout is resolved, not by `init`, which read no layout to compare against
 | [One command, and one subcommand](#one-command-and-one-subcommand) | #147 `cli` for the one command; #183 `cli` decides the subcommand and that the default action keeps the bare form, #214 `cli` implements the dispatch; the entrypoint promise it answers to, #55 and #183 `container` |
 | [The first operand is a subcommand name](#the-first-operand-is-a-subcommand-name) | #147 `cli` reserved the position, #183 `cli` spends it, #214 `cli` parses it |
 | [The argument vector](#the-argument-vector) | #147 `cli`; the second synopsis line, #183 and #214 `cli` |
-| [`init` scaffolds a layout from copybooks](#init-scaffolds-a-layout-from-copybooks) | #183 `cli` specifies it; #214 `cli` the vector, #215 `cli` the derivation and the file; a definitions file per copybook beside the layout, and the adopter committing them in place of the copybooks, #403 `cli` against discussion #394, implemented by #406 and #408 `cli` |
+| [`init` scaffolds a layout from copybooks](#init-scaffolds-a-layout-from-copybooks) | #183 `cli` specifies it; #214 `cli` the vector, #215 `cli` the derivation and the file; a definitions file per copybook beside the layout, and the adopter committing them in place of the copybooks, #403 `cli` against discussion #394, implemented by #406 and #408 `cli`; a composed copybook converted as its expansion, its members named by `--copy-member`, #407 `cli`, implemented by #423 `cli` |
 | [What a copybook decides, and what only the adopter can](#what-a-copybook-decides-and-what-only-the-adopter-can) | #183 `cli` draws the split, over the forms #25–#29 `layout` fix; the derivation itself, #215 `cli`; the definitions-file row, and a record per named `01`-level less what is noted, #403 `cli` against discussion #394, the notes implemented by #406 `cli` |
-| [The vector `init` takes](#the-vector-init-takes) | #183 `cli`, implemented by #214 `cli`; `--out` naming the layout, one definitions file per `--copybook` and its name, no flag added, no `definitions-block` written, and the two derivations refused as usage errors, #403 `cli` against discussion #394 |
+| [The vector `init` takes](#the-vector-init-takes) | #183 `cli`, implemented by #214 `cli`; `--out` naming the layout, one definitions file per `--copybook` and its name, no flag added, no `definitions-block` written, and the two derivations refused as usage errors, #403 `cli` against discussion #394; `--copy-member`, #407 `cli`, implemented by #423 `cli` |
 | [Where the copybooks come from](#where-the-copybooks-come-from) | #183 `cli`, over the refusal to search #148 `cli` already states; `--copybook -` refused because a definitions file is named after its copybook, and two spellings of one file, #403 `cli` against discussion #394; two spellings noted as a collision, #406 `cli` |
+| [Where the members come from](#where-the-members-come-from) | #407 `cli` — decided here: `--copy-member`, its value, its usage errors, an unreached member noted, and a member converted only where it is copied; implemented by #423 `cli` |
 | [Where the scaffold is written, and why nothing is ever overwritten](#where-the-scaffold-is-written-and-why-nothing-is-ever-overwritten) | #183 `cli`, implemented by #215 `cli`; that the rule holds whatever is at the destination, and that a layout which already exists is not extended, #212 `cli`; `--out -` refused, and the whole set checked, linked definitions files first and removed on failure, #403 `cli` against discussion #394 |
 | [The scaffold is deliberately incomplete](#the-scaffold-is-deliberately-incomplete) | #183 `cli`, over the layout reader #24 `layout` and the batched diagnostics #150 `cli`; the definitions files complete and outside the incompleteness, #403 `cli` against discussion #394 |
-| [What the scaffold states, form by form](#what-the-scaffold-states-form-by-form) | #183 `cli` decides it, #215 `cli` emits it, against the forms #25–#29 `layout` fix and the alternatives #164 `layout` settled; each record's `definitions` source, noted records absent throughout, and what a definitions file holds, in the notation #395 `layout` settles, #403 `cli` against discussion #394; noted records absent, #406 `cli` |
+| [What the scaffold states, form by form](#what-the-scaffold-states-form-by-form) | #183 `cli` decides it, #215 `cli` emits it, against the forms #25–#29 `layout` fix and the alternatives #164 `layout` settled; each record's `definitions` source, noted records absent throughout, and what a definitions file holds, in the notation #395 `layout` settles, #403 `cli` against discussion #394; noted records absent, #406 `cli`; a definitions file holding a composed copybook's expansion, and no `copy-member` form in the scaffold, #407 `cli`, implemented by #423 `cli` |
 | [How a combination's record name is chosen](#how-a-combinations-record-name-is-chosen) | #183 `cli`, over the alternatives #164 `layout` settled and the collision #50 `gen-go` refuses; what is noted rather than written, #403 `cli` against discussion #394, the notes implemented by #406 `cli` |
 | [The combination count is reported, not bounded](#the-combination-count-is-reported-not-bounded) | #183 `cli`, implemented by #215 `cli` |
 | [`init` reads no manifest](#init-reads-no-manifest) | #183 `cli`, against the manifest reader #40 `plugin` |
 | [`init` does not extend a layout that already exists](#init-does-not-extend-a-layout-that-already-exists) | #212 `cli` — decided here, over the destination rule #183 `cli` states and the collision the layout reader #24 `layout` reports on the paste; no implementation story follows, because the derivation #215 `cli` already emits is the whole of what is offered; the procedure restated for definitions files and a scratch directory, #403 `cli` against discussion #394 |
-| [When a copybook changes, and moving a record between sources](#when-a-copybook-changes-and-moving-a-record-between-sources) | #403 `cli` against discussion #394, over the byte-identical property #399 `layout` states |
+| [When a copybook changes, and moving a record between sources](#when-a-copybook-changes-and-moving-a-record-between-sources) | #403 `cli` against discussion #394, over the byte-identical property #399 `layout` states; moving a composed record, #407 `cli`, implemented by #423 `cli` |
 | [No flag states what only an adopter knows](#no-flag-states-what-only-an-adopter-knows) | #183 `cli`, holding the line #25 `layout` draws for the four axes |
-| [`init`'s streams and exit codes](#inits-streams-and-exit-codes) | #183 `cli`, over the format #150 `cli` and the statuses #147 `cli` fix; implemented by #214 `cli`; the whole failure rule — notes, refusals and the read-back — #403 `cli` against discussion #394, the notes implemented by #406 `cli` and the rest by #408 `cli` |
+| [`init`'s streams and exit codes](#inits-streams-and-exit-codes) | #183 `cli`, over the format #150 `cli` and the statuses #147 `cli` fix; implemented by #214 `cli`; the whole failure rule — notes, refusals and the read-back — #403 `cli` against discussion #394, the notes implemented by #406 `cli` and the rest by #408 `cli`; the `COPY` refusals and the unreached-member note, replacing the refusal of every copybook writing `COPY`, #407 `cli`, implemented by #423 `cli` |
 | [Why this is a subcommand and not a script over the published schema](#why-this-is-a-subcommand-and-not-a-script-over-the-published-schema) | #183 `cli`, against the published schema #23 `layout` and the reader #24 `layout`; the definitions files as the half that is a conversion, #403 `cli` against discussion #394 |
 | [Finding the manifest](#finding-the-manifest) | #148 `cli`, over the manifest reader #40 `plugin` |
-| [A path is relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it) | #148 `cli`; a text `definitions` path, #399 `layout` against discussion #394 |
-| [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli`; which copybooks a run reads, and that the manifest does not list them, #157 `cli`; which definitions files a run reads, that a block opens nothing, the missing-definitions diagnostic, and that a layout's own forms are read from one file, #399 `layout` against discussion #394 |
+| [A path is relative to the file that states it](#a-path-is-relative-to-the-file-that-states-it) | #148 `cli`; a text `definitions` path, #399 `layout` against discussion #394; a `copy-member` path and a `--copy-member` path, #407 `cli`, implemented by #423 `cli` |
+| [Finding the inputs](#finding-the-inputs) | #148 `cli`; the diagnostics it owes, #31 `resolve` and #150 `cli`; which copybooks a run reads, and that the manifest does not list them, #157 `cli`; which definitions files a run reads, that a block opens nothing, the missing-definitions diagnostic, and that a layout's own forms are read from one file, #399 `layout` against discussion #394; where a member named by `COPY` is found, and the member files among those a run reads, #407 `cli`, implemented by #423 `cli` |
+| [Where a `COPY` member is found](#where-a-copy-member-is-found) | #407 `cli` — decided here: the layout's `copy-member` forms and no search, one member map per run, each member read once, one resolver for the run and `init`, the `COPY` faults, and a fault inside a member pointing into it, which needs member provenance from `cobol-go` for the owner to file in Zaba505/cobol-go; implemented by #423 `cli` |
 | [Emitting the IR](#emitting-the-ir) | #149 `cli`, over the encoders #20 and #21 `ir` |
 | [Which descriptor is emitted](#which-descriptor-is-emitted) | #157 `cli` decided it — one descriptor per run, and the manifest's `inputs` removed to keep it true; #148 `cli` assembles it, #149 `cli` writes it; definitions files and blocks among what it is a function of, and the three sources resolving to byte-identical descriptors, #399 `layout` against discussion #394 |
 | [Standard output](#standard-output) | #147 `cli` for the version and usage, #149 `cli` for `--emit-ir -`; `init` writing nothing there, #403 `cli` against discussion #394 |
 | [Standard error: diagnostics](#standard-error-diagnostics) | #150 `cli`, over `internal/diag` and the spans of #31 `resolve` |
 | [A relayed generator line](#a-relayed-generator-line) | #150 `cli`, over the classification #42 `plugin` already performs, against the format #39 `plugin` fixes |
-| [Exit codes](#exit-codes) | #147 `cli` for the vector's own status and the single place they are emitted from, #148 and #149 `cli` for the failures that reach them; `init`'s, #403 `cli` against discussion #394, its notes exiting `0` implemented by #406 `cli` |
+| [Exit codes](#exit-codes) | #147 `cli` for the vector's own status and the single place they are emitted from, #148 and #149 `cli` for the failures that reach them; `init`'s, #403 `cli` against discussion #394, its notes exiting `0` implemented by #406 `cli`; `--copy-member`'s, #407 `cli`, implemented by #423 `cli` |
 | [Cancellation](#cancellation) | #148 `cli`; what `init` removes, #403 `cli` against discussion #394 |
 | [The environment](#the-environment) | #41 and #43 `plugin` for the two variables read, #147 `cli` for reading no others |
 | [`--version`](#--version) | #147 `cli`; the IR version it reports, #17 `ir`; the version it reports being the release's, #181 `cli` |
-| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole; #398 `container` says the table states what 1.0.0 will promise, and that below 1.0.0 any release may break it; the `init` rows for definitions files and the withdrawn `--out -`, and the definitions-text row, #403 `cli` against discussion #394 |
+| [Compatibility guarantees](#compatibility-guarantees) | #146 `cli` — decided here, in the shape #54 `container` uses for the image; #183 `cli` for the command set's new value and the first breaking change under it; #213 `container` for the release number a break here takes, which is the one thing about the published image this table does not hand over whole; #398 `container` says the table states what 1.0.0 will promise, and that below 1.0.0 any release may break it; the `init` rows for definitions files and the withdrawn `--out -`, and the definitions-text row, #403 `cli` against discussion #394; `--copy-member` in the `init` flags row, and expansion in the definitions-text row, #407 `cli`, implemented by #423 `cli` |
 | [How a covered thing would change](#how-a-covered-thing-would-change) | #146 `cli`; the subcommand priced against it, #183 `cli`; which release number pays it and what it does to the image's major tag, #213 `container`, which settles both halves in [the base-image contract](../container/SPEC.md#a-breaking-change-to-either-contract-takes-a-new-major-version); #398 `container` makes it bind from 1.0.0, withdraws #213's requirement that `init` ship as `1.0.0`, and records that every tag from `v0.0.0` carries `init` |
 | The project manifest — out of scope, see above | #40 `plugin` |
-| Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli`; the definitions files as the layout's, a stream, and a flag naming them, #403 `cli` against discussion #394 |
+| Flags that would state an adopter's knowledge, and scaffolding anything but a layout — out of scope, see above | #183 `cli`; the definitions files as the layout's, a stream, and a flag naming them, #403 `cli` against discussion #394; a directory of members and a member found by its name, #407 `cli` |
 | Extending a layout that already exists — out of scope, see above | #212 `cli`; the procedure through a scratch directory, #403 `cli` against discussion #394 |
 | This document | #146 `cli` |
 | Conventions this document follows | #15 `setup` |
