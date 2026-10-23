@@ -55,8 +55,10 @@ type fixture struct {
 //
 // A walked copybook outside that definition is not a failure: a conformance
 // case may hold a copybook that is refused on purpose, and SPEC.md promises
-// conversion only for the ones a run reads. The kitchen sink is held only to
-// the parse, since it exists to cover the grammar, not to describe a record.
+// conversion only for the ones a run reads. The kitchen sink is exempt from
+// that check, and from `copybook.Build` in particular, since it exists to cover
+// the grammar rather than to describe a record; it must still parse, and it
+// goes through every test a walked copybook does.
 func fixtures(t *testing.T) []fixture {
 	t.Helper()
 

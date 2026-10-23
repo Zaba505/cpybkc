@@ -8,6 +8,7 @@ package definitions_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -256,4 +257,31 @@ func TestConversionRefusesAConditionNameCobolGoMisreads(t *testing.T) {
 			t.Errorf("wrote\n%s\nwant\n%s", got, want)
 		}
 	})
+}
+
+// TestTheWriterRefusesANegativeDepth is the base depth's one invalid value.
+func TestTheWriterRefusesANegativeDepth(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+
+	if err := definitions.Write(&out, parseFree(t, "01 REC PIC X.\n"), -1); err == nil {
+		t.Errorf("Write at depth -1 wrote %q, want an error", out.String())
+	}
+}
+
+// shortWriter accepts one byte fewer than it is given, and says nothing.
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) { return max(len(p)-1, 0), nil }
+
+// TestTheWriterReportsAShortWrite requires a writer that takes less than the
+// body without an error to be reported, not to leave a truncated file.
+func TestTheWriterReportsAShortWrite(t *testing.T) {
+	t.Parallel()
+
+	err := definitions.Write(shortWriter{}, parseFree(t, "01 REC PIC X.\n"), definitions.FileDepth)
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Errorf("Write returned %v, want io.ErrShortWrite", err)
+	}
 }

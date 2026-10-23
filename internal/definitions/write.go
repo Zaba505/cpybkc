@@ -34,7 +34,8 @@ const indentUnit = "  "
 //
 // depth is the depth the body starts at — [FileDepth] for a definitions file
 // and [BlockDepth] for a block's body — so that one writer emits both, and a
-// block's lines are a file's lines two spaces further in.
+// block's lines are a file's lines two spaces further in. A negative depth is
+// an error.
 //
 // Every clause kind and every operand kind `cobol-go` can hold in an entry is
 // one Write knows, by an exhaustive type switch; a node it does not know is an
@@ -48,6 +49,10 @@ const indentUnit = "  "
 // are not read, except to recognise a prefixed literal, whose word and literal
 // are told apart from two values only by touching.
 func Write(w io.Writer, entries []*cobol.DataDescriptionEntry, depth int) error {
+	if depth < 0 {
+		return fmt.Errorf("an entry body is written at depth %d, and a depth is never negative", depth)
+	}
+
 	var out bytes.Buffer
 
 	depths := entryDepths(entries)
@@ -63,7 +68,9 @@ func Write(w io.Writer, entries []*cobol.DataDescriptionEntry, depth int) error 
 		out.WriteByte('\n')
 	}
 
-	_, err := w.Write(out.Bytes())
+	// WriteTo reports a short write as io.ErrShortWrite, which a bare Write
+	// returning fewer bytes and no error would not.
+	_, err := out.WriteTo(w)
 
 	return err
 }
