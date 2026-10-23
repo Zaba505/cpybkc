@@ -40,17 +40,17 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 	// the directory of that file, and `layout` is stated in the manifest.
 	path := at(dir, m.Layout)
 
-	file, err := readLayout(path, m.Layout)
+	file, err := readLayout(path, m)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := refuseBlocks(file); err != nil {
 		return nil, err
 	}
 
 	read, err := readLayers(file)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := refuseDefinitions(file, read.records); err != nil {
 		return nil, err
 	}
 
@@ -79,10 +79,17 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 // diagnostics and read no further. See the package comment's "Where the schema
 // check runs": a fault a declaration states is the schema's alone, so a layer
 // reader that also saw it would report it a second time in other words.
-func readLayout(path, spelling string) (*layout.File, error) {
+//
+// Between the grammar and the schema, the layout's content is classified: a
+// document whose every top-level form is an entry is a definitions file named
+// as the layout, and is reported as that alone. The schema would otherwise
+// report one misplaced run of entries, which describes the wrong file
+// accurately and the mistake — the manifest's `layout` naming the wrong kind of
+// file — not at all.
+func readLayout(path string, m *manifest.Manifest) (*layout.File, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return nil, &MissingLayoutError{Path: spelling, LookedIn: absolute(path), Err: err}
+		return nil, &MissingLayoutError{Path: m.Layout, LookedIn: absolute(path), Err: err}
 	}
 
 	// The grammar first. A layout it rejects has no forms for the schema to
@@ -100,6 +107,10 @@ func readLayout(path, spelling string) (*layout.File, error) {
 		return nil, err
 	}
 
+	if first, ok := entriesOnly(file, published.BodyForms()); ok {
+		return nil, &DefinitionsFileAsLayoutError{Layout: m.LayoutSpan, Path: m.Layout, First: span(first)}
+	}
+
 	diagnostics, err := published.Validate(path, bytes.NewReader(src))
 	if err != nil {
 		return nil, err
@@ -112,32 +123,72 @@ func readLayout(path, spelling string) (*layout.File, error) {
 	return file, nil
 }
 
-// refuseBlocks refuses every `definitions-block` the layout carries, at its tag,
-// because nothing resolves a record held in one yet (#409).
-//
-// It runs after the schema check, so every block refused here is one whose
-// entries the schema admitted, and before every layer reader and every copybook,
-// so a layout carrying a block opens nothing: what the run would read once
-// blocks resolve is the layout, and a copybook opened for the records beside one
-// would report faults about a run that is not going to happen. Every block is
-// reported rather than the first, for the reason every stage reports everything
-// it found.
-func refuseBlocks(file *layout.File) error {
-	var faults diag.List
+// entriesOnly reports whether a layout's top-level forms are one or more of the
+// forms a definitions file holds and nothing else, and where the first is.
+func entriesOnly(file *layout.File, body []string) (layout.Pos, bool) {
+	if len(file.Forms) == 0 || len(body) == 0 {
+		return layout.Pos{}, false
+	}
 
 	for _, form := range file.Forms {
-		if form.Tag != layoutschema.BlockForm {
-			continue
+		if !slices.Contains(body, form.Tag) {
+			return layout.Pos{}, false
 		}
+	}
 
-		var name string
-		if len(form.Elements) > 0 {
-			if symbol, ok := form.Elements[0].(layout.Symbol); ok {
-				name = symbol.Value
+	return file.Forms[0].TagPos, true
+}
+
+// refuseDefinitions refuses every `definitions-block` the layout carries, at its
+// tag, and every record whose source is a definitions file or a block, at that
+// source, because nothing resolves a record held either way yet (#405 for a
+// file, #409 for a block).
+//
+// It runs after every layer reader, so a block or a source refused here is one
+// the schema admitted and the readers found nothing wrong with — a block no
+// record names, or a record naming a block twice defined, is reported as that
+// and not as unresolved. And it runs before any copybook is opened, so a layout
+// carrying either opens nothing: what the run would read once both resolve is
+// the layout and the files its records name, and a copybook opened for the
+// records beside them would report faults about a run that is not going to
+// happen. A definitions file is never opened, and a record naming one is never
+// reported as a copybook that is not there.
+//
+// Everything refused is reported rather than the first, in the order the
+// layout writes it, for the reason every stage reports everything it found.
+func refuseDefinitions(file *layout.File, records []layoutmodel.Record) error {
+	var faults diag.List
+
+	byPos := make(map[layout.Pos]layoutmodel.Record, len(records))
+	for _, record := range records {
+		byPos[record.Pos] = record
+	}
+
+	for _, form := range file.Forms {
+		switch form.Tag {
+		case layoutschema.BlockForm:
+			var name string
+			if len(form.Elements) > 0 {
+				if symbol, ok := form.Elements[0].(layout.Symbol); ok {
+					name = symbol.Value
+				}
 			}
-		}
 
-		faults.Fail(&DefinitionsBlockError{Pos: span(form.TagPos), Name: name})
+			faults.Fail(&DefinitionsBlockError{Pos: span(form.TagPos), Name: name})
+		default:
+			record, ok := byPos[form.Pos]
+			if !ok || record.Kind == layoutmodel.CopybookSource {
+				continue
+			}
+
+			faults.Fail(&DefinitionsSourceError{
+				Pos:    span(record.Source),
+				Record: record.Name,
+				Kind:   record.Kind,
+				Path:   record.Path,
+				Block:  record.Block,
+			})
+		}
 	}
 
 	return faults.Err()
@@ -147,6 +198,7 @@ func refuseBlocks(file *layout.File) error {
 // copybook.
 type layers struct {
 	records        []layoutmodel.Record
+	blocks         []layoutmodel.Block
 	profile        *layoutmodel.Profile
 	framing        *layoutmodel.Framing
 	discrimination *layoutmodel.Discrimination
@@ -157,7 +209,7 @@ type layers struct {
 
 // readLayers reads every layer of a parsed layout.
 //
-// All seven are read whatever the ones before them said, and the faults are
+// All eight are read whatever the ones before them said, and the faults are
 // reported together. The layers vary independently — docs/layout/SPEC.md's
 // "Five layers rather than one schema" is that argument — so a layout with a
 // misspelled charset and an unsequenced record is wrong in two layers at once,
@@ -170,6 +222,9 @@ func readLayers(file *layout.File) (*layers, error) {
 	)
 
 	read.records, err = layoutmodel.ReadRecords(file)
+	faults.Fail(err)
+
+	read.blocks, err = layoutmodel.ReadBlocks(file)
 	faults.Fail(err)
 
 	read.profile, err = layoutmodel.ReadProfile(file)

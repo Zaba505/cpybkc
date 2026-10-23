@@ -150,7 +150,7 @@ func (b *bindings) unreadable(record layoutmodel.Record, path string, file sourc
 	if file.missing {
 		b.Fail(&CopybookError{
 			Err: &diag.MissingCopybookError{
-				Pos:  span(record.Copybook),
+				Pos:  span(record.Source),
 				Path: record.Path,
 				Err:  file.err,
 			},
@@ -160,7 +160,7 @@ func (b *bindings) unreadable(record layoutmodel.Record, path string, file sourc
 		return
 	}
 
-	b.Fail(&CopybookSourceError{Pos: span(record.Copybook), Path: record.Path, Err: file.err})
+	b.Fail(&CopybookSourceError{Pos: span(record.Source), Path: record.Path, Err: file.err})
 }
 
 // item builds this record's own tree out of a parsed copybook and finds the
@@ -168,7 +168,7 @@ func (b *bindings) unreadable(record layoutmodel.Record, path string, file sourc
 func (b *bindings) item(record layoutmodel.Record, fragment *cobol.Fragment) *copybook.Field {
 	items, err := copybook.Build(fragment.Entries)
 	if err != nil {
-		b.Fail(&CopybookSourceError{Pos: span(record.Copybook), Path: record.Path, Err: err})
+		b.Fail(&CopybookSourceError{Pos: span(record.Source), Path: record.Path, Err: err})
 
 		return nil
 	}
@@ -195,7 +195,7 @@ func (b *bindings) item(record layoutmodel.Record, fragment *cobol.Fragment) *co
 	}
 
 	b.Fail(&diag.UndeclaredItemError{
-		Pos:      span(record.Copybook),
+		Pos:      span(record.Source),
 		Path:     record.Path,
 		Item:     record.Item,
 		Copybook: where,

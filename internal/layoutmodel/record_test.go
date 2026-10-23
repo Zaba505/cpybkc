@@ -49,6 +49,9 @@ func TestARecordBindsANameToACopybookItem(t *testing.T) {
 	if record.Item != "ORDER-REC" {
 		t.Errorf("the record is bound to the item %q, want %q", record.Item, "ORDER-REC")
 	}
+	if record.Kind != CopybookSource {
+		t.Errorf("the record's source is %s, want %s", record.Kind, CopybookSource)
+	}
 
 	// Every part carries its own position, because the CLI reports the file and
 	// the item against different lines: a copybook that will not open is the
@@ -56,7 +59,7 @@ func TestARecordBindsANameToACopybookItem(t *testing.T) {
 	for name, pos := range map[string]layout.Pos{
 		"the form":     record.Pos,
 		"the name":     record.NamePos,
-		"the copybook": record.Copybook,
+		"the copybook": record.Source,
 		"the path":     record.PathPos,
 		"the item":     record.ItemPos,
 	} {

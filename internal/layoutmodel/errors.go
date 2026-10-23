@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
 
@@ -1851,15 +1852,16 @@ func (e *UnsequencedRecordError) Error() string {
 	)
 }
 
-// RecordFormError is a `record` that is not `(record <name> (copybook …))`.
+// RecordFormError is a `record` that is not `(record <name> <source> …)`, where
+// the source is `(copybook …)` or `(definitions …)`.
 //
 // It covers both shapes the fault takes — a form carrying something other than
-// a name and a child, and a name written as anything but a symbol — because
+// a name and a source, and a name written as anything but a symbol — because
 // what is wrong with each is the same thing: the form defines a name over a
-// binding and holds something else. What is wrong inside the child is a
-// [CopybookFormError], and a child that is not the one the form admits is a
-// [ChildError], so each part of the form is answered by the message about that
-// part.
+// binding and holds something else. What is wrong inside the source is a
+// [CopybookFormError] or a [DefinitionsFormError], and a source that is neither
+// form the record admits is a [ChildError], so each part of the form is
+// answered by the message about that part.
 type RecordFormError struct {
 	// Pos is the form, or the part of it that is wrong.
 	Pos layout.Pos
@@ -1871,7 +1873,8 @@ type RecordFormError struct {
 // Error implements the error interface.
 func (e *RecordFormError) Error() string {
 	return fmt.Sprintf(
-		"%s: a record is written (record <name> (copybook \"<path>\" <top-level-name>)), and this has %s",
+		"%s: a record is written (record <name> (copybook \"<path>\" <top-level-name>)) or "+
+			"(record <name> (definitions \"<path>\" or <block-name> <top-level-name>)), and this has %s",
 		e.Pos, e.Found,
 	)
 }
@@ -1920,6 +1923,154 @@ func (e *EmptyCopybookPathError) Error() string {
 		"%s: record %s is bound to a copybook path of no characters, and a path names a file",
 		e.Pos, quote(e.Record),
 	)
+}
+
+// DefinitionsFormError is a `definitions` source that is not `(definitions
+// "<path>" <top-level-name>)` or `(definitions <block-name> <top-level-name>)`.
+//
+// The first argument's kind is what says which of the two it is — text is a
+// path, a symbol is a block name — so the message names both spellings, and
+// anything else standing there is this fault rather than a guess at one of
+// them.
+type DefinitionsFormError struct {
+	// Pos is the source, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *DefinitionsFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a definitions source is written (definitions \"<path>\" <top-level-name>) for a definitions file "+
+			"or (definitions <block-name> <top-level-name>) for a block, and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// EmptyDefinitionsPathError is a `definitions` source naming a path of no
+// characters. It is [EmptyCopybookPathError] for the other kind of file.
+type EmptyDefinitionsPathError struct {
+	// Pos is the path.
+	Pos layout.Pos
+
+	// Record is the record it was written for.
+	Record string
+}
+
+// Error implements the error interface.
+func (e *EmptyDefinitionsPathError) Error() string {
+	return fmt.Sprintf(
+		"%s: record %s is bound to a definitions file path of no characters, and a path names a file",
+		e.Pos, quote(e.Record),
+	)
+}
+
+// UndefinedBlockError is a `definitions` source naming a block the layout does
+// not define.
+//
+// On a run the published schema reports it first, as a reference naming
+// nothing, and this is never reached; it is here for a caller that reads a
+// layout without the schema, which would otherwise get a record bound to
+// nothing. Like the schema's, it names the blocks the layout does define.
+type UndefinedBlockError struct {
+	// Pos is the block name.
+	Pos layout.Pos
+
+	// Record is the record naming it.
+	Record string
+
+	// Block is the name it wrote.
+	Block string
+
+	// Defined are the blocks the layout defines, in source order.
+	Defined []string
+}
+
+// Error implements the error interface.
+func (e *UndefinedBlockError) Error() string {
+	defines := "it defines none"
+	if len(e.Defined) > 0 {
+		defines = "it defines " + strings.Join(e.Defined, ", ")
+	}
+
+	return fmt.Sprintf(
+		"%s: record %s names the definitions block %s, which this layout does not define (%s)",
+		e.Pos, quote(e.Record), quote(e.Block), defines,
+	)
+}
+
+// UnnamedBlockError is a `definitions-block` no record names.
+//
+// docs/layout/SPEC.md's "A block's name, and a block no record names" makes it
+// an error rather than a warning: a block exists to be a record's description,
+// and one nothing binds is more often a misspelled `definitions` argument than
+// a block kept for later.
+type UnnamedBlockError struct {
+	// Pos is the block's name.
+	Pos layout.Pos
+
+	// Block is the name.
+	Block string
+}
+
+// Error implements the error interface.
+func (e *UnnamedBlockError) Error() string {
+	return fmt.Sprintf(
+		"%s: no record names the definitions block %s; a block is a record's description, "+
+			"and a record names it with (definitions %s <top-level-name>)",
+		e.Pos, quote(e.Block), e.Block,
+	)
+}
+
+// BlockFormError is a `definitions-block` that is not `(definitions-block
+// <name> <entry> …)`: a block with no entries, or a name written as anything
+// but a symbol.
+type BlockFormError struct {
+	// Pos is the form, or the part of it that is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *BlockFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a definitions block is written (definitions-block <name> <entry> …), and this has %s",
+		e.Pos, e.Found,
+	)
+}
+
+// DuplicateBlockError is a block name defined twice.
+//
+// It carries two spans, the second definition and the first: either block is a
+// good definition on its own, and what the adopter has to decide is which of
+// the two the name was meant for, which they cannot do from one of them.
+type DuplicateBlockError struct {
+	// Pos is the second block's name.
+	Pos layout.Pos
+
+	// First is the first block's name.
+	First layout.Pos
+
+	// Block is the name both define.
+	Block string
+}
+
+// Error implements the error interface.
+func (e *DuplicateBlockError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DuplicateBlockError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the definitions block %s is defined twice; a block name stands for one block", quote(e.Block)),
+		Spans: []diag.Span{
+			{File: e.Pos.File, Line: e.Pos.Line, Column: e.Pos.Column},
+			{File: e.First.File, Line: e.First.Line, Column: e.First.Column, Note: "it is defined first here"},
+		},
+	}
 }
 
 // AlternativeFormError is an `alternative` child that is not `(alternative

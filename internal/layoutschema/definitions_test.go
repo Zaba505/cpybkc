@@ -48,8 +48,221 @@ func TestAnEntryIsNotATopLevelForm(t *testing.T) {
 
 	diagnostics := check(t, schema, baseLayout+"(entry 01 LEDGER-TRAILER)\n")
 
-	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, `unknown top-level form "entry"; a layout carries`) {
-		t.Errorf("want one unknown-top-level-form diagnostic about entry; got:\n%s", strings.Join(messages(diagnostics), "\n"))
+	want := `form "entry" is not a top-level form of a layout: it is written inside a definitions-block, or in a definitions file a record names`
+	if len(diagnostics) != 1 || diagnostics[0].Message != want {
+		t.Errorf("want one diagnostic saying %q; got:\n%s", want, strings.Join(messages(diagnostics), "\n"))
+	}
+}
+
+// TestARunOfEntriesInALayoutIsOneDiagnostic is #402's: entries pasted among a
+// layout's forms are one mistake per contiguous run, reported at the run's
+// first entry, and a second run after another form is a second mistake.
+func TestARunOfEntriesInALayoutIsOneDiagnostic(t *testing.T) {
+	schema := publishedSchema(t)
+
+	diagnostics := check(t, schema, baseLayout+`(entry 01 LEDGER-TRAILER)
+  (entry 05 LT-TYPE (pic "X"))
+  (entry 05 LT-COUNT (picture "9(7)"))
+(rename TRANSACTION "Txn")
+(entry 01 OTHER)
+`)
+
+	want := []struct {
+		line    int
+		message string
+	}{
+		{line: 10, message: `form "entry" is not a top-level form of a layout: it is written inside a definitions-block, or in a definitions file a record names, and this is the first of 3 written here in a row`},
+		{line: 14, message: `form "entry" is not a top-level form of a layout: it is written inside a definitions-block, or in a definitions file a record names`},
+	}
+
+	if len(diagnostics) != len(want) {
+		t.Fatalf("want %d diagnostics, one per run; got:\n%s", len(want), strings.Join(messages(diagnostics), "\n"))
+	}
+
+	for i, w := range want {
+		if diagnostics[i].Message != w.message {
+			t.Errorf("diagnostic %d says %q, want %q", i, diagnostics[i].Message, w.message)
+		}
+
+		if diagnostics[i].Span.Line != w.line || diagnostics[i].Span.Column != 2 {
+			t.Errorf("diagnostic %d is at %s, want the run's first entry, at line %d, column 2", i, diagnostics[i].Span, w.line)
+		}
+	}
+}
+
+// TestAFormDeclaredElsewhereIsPlacedNotUnknown is the same rule driven by the
+// declarations rather than by `entry`: a child form at the top level is told
+// which form it is written in, and a tag declared nowhere is still unknown.
+func TestAFormDeclaredElsewhereIsPlacedNotUnknown(t *testing.T) {
+	schema := publishedSchema(t)
+
+	for _, testCase := range []struct {
+		name, form, want string
+	}{
+		{name: "a child form", form: "(lrecl 80)", want: `form "lrecl" is not a top-level form of a layout: it is written inside a framing`},
+		{name: "a source", form: `(copybook "a.cpy" A)`, want: `form "copybook" is not a top-level form of a layout: it is written inside a record`},
+		{name: "a clause", form: `(pic "X")`, want: `form "pic" is not a top-level form of a layout: it is written inside an entry`},
+		{name: "a tag declared nowhere", form: "(profile)", want: `unknown top-level form "profile"; a layout carries`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			diagnostics := check(t, schema, baseLayout+testCase.form+"\n")
+
+			if len(diagnostics) != 1 || !strings.HasPrefix(diagnostics[0].Message, testCase.want) {
+				t.Errorf("want one diagnostic opening %q; got:\n%s", testCase.want, strings.Join(messages(diagnostics), "\n"))
+			}
+		})
+	}
+}
+
+// TestABlockInsideARecordIsToldItIsTopLevel is the record-local block: the
+// schema's diagnostic about the position gains a hint that a block is a
+// top-level form and that a record names it, whether the block stands where
+// the source belongs or among the record's children.
+func TestABlockInsideARecordIsToldItIsTopLevel(t *testing.T) {
+	schema := publishedSchema(t)
+
+	const hint = "; definitions-block is a top-level form, and a record names one with (definitions ...)"
+
+	for _, testCase := range []struct {
+		name, record, want string
+	}{
+		{
+			name:   "as the source",
+			record: "(record TRAILER (definitions-block T (entry 01 A (pic \"X\"))))",
+			want:   `source of form "record" is (copybook ...) or (definitions ...)` + hint,
+		},
+		{
+			name:   "as a child",
+			record: "(record TRAILER (definitions T A) (definitions-block T (entry 01 A (pic \"X\"))))",
+			want:   `form "record" has no child "definitions-block"; it admits alternative` + hint,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			diagnostics := check(t, schema, baseLayout+testCase.record+"\n")
+
+			found := false
+
+			for _, diagnostic := range diagnostics {
+				found = found || diagnostic.Message == testCase.want
+			}
+
+			if !found {
+				t.Errorf("want a diagnostic saying %q; got:\n%s", testCase.want, strings.Join(messages(diagnostics), "\n"))
+			}
+		})
+	}
+
+	// A top-level form named from too many places for one to be the hint
+	// gains the first half alone.
+	diagnostics := check(t, schema, baseLayout+"(record TRAILER (record INNER (copybook \"a.cpy\" A)))\n")
+	if len(diagnostics) != 1 || !strings.HasSuffix(diagnostics[0].Message, "; record is a top-level form") {
+		t.Errorf("want one diagnostic ending in the bare hint; got:\n%s", strings.Join(messages(diagnostics), "\n"))
+	}
+}
+
+// TestARecordNamesItsSourceInOneOfThreeSpellings is the `record-source` sort:
+// a copybook, a definitions file by its path, or a block by its name, with the
+// top-level name required in each.
+func TestARecordNamesItsSourceInOneOfThreeSpellings(t *testing.T) {
+	schema := publishedSchema(t)
+
+	const block = "(definitions-block TRAILER (entry 01 TRAILER-REC (pic \"X(80)\")))\n"
+
+	for _, testCase := range []struct {
+		name, layout, refusal string
+	}{
+		{name: "a copybook", layout: baseLayout},
+		{name: "a definitions file", layout: baseLayout + "(record POSTING (definitions \"posting.cpy.sexpr\" POSTING-RECORD))\n"},
+		{name: "a block", layout: baseLayout + block + "(record TRAILER (definitions TRAILER TRAILER-REC))\n"},
+		{name: "a block after the record naming it", layout: baseLayout + "(record TRAILER (definitions TRAILER TRAILER-REC))\n" + block},
+		{name: "a block sharing a record's name", layout: baseLayout + "(definitions-block TRANSACTION (entry 01 T))\n(record T (definitions TRANSACTION T))\n"},
+		{
+			name:    "no top-level name",
+			layout:  baseLayout + "(record POSTING (definitions \"posting.cpy.sexpr\"))\n",
+			refusal: `form "definitions" takes exactly one for its top-level-name argument, and this one has 0`,
+		},
+		{
+			name:    "a top-level name that is text",
+			layout:  baseLayout + "(record POSTING (definitions \"posting.cpy.sexpr\" \"POSTING-RECORD\"))\n",
+			refusal: `top-level-name of form "definitions" is a symbol`,
+		},
+		{
+			name:    "an origin that is a number",
+			layout:  baseLayout + "(record POSTING (definitions 3 POSTING-RECORD))\n",
+			refusal: `origin of form "definitions" is text or the name of a definitions-block form this layout defines (it defines none)`,
+		},
+		{
+			name:    "no source",
+			layout:  baseLayout + "(record POSTING)\n",
+			refusal: `form "record" takes exactly one for its source argument, and this one has 0`,
+		},
+		{
+			name:    "two sources",
+			layout:  baseLayout + "(record POSTING (copybook \"a.cpy\" A) (definitions \"b.cpy.sexpr\" B))\n",
+			refusal: `form "record" has no child "definitions"; it admits alternative`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			diagnostics := check(t, schema, testCase.layout)
+
+			if testCase.refusal == "" {
+				for _, diagnostic := range diagnostics {
+					t.Errorf("refused a source the schema admits: %s", diagnostic)
+				}
+
+				return
+			}
+
+			if len(diagnostics) != 1 || diagnostics[0].Message != testCase.refusal {
+				t.Errorf("want one diagnostic saying %q; got:\n%s", testCase.refusal, strings.Join(messages(diagnostics), "\n"))
+			}
+		})
+	}
+}
+
+// TestAReferenceFaultListsWhatTheLayoutDeclares is #402's change to every
+// reference fault: it names what the layout does declare for that sort, in the
+// order the layout declares it, blocks and records alike.
+func TestAReferenceFaultListsWhatTheLayoutDeclares(t *testing.T) {
+	schema := publishedSchema(t)
+
+	for _, testCase := range []struct {
+		name, layout, want string
+	}{
+		{
+			name:   "a block nothing defines, among blocks",
+			layout: baseLayout + "(definitions-block HEADER (entry 01 H))\n(definitions-block FOOTER (entry 01 F))\n(record TRAILER (definitions TRAILR T))\n",
+			want:   `origin of form "definitions" is text or the name of a definitions-block form this layout defines (it defines HEADER and FOOTER)`,
+		},
+		{
+			name:   "a block in a layout defining none",
+			layout: baseLayout + "(record TRAILER (definitions TRAILR T))\n",
+			want:   `origin of form "definitions" is text or the name of a definitions-block form this layout defines (it defines none)`,
+		},
+		{
+			name:   "a record nothing defines",
+			layout: baseLayout + "(record DETAIL (copybook \"d.cpy\" D))\n(discriminate DETAL single-record-type)\n",
+			want:   `record of form "discriminate" is the name of a record form this layout defines (it defines TRANSACTION and DETAIL)`,
+		},
+		{
+			name:   "a record nothing defines, beside one",
+			layout: strings.Replace(baseLayout, "(sequence (* TRANSACTION))", "(sequence (* TRANSACTON))", 1),
+			want:   `subexpression of form "*" is (seq ...), (alt ...), (* ...), (+ ...), (? ...), (times ...), (when ...) or the name of a record form this layout defines (it defines TRANSACTION)`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			diagnostics := check(t, schema, testCase.layout)
+
+			found := false
+
+			for _, diagnostic := range diagnostics {
+				found = found || strings.HasPrefix(diagnostic.Message, testCase.want)
+			}
+
+			if !found {
+				t.Errorf("want a diagnostic opening %q; got:\n%s", testCase.want, strings.Join(messages(diagnostics), "\n"))
+			}
+		})
 	}
 }
 
@@ -95,6 +308,10 @@ func TestABlocksBodyAdmitsEntriesAloneOneOrMore(t *testing.T) {
 // shape: every clause and operand form is contextual, so the tags reserved for
 // child forms across every layout are the ones they were before entries
 // arrived, and a clause tag such as `value` claims nothing outside an entry.
+//
+// The set shrank once, by `copybook`, when #402 moved a record's source from a
+// child into the `record-source` sort: a source is an argument of `record`
+// now, and `copybook` and `definitions` are contextual forms in that sort.
 func TestTheChildTagsDoNotGrow(t *testing.T) {
 	want := []string{
 		"alternative",
@@ -102,7 +319,6 @@ func TestTheChildTagsDoNotGrow(t *testing.T) {
 		"blocks",
 		"byte-order",
 		"charset",
-		"copybook",
 		"delimiter",
 		"float-format",
 		"lrecl",
@@ -315,12 +531,25 @@ func TestTheSpecsDefinitionsFileValidates(t *testing.T) {
 	}
 }
 
-// TestTheSpecsDefinitionsBlocksValidate is the gate over the second: the
-// `definitions-block` forms of the layout that holds its records three ways.
-//
-// Only the blocks are checked. The same layout's records name their sources
-// with `definitions`, which #402 declares, so the layout as a whole is not one
-// this schema admits yet; each block is held to its declaration on its own.
+// TestTheSpecsDefinitionsLayoutValidates is the gate over the second: the
+// layout that holds its records three ways, whole, now that #402 declares the
+// `definitions` source its records name.
+func TestTheSpecsDefinitionsLayoutValidates(t *testing.T) {
+	example := specExample(t, layoutdoc.DefinitionsExample)
+
+	diagnostics, err := publishedSchema(t).Validate("SPEC.md", strings.NewReader(example))
+	if err != nil {
+		t.Fatalf("validate the SPEC's example: %v", err)
+	}
+
+	for _, diagnostic := range diagnostics {
+		t.Errorf("the schema rejects SPEC.md's layout holding definitions three ways: %s", diagnostic)
+	}
+}
+
+// TestTheSpecsDefinitionsBlocksValidate holds each `definitions-block` of the
+// same layout to its declaration on its own, so a fault in a block is told
+// apart from one elsewhere in the layout.
 func TestTheSpecsDefinitionsBlocksValidate(t *testing.T) {
 	example := specExample(t, layoutdoc.DefinitionsExample)
 
