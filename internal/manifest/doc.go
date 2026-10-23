@@ -56,8 +56,9 @@
 //
 // It used to carry an `inputs` list, at the top level and again on each
 // generator entry, and #157 removed both. The reason is that neither could
-// affect anything: a run's descriptor is assembled from the layout and the
-// copybooks that layout's `record` forms name (docs/cli/SPEC.md, "Which
+// affect anything: a run's descriptor is assembled from a layout and the
+// record descriptions it holds or names — the copybooks and definitions files
+// its `record` forms name, and the blocks it holds (docs/cli/SPEC.md, "Which
 // descriptor is emitted"), and a generator is invoked with a descriptor, an
 // output directory and its options and never with a copybook path at all
 // (docs/plugin/SPEC.md, "Invocation"). A per-generator list therefore promised

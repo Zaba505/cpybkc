@@ -178,6 +178,18 @@ layout names is the layout's business. What this document requires is only that
 the files it names are in the directory beside it, at the paths it spells them,
 so that an entry is self-contained: a runner clones the corpus and nothing else.
 
+An entry's layout names copybooks, and **MUST NOT** name a definitions file or a
+`definitions-block` as a record's source.
+
+Reason: `layout/SPEC.md` requires a record bound to a copybook, to the
+definitions file converted from it, and to a block holding that file's entries
+to resolve to byte-identical descriptors ([Three sources, one
+descriptor](../layout/SPEC.md#three-sources-one-descriptor)). An entry whose
+layout bound a file or a block would therefore carry an `ir.json` equal to its
+copybook twin's, and a runner is handed that IR and never the layout, so the
+twin would test nothing a runner does. That property is cpybkc's to hold, and it
+is tested in this repository, where the layout is read.
+
 ### `ir.json`
 
 The descriptor, in the canonical JSON rendering — protobuf's own field names,
@@ -1098,6 +1110,7 @@ to every row.
 | [An entry](#an-entry) | #66 `conformance` for the format and the loader that holds a directory to it; #383 `conformance` for the optional `axes.json` |
 | [`entry.json`](#entryjson) | #66 `conformance`; the `status` member, #207 `conformance` |
 | [A provisional entry](#a-provisional-entry) | #207 `conformance` for the status, the rule a harness follows and what promotes an entry; the authoring rule it mirrors is #67 |
+| [`layout.sexpr` and the copybooks](#layoutsexpr-and-the-copybooks) | #66 `conformance`; that an entry's layout names copybooks and never a definitions file or a block, #399 `layout` against discussion #394 |
 | [`ir.json`](#irjson) | #66 `conformance`; the canonical rendering it is held to, #20 `ir` |
 | [`input.bin`](#inputbin) | #66 `conformance`; #383 `conformance` for a file under the axes an entry states |
 | [`axes.json`](#axesjson) | #383 `conformance` for the member, its spellings, the staircase it admits only to be refused, and the entries that carry it; the read axes it states are #379 `ir`'s |

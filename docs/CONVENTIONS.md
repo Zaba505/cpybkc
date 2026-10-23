@@ -25,9 +25,9 @@ agreement between the two repositories is worth more than a local improvement.
 A document under `docs/` specifies an interface a third party builds against.
 That is the whole test, and it excludes more than it admits:
 
-- **Implementation gets no spec.** The `resolve` stage turns a copybook and a
-  layout into IR, and its correctness criterion is that its output satisfies
-  `ir/SPEC.md`. A second document describing how it computes that would drift
+- **Implementation gets no spec.** The `resolve` stage turns a layout and the
+  record descriptions it holds or names into IR, and its correctness criterion
+  is that its output satisfies `ir/SPEC.md`. A second document describing how it computes that would drift
   from the code the first time an optimisation landed, and nobody outside this
   repository builds against it.
 - **Test infrastructure documents itself where it lives — until a third party
