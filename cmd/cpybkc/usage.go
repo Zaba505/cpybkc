@@ -25,17 +25,18 @@ import (
 // every published image already means by `cpybkc`. -h is the one single-hyphen
 // spelling that appears here; the document requires any other to go
 // undocumented.
-const usage = `cpybkc generates code from the copybooks a project's layout names.
+const usage = `cpybkc generates code from the record descriptions a project's layout names.
 
 Usage:
   cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-  cpybkc init --copybook <path> … --out <dest>
+  cpybkc init --copybook <path> … --out <layout>
   cpybkc --version
   cpybkc --help
 
 Commands:
-  init                       write a layout scaffold from the copybooks it
-                             names; cpybkc init --help is its own usage
+  init                       transcribe copybooks into definitions files and
+                             write a layout scaffold naming them; cpybkc init
+                             --help is its own usage
 
 Flags:
   --manifest <path>          the project manifest to read (default: cpybkc.json
@@ -69,18 +70,25 @@ given once per file. docs/cli/SPEC.md is the contract this summarises.
 // It carried one more paragraph while the derivation did not exist — #214 landed
 // the vector and `cpybkc init` read its line and failed — because a help text
 // promising a written file would have documented a command nobody could run.
-// #215 made the promise true, so the paragraph went with it.
-const initUsage = `cpybkc init writes a layout scaffold from the copybooks it is given.
+// #215 made the promise true, so the paragraph went with it. #408 made `init`'s
+// output a set of files, which is why --out names a layout and is never "-".
+const initUsage = `cpybkc init transcribes copybooks into definitions files and writes a layout
+scaffold whose records name them.
 
 Usage:
-  cpybkc init --copybook <path> … --out <dest>
+  cpybkc init --copybook <path> … --out <layout>
 
 Flags:
   --copybook <path>          a copybook to read; given once per file, at least
-                             once, and each path is written into the scaffold
-                             as it was typed
-  --out <dest>               where the scaffold is written, or - for standard
-                             output
+                             once. Each is transcribed whole into a definitions
+                             file beside the layout, named after the path's
+                             last element with .sexpr appended
+  --out <layout>             the file the layout scaffold is written to; never
+                             -, because the definitions files go beside it
+
+Nothing already at any of those paths is ever replaced, and either every file
+is written or none is. Commit the definitions files in place of the copybooks
+and a project regenerates with no copybook at all.
 
 The scaffold holds what a copybook decides — a record per 01-level, an
 alternative per REDEFINES — and leaves the rest for you: the encoding, the

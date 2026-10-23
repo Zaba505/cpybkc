@@ -1,4 +1,7 @@
 ;; A layout scaffold, written by `cpybkc init` from the copybooks it was given.
+;; Each copybook's entries are transcribed whole into a definitions file beside
+;; this one, which the records below name. Those files are complete, and need
+;; nothing from you.
 ;;
 ;; What is uncommented below is what those copybooks decide: one record per
 ;; 01-level, and one alternative child per REDEFINES outside a repeating group.
@@ -25,35 +28,36 @@
 ;; (framing
 ;;   (recfm <recfm>))
 
-;; The record types these copybooks resolve to. Each names the copybook and the
-;; 01-level it is a description of and -- where a REDEFINES outside a repeating
-;; group gives that 01-level more than one description -- which one it means.
-(record LEDGER-HEADER (copybook "header.cpy" LEDGER-HEADER))
+;; The record types these copybooks resolve to. Each names the definitions file
+;; its copybook was transcribed into and the 01-level it is a description of
+;; and -- where a REDEFINES outside a repeating group gives that 01-level more
+;; than one description -- which one it means.
+(record LEDGER-HEADER (definitions "header.cpy.sexpr" LEDGER-HEADER))
 (record POSTING-RECORD-PST-BODY-PST-TAIL
-  (copybook "posting.cpy" POSTING-RECORD)
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
   (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL PST-BODY))
   (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL PST-TAIL)))
 (record POSTING-RECORD-PST-BODY-PST-TAIL-REF
-  (copybook "posting.cpy" POSTING-RECORD)
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
   (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL-REF PST-BODY))
   (alternative (item POSTING-RECORD-PST-BODY-PST-TAIL-REF PST-TAIL-REF)))
 (record POSTING-RECORD-PST-DEBIT-PST-TAIL
-  (copybook "posting.cpy" POSTING-RECORD)
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
   (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL PST-DEBIT))
   (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL PST-TAIL)))
 (record POSTING-RECORD-PST-DEBIT-PST-TAIL-REF
-  (copybook "posting.cpy" POSTING-RECORD)
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
   (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL-REF PST-DEBIT))
   (alternative (item POSTING-RECORD-PST-DEBIT-PST-TAIL-REF PST-TAIL-REF)))
 (record POSTING-RECORD-PST-CREDIT-PST-TAIL
-  (copybook "posting.cpy" POSTING-RECORD)
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
   (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL PST-CREDIT))
   (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL PST-TAIL)))
 (record POSTING-RECORD-PST-CREDIT-PST-TAIL-REF
-  (copybook "posting.cpy" POSTING-RECORD)
+  (definitions "posting.cpy.sexpr" POSTING-RECORD)
   (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL-REF PST-CREDIT))
   (alternative (item POSTING-RECORD-PST-CREDIT-PST-TAIL-REF PST-TAIL-REF)))
-(record LEDGER-TRAILER (copybook "trailer.cpy" LEDGER-TRAILER))
+(record LEDGER-TRAILER (definitions "trailer.cpy.sexpr" LEDGER-TRAILER))
 
 ;; Several record types over one 01-level carry one name between them -- the
 ;; one that 01-level gives them -- until a rename says otherwise, and a

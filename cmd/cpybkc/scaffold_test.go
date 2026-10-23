@@ -8,6 +8,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -39,11 +40,15 @@ func copybookIn(t *testing.T) (dir, path string) {
 	return dir, path
 }
 
-func TestInitWritesAScaffoldWhereOutNames(t *testing.T) {
+// The layout where --out names it, and the copybook's definitions file beside
+// it — beside the layout, not beside the copybook, named after the copybook's
+// final path element — and nothing else anywhere.
+func TestInitWritesTheLayoutWhereOutNamesAndADefinitionsFileBesideIt(t *testing.T) {
 	t.Parallel()
 
-	dir, copybook := copybookIn(t)
-	dest := filepath.Join(dir, "layout.sexpr")
+	_, copybook := copybookIn(t)
+	out := t.TempDir()
+	dest := filepath.Join(out, "ledger.sexpr")
 
 	stdout, _, code := invoke(initSubcommand, copybookFlag, copybook, outFlag, dest)
 
@@ -51,9 +56,9 @@ func TestInitWritesAScaffoldWhereOutNames(t *testing.T) {
 		t.Fatalf("`cpybkc %s` exited %d, want %d", initSubcommand, code, statusOK)
 	}
 
-	// A run writing to a path writes nothing to standard output at all.
+	// `init` writes nothing to standard output at all.
 	if stdout != "" {
-		t.Errorf("a run writing to a path wrote %q to standard output", stdout)
+		t.Errorf("a run wrote %q to standard output", stdout)
 	}
 
 	written, err := os.ReadFile(dest)
@@ -63,7 +68,7 @@ func TestInitWritesAScaffoldWhereOutNames(t *testing.T) {
 
 	for _, want := range []string{
 		"(record POSTING-RECORD-PST-DEBIT-PST-TAIL",
-		`(copybook "` + copybook + `" POSTING-RECORD)`,
+		`(definitions "posting.cpy.sexpr" POSTING-RECORD)`,
 		";; (encoding",
 		";; (sequence",
 	} {
@@ -71,6 +76,42 @@ func TestInitWritesAScaffoldWhereOutNames(t *testing.T) {
 			t.Errorf("the scaffold does not carry %q:\n%s", want, written)
 		}
 	}
+
+	transcribed, err := os.ReadFile(filepath.Join(out, "posting.cpy.sexpr"))
+	if err != nil {
+		t.Fatalf("reading back the definitions file: %v", err)
+	}
+
+	for _, want := range []string{
+		`; The entries of the copybook "` + copybook + `"`,
+		"(entry 01 POSTING-RECORD)",
+		`  (entry 05 PST-TAIL-REF (redefines PST-TAIL) (pic "X(8)"))`,
+	} {
+		if !strings.Contains(string(transcribed), want) {
+			t.Errorf("the definitions file does not carry %q:\n%s", want, transcribed)
+		}
+	}
+
+	if left := entriesIn(t, out); !slices.Equal(left, []string{"ledger.sexpr", "posting.cpy.sexpr"}) {
+		t.Errorf("the run left %v in the layout's directory, want the layout and its definitions file", left)
+	}
+}
+
+// entriesIn is the names in dir, sorted.
+func entriesIn(t *testing.T, dir string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	return names
 }
 
 // docs/cli/SPEC.md: the combination count is reported, not bounded, and it
@@ -98,37 +139,30 @@ func TestTheCombinationCountReachesStandardErrorAsANote(t *testing.T) {
 	}
 }
 
-func TestInitWritesTheScaffoldToStandardOutputForADash(t *testing.T) {
+// docs/cli/SPEC.md: `--out -` is a usage error, and a 2 means cpybkc did
+// nothing at all — no copybook opened, no file created, nothing on standard
+// output.
+func TestInitRefusesADashForOutAndWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	dir, copybook := copybookIn(t)
 
 	stdout, stderr, code := invoke(initSubcommand, copybookFlag, copybook, outFlag, "-")
 
-	if code != statusOK {
-		t.Fatalf("`cpybkc %s` exited %d, want %d", initSubcommand, code, statusOK)
+	if code != statusUsage {
+		t.Fatalf("`cpybkc %s --out -` exited %d, want %d", initSubcommand, code, statusUsage)
 	}
 
-	if !strings.HasPrefix(stdout, ";; A layout scaffold") {
-		t.Errorf("standard output does not open with the scaffold: %q", stdout)
+	if stdout != "" {
+		t.Errorf("a refused run wrote %q to standard output", stdout)
 	}
 
-	// Nothing else goes there. The note the run owes is on the other stream,
-	// which is what keeps `cpybkc init --out - > layout.sexpr` a file that
-	// parses.
-	if strings.Contains(stdout, severityNote+severitySeparator) {
-		t.Errorf("a diagnostic reached standard output:\n%s", stdout)
+	if !strings.Contains(stderr, outFlag) {
+		t.Errorf("the diagnostic does not name %s: %q", outFlag, stderr)
 	}
 
-	if !strings.Contains(stderr, severityNote+severitySeparator) {
-		t.Errorf("the note did not reach standard error: %q", stderr)
-	}
-
-	// And no file appeared: "-" is never a relative path.
-	if entries, err := os.ReadDir(dir); err != nil {
-		t.Fatalf("reading the copybook's directory: %v", err)
-	} else if len(entries) != 1 {
-		t.Errorf("the run left %d entries beside the copybook, want only the copybook", len(entries))
+	if left := entriesIn(t, dir); !slices.Equal(left, []string{"posting.cpy"}) {
+		t.Errorf("a refused run left %v beside the copybook, want only the copybook", left)
 	}
 }
 
@@ -172,6 +206,47 @@ func TestInitNeverWritesOverWhatIsAlreadyThere(t *testing.T) {
 
 	if string(kept) != edited {
 		t.Errorf("the destination now holds %q, want what was there", kept)
+	}
+
+	// Every destination is checked before anything is written, so the
+	// definitions file the layout would have named was not written either.
+	if left := entriesIn(t, dir); !slices.Equal(left, []string{"layout.sexpr", "posting.cpy"}) {
+		t.Errorf("a refused run left %v, want only what was there", left)
+	}
+}
+
+// A definitions file is held to the same rule as the layout: something already
+// at its place beside the layout fails the run, and nothing is written — not
+// the layout, and not the file that was there.
+func TestAnOccupiedDefinitionsFileFailsTheRunAndNothingIsWritten(t *testing.T) {
+	t.Parallel()
+
+	dir, copybook := copybookIn(t)
+	dest := filepath.Join(dir, "layout.sexpr")
+	beside := filepath.Join(dir, "posting.cpy.sexpr")
+
+	// A transcription the adopter has committed, and the reason the file is
+	// held to the rule: their copybook may not be on this machine to
+	// recompute it from.
+	committed := "(entry 01 POSTING-RECORD)\n"
+	writeFile(t, beside, committed)
+
+	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, outFlag, dest)
+
+	if code != statusFailed {
+		t.Fatalf("writing over a definitions file exited %d, want %d", code, statusFailed)
+	}
+
+	if !strings.Contains(stderr, beside) {
+		t.Errorf("the diagnostic does not name the definitions file's path: %q", stderr)
+	}
+
+	if _, err := os.Lstat(dest); err == nil {
+		t.Error("the layout was written beside a definitions file the run refused to write")
+	}
+
+	if kept, err := os.ReadFile(beside); err != nil || string(kept) != committed {
+		t.Errorf("the definitions file now holds %q (%v), want what was there", kept, err)
 	}
 }
 
@@ -246,42 +321,43 @@ func TestNothingIsWrittenWhereOneCopybookCouldNotBeRead(t *testing.T) {
 func TestTwoRunsOverOneSetOfCopybooksWriteByteIdenticalFiles(t *testing.T) {
 	t.Parallel()
 
-	dir, copybook := copybookIn(t)
+	_, copybook := copybookIn(t)
 
-	first := filepath.Join(dir, "first.sexpr")
-	second := filepath.Join(dir, "second.sexpr")
+	// Two scratch directories, which is how an adopter checking for drift runs
+	// it: the second run's definitions file would otherwise be refused beside
+	// the first's.
+	first, second := t.TempDir(), t.TempDir()
 
-	for _, dest := range []string{first, second} {
+	for _, dir := range []string{first, second} {
+		dest := filepath.Join(dir, "layout.sexpr")
 		if _, _, code := invoke(initSubcommand, copybookFlag, copybook, outFlag, dest); code != statusOK {
 			t.Fatalf("writing %s exited %d, want %d", dest, code, statusOK)
 		}
 	}
 
-	one, err := os.ReadFile(first)
-	if err != nil {
-		t.Fatalf("reading back the first scaffold: %v", err)
-	}
+	for _, name := range []string{"layout.sexpr", "posting.cpy.sexpr"} {
+		one, err := os.ReadFile(filepath.Join(first, name))
+		if err != nil {
+			t.Fatalf("reading back the first run's %s: %v", name, err)
+		}
 
-	two, err := os.ReadFile(second)
-	if err != nil {
-		t.Fatalf("reading back the second scaffold: %v", err)
-	}
+		two, err := os.ReadFile(filepath.Join(second, name))
+		if err != nil {
+			t.Fatalf("reading back the second run's %s: %v", name, err)
+		}
 
-	if string(one) != string(two) {
-		t.Error("two runs over one copybook wrote different files")
+		if string(one) != string(two) {
+			t.Errorf("two runs over one copybook wrote different %s files", name)
+		}
 	}
 }
 
-// Two spellings of one file are two copybooks as far as `init` is concerned
-// (docs/cli/SPEC.md, "Where the copybooks come from"), so every record they
-// declare is derived twice — a derived record-name collision, which is noted
-// rather than refused. Every colliding record is noted, none is written, and the
-// run exits 0.
-//
-// #408 replaces this test: once a definitions file is named after its copybook,
-// two spellings sharing a final path element are refused from the vector
-// before anything is opened.
-func TestTwoSpellingsOfOneFileNoteEveryRecordTheyDerive(t *testing.T) {
+// Two spellings of one file sharing a final path element would write two
+// definitions files of one name, and are refused from the vector before
+// anything is opened (docs/cli/SPEC.md, "The vector `init` takes"). This
+// replaces #406's test, under which the pair was read and every record they
+// derived was noted.
+func TestTwoSpellingsOfOneFileAreAUsageErrorAndNothingIsWritten(t *testing.T) {
 	t.Parallel()
 
 	dir, copybook := copybookIn(t)
@@ -292,20 +368,61 @@ func TestTwoSpellingsOfOneFileNoteEveryRecordTheyDerive(t *testing.T) {
 
 	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, copybookFlag, again, outFlag, dest)
 
-	if code != statusOK {
+	if code != statusUsage {
 		t.Fatalf("`cpybkc %s` over two spellings of one file exited %d, want %d:\n%s",
+			initSubcommand, code, statusUsage, stderr)
+	}
+
+	for _, path := range []string{copybook, again} {
+		if !strings.Contains(stderr, path) {
+			t.Errorf("the diagnostic does not name %s:\n%s", path, stderr)
+		}
+	}
+
+	if left := entriesIn(t, dir); !slices.Equal(left, []string{"posting.cpy"}) {
+		t.Errorf("a refused run left %v beside the copybook", left)
+	}
+}
+
+// Two names for one file that do not share a final path element — a symbolic
+// link by another name — are two copybooks with two definitions files, and
+// every record they declare is derived twice: a derived record-name collision,
+// noted rather than refused. Both definitions files are written, no colliding
+// record is, and the run exits 0 (docs/cli/SPEC.md, "Where the copybooks come
+// from").
+func TestTwoNamesForOneFileWriteTwoDefinitionsFilesAndNoteEveryRecord(t *testing.T) {
+	t.Parallel()
+
+	dir, copybook := copybookIn(t)
+	linked := filepath.Join(dir, "linked.cpy")
+
+	if err := os.Symlink(copybook, linked); err != nil {
+		t.Fatalf("preparing the link: %v", err)
+	}
+
+	out := t.TempDir()
+	dest := filepath.Join(out, "layout.sexpr")
+
+	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, copybookFlag, linked, outFlag, dest)
+
+	if code != statusOK {
+		t.Fatalf("`cpybkc %s` over two names for one file exited %d, want %d:\n%s",
 			initSubcommand, code, statusOK, stderr)
 	}
 
-	// Six record types, each derived once per spelling.
+	// Six record types, each derived once per name.
 	if got := strings.Count(stderr, "none of them is written"); got != 12 {
 		t.Errorf("noted %d colliding record types, want all twelve:\n%s", got, stderr)
 	}
 
-	for _, path := range []string{copybook, again} {
+	for _, path := range []string{copybook, linked} {
 		if !strings.Contains(stderr, path+": no record is derived from this copybook") {
 			t.Errorf("no note says %s contributed no record:\n%s", path, stderr)
 		}
+	}
+
+	if left := entriesIn(t, out); !slices.Equal(left, []string{"layout.sexpr", "linked.cpy.sexpr", "posting.cpy.sexpr"}) {
+		t.Errorf("the run wrote %v, want the layout and both definitions files", left)
 	}
 
 	written, err := os.ReadFile(dest)
@@ -318,10 +435,10 @@ func TestTwoSpellingsOfOneFileNoteEveryRecordTheyDerive(t *testing.T) {
 	}
 }
 
-// Until the definitions files land (#408), a copybook with nothing a record
-// could be written over still fails the run with nothing written, as
-// docs/cli/SPEC.md, "`init`'s streams and exit codes", stages it.
-func TestACopybookDeclaringNoNamedLevelStillFailsTheRun(t *testing.T) {
+// docs/cli/SPEC.md, "`init`'s streams and exit codes": a copybook no record
+// derives from — here, nothing but a level-77 work item — still gets its
+// definitions file, and a note, and the run exits 0.
+func TestACopybookDeclaringNoNamedLevelIsTranscribedAndNoted(t *testing.T) {
 	t.Parallel()
 
 	dir, copybook := copybookIn(t)
@@ -332,15 +449,47 @@ func TestACopybookDeclaringNoNamedLevelStillFailsTheRun(t *testing.T) {
 
 	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, copybookFlag, work, outFlag, dest)
 
-	if code != statusFailed {
-		t.Fatalf("a run over a copybook declaring no named 01-level exited %d, want %d", code, statusFailed)
+	if code != statusOK {
+		t.Fatalf("a run over a copybook declaring no named 01-level exited %d, want %d:\n%s", code, statusOK, stderr)
 	}
 
-	if !strings.Contains(stderr, work) {
+	if !strings.Contains(stderr, work+": no record is derived from this copybook") {
+		t.Errorf("no note names the copybook as typed: %q", stderr)
+	}
+
+	transcribed, err := os.ReadFile(filepath.Join(dir, "work.cpy.sexpr"))
+	if err != nil {
+		t.Fatalf("reading back the definitions file: %v", err)
+	}
+
+	if !strings.Contains(string(transcribed), `(entry 77 WORK-COUNT (pic "9(4)"))`) {
+		t.Errorf("the definitions file does not carry the 77-level:\n%s", transcribed)
+	}
+}
+
+// A copybook declaring no entry at all has nothing to transcribe: the run fails
+// with status 1, names the copybook, and writes nothing — not the layout, and
+// not the other copybook's definitions file.
+func TestACopybookDeclaringNoEntryFailsTheRunAndNothingIsWritten(t *testing.T) {
+	t.Parallel()
+
+	dir, copybook := copybookIn(t)
+	empty := filepath.Join(dir, "empty.cpy")
+	dest := filepath.Join(dir, "layout.sexpr")
+
+	writeFile(t, empty, "      * a member that describes nothing\n")
+
+	_, stderr, code := invoke(initSubcommand, copybookFlag, copybook, copybookFlag, empty, outFlag, dest)
+
+	if code != statusFailed {
+		t.Fatalf("a run over a copybook declaring no entry exited %d, want %d", code, statusFailed)
+	}
+
+	if !strings.Contains(stderr, empty) {
 		t.Errorf("the diagnostic does not name the copybook: %q", stderr)
 	}
 
-	if _, err := os.Stat(dest); err == nil {
-		t.Error("a scaffold was written over a copybook declaring no named 01-level")
+	if left := entriesIn(t, dir); !slices.Equal(left, []string{"empty.cpy", "posting.cpy"}) {
+		t.Errorf("a failed run left %v", left)
 	}
 }

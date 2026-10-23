@@ -8,16 +8,18 @@ package main
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/Zaba505/cpybkc/internal/emit"
+	scaffolding "github.com/Zaba505/cpybkc/internal/scaffold"
 )
 
 // The whole argument vector docs/cli/SPEC.md fixes, and nothing else:
 //
 //	cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-//	cpybkc init --copybook <path> … --out <dest>
+//	cpybkc init --copybook <path> … --out <layout>
 //	cpybkc --version
 //	cpybkc --help
 //
@@ -156,7 +158,8 @@ type invocation struct {
 	// find in what they typed.
 	copybooks []string
 
-	// out is where --out says the scaffold goes: a path, or [standardOutput].
+	// out is the path --out names the layout at. The definitions files go
+	// beside it, in the directory it names; it is never [standardOutput].
 	out string
 
 	// manifest is the path --manifest named, empty where it named none.
@@ -391,11 +394,7 @@ func set(inv *invocation, name, value string) error {
 	case copybookFlag:
 		return setCopybook(inv, value)
 	case outFlag:
-		if value == "" {
-			return usagef("%s names nowhere to write the scaffold", outFlag)
-		}
-
-		inv.out = value
+		return setOut(inv, value)
 	case emitIRFlag:
 		if value == "" {
 			return usagef("%s names nowhere to write the descriptor", emitIRFlag)
@@ -436,11 +435,11 @@ func required(inv *invocation, seen map[string]bool) error {
 			return usagef("%s reads the copybooks %s names, and this line names none",
 				initSubcommand, copybookFlag)
 		case inv.out == "":
-			return usagef("%s writes the scaffold where %s says, and this line says nowhere",
+			return usagef("%s writes the layout where %s says, and this line says nowhere",
 				initSubcommand, outFlag)
 		}
 
-		return nil
+		return derivedNames(inv)
 	}
 
 	// docs/cli/SPEC.md: --emit-ir-format given without --emit-ir is a usage
@@ -480,6 +479,72 @@ func setManifest(inv *invocation, value string) error {
 	return nil
 }
 
+// setOut applies --out.
+//
+// The dash is refused here, as it is for --manifest, because the reason is a
+// statement about the vector: `init`'s output is a set of files, one definitions
+// file per copybook beside the layout, and a stream is one unnamed sequence of
+// bytes with no directory for them to be beside (docs/cli/SPEC.md, "Where the
+// scaffold is written, and why nothing is ever overwritten", and the owner's
+// decision on discussion #394). A run that wants the files somewhere it can read
+// without committing to them names a scratch directory.
+func setOut(inv *invocation, value string) error {
+	switch value {
+	case "":
+		return usagef("%s names nowhere to write the layout", outFlag)
+	case standardOutput:
+		return usagef("%s cannot be %q: %s writes a layout and a definitions file per copybook beside it, "+
+			"and a stream is no directory for them to be in; name a file, in a scratch directory if you only "+
+			"want to read them", outFlag, standardOutput, initSubcommand)
+	}
+
+	inv.out = value
+
+	return nil
+}
+
+// derivedNames refuses two files of one run that would have one name in one
+// directory: two --copybook values whose definitions files are named alike, or
+// one whose definitions file is named as the layout is (docs/cli/SPEC.md, "The
+// vector `init` takes").
+//
+// Both are decided from the vector, before anything is opened, so both are
+// usage errors — and both name the two values involved, because the answer is to
+// change one of them and the reader cannot tell which without the pair.
+//
+// The comparison is Unicode simple case folding, which is what
+// [strings.EqualFold] is. The files go into one directory, and on a
+// case-insensitive filesystem two names differing only in case are one file: the
+// second link would find the first's name taken, so one command line would fail
+// on one machine and succeed on another. Refusing the pair everywhere keeps the
+// outcome a function of the command line.
+//
+// Two spellings of one file sharing a final path element — `cpy/posting.cpy`
+// and `./cpy/posting.cpy` — are refused here too, which is the first of the two
+// rules arriving by another door: their definitions files would be one.
+func derivedNames(inv *invocation) error {
+	layout := filepath.Base(inv.out)
+
+	for i, copybook := range inv.copybooks {
+		name := scaffolding.DefinitionsName(copybook)
+
+		for _, earlier := range inv.copybooks[:i] {
+			if strings.EqualFold(scaffolding.DefinitionsName(earlier), name) {
+				return usagef("%s %q and %s %q would both write a definitions file named %s beside the layout; "+
+					"run %s once per copybook into scratch directories, then rename one file and the paths "+
+					"its records name", copybookFlag, earlier, copybookFlag, copybook, name, initSubcommand)
+			}
+		}
+
+		if strings.EqualFold(name, layout) {
+			return usagef("%s %q would write a definitions file named %s, which is the layout's name in %s %q; "+
+				"name the layout something else", copybookFlag, copybook, name, outFlag, inv.out)
+		}
+	}
+
+	return nil
+}
+
 // setCopybook applies one --copybook occurrence.
 //
 // It appends rather than replaces, because docs/cli/SPEC.md makes this the one
@@ -487,24 +552,27 @@ func setManifest(inv *invocation, value string) error {
 // what would otherwise name a project's copybooks — there is no layout yet, so
 // this is the one input `init` cannot resolve the ordinary way.
 //
-// The value is kept exactly as it was typed. A layout's own paths are relative
-// to the layout, so a path that reached cpybkc from a different directory than
-// the scaffold's is the adopter's to correct, and one cpybkc rewrote on their
-// behalf would be one they cannot find in what they typed.
+// The value is kept exactly as it was typed: it is written into the header of
+// the definitions file converted from it and into every diagnostic about it, and
+// a path cpybkc rewrote on the adopter's behalf would be one they cannot find in
+// what they typed.
 //
 // Two occurrences carrying byte-equal values are the duplicate the at-most-once
 // rule is really about: naming one copybook twice states nothing the line did
 // not already state. Two different spellings are two copybooks, and nothing here
 // asks what they resolve to — behind a symlink, a bind mount or a
-// case-insensitive filesystem there is no comparison that is right every time,
-// and the scaffold simply holds each 01-level twice under two record names.
+// case-insensitive filesystem there is no comparison that is right every time.
+// Where the two share a final path element, their definitions files would share
+// a name, and [derivedNames] refuses the pair; where they do not, each is
+// transcribed, and every record they declare is a derived record-name collision
+// the run notes.
 func setCopybook(inv *invocation, value string) error {
 	switch value {
 	case "":
 		return usagef("%s names no copybook to read", copybookFlag)
 	case standardOutput:
-		return usagef("%s cannot be %q: the scaffold states a path for each record's copybook, "+
-			"and a copybook on a stream has none to state", copybookFlag, standardOutput)
+		return usagef("%s cannot be %q: a definitions file is named after its copybook, "+
+			"and a copybook on a stream has no name to name one after", copybookFlag, standardOutput)
 	}
 
 	if slices.Contains(inv.copybooks, value) {

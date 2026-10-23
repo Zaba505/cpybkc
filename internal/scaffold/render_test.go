@@ -194,6 +194,9 @@ func TestTheFormsComeInTheOrderTheLayoutFormatTablesThem(t *testing.T) {
 		"(encoding",
 		"(framing",
 		"(record ",
+		// Each record's source is the definitions file beside the layout,
+		// first among its children.
+		"(definitions \"posting.cpy.sexpr\" POSTING-RECORD)",
 		"(copybook-reading",
 		"(rename ",
 		"(discriminate ",
@@ -217,7 +220,8 @@ func TestTheFormsComeInTheOrderTheLayoutFormatTablesThem(t *testing.T) {
 }
 
 // The one thing a scaffold has to be is readable as S-expressions, whatever its
-// copybooks are called.
+// copybooks are called — and so does a definitions file, whose header names the
+// copybook and whose name is the copybook's final path element.
 //
 // A POSIX path may hold any byte but a slash and a NUL, so a newline or a tab in
 // one is rare and legal — and writing it raw would produce the single failure
@@ -229,24 +233,36 @@ func TestAPathWithACharacterTheGrammarEscapesStillParses(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		path string
-		want string
+		// copybook is the path as the definitions file's header quotes it,
+		// and file the definitions file's name as the record quotes it.
+		copybook string
+		file     string
 	}{
-		{"a quote and a backslash", `odd"name\.cpy`, `"odd\"name\\.cpy"`},
-		{"a newline and a tab", "odd\nname\t.cpy", `"odd\nname\t.cpy"`},
-		{"a control character with no short escape", "odd\x01name.cpy", `"odd\u0001name.cpy"`},
-		{"a non-ASCII name, written as itself", "copies/naïve.cpy", `"copies/naïve.cpy"`},
+		{"a quote and a backslash", `odd"name\.cpy`, `"odd\"name\\.cpy"`, `"odd\"name\\.cpy.sexpr"`},
+		{"a newline and a tab", "dir\nname/odd\nname\t.cpy", `"dir\nname/odd\nname\t.cpy"`, `"odd\nname\t.cpy.sexpr"`},
+		{"a control character with no short escape", "odd\x01name.cpy", `"odd\u0001name.cpy"`, `"odd\u0001name.cpy.sexpr"`},
+		{"a non-ASCII name, written as itself", "copies/naïve.cpy", `"copies/naïve.cpy"`, `"naïve.cpy.sexpr"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			text := string(deriveOf(t, book(test.path, header)).Bytes())
+			derived := deriveOf(t, book(test.path, header))
+			text := string(derived.Bytes())
 
 			if err := readLayout(t, text); err == nil {
 				t.Fatal("the layout reader accepted a scaffold")
 			}
 
-			if !strings.Contains(text, "(copybook "+test.want+" LEDGER-HEADER)") {
-				t.Errorf("the path was not written as %s:\n%s", test.want, text)
+			if !strings.Contains(text, "(definitions "+test.file+" LEDGER-HEADER)") {
+				t.Errorf("the definitions file's name was not written as %s:\n%s", test.file, text)
+			}
+
+			// The header comment is the one line a comment has, whatever
+			// the copybook's path holds, so the file reads back — which
+			// Derive has already required of it.
+			first, _, _ := strings.Cut(string(derived.Definitions()[0].Bytes), "\n")
+			if !strings.Contains(first, test.copybook) {
+				t.Errorf("the header names the copybook as %s, want %s", first, test.copybook)
 			}
 		})
 	}

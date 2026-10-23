@@ -83,6 +83,9 @@ func (s *Scaffold) Bytes() []byte {
 func (s *Scaffold) header(out *strings.Builder) {
 	comment(out,
 		"A layout scaffold, written by `cpybkc init` from the copybooks it was given.",
+		"Each copybook's entries are transcribed whole into a definitions file beside",
+		"this one, which the records below name. Those files are complete, and need",
+		"nothing from you.",
 		"",
 		"What is uncommented below is what those copybooks decide: one record per",
 		"01-level, and one alternative child per REDEFINES outside a repeating group.",
@@ -135,20 +138,21 @@ func (s *Scaffold) framing(out *strings.Builder) {
 func (s *Scaffold) definitions(out *strings.Builder) {
 	blank(out)
 	comment(out,
-		"The record types these copybooks resolve to. Each names the copybook and the",
-		"01-level it is a description of and -- where a REDEFINES outside a repeating",
-		"group gives that 01-level more than one description -- which one it means.",
+		"The record types these copybooks resolve to. Each names the definitions file",
+		"its copybook was transcribed into and the 01-level it is a description of",
+		"and -- where a REDEFINES outside a repeating group gives that 01-level more",
+		"than one description -- which one it means.",
 	)
 
 	for _, r := range s.records {
 		if len(r.alternatives) == 0 {
-			line(out, "(record "+r.name+" "+r.copybookChild()+")")
+			line(out, "(record "+r.name+" "+r.sourceChild()+")")
 
 			continue
 		}
 
 		line(out, "(record "+r.name)
-		line(out, indent+r.copybookChild())
+		line(out, indent+r.sourceChild())
 
 		for at, alternative := range r.alternatives {
 			closing := ""
@@ -161,10 +165,14 @@ func (s *Scaffold) definitions(out *strings.Builder) {
 	}
 }
 
-// copybookChild is the `copybook` child naming the file as it was typed and the
-// 01-level inside it.
-func (r record) copybookChild() string {
-	return "(copybook " + quote(r.path) + " " + definitions.Spell(r.item) + ")"
+// sourceChild is the `definitions` child naming the definitions file beside the
+// layout and the 01-level inside it.
+//
+// The name is written bare. A path in a layout is relative to the layout and
+// the file is beside it, so the path is right wherever the two are moved
+// together.
+func (r record) sourceChild() string {
+	return "(definitions " + quote(r.source) + " " + definitions.Spell(r.item) + ")"
 }
 
 // reading raises the OCCURS DEPENDING ON question, when and only when some
@@ -347,7 +355,8 @@ func line(out *strings.Builder, text string) {
 	out.WriteString("\n")
 }
 
-// quote renders a path as the string literal a `copybook` child takes.
+// quote renders a path as the string literal a `definitions` child takes, and as
+// a definitions file's header comment names its copybook.
 //
 // The escape set is the grammar's own — the one `sexpr-go`'s printer writes and
 // its tokenizer reads back — because the scaffold has to parse whatever a

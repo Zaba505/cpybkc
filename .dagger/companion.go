@@ -225,17 +225,18 @@ var companionCoverage = map[string]string{
 	// which is what a module mirroring the CLI has the least business growing.
 	//
 	// Init takes copybook *paths* into --source rather than files, because
-	// docs/cli/SPEC.md has the scaffold record each path as it was typed and a
-	// layout's paths are relative to the layout; and it supplies --out itself, at
-	// a path outside the mounted project, so *nothing at <dest> is ever replaced*
-	// holds without the module reasoning about the caller's tree.
+	// docs/cli/SPEC.md names each definitions file after its copybook's path and
+	// heads it with the path as it was typed. --out is Init's out argument with
+	// the directory taken away (#408): the caller names the layout, as the
+	// manifest's `layout` field will, and the module supplies the directory — one
+	// of its own, outside the mounted project, which it hands back holding the
+	// layout and its definitions files — so *nothing at any destination is ever
+	// replaced* holds without the module reasoning about the caller's tree.
 	//
-	// The one spelling Init does not offer is `--out -`, and that is not an
-	// exception in the sense below, because a spelling is not a flag and this
-	// table is keyed by flags. --out is curated; a stream destination is what a
-	// File-returning function cannot express, and it stays Run's:
-	//
-	//	dagger call run --source . --args=init,--copybook,posting.cpy,--out,-
+	// There is no stream spelling left to decline. The CLI refuses `--out -`
+	// outright, because `init` writes a set of files and a stream is no
+	// directory for them to be beside, so a scaffolding run has nothing for Run
+	// to keep the way it keeps `--emit-ir -`.
 	"--copybook": "Init",
 	"--out":      "Init",
 
@@ -247,8 +248,8 @@ var companionCoverage = map[string]string{
 	// legal beside the other" at all.
 	//
 	// Both halves of that answered the same way. A curated function need not
-	// return a Directory — Init already returns a File, and a descriptor is one
-	// file — and making the function *be* --emit-ir leaves the format as its
+	// return a Directory — a descriptor is one file, so EmitIr returns a File —
+	// and making the function *be* --emit-ir leaves the format as its
 	// argument, so the illegal pairing is unstateable rather than enforced: there
 	// is no call that names a format without asking for an emission, and nothing
 	// here has to check for one.
@@ -261,9 +262,11 @@ var companionCoverage = map[string]string{
 	// EmitIr supplies the destination itself, at a path outside the mounted
 	// project, so an emitting run writes nothing into the caller's tree — which is
 	// the whole of what a terminal flag promises. The one spelling it does not
-	// offer is `--emit-ir -`, and that is not an exception below for the reason
-	// `--out -` is not: a spelling is not a flag, and this table is keyed by
-	// flags.
+	// offer is `--emit-ir -`, and that is not an exception below, because a
+	// spelling is not a flag and this table is keyed by flags. A stream is what a
+	// File-returning function cannot express, and it stays Run's:
+	//
+	//	dagger call run --source . --args=--emit-ir,-
 	"--emit-ir":        "EmitIr",
 	"--emit-ir-format": "EmitIr",
 }
@@ -570,15 +573,35 @@ const (
 	// value to read.
 	neverPulledRepository = "cpybkc.invalid/never-pulled"
 
-	// scaffoldName is what the two scaffolds are called while they are being
-	// compared. It is a name for the diff and nothing else: the curated call
-	// hands back a File the caller names at export, and the hand-typed one hands
-	// back bytes on standard output, so neither side has a name of its own here.
-	scaffoldName = "scaffold.sexpr"
+	// scaffoldName is the layout's name in both scaffolding runs
+	// [Cpybkc.checkInit] compares: the curated call's out argument, and the
+	// file name in the hand-typed vector's --out. Both sides have to use one
+	// name for the trees to be comparable at all, since `init` names the layout
+	// as it was told to.
+	//
+	// It is a name the worked example does not use, because the hand-typed run
+	// writes into the mounted project — see [exampleInitDir] — and a layout of
+	// the example's own there would be a destination `init` refuses.
+	scaffoldName = "cpybkc-init-check.sexpr"
+
+	// exampleInitDir is where the hand-typed scaffolding run writes, and where
+	// its files are read back from.
+	//
+	// Inside the mounted project, for [emitIRDescriptorPath]'s reason: it is the
+	// one directory a hand-typed run can be sure it may write into. Unlike that
+	// path it is not a name of this check's choosing in full — the definitions
+	// files are named after the copybooks, so `header.cpy.sexpr` and its
+	// siblings land beside the copybooks they were converted from. A worked
+	// example that one day commits files of those names makes this run fail on
+	// an occupied destination, naming it, which is the right way round: the
+	// comparison would otherwise be over a tree the example and the run both
+	// wrote.
+	exampleInitDir = "/src"
 
 	// descriptorName is what the two descriptors are called while they are being
-	// compared, and it is [scaffoldName]'s counterpart: a name for the diff and
-	// nothing else. It carries no extension because the same comparison is made
+	// compared. It is a name for the diff and nothing else: the curated call
+	// hands back a File the caller names at export, and the hand-typed one writes
+	// to [emitIRDescriptorPath], so neither side has a name of its own here. It carries no extension because the same comparison is made
 	// of both encodings, and a name claiming one of them would be wrong for the
 	// other run.
 	descriptorName = "descriptor"
@@ -737,7 +760,7 @@ var exampleCopybooks = []string{"header.cpy", "posting.cpy", "trailer.cpy"}
 const exampleLayout = "ledger.sexpr"
 
 // exampleInitVector is the hand-typed escape-hatch spelling of the same
-// scaffolding run, `--out -` and all.
+// scaffolding run, writing the layout into [exampleInitDir] as [scaffoldName].
 //
 // It is written out here rather than assembled from the module's internal/argv,
 // which is the whole point of the comparison below: two statements of one run
@@ -748,7 +771,7 @@ var exampleInitVector = []string{
 	"--copybook", "header.cpy",
 	"--copybook", "posting.cpy",
 	"--copybook", "trailer.cpy",
-	"--out", "-",
+	"--out", exampleInitDir + "/" + scaffoldName,
 }
 
 // exampleEmitIRRuns are the emissions [Cpybkc.checkEmitIR] compares: each is the
@@ -871,8 +894,9 @@ var exampleEmitIRRuns = []struct {
 // covered by nothing: image, whose plugin directory has to hold the generator
 // the CLI resolves on PATH; run, the escape hatch, asked the one question
 // docs/cli/SPEC.md requires to succeed against nothing at all; init, the curated
-// scaffolding run (#228), required to hand back the same scaffold the escape
-// hatch writes over the same copybooks — see [Cpybkc.checkInit]; and emit-ir,
+// scaffolding run (#228), required to hand back the same layout and definitions
+// files the escape hatch writes over the same copybooks — see
+// [Cpybkc.checkInit]; and emit-ir,
 // the curated emitting run (#251), required to hand back the same descriptor the
 // escape hatch writes over the same project, in every encoding — see
 // [Cpybkc.checkEmitIR].
@@ -1016,14 +1040,23 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 //
 // # What is asserted, and why it is not what a scaffold should contain
 //
-// The scaffold `init --source . --copybook …` hands back has to be byte-identical
-// to what `run --args=init,--copybook,…,--out,-` writes on standard output over
-// the same copybooks. That is cheap, it needs no second reading of
-// docs/cli/SPEC.md's `init` section — what a record is derived from, which forms
-// are commented, what a note says — and it is exactly the property `init`'s
-// escape-hatch entry used to stand in for, back when its flags were recorded
-// against Run: a caller who reached for `run` before this function existed
-// should get the same file from the function that replaced it.
+// The directory `init --source . --copybook … --out <name>` hands back has to
+// hold exactly the files `run --args=init,--copybook,…,--out,<path>` writes
+// over the same copybooks — the layout, under the name both were given, and one
+// definitions file per copybook beside it — byte for byte, and nothing else.
+// That is cheap, it needs no second reading of docs/cli/SPEC.md's `init`
+// section — what a record is derived from, which forms are commented, what a
+// definitions file holds, what a note says — and it is exactly the property
+// `init`'s escape-hatch entry used to stand in for, back when its flags were
+// recorded against Run: a caller who reached for `run` before this function
+// existed should get the same files from the function that replaced it.
+//
+// Both halves of "exactly" are worth having. Every file the hand-typed run wrote
+// has to be in the curated directory, which is what catches a module that handed
+// back the layout without its definitions files — the File it used to return
+// (#408). And nothing else may be, which is what catches a directory that held
+// something the run did not write: the module empties it first, and a tree
+// comparison is how that emptying is observed rather than assumed.
 //
 // That is worth keeping in view now that every command is meant to have a
 // function (#253), because it generalises. What makes a curated function safe to
@@ -1031,9 +1064,9 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 // produces the same bytes, which is a check the next curated function can be
 // written against as easily as this one was.
 //
-// What the scaffold *contains* is checked where it is decided:
-// internal/scaffold's tests and cmd/cpybkc's. A second expectation here would be
-// this pipeline's own reading of that document, and the two would drift.
+// What the files *contain* is checked where it is decided: internal/scaffold's
+// tests and cmd/cpybkc's. A second expectation here would be this pipeline's
+// own reading of that document, and the two would drift.
 //
 // # No generator, deliberately
 //
@@ -1044,32 +1077,46 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 // alone a generator to name in one. A check that reached for a composed image
 // would be asserting less while costing more.
 //
-// The two sides are compared as trees rather than as strings so that a
-// disagreement arrives as a diff naming the line, through the same helper the
-// tree comparisons above use. [Cpybkc.diffTrees] runs diff(1), which compares
-// contents and nothing else, so the two sides may be built differently — one
-// from the file cpybkc wrote and one from bytes — without a mode or an owner
-// deciding the outcome.
+// The two sides are compared as trees so that a disagreement arrives as a diff
+// naming the file and the line, through the same helper the tree comparisons
+// above use. [Cpybkc.diffTrees] runs diff(1), which compares contents and
+// nothing else, so the two sides may be built differently — one a directory the
+// module handed back and one assembled here from the files the hand-typed run
+// wrote — without a mode or an owner deciding the outcome.
 func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error {
 	bare := m.companion(platform)
 	example := m.Source.Directory(companionExampleDir)
+
+	// The files the hand-typed run is expected to have written: the layout,
+	// and the definitions file each copybook's final path element names. They
+	// are named here rather than globbed out of the container, so that a file
+	// the run failed to write is a file this cannot read back, and the failure
+	// says which.
+	written := []string{scaffoldName}
+	for _, copybook := range exampleCopybooks {
+		written = append(written, copybook+".sexpr")
+	}
 
 	// "did not succeed" rather than "did not reach the CLI", because both are
 	// reachable from here: run may fail to reach the CLI at all, and the CLI may
 	// be reached and exit non-zero — which is what a typo in the hand-maintained
 	// [exampleInitVector] looks like. The wrapped error says which.
-	handTyped, err := bare.Run(exampleInitVector, dagger.CompanionRunOpts{Source: example}).Stdout(ctx)
+	ran, err := bare.Run(exampleInitVector, dagger.CompanionRunOpts{Source: example}).Sync(ctx)
 	if err != nil {
 		return fmt.Errorf("run --args=init,… over %s/'s copybooks did not succeed: %w",
 			companionExampleDir, err)
 	}
 
-	curated := dag.Directory().WithFile(scaffoldName, bare.Init(example, exampleCopybooks))
-	typed := dag.Directory().WithNewFile(scaffoldName, handTyped)
+	typed := dag.Directory()
+	for _, name := range written {
+		typed = typed.WithFile(name, ran.File(exampleInitDir+"/"+name))
+	}
+
+	curated := bare.Init(example, exampleCopybooks, scaffoldName)
 
 	if err := m.diffTrees(ctx, typed, curated, "/companion-module/init"); err != nil {
 		return fmt.Errorf(
-			"init over %s/'s copybooks did not hand back the scaffold `run --args=init,…` writes over the same "+
+			"init over %s/'s copybooks did not hand back the files `run --args=init,…` writes over the same "+
 				"copybooks (or did not get that far — the wrapped error says which): the curated function and the "+
 				"escape hatch are the same run spelled two ways, so a difference is one of them being wrong: %w",
 			companionExampleDir, err)
@@ -1133,11 +1180,11 @@ func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error 
 // # Both sides through a file
 //
 // The hand-typed side writes to a path in the mounted project and the container
-// is read back from there, rather than `--emit-ir -` and Stdout the way
-// [Cpybkc.checkInit] takes its scaffold. A scaffold is text and a descriptor is
-// not: the binary encoding through a GraphQL string is a comparison of two
-// decodings rather than of the bytes, and it is the encoding whose whole point
-// is that the bytes are the same ones. So both encodings come back as files, and
+// is read back from there, rather than `--emit-ir -` and Stdout, which is how
+// [Cpybkc.checkInit] takes its files too. A descriptor is not text: the binary
+// encoding through a GraphQL string is a comparison of two decodings rather than
+// of the bytes, and it is the encoding whose whole point is that the bytes are
+// the same ones. So both encodings come back as files, and
 // the two sides are compared as trees through the same helper every other
 // comparison here uses.
 func (m *Cpybkc) checkEmitIR(ctx context.Context, platform dagger.Platform) error {

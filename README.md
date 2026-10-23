@@ -166,6 +166,17 @@ inputs](docs/cli/SPEC.md#finding-the-inputs) is why the manifest does not get a
 say. The point of both is one sentence: a run has **one** descriptor, and every
 generator in it — and `--emit-ir` — is handed the same bytes.
 
+A copybook you cannot commit — a vendor's, under a licence that keeps it out of
+the repository — is no obstacle to that. `cpybkc init --copybook
+vendor/posting.cpy --out ledger.sexpr` transcribes it, whole, into
+`posting.cpy.sexpr` beside the layout, and the layout's records name that
+[definitions file](docs/layout/SPEC.md#definitions) instead of the copybook.
+Commit the definitions files in its place and the project regenerates with no
+copybook checked in or on disk, to the same descriptor the copybook gave. When
+the vendor ships a new copybook, run `init` into a scratch directory and diff
+([When a copybook
+changes](docs/cli/SPEC.md#when-a-copybook-changes-and-moving-a-record-between-sources)).
+
 Four rules are worth knowing before a manifest is written, because each of them
 is a fault rather than something cpybkc works around:
 

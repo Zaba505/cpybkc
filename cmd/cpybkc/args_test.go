@@ -328,19 +328,32 @@ func TestParseReadsTheInitVector(t *testing.T) {
 	}
 }
 
-// TestInitWritesToStandardOutput covers the destination that is not a path.
-// `--out -` is the one spelling that puts the scaffold on standard output, and
-// it is the same reading of a dash the rest of this program uses.
-func TestInitWritesToStandardOutput(t *testing.T) {
+// TestInitRefusesStandardOutput is the destination that is not a path, refused.
+// `init`'s output is a set of files — one definitions file per copybook beside
+// the layout — and a stream has no directory for them to be beside, so `--out
+// -` is a usage error and no release keeps the old behaviour alongside
+// (docs/cli/SPEC.md, "Where the scaffold is written", and discussion #394).
+func TestInitRefusesStandardOutput(t *testing.T) {
 	t.Parallel()
 
-	inv, err := parse([]string{initSubcommand, copybookFlag, "posting.cpy", outFlag, standardOutput})
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	for _, args := range [][]string{
+		{initSubcommand, copybookFlag, "posting.cpy", outFlag, standardOutput},
+		{initSubcommand, copybookFlag, "posting.cpy", outFlag + "=" + standardOutput},
+	} {
+		inv, err := parse(args)
+		if err == nil {
+			t.Errorf("parse(%q) returned %+v, want the usage error a stream destination is", args, inv)
 
-	if inv.out != standardOutput {
-		t.Errorf("%s is %q, want %q", outFlag, inv.out, standardOutput)
+			continue
+		}
+
+		if statusOf(err) != statusUsage {
+			t.Errorf("parse(%q) gave status %d, want %d", args, statusOf(err), statusUsage)
+		}
+
+		if !strings.Contains(err.Error(), "definitions file per copybook beside it") {
+			t.Errorf("parse(%q) reads %q, and does not say why a stream cannot hold the output", args, err)
+		}
 	}
 }
 
@@ -404,25 +417,90 @@ func TestASeparatedValueIsWhateverFollows(t *testing.T) {
 // TestTwoSpellingsAreTwoCopybooks is what docs/cli/SPEC.md deliberately does not
 // decide: whether two --copybook values name one file on disk.
 //
-// Byte-equal values are a duplicate and refused. Two different spellings that
-// resolve to one file are two copybooks, and the scaffold holds each 01-level
-// twice under two record names — because behind a symlink, a bind mount or a
-// case-insensitive filesystem there is no comparison that is right every time.
+// Byte-equal values are a duplicate and refused. Two different spellings are
+// two copybooks — behind a symlink, a bind mount or a case-insensitive
+// filesystem there is no comparison that is right every time — and where they
+// do not share a final path element, each gets its own definitions file. (Where
+// they do, [TestTwoDerivedNamesThatFoldAlikeAreAUsageError] is the refusal.)
 func TestTwoSpellingsAreTwoCopybooks(t *testing.T) {
 	t.Parallel()
 
 	inv, err := parse([]string{
 		initSubcommand,
 		copybookFlag, "posting.cpy",
-		copybookFlag, "./posting.cpy",
-		outFlag, standardOutput,
+		copybookFlag, "linked-posting.cpy",
+		outFlag, "layout.sexpr",
 	})
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 
 	if len(inv.copybooks) != 2 {
-		t.Errorf("two spellings of one path parsed as %q, want two copybooks", inv.copybooks)
+		t.Errorf("two spellings of one file parsed as %q, want two copybooks", inv.copybooks)
+	}
+}
+
+// TestTwoDerivedNamesThatFoldAlikeAreAUsageError is docs/cli/SPEC.md's "The
+// vector `init` takes": two files of one run that would have one name in one
+// directory, under Unicode simple case folding, are refused from the vector
+// before anything is opened, naming both values.
+//
+// It replaces #406's test of two spellings of one file, which noted every
+// record they derived: a definitions file is named after its copybook's final
+// path element, so `cpy/posting.cpy` and `./cpy/posting.cpy` are now two files
+// of one name, and refused.
+func TestTwoDerivedNamesThatFoldAlikeAreAUsageError(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		args []string
+		says []string
+	}{
+		{
+			name: "two spellings of one file",
+			args: []string{initSubcommand, copybookFlag, "cpy/posting.cpy", copybookFlag, "./cpy/posting.cpy", outFlag, "layout.sexpr"},
+			says: []string{`"cpy/posting.cpy"`, `"./cpy/posting.cpy"`, "posting.cpy.sexpr"},
+		},
+		{
+			name: "one final element in two directories",
+			args: []string{initSubcommand, copybookFlag, "a/posting.cpy", copybookFlag, "b/posting.cpy", outFlag, "layout.sexpr"},
+			says: []string{`"a/posting.cpy"`, `"b/posting.cpy"`, "scratch directories"},
+		},
+		{
+			name: "two names differing only in case",
+			args: []string{initSubcommand, copybookFlag, "cpy/POSTING", copybookFlag, "vendor/posting", outFlag, "layout.sexpr"},
+			says: []string{`"cpy/POSTING"`, `"vendor/posting"`},
+		},
+		{
+			name: "a definitions file named as the layout is",
+			args: []string{initSubcommand, copybookFlag, "vendor/layout", outFlag, "out/layout.sexpr"},
+			says: []string{`"vendor/layout"`, `"out/layout.sexpr"`, "layout.sexpr"},
+		},
+		{
+			name: "named as the layout is, under folding",
+			args: []string{initSubcommand, copybookFlag, "vendor/Layout", outFlag, "LAYOUT.SEXPR"},
+			says: []string{`"vendor/Layout"`, `"LAYOUT.SEXPR"`},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv, err := parse(test.args)
+			if err == nil {
+				t.Fatalf("parse(%q) returned %+v, want a usage error", test.args, inv)
+			}
+
+			if statusOf(err) != statusUsage {
+				t.Errorf("parse(%q) gave status %d, want %d", test.args, statusOf(err), statusUsage)
+			}
+
+			for _, want := range test.says {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("parse(%q) reads %q, and does not name %s", test.args, err, want)
+				}
+			}
+		})
 	}
 }
 
@@ -455,7 +533,7 @@ func TestParseRefusesTheInitVector(t *testing.T) {
 		{
 			name: "a copybook on a stream",
 			args: []string{initSubcommand, copybookFlag, standardOutput, outFlag, "layout.sexpr"},
-			says: "has none to state",
+			says: "no name to name one after",
 		},
 		{
 			name: "one copybook named twice",

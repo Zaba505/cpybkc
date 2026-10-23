@@ -23,11 +23,12 @@ import (
 // Copybook is one `--copybook` value: the path as it was typed, and the bytes
 // found at it.
 //
-// The path is carried as typed and is written into the scaffold's `copybook`
-// child unchanged. A layout's own paths are relative to the layout, so a path
-// that reached cpybkc from a different directory than the scaffold's is the
-// adopter's to correct — and a path cpybkc rewrote on their behalf would be one
-// they cannot find in what they typed.
+// The path is carried as typed, and it is written into the header comment of
+// the definitions file converted from it and into every note about it — a path
+// cpybkc rewrote on the adopter's behalf would be one they cannot find in what
+// they typed. No record names it: each names the definitions file, whose name is
+// the path's final element with `.sexpr` appended ([DefinitionsName]), so no
+// path the scaffold states depends on the directory the command was typed in.
 type Copybook struct {
 	// Path is the --copybook value, exactly as it was written on the command
 	// line.
@@ -37,15 +38,20 @@ type Copybook struct {
 	Source []byte
 }
 
-// Scaffold is the layout scaffold one set of copybooks decides.
+// Scaffold is the layout scaffold one set of copybooks decides, and the
+// definitions file each copybook converts to.
 //
-// It is a value with no filesystem in it: [Scaffold.Bytes] renders it and
-// [Write] puts it somewhere, and neither can be reached by accident from the
-// other. That is what makes "the file is written in full or not at all" and
-// "nothing reaches standard output until the whole scaffold has been derived"
-// one property rather than two — there is nothing to write until the derivation
-// is over.
+// It is a value with no filesystem in it: [Scaffold.Bytes] renders the layout,
+// [Scaffold.Definitions] holds the definitions files, and [Write] puts them
+// somewhere, and neither can be reached by accident from the other. That is what
+// makes "the set is written whole or not at all" a property of the writer alone
+// — there is nothing to write until the derivation, every definitions file's
+// read-back included, is over.
 type Scaffold struct {
+	// files are the definitions files, one per copybook, in the order the
+	// copybooks were named.
+	files []File
+
 	// records are the record types, in the order the copybooks were named and,
 	// within one copybook, in declaration order.
 	records []record
@@ -67,11 +73,11 @@ type Scaffold struct {
 	notes []string
 }
 
-// record is one `record` form: what it is called, which copybook and 01-level it
-// is over, and which description of each redefined run it means.
+// record is one `record` form: what it is called, which definitions file and
+// 01-level it is over, and which description of each redefined run it means.
 type record struct {
 	name         string
-	path         string
+	source       string
 	item         string
 	alternatives []reference
 }
@@ -123,6 +129,11 @@ func (r reference) String() string {
 // (#373).
 func (s *Scaffold) Notes() []string { return slices.Clone(s.notes) }
 
+// Definitions are the definitions files the copybooks convert to, one per
+// copybook and in the order the copybooks were given. Every one has been read
+// back as its copybook's entries already: a set that did not is never returned.
+func (s *Scaffold) Definitions() []File { return slices.Clone(s.files) }
+
 // dialect is the compiler whose answers the derivation is read under.
 //
 // The same one [github.com/Zaba505/cpybkc/internal/project] resolves under, for
@@ -167,15 +178,21 @@ func reading() layoutmodel.Reading { return layoutmodel.ReadingUnstated }
 // record it is about and nothing else. A copybook every 01-level of which was
 // noted contributes no record form, and a note says so.
 //
-// What fails the run is a copybook that cannot be read at all — one that does
-// not parse or build, or that declares no named 01-level — and every such fault
-// is reported rather than the first: a set of copybooks goes wrong in the same
-// way in more than one file at once, and a reader that stopped would be run once
-// per copybook. Nothing is returned where anything failed — a scaffold missing
-// the records of the copybook that could not be read is a file whose `sequence`
-// is short and whose incompleteness reads exactly like the incompleteness that
-// is deliberate. Until the definitions files land (#408) these stay refusals, as
-// docs/cli/SPEC.md, "`init`'s streams and exit codes", stages them.
+// A copybook no record derives from — one holding only 77-levels, no named
+// 01-level, or one every combination of which was noted — is still transcribed,
+// and a note says no record was derived from it. Whether the run succeeds is
+// decided by whether every copybook could be transcribed, never by whether every
+// record could be named (docs/cli/SPEC.md, "`init`'s streams and exit codes").
+//
+// What fails the run is a copybook that cannot be transcribed: one that does
+// not parse or build, one that declares no entry at all, one the writer refuses,
+// and one whose definitions file does not read back as its entries. Every such
+// fault is reported rather than the first: a set of copybooks goes wrong in the
+// same way in more than one file at once, and a reader that stopped would be run
+// once per copybook. Nothing is returned where anything failed — a set missing
+// the definitions file of the copybook that could not be read is one whose
+// layout is short and whose incompleteness reads exactly like the
+// incompleteness that is deliberate.
 func Derive(books []Copybook) (*Scaffold, error) {
 	// A scaffold over no copybooks is not an empty scaffold: there is no
 	// copybook to have noted anything about, and so nothing to say why it holds
@@ -188,6 +205,22 @@ func Derive(books []Copybook) (*Scaffold, error) {
 
 	var faults diag.List
 
+	// Two copybooks whose definitions files would share a name in one
+	// directory, under the folding the command line compares them with.
+	for i, book := range books {
+		for _, other := range books[:i] {
+			if strings.EqualFold(DefinitionsName(other.Path), DefinitionsName(book.Path)) {
+				faults.Fail(&DefinitionsNameError{First: other.Path, Second: book.Path, Name: DefinitionsName(book.Path)})
+
+				break
+			}
+		}
+	}
+
+	if faults.Failed() {
+		return nil, faults.Err()
+	}
+
 	// Every 01-level is read before any record is written, because whether a
 	// record name collides is a property of the whole set of copybooks: the
 	// first record type to derive a name cannot be written until it is known
@@ -195,9 +228,17 @@ func Derive(books []Copybook) (*Scaffold, error) {
 	var levels []level
 
 	read := make([]Copybook, 0, len(books))
+	files := make([]File, 0, len(books))
 
 	for _, book := range books {
-		items, err := readRecords(book)
+		entries, items, err := readCopybook(book)
+		if err != nil {
+			faults.Fail(err)
+
+			continue
+		}
+
+		text, err := transcribe(book, entries)
 		if err != nil {
 			faults.Fail(err)
 
@@ -209,26 +250,30 @@ func Derive(books []Copybook) (*Scaffold, error) {
 		}
 
 		read = append(read, book)
+		files = append(files, File{Name: DefinitionsName(book.Path), Bytes: text})
 	}
 
 	if faults.Failed() {
 		return nil, faults.Err()
 	}
 
-	s := new(Scaffold)
+	s := &Scaffold{files: files}
 	s.take(read, levels)
 
 	return s, nil
 }
 
-// readRecords parses one copybook and returns the 01-levels a `record` form can
-// be written over.
+// readCopybook parses one copybook and returns its entries, which are what its
+// definitions file transcribes, and the 01-levels a `record` form can be written
+// over.
 //
-// Level-77 items and an 01-level with no data-name are not among them. A
+// Level-77 items and an 01-level with no data-name are not among the second. A
 // level-77 is a standalone work item rather than a record description, and an
 // unnamed 01-level is one no `record` form could name; a copybook holding
-// nothing else declares no record, which is reported rather than passed over.
-func readRecords(book Copybook) ([]*copybook.Field, error) {
+// nothing else derives no record, which is a note rather than a refusal — its
+// definitions file is still written whole. A copybook declaring no entry at all
+// has nothing to transcribe, and that is a refusal.
+func readCopybook(book Copybook) ([]*cobol.DataDescriptionEntry, []*copybook.Field, error) {
 	// Fixed format, which is what a copybook out of a mainframe library is
 	// written in and what every other reader in this repository assumes.
 	// Nothing states a reference format, and `init` is handed a file rather
@@ -239,16 +284,18 @@ func readRecords(book Copybook) ([]*copybook.Field, error) {
 		cobol.WithSourceFormat(cobol.FixedFormat),
 	)
 	if err != nil {
-		return nil, &SourceError{Path: book.Path, Err: err}
+		return nil, nil, &SourceError{Path: book.Path, Err: err}
 	}
 
-	if file.Fragment == nil {
-		return nil, &NoRecordError{Path: book.Path}
+	if file.Fragment == nil || len(file.Fragment.Entries) == 0 {
+		return nil, nil, &NoEntryError{Path: book.Path}
 	}
 
-	items, err := copybook.Build(file.Fragment.Entries)
+	entries := file.Fragment.Entries
+
+	items, err := copybook.Build(entries)
 	if err != nil {
-		return nil, &SourceError{Path: book.Path, Err: err}
+		return nil, nil, &SourceError{Path: book.Path, Err: err}
 	}
 
 	records := make([]*copybook.Field, 0, len(items))
@@ -259,11 +306,7 @@ func readRecords(book Copybook) ([]*copybook.Field, error) {
 		}
 	}
 
-	if len(records) == 0 {
-		return nil, &NoRecordError{Path: book.Path}
-	}
-
-	return records, nil
+	return entries, records, nil
 }
 
 // level is one named 01-level, read: what it would derive, and what the run
@@ -378,7 +421,7 @@ func describeLevel(at int, book Copybook, item *copybook.Field) level {
 
 		name := recordName(item.Name, combination)
 
-		derived := record{name: name, path: book.Path, item: item.Name}
+		derived := record{name: name, source: DefinitionsName(book.Path), item: item.Name}
 		for _, alternative := range combination {
 			derived.alternatives = append(derived.alternatives, reference{
 				record: name,
@@ -487,8 +530,11 @@ func (s *Scaffold) take(books []Copybook, levels []level) {
 	}
 
 	written := make([]bool, len(books))
+	declared := make([]bool, len(books))
 
 	for _, l := range levels {
+		declared[l.at] = true
+
 		if len(l.shape.Tables) > 0 {
 			s.tables = true
 		}
@@ -558,14 +604,25 @@ func (s *Scaffold) take(books []Copybook, levels []level) {
 		}
 	}
 
-	// A copybook no record was derived from still says so. Its notes above
-	// name each 01-level and why, and this is the line that tells the reader
-	// the copybook contributes nothing to the file rather than leaving them to
-	// count.
+	// A copybook no record was derived from still says so. Where it declared
+	// named 01-levels, its notes above name each one and why, and this is the
+	// line that tells the reader the copybook contributes no record to the
+	// layout rather than leaving them to count. Where it declared none — a
+	// member of 77-level work items is the ordinary way — this is the only
+	// line about it. Either way its definitions file is written whole.
 	for at, book := range books {
-		if !written[at] {
+		switch {
+		case written[at]:
+		case declared[at]:
 			s.notes = append(s.notes, fmt.Sprintf(
-				"%s: no record is derived from this copybook, because every 01-level it declares is noted",
+				"%s: no record is derived from this copybook, because every 01-level it declares is noted; "+
+					"its definitions file is still written",
+				book.Path,
+			))
+		default:
+			s.notes = append(s.notes, fmt.Sprintf(
+				"%s: no record is derived from this copybook, because it declares no named 01-level; "+
+					"its definitions file is still written",
 				book.Path,
 			))
 		}

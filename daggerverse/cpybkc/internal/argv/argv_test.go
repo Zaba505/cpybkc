@@ -4,9 +4,11 @@
 // passes no manifest gets an invocation of no arguments, and what that means —
 // the mounted project's own cpybkc.json, read from the working directory — is a
 // promise docs/cli/SPEC.md makes and this module relies on rather than restates.
-// A scaffolding run's vector carries two more of them: that the subcommand
-// leads, and that the copybooks reach cpybkc in the order they were given, which
-// is the order the scaffold then holds their records in. Pinning the vectors here
+// A scaffolding run's vector carries three more of them: that the subcommand
+// leads, that the copybooks reach cpybkc in the order they were given, which
+// is the order the scaffold then holds their records in, and that --out names
+// the layout by the name the caller chose, in the directory the module hands
+// back with the definitions files beside it. Pinning the vectors here
 // turns a later accidental flag, or a quietly reordered list, into a red build.
 // An emitting run's vector carries one more: that a caller who names no format
 // gets no --emit-ir-format at all, so the encoding a descriptor arrives in is
@@ -80,16 +82,19 @@ func TestInitAssemblesTheVector(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		copybooks []string
-		out       string
+		dir       string
+		layout    string
 		want      []string
 	}{
 		{
 			// The subcommand leads, because docs/cli/SPEC.md reads a subcommand
-			// name at the first argument and nowhere else.
+			// name at the first argument and nowhere else; --out names the
+			// layout, in the directory the module hands back.
 			name:      "one copybook",
 			copybooks: []string{"posting.cpy"},
-			out:       "/scaffold/layout.sexpr",
-			want:      []string{"init", "--copybook", "posting.cpy", "--out", "/scaffold/layout.sexpr"},
+			dir:       "/scaffold",
+			layout:    "ledger.sexpr",
+			want:      []string{"init", "--copybook", "posting.cpy", "--out", "/scaffold/ledger.sexpr"},
 		},
 		{
 			// The order is pinned rather than incidental: the scaffold holds one
@@ -97,7 +102,8 @@ func TestInitAssemblesTheVector(t *testing.T) {
 			// vector that reordered them would reorder somebody's layout.
 			name:      "three copybooks, in the order they were given",
 			copybooks: []string{"header.cpy", "posting.cpy", "trailer.cpy"},
-			out:       "/scaffold/layout.sexpr",
+			dir:       "/scaffold",
+			layout:    "layout.sexpr",
 			want: []string{
 				"init",
 				"--copybook", "header.cpy",
@@ -108,11 +114,12 @@ func TestInitAssemblesTheVector(t *testing.T) {
 		},
 		{
 			// A path below the project root, resolved by the CLI against the
-			// mounted project because that is its working directory, and written
-			// into the scaffold as it was typed.
+			// mounted project because that is its working directory, and named
+			// as it was typed in the definitions file converted from it.
 			name:      "a path below the project root",
 			copybooks: []string{"copybooks/posting.cpy"},
-			out:       "/scaffold/layout.sexpr",
+			dir:       "/scaffold/",
+			layout:    "layout.sexpr",
 			want: []string{
 				"init", "--copybook", "copybooks/posting.cpy", "--out", "/scaffold/layout.sexpr",
 			},
@@ -122,19 +129,20 @@ func TestInitAssemblesTheVector(t *testing.T) {
 			// needs no thought about which one cpybkc cuts on.
 			name:      "a path carrying an equals sign",
 			copybooks: []string{"odd=name/posting.cpy"},
-			out:       "/scaffold/layout.sexpr",
+			dir:       "/scaffold",
+			layout:    "odd=name.sexpr",
 			want: []string{
-				"init", "--copybook", "odd=name/posting.cpy", "--out", "/scaffold/layout.sexpr",
+				"init", "--copybook", "odd=name/posting.cpy", "--out", "/scaffold/odd=name.sexpr",
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init(tc.copybooks, tc.out)
+			got, err := Init(tc.copybooks, tc.dir, tc.layout)
 			if err != nil {
-				t.Fatalf("Init(%q, %q): unexpected error: %v", tc.copybooks, tc.out, err)
+				t.Fatalf("Init(%q, %q, %q): unexpected error: %v", tc.copybooks, tc.dir, tc.layout, err)
 			}
 			if !slices.Equal(got, tc.want) {
-				t.Errorf("Init(%q, %q) = %q, want %q", tc.copybooks, tc.out, got, tc.want)
+				t.Errorf("Init(%q, %q, %q) = %q, want %q", tc.copybooks, tc.dir, tc.layout, got, tc.want)
 			}
 		})
 	}
@@ -149,7 +157,7 @@ func TestInitRefusesNoCopybooksAtAll(t *testing.T) {
 		{name: "empty", copybooks: []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init(tc.copybooks, "/scaffold/layout.sexpr")
+			got, err := Init(tc.copybooks, "/scaffold", "layout.sexpr")
 			if err == nil {
 				t.Fatalf("Init(%q, …) = %q, want an error", tc.copybooks, got)
 			}
@@ -175,7 +183,7 @@ func TestInitRefusesTheDashAmongTheCopybooks(t *testing.T) {
 		{name: "beside real paths", copybooks: []string{"header.cpy", "-", "trailer.cpy"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init(tc.copybooks, "/scaffold/layout.sexpr")
+			got, err := Init(tc.copybooks, "/scaffold", "layout.sexpr")
 			if err == nil {
 				t.Fatalf("Init(%q, …) = %q, want an error", tc.copybooks, got)
 			}
@@ -185,9 +193,42 @@ func TestInitRefusesTheDashAmongTheCopybooks(t *testing.T) {
 			// The reason, for [TestGenerateRefusesTheDash]'s reason: a caller who
 			// reached for the dash was thinking of a stream, and why a copybook
 			// cannot arrive on one is the whole of what the message has to teach.
-			if !strings.Contains(err.Error(), "has none to state") {
+			if !strings.Contains(err.Error(), "no name to name one after") {
 				t.Errorf("Init(%q, …) error = %q, want it to say why a copybook cannot arrive on a stream",
 					tc.copybooks, err)
+			}
+		})
+	}
+}
+
+// TestInitTakesTheLayoutsNameAndNothingElse pins the choice #408 made for
+// Init's destination: the caller names the layout, as `--out` does on the
+// command line, and the module chooses the directory — the one it hands back,
+// holding the layout and its definitions files and nothing else. So a name is a
+// bare file name, and a stream or a path is refused before the vector leaves.
+func TestInitTakesTheLayoutsNameAndNothingElse(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		layout string
+		says   string
+	}{
+		{name: "a stream", layout: "-", says: "a definitions file per copybook beside it"},
+		{name: "no name", layout: "", says: "not a file name"},
+		{name: "a path", layout: "layouts/ledger.sexpr", says: "not a file name"},
+		{name: "an absolute path", layout: "/tmp/ledger.sexpr", says: "not a file name"},
+		{name: "the directory itself", layout: ".", says: "not a file name"},
+		{name: "the directory above", layout: "..", says: "not a file name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Init([]string{"posting.cpy"}, "/scaffold", tc.layout)
+			if err == nil {
+				t.Fatalf("Init(…, %q) = %q, want an error", tc.layout, got)
+			}
+			if got != nil {
+				t.Errorf("Init(…, %q) returned %q beside its error, want no vector", tc.layout, got)
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("Init(…, %q) error = %q, want it to say %q", tc.layout, err, tc.says)
 			}
 		})
 	}

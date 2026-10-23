@@ -3,18 +3,25 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package scaffold derives a layout scaffold from copybooks and writes it where
-// `cpybkc init --out` names.
+// Package scaffold derives a layout scaffold, and a definitions file per
+// copybook, from copybooks, and writes them where `cpybkc init --out` names.
 //
 // # The split it implements
 //
-// A layout is two kinds of statement in one file and only one of them is
-// knowledge the adopter has (docs/cli/SPEC.md, "What a copybook decides, and
-// what only the adopter can"). This package writes the first kind complete —
-// one `record` per record type a named 01-level resolves to, one `alternative`
-// child per REDEFINES outside a repeating group — and writes the second kind as
-// commented forms with their subjects filled in and their values left as
-// placeholders.
+// A layout and its record descriptions are two kinds of statement, and only one
+// of them is knowledge the adopter has (docs/cli/SPEC.md, "What a copybook
+// decides, and what only the adopter can"). The descriptions are the
+// copybook's, and this package transcribes them whole — every entry and every
+// clause of each copybook, into a definitions file named after it, read back
+// before anything is written. Of the layout it writes the first kind complete —
+// one `record` per record type a named 01-level resolves to, naming that
+// definitions file, and one `alternative` child per REDEFINES outside a
+// repeating group — and writes the second kind as commented forms with their
+// subjects filled in and their values left as placeholders.
+//
+// That is what lets an adopter whose copybook cannot be committed — a vendor's,
+// under a licence that keeps it out of the repository — check in what `init`
+// writes in its place and regenerate from checked-in files (discussion #394).
 //
 // # What it cannot write, it notes
 //
@@ -25,7 +32,10 @@
 // are written (docs/cli/SPEC.md, "How a combination's record name is chosen").
 // Every one of those is a statement about the layout and never about the
 // copybook, so withholding the whole scaffold to report it would withhold
-// everything that could be written to report a gap in one record.
+// everything that could be written to report a gap in one record. A copybook no
+// record derives from is still transcribed, and noted: whether the run succeeds
+// is decided by whether every copybook could be transcribed, never by whether
+// every record could be named.
 //
 // It invents nothing. Not an encoding axis, not a record format, not a
 // discrimination strategy and not a sequencing operator: a guessed value is the
@@ -39,7 +49,9 @@
 // # The file it writes is deliberately not a layout
 //
 // The scaffold parses as S-expressions and fails the layout reader's
-// validation, and both halves are requirements. It parses because a file that
+// validation, and both halves are requirements. The definitions files are no
+// part of that incompleteness: each is complete, and is read by the reader a
+// run reads any definitions file with. It parses because a file that
 // failed the grammar would be reported as one lexical fault and nothing else,
 // which turns the remainder back into something discovered a form at a time. It
 // fails validation because the reader that will have to accept the finished
@@ -62,10 +74,10 @@
 //
 // [Derive] takes copybooks that have already been read, as bytes beside the path
 // they were named by, and is a function of them alone — so two runs over one set
-// of copybooks produce byte-identical files, which docs/cli/SPEC.md requires
-// rather than hopes for. Opening the files, refusing a directory and reporting
-// what could not be read are the command's, beside every other diagnostic it
-// writes.
+// of copybooks produce byte-identical files, the layout and every definitions
+// file, which docs/cli/SPEC.md requires rather than hopes for. Opening the
+// files, refusing a directory and reporting what could not be read are the
+// command's, beside every other diagnostic it writes.
 //
 // [Write] is the destination rule, and it is not
 // [github.com/Zaba505/cpybkc/internal/emit]'s: that package replaces what it
@@ -73,6 +85,6 @@
 // re-emitting is the point of the flag. A layout is not. Overwriting one an
 // adopter has edited is the one unrecoverable thing this command could do — the
 // derived half is recomputable and the `discriminate` forms and the `sequence`
-// are not — so nothing at the destination is ever replaced, written through or
-// appended to.
+// are not — so nothing at any destination is ever replaced, written through or
+// appended to, and the set is written whole or not at all.
 package scaffold
