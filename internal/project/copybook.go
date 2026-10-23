@@ -76,7 +76,8 @@ type source struct {
 }
 
 // bind opens every copybook and definitions file the layout's `record` forms
-// name and binds each record to the top-level item inside it.
+// name and binds each record to the top-level item inside it, or inside the
+// block it names.
 //
 // A file is read **once** however many records name it — the entries are the
 // same whichever record asked for them, and a shared header is read by every
@@ -95,9 +96,13 @@ type source struct {
 // every record naming the file (docs/layout/SPEC.md, "Who reports a fault in an
 // entry body").
 //
-// A record naming a block never reaches here: [refuseDefinitions] refuses it
-// first, until #409 resolves one.
-func bind(dir string, records []layoutmodel.Record) (*bindings, error) {
+// A block is the same again, one step nearer: it is a form of the layout, and
+// was read, judged and built once with the layout's layers ([judgeBlocks]), its
+// faults reported there. A record naming one builds a fresh tree of its own
+// out of the block's entries and looks its top-level item up exactly as it
+// would in a file or a copybook. A record naming a block whose entries were
+// refused binds nothing and says nothing more.
+func bind(dir string, records []layoutmodel.Record, blocks judged) (*bindings, error) {
 	b := &bindings{dir: dir, byName: make(map[string]binding, len(records)), reported: make(fileFaults)}
 
 	copybooks := make(map[string]source)
@@ -134,6 +139,15 @@ func bind(dir string, records []layoutmodel.Record) (*bindings, error) {
 			}
 
 			bound = binding{Record: record, Source: definitionsAt(record.Path, path), Item: item}
+		case layoutmodel.DefinitionsBlockSource:
+			source := blockAt(record.Block, record.Source.File)
+
+			item := b.blockItem(record, source, blocks[record.Block])
+			if item == nil {
+				continue
+			}
+
+			bound = binding{Record: record, Source: source, Item: item}
 		case layoutmodel.CopybookSource:
 			path := at(dir, record.Path)
 
@@ -200,20 +214,43 @@ func (b *bindings) definitionsItem(record layoutmodel.Record, path string, file 
 		return nil
 	}
 
-	items, err := copybook.Build(file.entries)
+	return b.built(record, definitionsAt(record.Path, path), file.entries)
+}
+
+// blockItem builds this record's own tree out of a block's entries and finds
+// the top-level item the record names, or reports why it cannot.
+//
+// The faults inside the block have already been reported, once, by
+// [judgeBlocks], and a block whose entries were refused is held as nil; a
+// record naming it binds nothing and says nothing more. A block the layout does
+// not define is the schema's reference fault, and never reaches here either.
+func (b *bindings) blockItem(record layoutmodel.Record, source resolve.Source, entries []*cobol.DataDescriptionEntry) *copybook.Field {
+	if entries == nil {
+		return nil
+	}
+
+	return b.built(record, source, entries)
+}
+
+// built builds this record's own tree out of entries already built once
+// without a fault — a definitions file's or a block's — and finds the top-level
+// item the record names.
+func (b *bindings) built(record layoutmodel.Record, source resolve.Source, entries []*cobol.DataDescriptionEntry) *copybook.Field {
+	items, err := copybook.Build(entries)
 	if err != nil {
-		// The file was built once when it was read, and built without a
-		// fault, so the same entries building with one here is not a thing
+		// The entries were built once when they were read, and built without
+		// a fault, so the same entries building with one here is not a thing
 		// that happens; it is reported rather than assumed away all the same.
 		b.Fail(&DefinitionsFaultError{
-			Err:     buildFault(path, record.Path, err),
+			Err:     buildFault(source, err),
+			Kind:    source.Kind,
 			NamedBy: []Naming{{Record: record.Name, Pos: span(record.Source)}},
 		})
 
 		return nil
 	}
 
-	return b.declared(record, "definitions file", path, items)
+	return b.declared(record, source, items)
 }
 
 // readCopybook opens one copybook and parses it.
@@ -273,17 +310,19 @@ func (b *bindings) item(record layoutmodel.Record, fragment *cobol.Fragment) *co
 		return nil
 	}
 
-	return b.declared(record, "copybook", record.Path, items)
+	return b.declared(record, resolve.CopybookAt(record.Path), items)
 }
 
 // declared is the top-level item of items the record names, or nil with the
 // fault reported: docs/layout/SPEC.md's "declares no" diagnostic, in the one
 // shape it takes whichever source holds the description.
 //
-// file is the file the description's positions are in — the path as the layout
-// spells it for a copybook, and as the run opened it for a definitions file —
-// and noun is what the message calls the kind of description.
-func (b *bindings) declared(record layoutmodel.Record, noun, file string, items []*copybook.Field) *copybook.Field {
+// source says what the message calls the description and how it names it — the
+// path as the layout spells it, or a block's name — and which file its
+// positions are in: the path as the layout spells it for a copybook, the file
+// as the run opened it for a definitions file, and the layout for a block, so
+// that both of a block's spans are in the layout.
+func (b *bindings) declared(record layoutmodel.Record, source resolve.Source, items []*copybook.Field) *copybook.Field {
 	declares := make([]string, 0, len(items))
 
 	for _, item := range items {
@@ -299,19 +338,19 @@ func (b *bindings) declared(record layoutmodel.Record, noun, file string, items 
 	// A copybook declaring no top-level item at all has nothing to point at but
 	// itself, and a span with the file and no line renders as the file alone —
 	// which is what docs/cli/SPEC.md's "or `file` alone where a line number
-	// would point at nothing" is for. A definitions file always holds an entry,
-	// so its span always has one to point at.
-	where := diag.Span{File: file}
+	// would point at nothing" is for. A definitions file or a block always
+	// holds an entry, so its span always has one to point at.
+	var first *copybook.Field
 	if len(items) > 0 {
-		where.Line, where.Column = items[0].Pos.Line, items[0].Pos.Column
+		first = items[0]
 	}
 
 	b.Fail(&diag.UndeclaredItemError{
 		Pos:      span(record.Source),
-		Source:   noun,
-		Path:     record.Path,
+		Source:   source.Noun(),
+		Path:     source.Spelling,
 		Item:     record.Item,
-		Copybook: where,
+		Copybook: source.Span(first),
 		Declares: declares,
 	})
 

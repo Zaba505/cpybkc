@@ -50,15 +50,11 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 		return nil, err
 	}
 
-	if err := refuseDefinitions(file, read.records); err != nil {
-		return nil, err
-	}
-
 	// A layout's `copybook` and `definitions` paths are relative to the
 	// **layout**, not to the manifest. That is what makes a layout portable: a layout and the
 	// copybooks it names travel together, so a project vendoring somebody
 	// else's layout does not have to rewrite the paths inside it.
-	bound, err := bind(filepath.Dir(path), read.records)
+	bound, err := bind(filepath.Dir(path), read.records, read.judged)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +72,10 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 //
 // The schema check runs here, after the grammar and before any layer reader,
 // and a layout it reports anything about is returned with exactly those
-// diagnostics and read no further. See the package comment's "Where the schema
+// diagnostics and read no further. One inside a `definitions-block` is reported
+// as a fault in that block, naming each record that names it ([schemaFaults]),
+// as the body check's faults in a definitions file name each record naming the
+// file. See the package comment's "Where the schema
 // check runs": a fault a declaration states is the schema's alone, so a layer
 // reader that also saw it would report it a second time in other words.
 //
@@ -117,7 +116,7 @@ func readLayout(path string, m *manifest.Manifest) (*layout.File, error) {
 	}
 
 	if len(diagnostics) > 0 {
-		return nil, layoutschema.Err(diagnostics)
+		return nil, schemaFaults(file, diagnostics)
 	}
 
 	return file, nil
@@ -139,54 +138,6 @@ func entriesOnly(file *layout.File, body []string) (layout.Pos, bool) {
 	return file.Forms[0].TagPos, true
 }
 
-// refuseDefinitions refuses every `definitions-block` the layout carries, at its
-// tag, and every record whose source is a block, at that source, because
-// nothing resolves a record held in a block yet (#409). A record held in a
-// definitions file is resolved (#405) and is not refused here.
-//
-// It runs after every layer reader, so a block or a source refused here is one
-// the schema admitted and the readers found nothing wrong with — a block no
-// record names, or a record naming a block twice defined, is reported as that
-// and not as unresolved. And it runs before any file is opened, so a layout
-// carrying a block opens nothing: what the run would read once blocks resolve
-// is the layout and the files its records name, and a copybook or a definitions
-// file opened for the records beside them would report faults about a run that
-// is not going to happen.
-//
-// Everything refused is reported rather than the first, in the order the
-// layout writes it, for the reason every stage reports everything it found.
-func refuseDefinitions(file *layout.File, records []layoutmodel.Record) error {
-	var faults diag.List
-
-	byPos := make(map[layout.Pos]layoutmodel.Record, len(records))
-	for _, record := range records {
-		byPos[record.Pos] = record
-	}
-
-	for _, form := range file.Forms {
-		switch form.Tag {
-		case layoutschema.BlockForm:
-			var name string
-			if len(form.Elements) > 0 {
-				if symbol, ok := form.Elements[0].(layout.Symbol); ok {
-					name = symbol.Value
-				}
-			}
-
-			faults.Fail(&DefinitionsBlockError{Pos: span(form.TagPos), Name: name})
-		default:
-			record, ok := byPos[form.Pos]
-			if !ok || record.Kind != layoutmodel.DefinitionsBlockSource {
-				continue
-			}
-
-			faults.Fail(&DefinitionsSourceError{Pos: span(record.Source), Record: record.Name, Block: record.Block})
-		}
-	}
-
-	return faults.Err()
-}
-
 // layers is a layout, read: every layer of it, and nothing resolved against a
 // copybook.
 type layers struct {
@@ -198,9 +149,13 @@ type layers struct {
 	sequence       *layoutmodel.Sequence
 	renames        []layoutmodel.Rename
 	reading        layoutmodel.Reading
+
+	// judged are the blocks' entries, read, judged and built once each.
+	judged judged
 }
 
-// readLayers reads every layer of a parsed layout.
+// readLayers reads every layer of a parsed layout, and judges every
+// `definitions-block` in it.
 //
 // All eight are read whatever the ones before them said, and the faults are
 // reported together. The layers vary independently — docs/layout/SPEC.md's
@@ -236,6 +191,15 @@ func readLayers(file *layout.File) (*layers, error) {
 	faults.Fail(err)
 
 	read.reading, err = layoutmodel.ReadCopybookReading(file)
+	faults.Fail(err)
+
+	// The blocks' entries are part of the layout, and are read, judged and
+	// built here, with its layers and before any file is opened: none of it
+	// needs a copybook, so a misspelled clause in a block is reported as that
+	// and not as whatever it fails to resolve into. They are judged whatever
+	// the layers said, so that a block no record names — a fault of the
+	// records layer — has the faults inside it reported beside that one.
+	read.judged, err = judgeBlocks(file, read.blocks)
 	faults.Fail(err)
 
 	if faults.Failed() {
@@ -352,12 +316,13 @@ func (l *layers) resolve(
 // the [resolve.Source] they were handed, and are reported as they are. What is
 // not one of those is `cobol-go`'s — a layout fault, from laying the record out
 // — and carries a line and a column and no file. For a copybook it is reported
-// as `cobol-go` wrote it, as it always has been. For a definitions file it is
-// pointed at its position in the file ([buildFault]), and reported once for the
-// file however many records bound the item it is about, naming each of them —
-// the rule every fault inside a definitions file is held to.
+// as `cobol-go` wrote it, as it always has been. For a definitions file or a
+// block it is pointed at its position in the file or the layout
+// ([buildFault]), and reported once for the file or the block however many
+// records bound the item it is about, naming each of them — the rule every
+// fault inside an entry body is held to.
 func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
-	if bound.Source.Kind != layoutmodel.DefinitionsFileSource {
+	if kind := bound.Source.Kind; kind != layoutmodel.DefinitionsFileSource && kind != layoutmodel.DefinitionsBlockSource {
 		faults.Fail(err)
 
 		return
@@ -370,8 +335,7 @@ func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
 			continue
 		}
 
-		b.reported.report(faults, bound.Source.File,
-			buildFault(bound.Source.File, bound.Source.Spelling, fault),
+		b.reported.report(faults, bound.Source, buildFault(bound.Source, fault),
 			Naming{Record: bound.Record.Name, Pos: span(bound.Record.Source)})
 	}
 }

@@ -46,6 +46,18 @@
 // (docs/cli/SPEC.md, "Finding the inputs"), and a reader here that resolved a
 // path would be a second answer to it.
 //
+// A [Block] is the same division again, for the description a layout holds in
+// itself. This package owns a block's name and where it sits — that no two
+// blocks define one name ([ReadBlocks]), that a record naming one names a
+// block the layout defines, and that every block is named by some record
+// ([ReadRecords]) — and carries its entries as the nodes the layout wrote, with
+// nothing read out of them. What an entry is, is
+// [github.com/Zaba505/cpybkc/internal/definitions]' to read and `cobol-go`'s
+// to judge, and resolving a record held in a block is
+// [github.com/Zaba505/cpybkc/internal/project]'s (#409), which reads and judges
+// each block once, from what [ReadBlocks] hands it, and builds each record
+// naming it a tree of its own.
+//
 // # The one layer that prints as well as reads
 //
 // Sequencing is the only layer whose value is a term rather than a record of

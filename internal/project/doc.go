@@ -97,18 +97,28 @@
 // file that is not there ([MissingDefinitionsError]), a file holding no entry
 // ([NotDefinitionsError]), and a file not declaring the item the record names.
 //
-// # A block is read and refused
+// # A record held in a block
 //
-// A layout may hold `definitions-block` forms, and a record may name one. The
-// schema check holds every entry in a block to the published declarations like
-// any other form, and the layer readers read every source and every block, so a
-// block no record names or a block name defined twice is reported as that.
-// Nothing resolves a record held in a block yet (#409), so a run that has read
-// the layout refuses each block at its tag with a [DefinitionsBlockError] and
-// each record naming one at its source with a [DefinitionsSourceError], and
-// opens nothing — no copybook and no definitions file beside them. It says the
-// construct is not resolved by this build rather than that the layout is wrong,
-// on the precedent [ScheduledVariantError] set.
+// A record may name a `definitions-block` in its own layout instead, and a run
+// resolves it to the descriptor the copybook the block's entries were converted
+// from gives, byte for byte (#409). A block is a form of the layout, so it is
+// opened by nothing and checked with the layout: the whole-layout schema check
+// holds its every entry to the declarations a definitions file's body check
+// reads (#397), and once the layer readers have read the layout, each block is
+// read by the entry reader, judged and built once however many records name it
+// ([judgeBlocks]) — before any copybook or definitions file is opened. A fresh
+// item tree is built for each record naming the block, and its top-level item
+// is looked up as in a file or a copybook.
+//
+// A fault inside a block reads exactly as the same fault in a definitions file,
+// and differs only in its span, which is in the layout. It is reported once for
+// the block, as a [DefinitionsFaultError] with a span at each record naming the
+// block — the schema check's faults inside a block included, which are carried
+// that way so that they can name those records too. A block no record names is
+// an error at its name, and its entries are judged all the same, so a fault
+// inside it is reported beside that one. A block not declaring the item a
+// record names is the same "declares no" diagnostic as a file's, naming the
+// block bare, with both spans in the layout.
 //
 // A layout that is all entries — a definitions file named as the manifest's
 // `layout` — is classified before the schema check and reported as that alone,
@@ -118,7 +128,7 @@
 // # Which files a run reads
 //
 // Exactly the copybooks and definitions files the layout's `record` forms name
-// (#157). The manifest lists
+// (#157), and nothing for a block, which is a form of the layout already read. The manifest lists
 // none and constrains none: a layout naming a copybook is never a fault for not
 // having been declared, because there is no declaration for it to be missing
 // from. The only fault about a copybook is one that cannot be opened, or one

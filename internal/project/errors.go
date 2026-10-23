@@ -339,79 +339,6 @@ func quoteAll(names []string) []string {
 	return quoted
 }
 
-// DefinitionsBlockError is a `definitions-block` this build checks and does not
-// resolve.
-//
-// docs/layout/SPEC.md admits the form and the published schema declares it, so
-// a layout carrying one has had the block's every entry held to the schema, and
-// its name to the layout reader, before this is reported: a misspelled clause
-// inside it, or a block no record names, is reported as that, and never as
-// this. What is not here is the rest of the way — resolving a record held in
-// one (#409). Until it is, the run refuses each block at its tag rather than
-// reading past it, so no build accepts a block and then ignores it; the record
-// naming the block is refused beside it, as a [DefinitionsSourceError].
-//
-// The message says the construct is not resolved rather than that the layout is
-// wrong, on the precedent [ScheduledVariantError] set: an adopter who wrote a
-// correct block must not be sent to rewrite it.
-type DefinitionsBlockError struct {
-	// Pos is the block's tag.
-	Pos diag.Span
-
-	// Name is the block's name, or empty where the schema check would have
-	// refused its absence and so never let this be reached.
-	Name string
-}
-
-// Error implements the error interface.
-func (e *DefinitionsBlockError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic is what the error says, and where.
-func (e *DefinitionsBlockError) Diagnostic() diag.Diagnostic {
-	return diag.Diagnostic{
-		Message: fmt.Sprintf("the definitions block %s is not resolved by this build", e.Name),
-		Spans: []diag.Span{
-			e.Pos,
-			{Note: "definitions blocks are not resolved by this build: a block is checked against the " +
-				"published schema, and nothing resolves a record held in one yet, so the run reads nothing further"},
-		},
-	}
-}
-
-// DefinitionsSourceError is a record whose source is a definitions block,
-// which this build reads and does not resolve.
-//
-// It is reported at the record's `definitions` source, beside the
-// [DefinitionsBlockError] at the block's tag, until #409 resolves a record held
-// in a block. A record held in a definitions file is resolved, and is never
-// this.
-type DefinitionsSourceError struct {
-	// Pos is the record's `definitions` source.
-	Pos diag.Span
-
-	// Record is the record's name.
-	Record string
-
-	// Block is the block's name.
-	Block string
-}
-
-// Error implements the error interface.
-func (e *DefinitionsSourceError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic is what the error says, and where.
-func (e *DefinitionsSourceError) Diagnostic() diag.Diagnostic {
-	return diag.Diagnostic{
-		Message: fmt.Sprintf("record %s is held in the definitions block %s, and this build does not resolve definitions blocks",
-			e.Record, e.Block),
-		Spans: []diag.Span{
-			e.Pos,
-			{Note: "a record may name a block, and the layout is checked against the published schema and read; " +
-				"nothing resolves a record held in one yet, so the run opens nothing further"},
-		},
-	}
-}
-
 // DefinitionsFileAsLayoutError is a manifest's `layout` naming a definitions
 // file: a document whose every top-level form is an entry.
 //
@@ -605,26 +532,28 @@ func (e *NotDefinitionsError) Diagnostic() diag.Diagnostic {
 	}
 }
 
-// DefinitionsBuildError is what `cobol-go` said building or laying out a
-// definitions file's entries, at the position in that file it carries.
+// DefinitionsBuildError is what `cobol-go` said building or laying out the
+// entries of a definitions file or a block, at the position it carries.
 //
-// docs/layout/SPEC.md's promise for a definitions file is that a mistake in it
-// is reported at its line and column there, which is better than a copybook's
-// path gives: a PICTURE `cobol-go` cannot read, a level out of sequence, a
-// REDEFINES of nothing. The message is `cobol-go`'s own, because what it found
-// is more specific than anything this package could say about it, and the
-// error is kept and reachable with [errors.As].
+// docs/layout/SPEC.md's promise for an entry body is that a mistake in it is
+// reported at its line and column, which is better than a copybook's path
+// gives: a PICTURE `cobol-go` cannot read, a level out of sequence, a REDEFINES
+// of nothing. The position is in the definitions file for a file, and in the
+// layout for a block. The message is `cobol-go`'s own, because what it found is
+// more specific than anything this package could say about it, and the error
+// is kept and reachable with [errors.As].
 //
-// An error of a type that carries no position has nowhere in the file to point,
+// An error of a type that carries no position has nowhere in the body to point,
 // and Pos is then unstated: [DefinitionsFaultError] reports it at the record's
 // `definitions` source, with `cobol-go`'s message as a note.
 type DefinitionsBuildError struct {
-	// Pos is where in the definitions file the fault is, as the run opened it,
-	// or unstated where `cobol-go` named no position.
+	// Pos is where in the entry body the fault is — in the definitions file as
+	// the run opened it, or in the layout for a block — or unstated where
+	// `cobol-go` named no position.
 	Pos diag.Span
 
-	// Path is the definitions file's path as the layout spells it.
-	Path string
+	// Source is the definitions file or the block holding the entries.
+	Source resolve.Source
 
 	// Err is what `cobol-go` returned.
 	Err error
@@ -640,7 +569,7 @@ func (e *DefinitionsBuildError) Diagnostic() diag.Diagnostic {
 	}
 
 	return diag.Diagnostic{
-		Message: fmt.Sprintf("cobol-go does not build the definitions file %s", strconv.Quote(e.Path)),
+		Message: "cobol-go does not build " + e.Source.String(),
 		Spans:   []diag.Span{{}, {Note: e.Err.Error()}},
 	}
 }
@@ -648,8 +577,8 @@ func (e *DefinitionsBuildError) Diagnostic() diag.Diagnostic {
 // Unwrap gives up what `cobol-go` returned.
 func (e *DefinitionsBuildError) Unwrap() error { return e.Err }
 
-// Naming is one record naming a definitions file, as a fault inside the file
-// points back at it.
+// Naming is one record naming a definitions file or a block, as a fault inside
+// it points back at it.
 type Naming struct {
 	// Record is the record's name.
 	Record string
@@ -658,24 +587,31 @@ type Naming struct {
 	Pos diag.Span
 }
 
-// DefinitionsFaultError is a fault inside a definitions file, reported once
-// however many records name the file.
+// DefinitionsFaultError is a fault inside a definitions file or a block,
+// reported once however many records name it.
 //
 // docs/layout/SPEC.md's "Who reports a fault in an entry body" requires every
-// fault in a description to be reported once, at its span in the file, rather
-// than once per record that happened to name it — and the file is one step from
-// the layout, so a reader holding the diagnostic also needs to know which
-// record's description it was being read as. That is what this adds: one span
-// per record naming the file, at its `definitions` source, carrying the
-// record's name. A fault naming nowhere in the file of its own — a `cobol-go`
-// error with no position — is reported at the first of them instead, and the
-// rest follow it.
+// fault in a description to be reported once, at its span, rather than once per
+// record that happened to name it — and a description is one step from the
+// record, so a reader holding the diagnostic also needs to know which record's
+// description it was being read as. That is what this adds: one span per record
+// naming the file or the block, at its `definitions` source, carrying the
+// record's name. A fault naming nowhere of its own — a `cobol-go` error with no
+// position — is reported at the first of them instead, and the rest follow it.
+//
+// The fault itself reads the same whichever of the two holds the entries; only
+// its span differs, into the definitions file for a file and into the layout
+// for a block.
 type DefinitionsFaultError struct {
 	// Err is the fault, as whoever found it reported it.
 	Err error
 
-	// NamedBy are the records naming the file, in the order the layout
-	// writes them.
+	// Kind is which of the two holds the entries, for what the notes call it.
+	// The zero value reads as a definitions file.
+	Kind layoutmodel.SourceKind
+
+	// NamedBy are the records naming the file or the block, in the order the
+	// layout writes them.
 	NamedBy []Naming
 }
 
@@ -710,7 +646,7 @@ func (e *DefinitionsFaultError) Diagnostic() diag.Diagnostic {
 
 	for _, n := range named {
 		at := n.Pos
-		at.Note = "the definitions file is read as record " + n.Record + "'s description"
+		at.Note = "the " + held(e.Kind) + " is read as record " + n.Record + "'s description"
 		d.Spans = append(d.Spans, at)
 	}
 
@@ -719,3 +655,12 @@ func (e *DefinitionsFaultError) Diagnostic() diag.Diagnostic {
 
 // Unwrap gives up the fault.
 func (e *DefinitionsFaultError) Unwrap() error { return e.Err }
+
+// held is what a fault's notes call the description it is in.
+func held(kind layoutmodel.SourceKind) string {
+	if kind == layoutmodel.DefinitionsBlockSource {
+		return "definitions block"
+	}
+
+	return "definitions file"
+}
