@@ -8,16 +8,18 @@
 //
 // This directory holds a tree of examples rather than one, and each of them is a
 // self-contained cpybkc project: a `cpybkc.json` beside the layout it names, the
-// copybooks that layout names, and the directories its generators write into.
-// README.md says why the manifest is per example rather than one at this level.
+// record descriptions that layout names — copybooks, or the definitions files
+// `cpybkc init` transcribes them into — and the directories its generators
+// write into. README.md says why the manifest is per example rather than one at
+// this level.
 //
-// Everything inside an example divides in two. The layout, the copybooks and the
-// manifest are what a caller writes; the directories the manifest's generators
-// write into and `cpybkc.gen.json` are what cpybkc writes for them. These tests
-// regenerate the second half from the first, through the real CLI and the real
-// generators, and hold every byte of the result against what is checked in —
-// for every example, so that a third one is covered by having been added rather
-// than by anything here being extended.
+// Everything inside an example divides in two. The layout, the record
+// descriptions and the manifest are what a caller writes; the directories the
+// manifest's generators write into and `cpybkc.gen.json` are what cpybkc writes
+// for them. These tests regenerate the second half from the first, through the
+// real CLI and the real generators, and hold every byte of the result against
+// what is checked in — for every example, so that a new one is covered by
+// having been added rather than by anything here being extended.
 //
 // It is byte for byte, and it is the whole tree rather than a sample of it,
 // because the point of a committed example is that a change to any layer of the
@@ -408,6 +410,309 @@ func prunes(t *testing.T, example string) {
 	}
 }
 
+// The example that ships no copybook, by name.
+//
+// Every other example names its copybooks and carries them, so the walks above
+// cover it by having been written. This one is a claim about where its files
+// came from — that they are what `cpybkc init` writes over a copybook that is
+// not in it — and that claim needs the copybook named, which is the one thing
+// the example deliberately does not do.
+const (
+	// receivablesExample is the example whose records name definitions files
+	// and whose directory holds no copybook.
+	receivablesExample = "receivables"
+
+	// receivablesLayout is its layout, which is also the name `init` was given
+	// for the scaffold.
+	receivablesLayout = "receivables.sexpr"
+
+	// receivablesDefinitions is the one definitions file it carries, the name
+	// `init` derives from the copybook's final path element.
+	receivablesDefinitions = "ARTRANS.sexpr"
+
+	// vendorCopybook is the copybook `init` was run over, as it was typed
+	// standing in the example's directory: the spelling the definitions
+	// file's header names, and the one the example's README runs the drift
+	// procedure with. It is outside example/ because the example is the
+	// project an adopter checks in, and a vendor's copybook is the file that
+	// project is for not having to check in.
+	vendorCopybook = "../../testdata/vendor/ARTRANS"
+)
+
+// TestTheReceivablesDefinitionsFileIsWhatInitWrites runs `cpybkc init` over
+// the vendor copybook and requires every definitions file it writes to be the
+// one the example carries, byte for byte, and no other.
+//
+// It is what makes "the example is exactly what `init` writes" a statement the
+// tree checks rather than one its README makes. Regenerating the example
+// proves its definitions files produce its generated code; it says nothing
+// about whether they still agree with the copybook they were transcribed from,
+// and a writer change that moved a line of a definitions file would otherwise
+// leave this example describing a transcription no release of `init` makes.
+//
+// The layout `init` writes is a scaffold, and the example's layout is that
+// scaffold answered, so it is not held byte for byte. What is held is the part
+// `init` writes complete: every `record` form the example's layout carries is
+// one the scaffold carries, character for character. The layout leaves out the
+// scaffold's record over ARD-BODY, which no transaction is, and narrowing to
+// what the file holds is the layout's job; it adds no record of its own.
+func TestTheReceivablesDefinitionsFileIsWhatInitWrites(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	bin := t.TempDir()
+
+	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
+
+	dir, err := filepath.Abs(receivablesExample)
+	if err != nil {
+		t.Fatalf("finding the %s example: %v", receivablesExample, err)
+	}
+
+	out := t.TempDir()
+
+	cmd := exec.Command(filepath.Join(bin, executable("cpybkc")),
+		"init", "--copybook", vendorCopybook, "--out", filepath.Join(out, receivablesLayout))
+
+	// Standing in the example, which is where its README runs the same
+	// command, so that the copybook is typed as the definitions file's
+	// header names it. `--out` is elsewhere: init never overwrites, and the
+	// run must not write into the tree it is checking.
+	cmd.Dir = dir
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("running init over %s: %v\n%s", vendorCopybook, err, output)
+	}
+
+	written, err := os.ReadDir(out)
+	if err != nil {
+		t.Fatalf("reading what init wrote: %v", err)
+	}
+
+	var names []string
+
+	for _, entry := range written {
+		if entry.Name() == receivablesLayout {
+			continue
+		}
+
+		names = append(names, entry.Name())
+
+		got := string(readFile(t, filepath.Join(out, entry.Name())))
+		want := string(readFile(t, filepath.Join(dir, entry.Name())))
+
+		if got != want {
+			t.Errorf("init writes %s differently from the one the example carries%s", entry.Name(), difference(got, want))
+		}
+	}
+
+	if !slices.Equal(names, []string{receivablesDefinitions}) {
+		t.Errorf("init wrote the definitions files %q, want exactly %q", names, receivablesDefinitions)
+	}
+
+	scaffold := recordForms(string(readFile(t, filepath.Join(out, receivablesLayout))))
+	committed := recordForms(string(readFile(t, filepath.Join(dir, receivablesLayout))))
+
+	if len(committed) == 0 {
+		t.Fatalf("%s carries no record form", receivablesLayout)
+	}
+
+	for _, form := range committed {
+		if !slices.Contains(scaffold, form) {
+			t.Errorf("%s carries a record form init does not write:\n%s\ninit writes:\n%s",
+				receivablesLayout, form, strings.Join(scaffold, "\n"))
+		}
+	}
+}
+
+// TestTheReceivablesLayoutResolvesAlikeFromItsCopybookAFileAndABlock carries
+// out the moves the example's README walks through and requires each to leave
+// the descriptor `--emit-ir` writes exactly as it was.
+//
+// docs/layout/SPEC.md's "Three sources, one descriptor" is the property, and
+// internal/project holds it over every layout in the repository. What this
+// adds is the README's own procedure, done the way the README says to do it:
+// the copybook named in place of the file it was transcribed into, the file's
+// entries moved into a `definitions-block` and the file deleted, and the block
+// written back out to a file — which has to come back as the file and the
+// layout the example carries, so that a reader following the walk-through ends
+// where they began.
+func TestTheReceivablesLayoutResolvesAlikeFromItsCopybookAFileAndABlock(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	bin := t.TempDir()
+
+	build(t, root, bin, "./cmd/cpybkc", "cpybkc")
+
+	layout := string(readFile(t, filepath.Join(receivablesExample, receivablesLayout)))
+	file := string(readFile(t, filepath.Join(receivablesExample, receivablesDefinitions)))
+
+	fileSource := `(definitions "` + receivablesDefinitions + `" `
+	if !strings.Contains(layout, fileSource) {
+		t.Fatalf("%s names no record onto %s", receivablesLayout, receivablesDefinitions)
+	}
+
+	asCommitted := receivablesProject(t)
+	want := emitIR(t, bin, asCommitted)
+
+	t.Run("the copybook named instead", func(t *testing.T) {
+		t.Parallel()
+
+		project := receivablesProject(t)
+		copyFile(t, filepath.Join(receivablesExample, filepath.FromSlash(vendorCopybook)), filepath.Join(project, "ARTRANS"))
+		removeFile(t, filepath.Join(project, receivablesDefinitions))
+		writeFile(t, filepath.Join(project, receivablesLayout),
+			strings.ReplaceAll(layout, fileSource, `(copybook "ARTRANS" `))
+
+		if got := emitIR(t, bin, project); !bytes.Equal(got, want) {
+			t.Errorf("naming the copybook changes the descriptor: %d bytes against %d", len(got), len(want))
+		}
+	})
+
+	t.Run("the file moved into a block and back", func(t *testing.T) {
+		t.Parallel()
+
+		const blockName = "ARTRANS"
+
+		// File to block: the file's entries, two spaces further in, the
+		// block's closing parenthesis on its last entry's line, and the
+		// header comment left behind.
+		var entries []string
+
+		for line := range strings.SplitSeq(strings.TrimSuffix(file, "\n"), "\n") {
+			if strings.HasPrefix(line, ";") {
+				continue
+			}
+
+			entries = append(entries, "  "+line)
+		}
+
+		block := "\n(definitions-block " + blockName + "\n" + strings.Join(entries, "\n") + ")\n"
+
+		project := receivablesProject(t)
+		removeFile(t, filepath.Join(project, receivablesDefinitions))
+		inlined := strings.ReplaceAll(layout, fileSource, "(definitions "+blockName+" ") + block
+		writeFile(t, filepath.Join(project, receivablesLayout), inlined)
+
+		if got := emitIR(t, bin, project); !bytes.Equal(got, want) {
+			t.Fatalf("moving the file into a block changes the descriptor: %d bytes against %d", len(got), len(want))
+		}
+
+		// Block to file: the block's body, dedented, written to a file; the
+		// block removed; and the records named back onto the file.
+		var dedented []string
+
+		for _, line := range entries {
+			dedented = append(dedented, strings.TrimPrefix(line, "  "))
+		}
+
+		back := strings.ReplaceAll(strings.TrimSuffix(inlined, block), "(definitions "+blockName+" ", fileSource)
+		writeFile(t, filepath.Join(project, receivablesDefinitions), strings.Join(dedented, "\n")+"\n")
+		writeFile(t, filepath.Join(project, receivablesLayout), back)
+
+		if got := emitIR(t, bin, project); !bytes.Equal(got, want) {
+			t.Errorf("moving the block back into a file changes the descriptor: %d bytes against %d", len(got), len(want))
+		}
+
+		if back != layout {
+			t.Errorf("the layout after the move back is not the one the example carries%s", difference(back, layout))
+		}
+
+		header, rest, _ := strings.Cut(file, "\n")
+		if !strings.HasPrefix(header, ";") {
+			t.Fatalf("%s does not open on the header comment init writes: %q", receivablesDefinitions, header)
+		}
+
+		if got := strings.Join(dedented, "\n") + "\n"; got != rest {
+			t.Errorf("the file the block was written back to is not the example's less its header comment%s", difference(got, rest))
+		}
+	})
+}
+
+// receivablesProject is a copy of the receivables example's inputs, made in a
+// directory of the test's own so that a move edits nothing checked in.
+func receivablesProject(t *testing.T) string {
+	t.Helper()
+
+	project := t.TempDir()
+
+	for _, name := range inputs(t, receivablesExample) {
+		copyFile(t, filepath.Join(receivablesExample, name), filepath.Join(project, name))
+	}
+
+	return project
+}
+
+// emitIR is the descriptor `cpybkc --emit-ir` writes for the project in dir.
+func emitIR(t *testing.T, bin, dir string) []byte {
+	t.Helper()
+
+	emitted := filepath.Join(t.TempDir(), "descriptor.binpb")
+
+	cmd := exec.Command(filepath.Join(bin, executable("cpybkc")),
+		"--manifest", filepath.Join(dir, manifestName), "--emit-ir", emitted)
+	cmd.Dir = dir
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("emitting the descriptor: %v\n%s", err, out)
+	}
+
+	return readFile(t, emitted)
+}
+
+// recordForms is every `record` form in a layout, as text: a line opening
+// `(record ` and every indented line after it. That is the shape `init` writes
+// a record form in and the shape the example's layout keeps, so a form
+// reformatted by hand reads as a different form, which is the point.
+func recordForms(layout string) []string {
+	var (
+		forms   []string
+		current []string
+	)
+
+	flush := func() {
+		if current != nil {
+			forms = append(forms, strings.Join(current, "\n"))
+			current = nil
+		}
+	}
+
+	for line := range strings.SplitSeq(layout, "\n") {
+		switch {
+		case strings.HasPrefix(line, "(record "):
+			flush()
+			current = []string{line}
+		case current != nil && strings.HasPrefix(line, " "):
+			current = append(current, line)
+		default:
+			flush()
+		}
+	}
+
+	flush()
+
+	return forms
+}
+
+// writeFile is os.WriteFile with the failure already reported.
+func writeFile(t *testing.T, name, body string) {
+	t.Helper()
+
+	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", name, err)
+	}
+}
+
+// removeFile is os.Remove with the failure already reported.
+func removeFile(t *testing.T, name string) {
+	t.Helper()
+
+	if err := os.Remove(name); err != nil {
+		t.Fatalf("removing %s: %v", name, err)
+	}
+}
+
 // indexName is the index this directory's README is, and the one file here that
 // names the examples in prose rather than by walking for them.
 const indexName = "README.md"
@@ -708,11 +1013,12 @@ func pluginName(name string) string {
 }
 
 // inputs is what a caller writes in one example: the manifest, the layout and
-// the copybooks the layout names.
+// the record descriptions the layout names — copybooks, and definitions files,
+// which are `.sexpr` like the layout.
 //
 // It is a listing of that directory rather than a list written down, so that a
-// copybook added to an example and never copied into the run is a failure
-// rather than a file the assertion quietly stops covering.
+// copybook or a definitions file added to an example and never copied into the
+// run is a failure rather than a file the assertion quietly stops covering.
 func inputs(t *testing.T, dir string) []string {
 	t.Helper()
 

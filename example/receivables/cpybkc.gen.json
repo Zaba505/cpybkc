@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "files": [
+    "graph/graph.md",
+    "receivables/codec.go",
+    "receivables/doc.go",
+    "receivables/file.go",
+    "receivables/file_test.go",
+    "receivables/literals.go",
+    "receivables/records.go",
+    "receivables/records_test.go"
+  ]
+}

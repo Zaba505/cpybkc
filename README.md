@@ -182,6 +182,9 @@ Or hold the definitions inline instead: move a definitions file's lines into a
 descriptor again, with nothing beside the layout to commit at all
 ([Definitions held three
 ways](docs/layout/SPEC.md#appendix-definitions-held-three-ways)).
+[`example/receivables/`](example/receivables/) is a project of that shape,
+regenerating from a layout and one definitions file with no copybook in the
+tree.
 
 Four rules are worth knowing before a manifest is written, because each of them
 is a fault rather than something cpybkc works around:
@@ -208,22 +211,24 @@ plugin contract says so, and why.
 ## Worked examples
 
 [`example/`](example/) carries whole artifacts from a layout to bytes, one
-directory each: a layout, the copybooks it names, the manifest, and the packages
-and diagrams cpybkc writes for them, all checked in. Every example carries its
+directory each: a layout, the record descriptions it names — copybooks, or the
+definitions files `cpybkc init` transcribes them into — the manifest, and the
+packages and diagrams cpybkc writes for them, all checked in. Every example carries its
 own `cpybkc.json`, so each one is exactly the project shape an adopter checks in.
 A test regenerates every one of them from those inputs and requires the result
 byte for byte, so the path an adopter takes — write a layout, generate, look at
 the graph, read a file — is one this repository runs on every pull request rather
 than one it describes.
 
-All four projects here run **two** generators, `go` and `graph` — which is what
+All five projects here run **two** generators, `go` and `graph` — which is what
 makes them the place the plugin contract's central equality can be tested rather than
 only stated: every generator in a run, and `--emit-ir`, is handed the same
 descriptor bytes. With one generator there is no second set of bytes for that to
 hold between.
 
-They are hard in four different directions, because a worked example is what an
-adopter reads to find out whether their own file is describable.
+Four of them are hard in four different directions, because a worked example is
+what an adopter reads to find out whether their own file is describable. The
+fifth is the shape an adopter's own project starts in.
 
 [`example/ledger/`](example/ledger/) is the one to read first, and it is **deep**:
 six record types resolved out of one `01`-level by three redefines over two
@@ -260,6 +265,17 @@ statically an entry matching no arm is a fault the layout cannot get past rather
 than one a reader meets. Read it beside `claim/`: the two are the pair, and which
 of them your own table is depends only on whether it carries a byte that says.
 [`example/member/README.md`](example/member/README.md) is where the file shape is.
+
+[`example/receivables/`](example/receivables/) is the one with **no copybook**:
+an accounts-receivable extract whose vendor copybook is not in it, described by
+the definitions file `cpybkc init` wrote from that copybook and by the layout
+scaffold `init` wrote beside it, answered. It is exactly what `init` writes, and a
+test runs `init` again to keep it so. Five of its records name the one
+definitions file, three of them one `01`-level read three ways by a `REDEFINES`.
+[`example/receivables/README.md`](example/receivables/README.md) walks through
+what an adopter does when the vendor ships a new copybook, and through moving the
+definitions into the layout and back out again, with `--emit-ir` showing nothing
+changed.
 
 ## The companion Dagger module
 

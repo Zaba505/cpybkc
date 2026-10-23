@@ -1,0 +1,22 @@
+{
+  "layout": "receivables.sexpr",
+  "generators": [
+    {
+      "name": "go",
+      "out": "receivables",
+      "options": {
+        "package_name": "receivables",
+        "receiver": "a",
+        "import_path": "github.com/Zaba505/cpybkc/example/receivables/receivables"
+      }
+    },
+    {
+      "name": "graph",
+      "out": "graph",
+      "options": {
+        "format": "mermaid",
+        "records": "all"
+      }
+    }
+  ]
+}
