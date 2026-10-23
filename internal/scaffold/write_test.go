@@ -242,6 +242,45 @@ func TestADestinationTakenAfterTheCheckFailsTheSetAndUndoesIt(t *testing.T) {
 	}
 }
 
+// A cancellation arriving while the layout — the last file — is being written
+// is still a cancellation: it is checked after the flush and before the link,
+// so nothing reaches the directory and what was linked before it is taken back.
+func TestACancellationWhileTheLayoutIsWrittenRemovesTheWholeSet(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	layout, definitions := set(dir)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	linked := 0
+
+	w := writer{link: func(oldname, newname string) error {
+		linked++
+
+		// The signal arrives as the last definitions file lands, so the next
+		// thing the writer does is write the layout.
+		if newname == definitions[len(definitions)-1].Path {
+			cancel()
+		}
+
+		return os.Link(oldname, newname)
+	}}
+
+	if err := w.write(ctx, layout, definitions); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled run returned %v, want %v", err, context.Canceled)
+	}
+
+	if linked != len(definitions) {
+		t.Errorf("linked %d files, want the %d definitions files and not the layout", linked, len(definitions))
+	}
+
+	if left := leftovers(t, dir); len(left) > 0 {
+		t.Errorf("a cancelled run left %v behind", left)
+	}
+}
+
 // A run cancelled partway through the set leaves the directory as it was found:
 // what it had linked is removed, and nothing after the cancellation is linked.
 func TestACancellationPartwayThroughTheSetRemovesWhatWasLinked(t *testing.T) {

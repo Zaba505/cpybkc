@@ -105,8 +105,18 @@ func TestADefinitionsFileHoldsEveryEntryAndOneCommentNamingTheCopybook(t *testin
 		t.Errorf("the definitions file reads\n%s\nwant\n%s", got, want)
 	}
 
-	if got := strings.Count(string(files[0].Bytes), ";"); got != 1 {
-		t.Errorf("the definitions file carries %d comments, want its one header", got)
+	// Lines that open a comment, rather than semicolons: a POSIX path may
+	// hold one, and the header quotes the path.
+	comments := 0
+
+	for line := range strings.SplitSeq(string(files[0].Bytes), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), ";") {
+			comments++
+		}
+	}
+
+	if comments != 1 {
+		t.Errorf("the definitions file carries %d comments, want its one header", comments)
 	}
 }
 

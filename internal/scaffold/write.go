@@ -125,16 +125,7 @@ func (w writer) write(ctx context.Context, layout Output, definitions []Output) 
 	}
 
 	for _, out := range set {
-		// Checked before each link rather than once: a run cancelled partway
-		// through the set is a cancelled run, and the files it had already
-		// linked are what it has to take back.
-		if err := ctx.Err(); err != nil {
-			undo()
-
-			return err
-		}
-
-		if err := w.writeFile(out.Path, out.Bytes); err != nil {
+		if err := w.writeFile(ctx, out.Path, out.Bytes); err != nil {
 			undo()
 
 			return err
@@ -168,8 +159,15 @@ func free(set []Output) error {
 	return faults.Err()
 }
 
-// writeFile puts b at dest through a temporary file beside it.
-func (w writer) writeFile(dest string, b []byte) error {
+// writeFile puts b at dest through a temporary file beside it, unless ctx was
+// cancelled first.
+//
+// The cancellation is checked as late as it can be: after the bytes are
+// flushed, which is the slow part, and immediately before the link, which is
+// the step that puts something in the adopter's directory. A run cancelled
+// partway through the set is a cancelled run — the layout's own link included —
+// and the files it had already linked are what [writer.write] takes back.
+func (w writer) writeFile(ctx context.Context, dest string, b []byte) error {
 	temp, err := createBeside(dest)
 	if err != nil {
 		return &WriteError{Path: dest, Err: err}
@@ -186,6 +184,10 @@ func (w writer) writeFile(dest string, b []byte) error {
 
 	if err := flush(temp, b); err != nil {
 		return &WriteError{Path: dest, Err: err}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	if err := w.link(name, dest); err != nil {
