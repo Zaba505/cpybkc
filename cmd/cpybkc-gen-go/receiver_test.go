@@ -277,6 +277,7 @@ func sourcesOf(t *testing.T, d *irpb.Descriptor, opts options) map[string]string
 
 // checkedPackage is one generated package after the type checker has read it.
 type checkedPackage struct {
+	pkg     *types.Package
 	info    *types.Info
 	methods []receiverMethod
 
@@ -318,10 +319,10 @@ func typeCheck(t *testing.T, fset *token.FileSet, imp types.Importer, sources ma
 
 	conf := types.Config{Importer: imp, Error: func(err error) { c.errs = append(c.errs, err) }}
 
-	pkg, _ := conf.Check(opts.packageName, fset, files, c.info)
+	c.pkg, _ = conf.Check(opts.packageName, fset, files, c.info)
 
 	if tests := parse(true); len(tests) > 0 {
-		conf.Importer = beside{Importer: imp, path: opts.importPath, pkg: pkg}
+		conf.Importer = beside{Importer: imp, path: opts.importPath, pkg: c.pkg}
 		_, _ = conf.Check(opts.packageName+"_test", fset, tests, nil)
 	}
 
@@ -401,7 +402,10 @@ func (c checkedPackage) reached() map[string][]string {
 				kind = "parameter"
 			case obj.Parent() == types.Universe:
 				kind = "predeclared"
-			case obj.Pkg() != nil && obj.Parent() == obj.Pkg().Scope():
+			case obj.Parent() == c.pkg.Scope():
+				// The generated package's own declarations only. What an
+				// import declares is reached through a selector, and it is
+				// skipped below with everything else that is neither.
 				kind = "package"
 			default:
 				if _, ok := obj.(*types.PkgName); ok {
