@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 	"github.com/Zaba505/cpybkc/internal/manifest"
@@ -126,9 +127,9 @@ func TestACopyNamingNoFormIsAFaultAtTheCopy(t *testing.T) {
 
 	err, rendered := loadFault(t, path, dir)
 
-	var unnamed *project.UnnamedCopyMemberError
+	var unnamed *copymember.UnnamedMemberError
 	if !errors.As(err, &unnamed) {
-		t.Fatalf("the fault is not an UnnamedCopyMemberError:\n%s", rendered)
+		t.Fatalf("the fault is not an UnnamedMemberError:\n%s", rendered)
 	}
 
 	const want = "cpy/order-detail.cpy:3:11: COPY ORDDTL names no copy-member in the layout\n" +
@@ -196,9 +197,9 @@ func TestACopyCycleIsAFaultAtTheCopyClosingIt(t *testing.T) {
 
 	err, rendered := loadFault(t, path, dir)
 
-	var cycle *project.CopyCycleError
+	var cycle *copymember.CycleError
 	if !errors.As(err, &cycle) {
-		t.Fatalf("the fault is not a CopyCycleError:\n%s", rendered)
+		t.Fatalf("the fault is not a CycleError:\n%s", rendered)
 	}
 
 	const want = "cpy/stdtrl.cpy:2:11: COPY ORDDTL closes a cycle: ORDDTL is already being copied\n" +

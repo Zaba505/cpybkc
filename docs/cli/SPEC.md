@@ -176,7 +176,7 @@ always was.
 
 ```
 cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-cpybkc init --copybook <path> … --out <path>
+cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <path>
 cpybkc --version
 cpybkc --help
 ```
@@ -194,9 +194,9 @@ That is the whole surface (#147, #183). The default action's flags are these:
 With no subcommand named, cpybkc **MUST NOT** accept a flag this table does not
 list, and an unrecognised flag **MUST** be a usage error naming it. There is no
 `--include`, no `--jobs`, no `--verbose` and no `--config`; each is refused with
-its reason in [Out of Scope](#out-of-scope). `--copybook` and `--out` are
-[`init`'s](#the-vector-init-takes) and are usage errors here, named the same
-way.
+its reason in [Out of Scope](#out-of-scope). `--copybook`, `--copy-member` and
+`--out` are [`init`'s](#the-vector-init-takes) and are usage errors here, named
+the same way.
 
 `init`'s own flags are in [The vector `init` takes](#the-vector-init-takes). No
 flag that names an **input** belongs to both sets, so a flag on a line is either

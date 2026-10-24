@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	scaffolding "github.com/Zaba505/cpybkc/internal/scaffold"
 )
@@ -91,8 +92,26 @@ func scaffold(ctx context.Context, inv invocation, log *slog.Logger) error {
 		return err
 	}
 
-	derived, err := scaffolding.Derive(books)
+	// A member's path is resolved against the working directory, as every
+	// path typed on the command line is, and named as typed in every
+	// diagnostic about it.
+	members := make([]copymember.Form, 0, len(inv.copyMembers))
+	for _, given := range inv.copyMembers {
+		members = append(members, copymember.Form{Member: given.member, Path: given.path, File: given.path})
+	}
+
+	derived, err := scaffolding.Derive(books, members...)
 	if err != nil {
+		// A refusal still owes the notes beside it: a --copy-member no COPY
+		// named reads as the misspelling it most likely is next to the COPY
+		// that was refused for want of it.
+		var noted scaffolding.Noted
+		if errors.As(err, &noted) {
+			for _, note := range noted.Notes() {
+				log.InfoContext(ctx, note)
+			}
+		}
+
 		return err
 	}
 

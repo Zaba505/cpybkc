@@ -359,3 +359,145 @@ func (r *Resolver) place(file string, pos cobol.Pos) diag.Span {
 
 	return at
 }
+
+// Map says where a member map was stated, which is what a diagnostic about a
+// `COPY` it does not answer has to name: a layout's `copy-member` forms, or
+// `init`'s `--copy-member` flags.
+type Map struct {
+	// Form is what states one member: `copy-member` or `--copy-member`.
+	Form string
+
+	// Where is where those are, as a message says it.
+	Where string
+
+	// Who is what states them, as the subject of a sentence.
+	Who string
+}
+
+var (
+	// Layout is a run's member map, its layout's `copy-member` forms.
+	Layout = Map{Form: "copy-member", Where: "in the layout", Who: "the layout"}
+
+	// CommandLine is `init`'s, its `--copy-member` flags.
+	CommandLine = Map{Form: "--copy-member", Where: "on the command line", Who: "the command line"}
+)
+
+// UnnamedMemberError is a `COPY` naming a member no form of the map names,
+// as a diagnostic (docs/cli/SPEC.md, "What a `COPY` fault looks like"): the
+// span at the `COPY` statement, in the file that writes it — a copybook, or a
+// member with the chain that reached it — and a continuation line listing the
+// members the map does name, so that a misspelling reads as one.
+type UnnamedMemberError struct {
+	// At is the `COPY` statement.
+	At diag.Span
+
+	// Member is the member as the `COPY` names it.
+	Member Member
+
+	// Named are the members the map names, in its order.
+	Named []Member
+
+	// Map is where the map was stated.
+	Map Map
+}
+
+// Error implements the error interface.
+func (e *UnnamedMemberError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *UnnamedMemberError) Diagnostic() diag.Diagnostic {
+	listed := e.Map.Who + " names no " + e.Map.Form
+
+	if len(e.Named) > 0 {
+		members := make([]string, 0, len(e.Named))
+		for _, member := range e.Named {
+			members = append(members, member.String())
+		}
+
+		listed = e.Map.Who + " names " + and(members)
+	}
+
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("COPY %s names no %s %s", e.Member, e.Map.Form, e.Map.Where),
+		Spans:   []diag.Span{e.At, {Note: listed}},
+	}
+}
+
+// CycleError is a `COPY` naming a member already open, so that expanding it
+// would not end: `cobol-go`'s [cobol.CopyBookCycleError], reported at the `COPY`
+// that closes the cycle with the members open at that point on continuation
+// lines, outermost first, each at the `COPY` that opened it.
+type CycleError struct {
+	// At is the `COPY` that closes the cycle.
+	At diag.Span
+
+	// Member is the member it copies, as it names it.
+	Member Member
+
+	// Open are the `COPY` statements open there, outermost first.
+	Open []diag.Span
+}
+
+// Error implements the error interface.
+func (e *CycleError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *CycleError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("COPY %s closes a cycle: %s is already being copied", e.Member, e.Member),
+		Spans:   append([]diag.Span{e.At}, e.Open...),
+	}
+}
+
+// Diagnose is the diagnostic for a `COPY` fault raised in the copybook a
+// diagnostic names as file: an [UnnamedMemberError] or a [CycleError], or nil
+// for a member file that cannot be read, whose shape depends on where the map
+// was stated and so is the caller's.
+func (r *Resolver) Diagnose(file string, fault Fault, m Map) error {
+	switch {
+	case fault.Unnamed != nil:
+		return &UnnamedMemberError{At: r.Span(file, fault.At), Member: fault.Unnamed.Member, Named: fault.Unnamed.Named, Map: m}
+	case fault.Cycle != nil:
+		at := r.place(file, fault.At)
+
+		return &CycleError{At: at, Member: Member{Name: fault.Cycle.Name, Library: fault.Cycle.Library}, Open: r.opened(file, fault.At)}
+	default:
+		return nil
+	}
+}
+
+// opened is each member open at pos, outermost first, as the span of the `COPY`
+// that opened it.
+func (r *Resolver) opened(file string, pos cobol.Pos) []diag.Span {
+	chain := pos.CopyChain()
+	open := make([]diag.Span, 0, len(chain))
+
+	copied := pos.Text
+
+	for _, statement := range chain {
+		at := r.place(file, statement)
+		at.Note = "COPY " + Member{Name: copied.Name, Library: copied.Library}.String() + " is open here"
+		open = append(open, at)
+		copied = statement.Text
+	}
+
+	for i, j := 0, len(open)-1; i < j; i, j = i+1, j-1 {
+		open[i], open[j] = open[j], open[i]
+	}
+
+	return open
+}
+
+// and joins names the way a message does.
+func and(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+	}
+}

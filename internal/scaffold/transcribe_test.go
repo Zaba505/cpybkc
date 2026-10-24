@@ -165,7 +165,7 @@ func TestADefinitionsFileThatDoesNotReadBackAsItsCopybookIsRefused(t *testing.T)
 		t.Fatalf("writing the definitions file: %v", err)
 	}
 
-	if err := readBack(b, entries, text.Bytes()); err != nil {
+	if err := readBack(b, entries, text.Bytes(), nil); err != nil {
 		t.Fatalf("the faithful transcription did not read back:\n%s", diag.Render(err))
 	}
 
@@ -176,7 +176,7 @@ func TestADefinitionsFileThatDoesNotReadBackAsItsCopybookIsRefused(t *testing.T)
 		t.Fatalf("the test's tampering found nothing to change in\n%s", text.Bytes())
 	}
 
-	err = readBack(b, entries, tampered)
+	err = readBack(b, entries, tampered, nil)
 
 	var mismatch *ReadBackError
 	if !errors.As(err, &mismatch) {
@@ -193,7 +193,7 @@ func TestADefinitionsFileThatDoesNotReadBackAsItsCopybookIsRefused(t *testing.T)
 	// A file that loses an entry is refused too, naming the counts.
 	short := bytes.Join(bytes.Split(text.Bytes(), []byte("\n"))[:2], []byte("\n"))
 
-	if err := readBack(b, entries, short); !errors.As(err, &mismatch) {
+	if err := readBack(b, entries, short, nil); !errors.As(err, &mismatch) {
 		t.Fatalf("a file short an entry gave %v, want a definitions file that did not read back", err)
 	} else if rendered := diag.Render(err); !strings.Contains(rendered, "holds 2 entries and the copybook declares 3") {
 		t.Errorf("the diagnostic does not say how the file is short:\n%s", rendered)
@@ -222,7 +222,7 @@ func TestACopybookTheWriterRefusesFailsTheRunAtItsPlaceInTheCopybook(t *testing.
 		},
 	}
 
-	_, err := transcribe(book("cpy/code.cpy", ""), entries)
+	_, err := transcribe(book("cpy/code.cpy", ""), entries, nil)
 
 	var refused *TranscriptionError
 	if !errors.As(err, &refused) {

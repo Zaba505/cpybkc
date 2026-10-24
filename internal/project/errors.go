@@ -159,47 +159,6 @@ func (e *CopybookSourceError) Diagnostic() diag.Diagnostic {
 // Unwrap gives up the reading failure.
 func (e *CopybookSourceError) Unwrap() error { return e.Err }
 
-// UnnamedCopyMemberError is a `COPY` naming a member no `copy-member` form
-// names (docs/cli/SPEC.md, "What a `COPY` fault looks like"). The span is at
-// the `COPY` statement, in the file that writes it — a copybook, or a member,
-// with the chain that reached it — and a continuation line lists the members
-// the layout does name, so that a misspelling reads as one.
-type UnnamedCopyMemberError struct {
-	// At is the `COPY` statement.
-	At diag.Span
-
-	// Member is the member as the `COPY` names it.
-	Member copymember.Member
-
-	// Named are the members the layout's forms name, in its order.
-	Named []copymember.Member
-}
-
-// Error implements the error interface.
-func (e *UnnamedCopyMemberError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic is what the error says, and where.
-func (e *UnnamedCopyMemberError) Diagnostic() diag.Diagnostic {
-	return diag.Diagnostic{
-		Message: fmt.Sprintf("COPY %s names no copy-member in the layout", e.Member),
-		Spans:   []diag.Span{e.At, {Note: namedMembers("the layout", "copy-member", e.Named)}},
-	}
-}
-
-// namedMembers is the continuation line listing the members a map names.
-func namedMembers(who, form string, named []copymember.Member) string {
-	if len(named) == 0 {
-		return who + " names no " + form
-	}
-
-	members := make([]string, 0, len(named))
-	for _, member := range named {
-		members = append(members, member.String())
-	}
-
-	return who + " names " + and(members)
-}
-
 // MissingCopyMemberError is a member file a `copy-member` form names that cannot
 // be opened, in the shape docs/cli/SPEC.md's "Finding the inputs" gives every
 // missing file: the path as the form spells it, the span at that path in the
@@ -231,35 +190,6 @@ func (e *MissingCopyMemberError) Diagnostic() diag.Diagnostic {
 
 // Unwrap gives up the open failure.
 func (e *MissingCopyMemberError) Unwrap() error { return e.Err }
-
-// CopyCycleError is a `COPY` naming a member already open, so that expanding it
-// would not end: `cobol-go`'s [cobol.CopyBookCycleError], reported at the `COPY`
-// that closes the cycle with the members open at that point on continuation
-// lines, outermost first, each at the `COPY` that opened it.
-type CopyCycleError struct {
-	// At is the `COPY` that closes the cycle.
-	At diag.Span
-
-	// Member is the member it copies, as it names it.
-	Member copymember.Member
-
-	// Open are the `COPY` statements open there, outermost first.
-	Open []diag.Span
-}
-
-// Error implements the error interface.
-func (e *CopyCycleError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic is what the error says, and where.
-func (e *CopyCycleError) Diagnostic() diag.Diagnostic {
-	at := e.At
-	at.Via = nil
-
-	return diag.Diagnostic{
-		Message: fmt.Sprintf("COPY %s closes a cycle: %s is already being copied", e.Member, e.Member),
-		Spans:   append([]diag.Span{at}, e.Open...),
-	}
-}
 
 // UnreachedCopyMemberError is a `copy-member` form no `COPY` reaches, reported
 // at its member (docs/layout/SPEC.md, "A `COPY` member is found where the

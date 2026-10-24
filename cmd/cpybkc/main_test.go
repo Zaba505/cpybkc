@@ -67,7 +67,7 @@ func TestUsageNamesTheSettledCommandSet(t *testing.T) {
 	for _, want := range []string{
 		manifestFlag, emitIRFlag, emitIRFormatFlag, versionFlag, helpFlag, shortHelpFlag,
 		binaryFormat, jsonFormat, defaultManifest,
-		initSubcommand, copybookFlag, outFlag,
+		initSubcommand, copybookFlag, copyMemberFlag, outFlag,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("usage does not name %s:\n%s", want, stdout)

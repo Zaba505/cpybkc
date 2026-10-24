@@ -29,7 +29,7 @@ const usage = `cpybkc generates code from the record descriptions a project's la
 
 Usage:
   cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-  cpybkc init --copybook <path> … --out <layout>
+  cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <layout>
   cpybkc --version
   cpybkc --help
 
@@ -49,8 +49,9 @@ Flags:
   -h, --help                 print this help and exit
 
 Every input is named by a flag: cpybkc takes no operand beyond the subcommand
-name, and each flag appears at most once — except init's --copybook, which is
-given once per file. docs/cli/SPEC.md is the contract this summarises.
+name, and each flag appears at most once — except init's --copybook and
+--copy-member, which are given once per file. docs/cli/SPEC.md is the contract
+this summarises.
 `
 
 // initUsage is what `cpybkc init --help` prints, and what accompanies a usage
@@ -76,13 +77,21 @@ const initUsage = `cpybkc init transcribes copybooks into definitions files and 
 scaffold whose records name them.
 
 Usage:
-  cpybkc init --copybook <path> … --out <layout>
+  cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <layout>
 
 Flags:
   --copybook <path>          a copybook to read; given once per file, at least
                              once. Each is transcribed whole into a definitions
                              file beside the layout, named after the path's
                              last element with .sexpr appended
+  --copy-member <member>=<path>
+                             where a member a copybook's COPY names is read
+                             from, once per member: the member as the COPY
+                             writes it — STDHDR, 'stdhdr', or STDHDR OF PAYLIB,
+                             quoted for the shell — then = and the file. A
+                             copybook that writes COPY is transcribed as its
+                             expansion; a member gets no definitions file of
+                             its own, and one no COPY names is noted
   --out <layout>             the file the layout scaffold is written to; never
                              -, because the definitions files go beside it
 

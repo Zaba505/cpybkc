@@ -312,3 +312,61 @@ func TestReplacingIsCobolGos(t *testing.T) {
 		t.Errorf("the second entry is at %s, want cpy/tagged.cpy:1:20, its place as written", at)
 	}
 }
+
+// TestAValueIsSplitAtTheFirstEqualsOutsideALiteral is docs/cli/SPEC.md's
+// "Where the members come from": the member as a COPY writes it, and
+// everything after the first = outside a literal is the path.
+func TestAValueIsSplitAtTheFirstEqualsOutsideALiteral(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value  string
+		member copymember.Member
+		path   string
+	}{
+		{"STDHDR=cpy/stdhdr.cpy", copymember.Member{Name: "STDHDR"}, "cpy/stdhdr.cpy"},
+		{"'stdhdr.cpy'=cpy/stdhdr.cpy", copymember.Member{Name: "stdhdr.cpy"}, "cpy/stdhdr.cpy"},
+		{"'A=B'=x=y.cpy", copymember.Member{Name: "A=B"}, "x=y.cpy"},
+		{`"IT""S"=its.cpy`, copymember.Member{Name: `IT"S`}, "its.cpy"},
+		{"STDHDR OF PAYLIB=pay/stdhdr.cpy", copymember.Member{Name: "STDHDR", Library: "PAYLIB"}, "pay/stdhdr.cpy"},
+		{"stdhdr in 'pay lib'=p.cpy", copymember.Member{Name: "stdhdr", Library: "pay lib"}, "p.cpy"},
+		{"1ST-HDR=first.cpy", copymember.Member{Name: "1ST-HDR"}, "first.cpy"},
+	}
+
+	for _, test := range tests {
+		member, path, err := copymember.ParseValue(test.value)
+		if err != nil {
+			t.Errorf("%q is refused: %v", test.value, err)
+
+			continue
+		}
+
+		if member != test.member || path != test.path {
+			t.Errorf("%q reads as %#v and %q, want %#v and %q", test.value, member, path, test.member, test.path)
+		}
+	}
+}
+
+// TestAValueTheSpecRefusesIsRefused: no = outside a literal, an empty member or
+// path, the path -, and a member that is no COBOL word or literal.
+func TestAValueTheSpecRefusesIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{
+		"STDHDR",
+		"'A=B'",
+		"=cpy/stdhdr.cpy",
+		"STDHDR=",
+		"STDHDR=-",
+		"STD HDR=x.cpy",
+		"STDHDR OF=x.cpy",
+		"STDHDR BY PAYLIB=x.cpy",
+		"X'00'=x.cpy",
+		"''=x.cpy",
+		"STDHDR.=x.cpy",
+	} {
+		if member, path, err := copymember.ParseValue(value); err == nil {
+			t.Errorf("%q reads as %#v and %q, want a refusal", value, member, path)
+		}
+	}
+}

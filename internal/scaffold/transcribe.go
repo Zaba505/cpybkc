@@ -14,6 +14,7 @@ import (
 
 	cobol "github.com/Zaba505/cobol-go"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/definitions"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
@@ -54,7 +55,11 @@ type File struct {
 // includes every entry no record derives from — a 77-level, an unnamed 01-level,
 // an 01-level every combination of which was noted — because the file is the
 // copybook's transcription and not the layout's selection from it.
-func transcribe(book Copybook, entries []*cobol.DataDescriptionEntry) ([]byte, error) {
+//
+// A composed copybook's entries are its expansion, each member's entries where
+// its `COPY` stood, so the file holds that expansion and is read back against
+// it; members is what a mismatch in a member's entry is pointed into it with.
+func transcribe(book Copybook, entries []*cobol.DataDescriptionEntry, members *copymember.Resolver) ([]byte, error) {
 	var out bytes.Buffer
 
 	out.WriteString(headerComment(book.Path))
@@ -63,7 +68,7 @@ func transcribe(book Copybook, entries []*cobol.DataDescriptionEntry) ([]byte, e
 		return nil, &TranscriptionError{Path: book.Path, Err: err}
 	}
 
-	if err := readBack(book, entries, out.Bytes()); err != nil {
+	if err := readBack(book, entries, out.Bytes(), members); err != nil {
 		return nil, err
 	}
 
@@ -91,7 +96,7 @@ func headerComment(path string) string {
 // and nothing here says what one means"), applied to the bytes about to be
 // written rather than to an earlier rendering of them, so that nothing written
 // was not read.
-func readBack(book Copybook, entries []*cobol.DataDescriptionEntry, text []byte) error {
+func readBack(book Copybook, entries []*cobol.DataDescriptionEntry, text []byte, members *copymember.Resolver) error {
 	file, err := layout.Parse(DefinitionsName(book.Path), bytes.NewReader(text))
 	if err != nil {
 		return &ReadBackError{Path: book.Path, Err: err}
@@ -120,12 +125,19 @@ func readBack(book Copybook, entries []*cobol.DataDescriptionEntry, text []byte)
 			continue
 		}
 
-		return &ReadBackError{
+		fault := &ReadBackError{
 			Path:   book.Path,
 			Line:   entry.Pos.Line,
 			Column: entry.Pos.Column,
 			Item:   label(entry),
 		}
+
+		if entry.Pos.Text != nil && members != nil {
+			at := members.Span(book.Path, entry.Pos)
+			fault.In = &at
+		}
+
+		return fault
 	}
 
 	return nil

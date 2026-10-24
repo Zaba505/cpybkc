@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 )
 
@@ -43,6 +44,11 @@ type SourceError struct {
 
 	// Err is what the reader said.
 	Err error
+
+	// In is where in a member the fault is, for one `cobol-go` raised inside
+	// text a `COPY` brought in, with the chain of `COPY` statements that
+	// reached it; nil for a fault in the copybook's own text.
+	In *diag.Span
 }
 
 // Error implements error.
@@ -53,10 +59,73 @@ func (e *SourceError) Error() string { return e.Diagnostic().String() }
 func (e *SourceError) Unwrap() error { return e.Err }
 
 // Diagnostic implements [diag.Error].
+//
+// A fault inside a member points into the member, named as its
+// `--copy-member` gives it, with one more continuation line per `COPY` that
+// reached it, innermost first (docs/cli/SPEC.md, "What a `COPY` fault looks
+// like").
 func (e *SourceError) Diagnostic() diag.Diagnostic {
+	cause := diag.Span{Note: e.Err.Error()}
+	if e.In != nil {
+		cause = *e.In
+		cause.Note = e.Err.Error()
+	}
+
 	return diag.Diagnostic{
 		Message: "this is not a copybook this build can read",
-		Spans:   []diag.Span{{File: e.Path}, {Note: e.Err.Error()}},
+		Spans:   []diag.Span{{File: e.Path}, cause},
+	}
+}
+
+// MissingMemberError is a member file a `--copy-member` gives that cannot be
+// opened: a copybook that cannot be parsed, reported at the `COPY` that needed
+// it, in the copybook as typed, and naming the path as the flag gave it and
+// where it was looked for (docs/cli/SPEC.md, "What a `COPY` fault looks like").
+type MissingMemberError struct {
+	// At is the `COPY` statement that named the member.
+	At diag.Span
+
+	// Form is the --copy-member value, the path as typed.
+	Form copymember.Form
+
+	// LookedIn is the absolute path cpybkc opened.
+	LookedIn string
+
+	// Err is what opening it failed with.
+	Err error
+}
+
+// Error implements error.
+func (e *MissingMemberError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap returns the open failure.
+func (e *MissingMemberError) Unwrap() error { return e.Err }
+
+// Diagnostic implements [diag.Error].
+func (e *MissingMemberError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("no copy member at %s, the file --copy-member gives %s", e.Form.Path, e.Form.Member),
+		Spans:   []diag.Span{e.At, {Note: "looked for " + e.LookedIn}},
+	}
+}
+
+// MemberTwiceError is two --copy-member values naming one member, under the
+// matching a `COPY` is matched with: one `COPY` would have two files to read.
+// The command line refuses this as a usage error before anything is opened,
+// and [Derive] refuses it as well because it is reachable without one.
+type MemberTwiceError struct {
+	// First and Second are the two values.
+	First, Second copymember.Form
+}
+
+// Error implements error.
+func (e *MemberTwiceError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic implements [diag.Error].
+func (e *MemberTwiceError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("--copy-member %s=%s and --copy-member %s=%s name one member, and a COPY of it would have two files to read",
+			e.First.Member, e.First.Path, e.Second.Member, e.Second.Path),
 	}
 }
 
@@ -157,6 +226,10 @@ type ReadBackError struct {
 	Line, Column int
 	Item         string
 
+	// In is the entry's place in a member, where a `COPY` brought it in, with
+	// the chain that reached it; nil for an entry of the copybook's own text.
+	In *diag.Span
+
 	// Err is what the read said, where the read itself failed.
 	Err error
 }
@@ -184,10 +257,15 @@ func (e *ReadBackError) Diagnostic() diag.Diagnostic {
 		return d
 	}
 
+	at := diag.Span{File: e.Path, Line: e.Line, Column: e.Column}
+	if e.In != nil {
+		at = *e.In
+	}
+
 	return diag.Diagnostic{
 		Message: fmt.Sprintf("the definitions file converted from this copybook reads %s back as a different entry", e.Item) +
 			defect,
-		Spans: []diag.Span{{File: e.Path, Line: e.Line, Column: e.Column}},
+		Spans: []diag.Span{at},
 	}
 }
 

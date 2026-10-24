@@ -356,12 +356,9 @@ func (b *bindings) unreadable(record layoutmodel.Record, path string, file sourc
 // it is reported once however many records name the copybook, and a member
 // file two copybooks copy is reported missing once.
 func (b *bindings) copyFault(record layoutmodel.Record, fault copymember.Fault) {
-	var err error
+	err := b.members.Diagnose(record.Path, fault, copymember.Layout)
 
-	switch {
-	case fault.Unnamed != nil:
-		err = &UnnamedCopyMemberError{At: b.members.Span(record.Path, fault.At), Member: fault.Unnamed.Member, Named: fault.Unnamed.Named}
-	case fault.Unreadable != nil:
+	if fault.Unreadable != nil {
 		form := b.formOf(fault.Unreadable.Form)
 		err = &MissingCopyMemberError{
 			Pos:      span(form.PathPos),
@@ -369,39 +366,12 @@ func (b *bindings) copyFault(record layoutmodel.Record, fault copymember.Fault) 
 			LookedIn: absolute(fault.Unreadable.Form.File),
 			Err:      fault.Unreadable.Err,
 		}
-	default:
-		err = &CopyCycleError{
-			At:     b.members.Span(record.Path, fault.At),
-			Member: copymember.Member{Name: fault.Cycle.Name, Library: fault.Cycle.Library},
-			Open:   b.openAt(record.Path, fault),
-		}
 	}
 
 	if rendered := err.Error(); !b.copyFaults[rendered] {
 		b.copyFaults[rendered] = true
 		b.Fail(err)
 	}
-}
-
-// openAt is each member open where a cycle closed, outermost first, as the
-// span of the `COPY` that opened it.
-func (b *bindings) openAt(path string, fault copymember.Fault) []diag.Span {
-	chain := fault.At.CopyChain()
-	open := make([]diag.Span, 0, len(chain))
-
-	copied := fault.At.Text
-
-	for _, statement := range chain {
-		at := b.members.Span(path, statement)
-		at.Via = nil
-		at.Note = "COPY " + copymember.Member{Name: copied.Name, Library: copied.Library}.String() + " is open here"
-		open = append(open, at)
-		copied = statement.Text
-	}
-
-	slices.Reverse(open)
-
-	return open
 }
 
 // formOf is the layout's `copy-member` form a resolver form was built from.
