@@ -19,12 +19,15 @@ import (
 	cobol "github.com/Zaba505/cobol-go"
 
 	"github.com/Zaba505/cpybkc/internal/conformance"
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/definitions"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/emit"
 	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 	"github.com/Zaba505/cpybkc/internal/manifest"
 	"github.com/Zaba505/cpybkc/internal/project"
+	"github.com/Zaba505/cpybkc/internal/scaffold"
 )
 
 // trackedCorpusEntries is how many entries the conformance corpus held when
@@ -79,6 +82,12 @@ func TestADefinitionsFileResolvesToTheCopybooksDescriptor(t *testing.T) {
 	}
 
 	everyExample(t, convert)
+
+	t.Run("composed", func(t *testing.T) {
+		t.Parallel()
+
+		sameDescriptor(t, copyProject(t, filepath.Join(root, composedFixture)), "orders.sexpr", convertComposed)
+	})
 }
 
 // TestADefinitionsBlockResolvesToTheCopybooksDescriptor is "Three sources, one
@@ -115,6 +124,82 @@ func TestADefinitionsBlockResolvesToTheCopybooksDescriptor(t *testing.T) {
 	}
 
 	everyExample(t, inline)
+
+	t.Run("composed", func(t *testing.T) {
+		t.Parallel()
+
+		sameDescriptor(t, copyProject(t, filepath.Join(root, composedFixture)), "orders.sexpr", func(t *testing.T, dir, layout string) {
+			convertComposed(t, dir, layout)
+			inline(t, dir, layout)
+		})
+	})
+}
+
+// composedFixture is the project whose copybooks compose with COPY: a shared
+// header member, a per-type body member, a COPY nested in it and a COPY … OF a
+// library, every member found where the layout's copy-member forms say.
+const composedFixture = "testdata/composed"
+
+// copyMemberForm is one `copy-member` form, on a line of its own.
+var copyMemberForm = regexp.MustCompile(`(?m)^\(copy-member .*\)\n`)
+
+// convertComposed is the definitions file `init` writes from each copybook
+// the composed layout names — [scaffold.Derive] over the copybook with one
+// --copy-member per form the layout states, so that the file holds the
+// expansion a run reads — written beside the copybook, each record's source
+// rewritten onto it, and the `copy-member` forms taken out: a definitions file
+// holds no COPY, so a form beside records naming only files is unreached
+// (docs/layout/SPEC.md, "A `COPY` member is found where the layout says").
+func convertComposed(t *testing.T, dir, name string) {
+	t.Helper()
+
+	path := filepath.Join(dir, filepath.FromSlash(name))
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the layout: %v", err)
+	}
+
+	parsed, err := layout.Parse(path, bytes.NewReader(src))
+	if err != nil {
+		t.Fatalf("parsing the layout: %v", err)
+	}
+
+	members, err := layoutmodel.ReadCopyMembers(parsed)
+	if err != nil {
+		t.Fatalf("reading the layout's copy members: %v", err)
+	}
+
+	forms := make([]copymember.Form, 0, len(members))
+	for _, member := range members {
+		file := filepath.Join(dir, filepath.FromSlash(member.Path))
+		forms = append(forms, copymember.Form{Member: member.Member, Path: file, File: file})
+	}
+
+	for _, match := range copybookSource.FindAllStringSubmatch(string(src), -1) {
+		copybookPath := filepath.Join(dir, filepath.FromSlash(match[1]))
+
+		book, err := os.ReadFile(copybookPath)
+		if err != nil {
+			t.Fatalf("reading %s: %v", match[1], err)
+		}
+
+		derived, err := scaffold.Derive([]scaffold.Copybook{{Path: copybookPath, Source: book}}, forms...)
+		if err != nil {
+			t.Fatalf("init does not convert %s:\n%s", match[1], diag.Render(err))
+		}
+
+		write(t, copybookPath+".sexpr", string(derived.Definitions()[0].Bytes))
+	}
+
+	rewritten := copybookSource.ReplaceAllString(string(src), `(definitions "$1.sexpr"`)
+	rewritten = copyMemberForm.ReplaceAllString(rewritten, "")
+
+	if strings.Contains(rewritten, "(copy-member") || strings.Contains(rewritten, `(copybook "`) {
+		t.Fatalf("the layout still names a copybook or a member:\n%s", rewritten)
+	}
+
+	write(t, path, rewritten)
 }
 
 // everyExample holds every example to the equality, converted by conversion.
