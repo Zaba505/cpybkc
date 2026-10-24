@@ -573,20 +573,15 @@ error: orders.sexpr:22:9: ORDER-DETAIL declares no item STD-TYPE
 A span into the copybook that wrote the `COPY`, at the position the entry has
 in the member, would point at a line that says something else.
 
-**This needs member provenance from `cobol-go`, which it does not have.** The
-pinned `cobol-go` reports a copied entry's position as "a position within the
-copybook" — the member — but a `cobol.Pos` is a line and a column and nothing
-else, so neither the entry nor its position says *which* member, and a
-`CopyBookNotFoundError` or `CopyBookCycleError` raised inside a member carries
-the position of a `COPY` in an unnamed file the same way. The change needed,
-for the owner to file in Zaba505/cobol-go, is **member provenance**: every
-position `cobol-go` reports from an expanded source — each entry's, each
-clause's, and each error's, `copybook.Build`'s and `NewLayout`'s included —
-says which library text it is in, by the text-name and library the resolver
-was asked for, and the chain of `COPY` statements that reached it; and it is a
-position in that text as written, not as a `REPLACING` phrase left it. Until
-it lands, the implementing change (#423) cannot meet the rule above and is
-blocked on it.
+**This rests on member provenance from `cobol-go`** (Zaba505/cobol-go#153). A
+`cobol.Pos` from expanded text names the library text it is in — by the
+text-name and library the resolver was asked for — and the chain of `COPY`
+statements that reached it, and it is a position in that text as written, not
+as a `REPLACING` phrase left it; every positioned error, `copybook.Build`'s
+and `NewLayout`'s included, carries the same. That is what lets a span name
+the member's file as its `copy-member` form spells it, at the entry's own line
+and column there, with one continuation line per `COPY`. #423 moved the pin to
+it.
 
 ## Emitting the IR
 

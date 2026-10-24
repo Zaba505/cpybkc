@@ -80,11 +80,12 @@ func TestGenerateWithAManifest(t *testing.T) {
 
 func TestInitAssemblesTheVector(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		copybooks []string
-		dir       string
-		layout    string
-		want      []string
+		name        string
+		copybooks   []string
+		copyMembers []string
+		dir         string
+		layout      string
+		want        []string
 	}{
 		{
 			// The subcommand leads, because docs/cli/SPEC.md reads a subcommand
@@ -113,6 +114,24 @@ func TestInitAssemblesTheVector(t *testing.T) {
 			},
 		},
 		{
+			// Each member is a flag of its own, after the copybooks, passed
+			// through exactly as given: splitting one at its = and reading the
+			// member as a COPY writes it are the CLI's, and a value with a space
+			// in it is one argument here however a shell would have split it.
+			name:        "members a COPY names",
+			copybooks:   []string{"cpy/order-detail.cpy"},
+			copyMembers: []string{"STDHDR=cpy/stdhdr.cpy", "STDTRL OF GLLIB=cpy/gllib/stdtrl.cpy"},
+			dir:         "/scaffold",
+			layout:      "orders.sexpr",
+			want: []string{
+				"init",
+				"--copybook", "cpy/order-detail.cpy",
+				"--copy-member", "STDHDR=cpy/stdhdr.cpy",
+				"--copy-member", "STDTRL OF GLLIB=cpy/gllib/stdtrl.cpy",
+				"--out", "/scaffold/orders.sexpr",
+			},
+		},
+		{
 			// A path below the project root, resolved by the CLI against the
 			// mounted project because that is its working directory, and named
 			// as it was typed in the definitions file converted from it.
@@ -137,7 +156,7 @@ func TestInitAssemblesTheVector(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init(tc.copybooks, tc.dir, tc.layout)
+			got, err := Init(tc.copybooks, tc.copyMembers, tc.dir, tc.layout)
 			if err != nil {
 				t.Fatalf("Init(%q, %q, %q): unexpected error: %v", tc.copybooks, tc.dir, tc.layout, err)
 			}
@@ -157,7 +176,7 @@ func TestInitRefusesNoCopybooksAtAll(t *testing.T) {
 		{name: "empty", copybooks: []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init(tc.copybooks, "/scaffold", "layout.sexpr")
+			got, err := Init(tc.copybooks, nil, "/scaffold", "layout.sexpr")
 			if err == nil {
 				t.Fatalf("Init(%q, …) = %q, want an error", tc.copybooks, got)
 			}
@@ -183,7 +202,7 @@ func TestInitRefusesTheDashAmongTheCopybooks(t *testing.T) {
 		{name: "beside real paths", copybooks: []string{"header.cpy", "-", "trailer.cpy"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init(tc.copybooks, "/scaffold", "layout.sexpr")
+			got, err := Init(tc.copybooks, nil, "/scaffold", "layout.sexpr")
 			if err == nil {
 				t.Fatalf("Init(%q, …) = %q, want an error", tc.copybooks, got)
 			}
@@ -220,7 +239,7 @@ func TestInitTakesTheLayoutsNameAndNothingElse(t *testing.T) {
 		{name: "the directory above", layout: "..", says: "not a file name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Init([]string{"posting.cpy"}, "/scaffold", tc.layout)
+			got, err := Init([]string{"posting.cpy"}, nil, "/scaffold", tc.layout)
 			if err == nil {
 				t.Fatalf("Init(…, %q) = %q, want an error", tc.layout, got)
 			}
