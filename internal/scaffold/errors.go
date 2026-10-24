@@ -8,6 +8,7 @@ package scaffold
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 
 	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
@@ -102,9 +103,19 @@ func (e *MissingMemberError) Error() string { return e.Diagnostic().String() }
 func (e *MissingMemberError) Unwrap() error { return e.Err }
 
 // Diagnostic implements [diag.Error].
+//
+// A file that is there and cannot be read is said to be that, with what
+// reading it said, rather than missing.
 func (e *MissingMemberError) Diagnostic() diag.Diagnostic {
+	if e.Err != nil && !errors.Is(e.Err, fs.ErrNotExist) {
+		return diag.Diagnostic{
+			Message: fmt.Sprintf("the copy member at %s, which --copy-member %s gives, could not be read", e.Form.Path, e.Form.Typed()),
+			Spans:   []diag.Span{e.At, {Note: "looked for " + e.LookedIn}, {Note: e.Err.Error()}},
+		}
+	}
+
 	return diag.Diagnostic{
-		Message: fmt.Sprintf("no copy member at %s, the file --copy-member gives %s", e.Form.Path, e.Form.Member),
+		Message: fmt.Sprintf("no copy member at %s, which --copy-member %s gives", e.Form.Path, e.Form.Typed()),
 		Spans:   []diag.Span{e.At, {Note: "looked for " + e.LookedIn}},
 	}
 }
@@ -124,8 +135,8 @@ func (e *MemberTwiceError) Error() string { return e.Diagnostic().String() }
 // Diagnostic implements [diag.Error].
 func (e *MemberTwiceError) Diagnostic() diag.Diagnostic {
 	return diag.Diagnostic{
-		Message: fmt.Sprintf("--copy-member %s=%s and --copy-member %s=%s name one member, and a COPY of it would have two files to read",
-			e.First.Member, e.First.Path, e.Second.Member, e.Second.Path),
+		Message: fmt.Sprintf("--copy-member %s and --copy-member %s name one member, and a COPY of it would have two files to read",
+			e.First.Typed(), e.Second.Typed()),
 	}
 }
 

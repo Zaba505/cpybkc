@@ -327,7 +327,9 @@ func (l *layers) resolve(
 // fault inside an entry body is held to.
 func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
 	if kind := bound.Source.Kind; kind != layoutmodel.DefinitionsFileSource && kind != layoutmodel.DefinitionsBlockSource {
-		faults.Fail(err)
+		for _, fault := range split(err) {
+			faults.Fail(memberFault(bound.Source, fault))
+		}
 
 		return
 	}
@@ -342,6 +344,22 @@ func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
 		b.reported.report(faults, bound.Source, buildFault(bound.Source, fault),
 			Naming{Record: bound.Record.Name, Pos: span(bound.Record.Source)})
 	}
+}
+
+// memberFault is a fault about a copybook-bound record pointed into the member
+// it is in, where `cobol-go` raised it at an entry a `COPY` brought in, and the
+// fault itself otherwise.
+func memberFault(source resolve.Source, fault error) error {
+	if _, ok := fault.(diag.Error); ok || source.Members == nil {
+		return fault
+	}
+
+	pos, ok := cobolPos(fault)
+	if !ok || pos.Text == nil {
+		return fault
+	}
+
+	return &MemberFaultError{At: source.Members.Span(source.File, pos), Err: fault}
 }
 
 // alternatives resolves each `record` form's `alternative` children to the

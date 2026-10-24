@@ -6,6 +6,7 @@
 package project
 
 import (
+	"io/fs"
 	"errors"
 	"fmt"
 	"strconv"
@@ -181,11 +182,49 @@ type MissingCopyMemberError struct {
 func (e *MissingCopyMemberError) Error() string { return e.Diagnostic().String() }
 
 // Diagnostic is what the error says, and where.
+//
+// A file that is there and cannot be read — a directory, a file without
+// permission, a failed read — is said to be that, with what reading it said,
+// rather than missing: a reader told a file is missing goes and finds it where
+// the message says it is not.
 func (e *MissingCopyMemberError) Diagnostic() diag.Diagnostic {
+	if e.Err != nil && !errors.Is(e.Err, fs.ErrNotExist) {
+		return diag.Diagnostic{
+			Message: "the copy member at " + e.Path + " could not be read",
+			Spans:   []diag.Span{e.Pos, {Note: "looked for " + e.LookedIn}, {Note: e.Err.Error()}},
+		}
+	}
+
 	return diag.Diagnostic{
 		Message: "no copy member at " + e.Path,
 		Spans:   []diag.Span{e.Pos, {Note: "looked for " + e.LookedIn}},
 	}
+}
+
+// MemberFaultError is a fault `cobol-go` found laying out an entry a member
+// contributed to a record bound to a copybook. It points into the member, at
+// the entry's line and column there, with one continuation line per `COPY`
+// that reached it (docs/cli/SPEC.md, "What a `COPY` fault looks like"): a line
+// and a column alone would be read as a place in the copybook the layout
+// names, which says something else there. A fault in the copybook's own text
+// is reported as `cobol-go` wrote it, as it always has been.
+type MemberFaultError struct {
+	// At is the entry, in the member.
+	At diag.Span
+
+	// Err is what `cobol-go` said.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *MemberFaultError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap gives up `cobol-go`'s fault.
+func (e *MemberFaultError) Unwrap() error { return e.Err }
+
+// Diagnostic is what the error says, and where.
+func (e *MemberFaultError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{Message: e.Err.Error(), Spans: []diag.Span{e.At}}
 }
 
 // Unwrap gives up the open failure.

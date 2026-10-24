@@ -321,3 +321,45 @@ func TestAFaultCobolGoFindsInsideANestedMemberPointsIntoIt(t *testing.T) {
 		t.Errorf("the fault does not carry the chain innermost first:\n%s", rendered)
 	}
 }
+
+// TestAMemberFileThatIsThereAndUnreadableIsNotCalledMissing: a form naming a
+// directory is reported with what reading it said.
+func TestAMemberFileThatIsThereAndUnreadableIsNotCalledMissing(t *testing.T) {
+	t.Parallel()
+
+	forms := []string{`(copy-member STDHDR "cpy")`, composedForms[1], composedForms[2]}
+
+	path, dir := composedProject(t, composedLayout(forms, ""), composedFiles())
+
+	rendered, _ := loadFault(t, path, dir)
+
+	if !strings.HasPrefix(rendered, "<dir>/orders.sexpr:5:21: the copy member at cpy could not be read\n  looked for <dir>/cpy\n  ") {
+		t.Errorf("an unreadable member reads as\n%s", rendered)
+	}
+}
+
+// TestALayoutFaultInAMemberPointsIntoTheMember: a fault `cobol-go` finds laying
+// the record out, at an entry a member contributed, is in the member with the
+// chain that reached it.
+func TestALayoutFaultInAMemberPointsIntoTheMember(t *testing.T) {
+	t.Parallel()
+
+	files := composedFiles()
+	files["cpy/stdtrl.cpy"] = fixed(
+		"    05  STD-TRAILER       PIC X(2) COMP-3.",
+	)
+
+	path, dir := composedProject(t, composedLayout(composedForms, ""), files)
+
+	rendered, err := loadFault(t, path, dir)
+
+	var member *project.MemberFaultError
+	if !errors.As(err, &member) {
+		t.Fatalf("the fault is not a MemberFaultError:\n%s", rendered)
+	}
+
+	if !strings.HasPrefix(rendered, "cpy/stdtrl.cpy:1:11: ") ||
+		!strings.HasSuffix(rendered, "\n  cpy/orddtl.cpy:2:11: copied by COPY STDTRL OF GLLIB\n  cpy/order-detail.cpy:3:11: copied by COPY ORDDTL") {
+		t.Errorf("the fault does not point into the member with its chain:\n%s", rendered)
+	}
+}

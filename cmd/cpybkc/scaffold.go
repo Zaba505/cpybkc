@@ -97,7 +97,7 @@ func scaffold(ctx context.Context, inv invocation, log *slog.Logger) error {
 	// diagnostic about it.
 	members := make([]copymember.Form, 0, len(inv.copyMembers))
 	for _, given := range inv.copyMembers {
-		members = append(members, copymember.Form{Member: given.member, Path: given.path, File: given.path})
+		members = append(members, copymember.Form{Member: given.member, Path: given.path, File: given.path, Given: given.value})
 	}
 
 	derived, err := scaffolding.Derive(books, members...)

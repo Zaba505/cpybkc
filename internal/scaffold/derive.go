@@ -283,7 +283,7 @@ func Derive(books []Copybook, members ...copymember.Form) (*Scaffold, error) {
 		files = append(files, File{Name: DefinitionsName(book.Path), Bytes: text})
 	}
 
-	notes := unnamedMembers(resolver)
+	notes := unnamedMembers(resolver, faults.Failed())
 
 	if faults.Failed() {
 		if len(notes) == 0 {
@@ -301,7 +301,14 @@ func Derive(books []Copybook, members ...copymember.Form) (*Scaffold, error) {
 
 // unnamedMembers are the notes owed about members no `COPY` named: one per
 // `--copy-member`, naming the value as it was typed.
-func unnamedMembers(resolver *copymember.Resolver) []string {
+//
+// refused says that some copybook could not be read through. `cobol-go`
+// expands a `COPY` as it reads, so a parse that stopped never reached the
+// `COPY` statements after the fault, and a member only those name was not
+// named by any `COPY` that was read — which is all the note can say then. It
+// says exactly that rather than nothing, because the note is most useful
+// beside a refused `COPY`: a misspelled member reads as one there.
+func unnamedMembers(resolver *copymember.Resolver, refused bool) []string {
 	var notes []string
 
 	for i, form := range resolver.Forms() {
@@ -309,10 +316,14 @@ func unnamedMembers(resolver *copymember.Resolver) []string {
 			continue
 		}
 
-		notes = append(notes, fmt.Sprintf(
-			"--copy-member %s=%s: no COPY in any copybook names %s, so %s was not read",
-			form.Member, form.Path, form.Member, form.Path,
-		))
+		note := fmt.Sprintf("--copy-member %s: no COPY in any copybook names %s, so %s was not read",
+			form.Typed(), form.Member, form.Path)
+		if refused {
+			note = fmt.Sprintf("--copy-member %s: no COPY read before a copybook was refused names %s, "+
+				"so %s was not read; a COPY after the refusal may still name it", form.Typed(), form.Member, form.Path)
+		}
+
+		notes = append(notes, note)
 	}
 
 	return notes

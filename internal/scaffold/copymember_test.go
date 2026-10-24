@@ -179,7 +179,7 @@ func TestAMemberFileThatCannotBeOpenedIsARefusal(t *testing.T) {
 
 	rendered := diag.Render(err)
 
-	if !strings.HasPrefix(rendered, "cpy/order-detail.cpy:2:12: no copy member at "+given[0].Path+", the file --copy-member gives STDHDR\n  looked for ") {
+	if !strings.HasPrefix(rendered, "cpy/order-detail.cpy:2:12: no copy member at "+given[0].Path+", which --copy-member STDHDR="+given[0].Path+" gives\n  looked for ") {
 		t.Errorf("the fault reads\n%s", rendered)
 	}
 }
@@ -250,5 +250,71 @@ func TestTwoMembersACopyCannotTellApartAreRefused(t *testing.T) {
 	var twice *MemberTwiceError
 	if !errors.As(err, &twice) {
 		t.Fatalf("the fault is %v, want two members naming one", err)
+	}
+}
+
+// TestAMemberFileThatCannotBeReadIsNotCalledMissing: a path that is there and
+// is no readable file is said to be that, with what reading it said.
+func TestAMemberFileThatCannotBeReadIsNotCalledMissing(t *testing.T) {
+	t.Parallel()
+
+	given := members(t, nil, member("STDHDR", "", "."))
+
+	_, err := Derive([]Copybook{book("cpy/header.cpy", "       01  HEADER-REC.\n           COPY STDHDR.\n")}, given...)
+
+	rendered := diag.Render(err)
+
+	if !strings.Contains(rendered, "could not be read") || strings.Contains(rendered, "no copy member at") {
+		t.Errorf("an unreadable member reads as\n%s\nwant it said to be unreadable rather than missing", rendered)
+	}
+}
+
+// TestANoteAfterARefusalSaysTheReadingStopped: a COPY after the one refused was
+// never read, so the member it names is noted as named by no COPY that was
+// read, not by none at all.
+func TestANoteAfterARefusalSaysTheReadingStopped(t *testing.T) {
+	t.Parallel()
+
+	given := members(t, composedMembers, member("STDHDR", "", "stdhdr.cpy"), member("ORDDTL", "", "orddtl.cpy"))
+
+	const misspelled = `       01  ORDER-DETAIL-REC.
+           COPY STDHRD.
+           COPY ORDDTL.
+`
+
+	_, err := Derive([]Copybook{book("cpy/order-detail.cpy", misspelled)}, given...)
+
+	var noted Noted
+	if !errors.As(err, &noted) {
+		t.Fatalf("the refusal carries no notes: %v", err)
+	}
+
+	for _, note := range noted.Notes() {
+		if strings.Contains(note, "no COPY in any copybook names") {
+			t.Errorf("a note claims more than the refused reading can know: %s", note)
+		}
+	}
+
+	if len(noted.Notes()) != 2 || !strings.Contains(noted.Notes()[1], "a COPY after the refusal may still name it") {
+		t.Errorf("the notes are %q, want both members noted as unread before the refusal", noted.Notes())
+	}
+}
+
+// TestANoteQuotesTheValueAsTyped: a member written as a literal, or with IN,
+// is noted as it was typed and not rebuilt from what it means.
+func TestANoteQuotesTheValueAsTyped(t *testing.T) {
+	t.Parallel()
+
+	form := member("UNUSED", "PAYLIB", "unused.cpy")
+	form.File = form.Path
+	form.Given = "'UNUSED' IN PAYLIB=unused.cpy"
+
+	derived, err := Derive([]Copybook{book("cpy/header.cpy", "       01  HEADER-REC.\n           05  H PIC X.\n")}, form)
+	if err != nil {
+		t.Fatalf("derive:\n%s", diag.Render(err))
+	}
+
+	if notes := derived.Notes(); len(notes) != 1 || !strings.HasPrefix(notes[0], "--copy-member 'UNUSED' IN PAYLIB=unused.cpy: ") {
+		t.Errorf("the notes are %q, want the value quoted as typed", notes)
 	}
 }

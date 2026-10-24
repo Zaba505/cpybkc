@@ -103,6 +103,23 @@ type Form struct {
 	// File is the path the resolver opens: Path, resolved against the
 	// directory of whatever stated it.
 	File string
+
+	// Given is the whole `--copy-member` value as it was typed, which is what
+	// a diagnostic or a note about one quotes, and empty for a layout's form,
+	// whose diagnostics point at it instead. A value rebuilt from Member and
+	// Path would lose a literal's delimiters and an IN, and could split at a
+	// different `=` from the one typed.
+	Given string
+}
+
+// Typed is the form as a message quotes it: the `--copy-member` value as it was
+// typed, where there is one, and the member and its path otherwise.
+func (f Form) Typed() string {
+	if f.Given != "" {
+		return f.Given
+	}
+
+	return f.Member.String() + "=" + f.Path
 }
 
 // Resolver is the one resolver: a member map, and the member files it has read.
@@ -232,6 +249,12 @@ type UnreadableError struct {
 func (e *UnreadableError) Error() string {
 	return fmt.Sprintf("no copy member at %s: %v", e.Form.Path, e.Err)
 }
+
+// Missing reports whether the file is not there at all, as against there and
+// unreadable — a directory, a file without permission, a failed read — which a
+// diagnostic has to tell apart: a reader told a file is missing goes and finds
+// it exactly where the message says it is not.
+func (e *UnreadableError) Missing() bool { return errors.Is(e.Err, fs.ErrNotExist) }
 
 // Unwrap gives up the read failure, which wraps [fs.ErrNotExist] for a file
 // that is not there, and is made to for one that is there and cannot be read,
