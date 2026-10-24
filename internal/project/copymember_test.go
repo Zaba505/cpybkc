@@ -83,7 +83,7 @@ func composedProject(t *testing.T, layout string, files map[string]string) (stri
 
 // loadFault loads a project that must fail, and returns its rendered
 // diagnostics with the directory written as <dir>.
-func loadFault(t *testing.T, path, dir string) (error, string) {
+func loadFault(t *testing.T, path, dir string) (string, error) {
 	t.Helper()
 
 	_, err := project.Load(path)
@@ -91,7 +91,7 @@ func loadFault(t *testing.T, path, dir string) (error, string) {
 		t.Fatal("the project resolves, want a fault")
 	}
 
-	return err, strings.ReplaceAll(diag.Render(err), dir, "<dir>")
+	return strings.ReplaceAll(diag.Render(err), dir, "<dir>"), err
 }
 
 // TestACopybookComposedWithCopyResolvesThroughTheLayoutsForms is a run reading
@@ -125,7 +125,7 @@ func TestACopyNamingNoFormIsAFaultAtTheCopy(t *testing.T) {
 
 	path, dir := composedProject(t, composedLayout([]string{composedForms[0], composedForms[2]}, ""), composedFiles())
 
-	err, rendered := loadFault(t, path, dir)
+	rendered, err := loadFault(t, path, dir)
 
 	var unnamed *copymember.UnnamedMemberError
 	if !errors.As(err, &unnamed) {
@@ -147,7 +147,7 @@ func TestACopyInsideAMemberNamingNoFormCarriesItsChain(t *testing.T) {
 
 	path, dir := composedProject(t, composedLayout(composedForms[:2], ""), composedFiles())
 
-	_, rendered := loadFault(t, path, dir)
+	rendered, _ := loadFault(t, path, dir)
 
 	const want = "cpy/orddtl.cpy:2:11: COPY STDTRL OF GLLIB names no copy-member in the layout\n" +
 		"  cpy/order-detail.cpy:3:11: copied by COPY ORDDTL\n" +
@@ -168,7 +168,7 @@ func TestAMemberFileThatIsNotThereNamesBothPaths(t *testing.T) {
 
 	path, dir := composedProject(t, composedLayout(composedForms, ""), files)
 
-	err, rendered := loadFault(t, path, dir)
+	rendered, err := loadFault(t, path, dir)
 
 	var missing *project.MissingCopyMemberError
 	if !errors.As(err, &missing) {
@@ -195,7 +195,7 @@ func TestACopyCycleIsAFaultAtTheCopyClosingIt(t *testing.T) {
 
 	path, dir := composedProject(t, composedLayout(composedForms, ""), files)
 
-	err, rendered := loadFault(t, path, dir)
+	rendered, err := loadFault(t, path, dir)
 
 	var cycle *copymember.CycleError
 	if !errors.As(err, &cycle) {
@@ -220,7 +220,7 @@ func TestAFormNoCopyReachesIsAnErrorAndItsFileIsNotOpened(t *testing.T) {
 
 	path, dir := composedProject(t, composedLayout(forms, ""), composedFiles())
 
-	err, rendered := loadFault(t, path, dir)
+	rendered, err := loadFault(t, path, dir)
 
 	var unreached *project.UnreachedCopyMemberError
 	if !errors.As(err, &unreached) {
@@ -284,7 +284,7 @@ func TestAnItemReferenceIntoAMemberPointsIntoTheMember(t *testing.T) {
 
 	path, dir := composedProject(t, layout, composedFiles())
 
-	err, rendered := loadFault(t, path, dir)
+	rendered, err := loadFault(t, path, dir)
 
 	var unknown *project.UnknownItemError
 	if !errors.As(err, &unknown) {
@@ -311,7 +311,7 @@ func TestAFaultCobolGoFindsInsideANestedMemberPointsIntoIt(t *testing.T) {
 
 	path, dir := composedProject(t, composedLayout(composedForms, ""), files)
 
-	_, rendered := loadFault(t, path, dir)
+	rendered, _ := loadFault(t, path, dir)
 
 	if !strings.HasPrefix(rendered, `<dir>/orders.sexpr:8:22: the copybook "cpy/order-detail.cpy" could not be read`+"\n  cpy/stdtrl.cpy:1:33: ") {
 		t.Errorf("the fault does not point into the member:\n%s", rendered)

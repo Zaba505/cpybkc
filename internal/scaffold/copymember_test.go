@@ -7,6 +7,7 @@ package scaffold
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -210,10 +211,7 @@ func TestACopyCycleIsARefusal(t *testing.T) {
 func TestAFaultInsideAMemberPointsIntoTheMember(t *testing.T) {
 	t.Parallel()
 
-	files := map[string]string{}
-	for name, body := range composedMembers {
-		files[name] = body
-	}
+	files := maps.Clone(composedMembers)
 
 	files["stdtrl.cpy"] = "           05  STD-TRAILER         PIC Q.\n"
 
