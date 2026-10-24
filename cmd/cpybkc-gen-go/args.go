@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 	"slices"
 	"strings"
 	"unicode"
@@ -257,6 +258,12 @@ func (o *options) set(pair string) error {
 			return fmt.Errorf("%s %s was passed more than once", optFlag, key)
 		}
 
+		if isPredeclared(value) {
+			return fmt.Errorf(
+				"%s=%q is a predeclared Go identifier: a receiver spelled like one shadows it inside every generated method, and a predeclared identifier has no other spelling the methods could use instead",
+				receiverOption, value)
+		}
+
 		if !isReceiverName(value) {
 			return fmt.Errorf(
 				"%s=%q is not a Go method receiver: it must be an unexported identifier that is not a blank",
@@ -315,8 +322,31 @@ func isPackageName(s string) bool {
 // identifier this generator munges from a name is exported, so an unexported
 // receiver is one that cannot collide with a field of the record it is a
 // receiver for, whatever the copybook spells.
+//
+// Fields are not the only names in scope inside a generated method, though.
+// The generator declares its own there too: the codec.Reader or codec.Writer
+// parameter, the packages the file imports, the locals the body declares and
+// the package-level helpers it calls. Those are not refused. The generator
+// renames whichever of them a receiver would shadow, so `r` and `w` — the
+// letters a shop picks for a record decoder, and exactly the ones the methods'
+// parameters are spelled — work on every layout. See [clearReceiver] for why
+// renaming was chosen over refusing.
+//
+// What cannot be renamed is a predeclared identifier: `len`, `nil` and `append`
+// have no other spelling, and a receiver called one of them would shadow it.
+// Every predeclared identifier is refused, including the ones no generated
+// method uses today, because which of them a method reaches depends on the
+// layout — and a receiver that is accepted for one layout and fails to compile
+// for another is the fault this rule exists to rule out.
 func isReceiverName(s string) bool {
-	return token.IsIdentifier(s) && s != "_" && !token.IsExported(s)
+	return token.IsIdentifier(s) && s != "_" && !token.IsExported(s) && !isPredeclared(s)
+}
+
+// isPredeclared reports whether s is one of the identifiers Go declares in the
+// universe block: a type such as `int`, a constant such as `true` or `iota`,
+// the zero value `nil`, or a function such as `len`.
+func isPredeclared(s string) bool {
+	return types.Universe.Lookup(s) != nil
 }
 
 // isImportPath reports whether s can stand inside the quotes of an import

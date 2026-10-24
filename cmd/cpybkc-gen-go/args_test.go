@@ -6,6 +6,9 @@
 package main
 
 import (
+	"go/token"
+	"go/types"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -90,6 +93,72 @@ func TestParseReadsTheReceiver(t *testing.T) {
 
 	if inv.options.receiverName() != "o" {
 		t.Errorf("%s is %q, want o", receiverOption, inv.options.receiverName())
+	}
+}
+
+// TestParseAcceptsTheLettersTheGeneratorAlsoSpends covers the receivers a
+// generated method already has a name spelled like: its codec.Reader and
+// codec.Writer parameters, the import every body calls through, and the local
+// every body declares.
+//
+// They are accepted because the generator moves its own names out of the way
+// of the receiver rather than refusing it; [clearReceiver] is where, and
+// [TestEveryNameInScopeInsideAMethodIsRefusedOrCompiles] is what holds the
+// packages they generate to compiling.
+func TestParseAcceptsTheLettersTheGeneratorAlsoSpends(t *testing.T) {
+	t.Parallel()
+
+	for _, receiver := range []string{"r", "w", "codec", "err"} {
+		inv, err := parse([]string{
+			descriptorFlag, "/tmp/one",
+			outFlag, "/tmp/two",
+			optFlag, packageNameOption + "=orders",
+			optFlag, receiverOption + "=" + receiver,
+		})
+		if err != nil {
+			t.Errorf("parse refused %s=%s: %v", receiverOption, receiver, err)
+
+			continue
+		}
+
+		if inv.options.receiverName() != receiver {
+			t.Errorf("%s is %q, want %s", receiverOption, inv.options.receiverName(), receiver)
+		}
+	}
+}
+
+// TestParseRefusesAPredeclaredReceiver is the one kind of name the generator
+// cannot move out of a receiver's way: `len` has no other spelling.
+//
+// Every predeclared identifier is refused, not only the ones a generated method
+// uses today, because which of them a method reaches depends on the layout. The
+// refusal happens while the options are parsed, before anything is written, and
+// it names the receiver and says why.
+func TestParseRefusesAPredeclaredReceiver(t *testing.T) {
+	t.Parallel()
+
+	for _, receiver := range types.Universe.Names() {
+		if token.IsExported(receiver) {
+			continue
+		}
+
+		_, err := parse([]string{
+			descriptorFlag, "/tmp/one",
+			outFlag, "/tmp/two",
+			optFlag, packageNameOption + "=orders",
+			optFlag, receiverOption + "=" + receiver,
+		})
+		if err == nil {
+			t.Errorf("parse accepted %s=%s, which is predeclared", receiverOption, receiver)
+
+			continue
+		}
+
+		for _, want := range []string{receiverOption, strconv.Quote(receiver), "predeclared", "shadows"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal of %s=%s reads %q and does not say %q", receiverOption, receiver, err, want)
+			}
+		}
 	}
 }
 

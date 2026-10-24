@@ -43,6 +43,12 @@ go.work.sum
 # killed run left behind. See testdata/conformance/README.md.
 /internal/conformance/goadapter/_scratch/
 
+# Where cpybkc-gen-go's receiver test generates the packages it runs the
+# generated tests of. Kept out of ./... by its leading underscore for the same
+# reason as the scratch tree above, removed by the run that made it, and listed
+# here for the one a killed run left behind.
+/cmd/cpybkc-gen-go/_receivers/
+
 # What `go build ./...` inside a worked conversion leaves behind. Each of those
 # modules is one `package main` deliberately — a schema design is not a thing to
 # import — so building one writes a binary named after its directory.

@@ -122,54 +122,54 @@ var (
 // supplies".
 var zeroFill = make([]byte, 60)
 
-// UnmarshalCOBOL reads one ART-HEADER-REC out of r, in the order docs/ir/SPEC.md
+// UnmarshalCOBOL reads one ART-HEADER-REC out of r0, in the order docs/ir/SPEC.md
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
+// It is codec's Unmarshaler. The Encoding is r0's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 //
-// The binary width staircase is the one of the five r may not replace: every
-// offset here was computed under Encoding's, and r's is refused where it is
+// The binary width staircase is the one of the five r0 may not replace: every
+// offset here was computed under Encoding's, and r0's is refused where it is
 // another, before any item is read.
-func (a *ArtHeaderRec) UnmarshalCOBOL(r *codec.Reader) error {
+func (r *ArtHeaderRec) UnmarshalCOBOL(r0 *codec.Reader) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
-	// staircase, so r's encoding is refused where it carries another.
-	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+	// staircase, so r0's encoding is refused where it carries another.
+	if err = refuseStaircase(r0.Encoding().Binary); err != nil {
 		return err
 	}
 
-	if a.ArhRecType, err = r.ReadAlphanumeric(1); err != nil {
+	if r.ArhRecType, err = r0.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading ARH-REC-TYPE: %w", err)
 	}
 
-	if a.ArhCompany, err = r.ReadAlphanumeric(3); err != nil {
+	if r.ArhCompany, err = r0.ReadAlphanumeric(3); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading ARH-COMPANY: %w", err)
 	}
 
-	if a.ArhRunDate, err = r.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
+	if r.ArhRunDate, err = r0.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading ARH-RUN-DATE: %w", err)
 	}
 
-	if a.ArhCycle, err = r.ReadAlphanumeric(1); err != nil {
+	if r.ArhCycle, err = r0.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading ARH-CYCLE: %w", err)
 	}
 
-	if a.slack[0], err = r.ReadBytes(1); err != nil {
+	if r.slack[0], err = r0.ReadBytes(1); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading the 1 byte no item of it covers: %w", err)
 	}
 
-	if a.ArhBatchNo, err = r.ReadBinaryInt16(4); err != nil {
+	if r.ArhBatchNo, err = r0.ReadBinaryInt16(4); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading ARH-BATCH-NO: %w", err)
 	}
 
-	if a.ArhRelease, err = r.ReadAlphanumeric(4); err != nil {
+	if r.ArhRelease, err = r0.ReadAlphanumeric(4); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading ARH-RELEASE: %w", err)
 	}
 
-	if a.filler[0], err = r.ReadBytes(60); err != nil {
+	if r.filler[0], err = r0.ReadBytes(60); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: reading the 60 bytes of an item the copybook gives no data-name: %w", err)
 	}
 
@@ -191,7 +191,7 @@ func (a *ArtHeaderRec) UnmarshalCOBOL(r *codec.Reader) error {
 // The binary width staircase is not the caller's either: every offset here was
 // computed under Encoding's, and w's is refused where it is another, before
 // any item is written.
-func (a *ArtHeaderRec) MarshalCOBOL(w *codec.Writer) error {
+func (r *ArtHeaderRec) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
@@ -200,52 +200,52 @@ func (a *ArtHeaderRec) MarshalCOBOL(w *codec.Writer) error {
 		return err
 	}
 
-	if err = w.WriteAlphanumeric(a.ArhRecType, 1); err != nil {
+	if err = w.WriteAlphanumeric(r.ArhRecType, 1); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: writing ARH-REC-TYPE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArhCompany, 3); err != nil {
+	if err = w.WriteAlphanumeric(r.ArhCompany, 3); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: writing ARH-COMPANY: %w", err)
 	}
 
-	if err = w.WriteZonedInt32(a.ArhRunDate, 8, codec.SignUnsigned); err != nil {
+	if err = w.WriteZonedInt32(r.ArhRunDate, 8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: writing ARH-RUN-DATE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArhCycle, 1); err != nil {
+	if err = w.WriteAlphanumeric(r.ArhCycle, 1); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: writing ARH-CYCLE: %w", err)
 	}
 
 	switch {
-	case a.slack[0] == nil:
+	case r.slack[0] == nil:
 		if err = w.WriteBytes(zeroFill[:1]); err != nil {
 			return fmt.Errorf("ART-HEADER-REC: writing 1 zero byte for slack this record carries none for: %w", err)
 		}
-	case len(a.slack[0]) != 1:
-		return fmt.Errorf("ART-HEADER-REC: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 1 byte is %d", len(a.slack[0]))
+	case len(r.slack[0]) != 1:
+		return fmt.Errorf("ART-HEADER-REC: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 1 byte is %d", len(r.slack[0]))
 	default:
-		if err = w.WriteBytes(a.slack[0]); err != nil {
+		if err = w.WriteBytes(r.slack[0]); err != nil {
 			return fmt.Errorf("ART-HEADER-REC: writing the 1 byte no item of it covers: %w", err)
 		}
 	}
 
-	if err = w.WriteBinaryInt16(a.ArhBatchNo, 4, codec.Signed); err != nil {
+	if err = w.WriteBinaryInt16(r.ArhBatchNo, 4, codec.Signed); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: writing ARH-BATCH-NO: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArhRelease, 4); err != nil {
+	if err = w.WriteAlphanumeric(r.ArhRelease, 4); err != nil {
 		return fmt.Errorf("ART-HEADER-REC: writing ARH-RELEASE: %w", err)
 	}
 
 	switch {
-	case a.filler[0] == nil:
+	case r.filler[0] == nil:
 		if err = w.WriteBytes(zeroFill[:60]); err != nil {
 			return fmt.Errorf("ART-HEADER-REC: writing 60 zero bytes for an item the copybook gives no data-name and this record carries none for: %w", err)
 		}
-	case len(a.filler[0]) != 60:
-		return fmt.Errorf("ART-HEADER-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 60 bytes the copybook gives no data-name is %d", len(a.filler[0]))
+	case len(r.filler[0]) != 60:
+		return fmt.Errorf("ART-HEADER-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 60 bytes the copybook gives no data-name is %d", len(r.filler[0]))
 	default:
-		if err = w.WriteBytes(a.filler[0]); err != nil {
+		if err = w.WriteBytes(r.filler[0]); err != nil {
 			return fmt.Errorf("ART-HEADER-REC: writing the 60 bytes of an item the copybook gives no data-name: %w", err)
 		}
 	}
@@ -253,46 +253,46 @@ func (a *ArtHeaderRec) MarshalCOBOL(w *codec.Writer) error {
 	return nil
 }
 
-// UnmarshalCOBOL reads one ART-TRAILER-REC out of r, in the order docs/ir/SPEC.md
+// UnmarshalCOBOL reads one ART-TRAILER-REC out of r0, in the order docs/ir/SPEC.md
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
+// It is codec's Unmarshaler. The Encoding is r0's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 //
-// The binary width staircase is the one of the five r may not replace: every
-// offset here was computed under Encoding's, and r's is refused where it is
+// The binary width staircase is the one of the five r0 may not replace: every
+// offset here was computed under Encoding's, and r0's is refused where it is
 // another, before any item is read.
-func (a *ArtTrailerRec) UnmarshalCOBOL(r *codec.Reader) error {
+func (r *ArtTrailerRec) UnmarshalCOBOL(r0 *codec.Reader) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
-	// staircase, so r's encoding is refused where it carries another.
-	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+	// staircase, so r0's encoding is refused where it carries another.
+	if err = refuseStaircase(r0.Encoding().Binary); err != nil {
 		return err
 	}
 
-	if a.AtrRecType, err = r.ReadAlphanumeric(1); err != nil {
+	if r.AtrRecType, err = r0.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: reading ATR-REC-TYPE: %w", err)
 	}
 
-	if a.AtrRecordCount, err = r.ReadZonedInt32(7, codec.SignUnsigned); err != nil {
+	if r.AtrRecordCount, err = r0.ReadZonedInt32(7, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: reading ATR-RECORD-COUNT: %w", err)
 	}
 
-	if a.AtrNetTotal, err = r.ReadZonedInt64(13, codec.SignTrailingSeparate); err != nil {
+	if r.AtrNetTotal, err = r0.ReadZonedInt64(13, codec.SignTrailingSeparate); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: reading ATR-NET-TOTAL: %w", err)
 	}
 
-	if a.slack[0], err = r.ReadBytes(2); err != nil {
+	if r.slack[0], err = r0.ReadBytes(2); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: reading the 2 bytes no item of it covers: %w", err)
 	}
 
-	if a.AtrHash, err = r.ReadBinaryInt32(9); err != nil {
+	if r.AtrHash, err = r0.ReadBinaryInt32(9); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: reading ATR-HASH: %w", err)
 	}
 
-	if a.filler[0], err = r.ReadBytes(52); err != nil {
+	if r.filler[0], err = r0.ReadBytes(52); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: reading the 52 bytes of an item the copybook gives no data-name: %w", err)
 	}
 
@@ -314,7 +314,7 @@ func (a *ArtTrailerRec) UnmarshalCOBOL(r *codec.Reader) error {
 // The binary width staircase is not the caller's either: every offset here was
 // computed under Encoding's, and w's is refused where it is another, before
 // any item is written.
-func (a *ArtTrailerRec) MarshalCOBOL(w *codec.Writer) error {
+func (r *ArtTrailerRec) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
@@ -323,44 +323,44 @@ func (a *ArtTrailerRec) MarshalCOBOL(w *codec.Writer) error {
 		return err
 	}
 
-	if err = w.WriteAlphanumeric(a.AtrRecType, 1); err != nil {
+	if err = w.WriteAlphanumeric(r.AtrRecType, 1); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: writing ATR-REC-TYPE: %w", err)
 	}
 
-	if err = w.WriteZonedInt32(a.AtrRecordCount, 7, codec.SignUnsigned); err != nil {
+	if err = w.WriteZonedInt32(r.AtrRecordCount, 7, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: writing ATR-RECORD-COUNT: %w", err)
 	}
 
-	if err = w.WriteZonedInt64(a.AtrNetTotal, 13, codec.SignTrailingSeparate); err != nil {
+	if err = w.WriteZonedInt64(r.AtrNetTotal, 13, codec.SignTrailingSeparate); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: writing ATR-NET-TOTAL: %w", err)
 	}
 
 	switch {
-	case a.slack[0] == nil:
+	case r.slack[0] == nil:
 		if err = w.WriteBytes(zeroFill[:2]); err != nil {
 			return fmt.Errorf("ART-TRAILER-REC: writing 2 zero bytes for slack this record carries none for: %w", err)
 		}
-	case len(a.slack[0]) != 2:
-		return fmt.Errorf("ART-TRAILER-REC: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d", len(a.slack[0]))
+	case len(r.slack[0]) != 2:
+		return fmt.Errorf("ART-TRAILER-REC: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 2 bytes is %d", len(r.slack[0]))
 	default:
-		if err = w.WriteBytes(a.slack[0]); err != nil {
+		if err = w.WriteBytes(r.slack[0]); err != nil {
 			return fmt.Errorf("ART-TRAILER-REC: writing the 2 bytes no item of it covers: %w", err)
 		}
 	}
 
-	if err = w.WriteBinaryInt32(a.AtrHash, 9, codec.Signed); err != nil {
+	if err = w.WriteBinaryInt32(r.AtrHash, 9, codec.Signed); err != nil {
 		return fmt.Errorf("ART-TRAILER-REC: writing ATR-HASH: %w", err)
 	}
 
 	switch {
-	case a.filler[0] == nil:
+	case r.filler[0] == nil:
 		if err = w.WriteBytes(zeroFill[:52]); err != nil {
 			return fmt.Errorf("ART-TRAILER-REC: writing 52 zero bytes for an item the copybook gives no data-name and this record carries none for: %w", err)
 		}
-	case len(a.filler[0]) != 52:
-		return fmt.Errorf("ART-TRAILER-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 52 bytes the copybook gives no data-name is %d", len(a.filler[0]))
+	case len(r.filler[0]) != 52:
+		return fmt.Errorf("ART-TRAILER-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 52 bytes the copybook gives no data-name is %d", len(r.filler[0]))
 	default:
-		if err = w.WriteBytes(a.filler[0]); err != nil {
+		if err = w.WriteBytes(r.filler[0]); err != nil {
 			return fmt.Errorf("ART-TRAILER-REC: writing the 52 bytes of an item the copybook gives no data-name: %w", err)
 		}
 	}
@@ -368,66 +368,66 @@ func (a *ArtTrailerRec) MarshalCOBOL(w *codec.Writer) error {
 	return nil
 }
 
-// UnmarshalCOBOL reads one ART-DETAIL-REC out of r, in the order docs/ir/SPEC.md
+// UnmarshalCOBOL reads one ART-DETAIL-REC out of r0, in the order docs/ir/SPEC.md
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
+// It is codec's Unmarshaler. The Encoding is r0's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 //
-// The binary width staircase is the one of the five r may not replace: every
-// offset here was computed under Encoding's, and r's is refused where it is
+// The binary width staircase is the one of the five r0 may not replace: every
+// offset here was computed under Encoding's, and r0's is refused where it is
 // another, before any item is read.
-func (a *ArtInvoiceRec) UnmarshalCOBOL(r *codec.Reader) error {
+func (r *ArtInvoiceRec) UnmarshalCOBOL(r0 *codec.Reader) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
-	// staircase, so r's encoding is refused where it carries another.
-	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+	// staircase, so r0's encoding is refused where it carries another.
+	if err = refuseStaircase(r0.Encoding().Binary); err != nil {
 		return err
 	}
 
-	if a.ArdRecType, err = r.ReadAlphanumeric(1); err != nil {
+	if r.ArdRecType, err = r0.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-REC-TYPE: %w", err)
 	}
 
-	if a.ArdCustomer, err = r.ReadAlphanumeric(8); err != nil {
+	if r.ArdCustomer, err = r0.ReadAlphanumeric(8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-CUSTOMER: %w", err)
 	}
 
-	if a.ArdDocument, err = r.ReadAlphanumeric(10); err != nil {
+	if r.ArdDocument, err = r0.ReadAlphanumeric(10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-DOCUMENT: %w", err)
 	}
 
-	if a.ArdPostDate, err = r.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
+	if r.ArdPostDate, err = r0.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-POST-DATE: %w", err)
 	}
 
-	if a.ArdInvoice.AriDueDate, err = r.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
+	if r.ArdInvoice.AriDueDate, err = r0.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARI-DUE-DATE: %w", err)
 	}
 
-	if a.ArdInvoice.AriAmount, err = r.ReadPackedInt64(11); err != nil {
+	if r.ArdInvoice.AriAmount, err = r0.ReadPackedInt64(11); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARI-AMOUNT: %w", err)
 	}
 
-	if a.ArdInvoice.AriTerms, err = r.ReadAlphanumeric(4); err != nil {
+	if r.ArdInvoice.AriTerms, err = r0.ReadAlphanumeric(4); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARI-TERMS: %w", err)
 	}
 
-	if a.ArdInvoice.AriTaxAmount, err = r.ReadPackedInt32(9); err != nil {
+	if r.ArdInvoice.AriTaxAmount, err = r0.ReadPackedInt32(9); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARI-TAX-AMOUNT: %w", err)
 	}
 
-	if a.ArdInvoice.AriPoNumber, err = r.ReadAlphanumeric(17); err != nil {
+	if r.ArdInvoice.AriPoNumber, err = r0.ReadAlphanumeric(17); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARI-PO-NUMBER: %w", err)
 	}
 
-	if a.ArdOperator, err = r.ReadAlphanumeric(6); err != nil {
+	if r.ArdOperator, err = r0.ReadAlphanumeric(6); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-OPERATOR: %w", err)
 	}
 
-	if a.filler[0], err = r.ReadBytes(7); err != nil {
+	if r.filler[0], err = r0.ReadBytes(7); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading the 7 bytes of an item the copybook gives no data-name: %w", err)
 	}
 
@@ -449,7 +449,7 @@ func (a *ArtInvoiceRec) UnmarshalCOBOL(r *codec.Reader) error {
 // The binary width staircase is not the caller's either: every offset here was
 // computed under Encoding's, and w's is refused where it is another, before
 // any item is written.
-func (a *ArtInvoiceRec) MarshalCOBOL(w *codec.Writer) error {
+func (r *ArtInvoiceRec) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
@@ -458,55 +458,55 @@ func (a *ArtInvoiceRec) MarshalCOBOL(w *codec.Writer) error {
 		return err
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdRecType, 1); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdRecType, 1); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-REC-TYPE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdCustomer, 8); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdCustomer, 8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-CUSTOMER: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdDocument, 10); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdDocument, 10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-DOCUMENT: %w", err)
 	}
 
-	if err = w.WriteZonedInt32(a.ArdPostDate, 8, codec.SignUnsigned); err != nil {
+	if err = w.WriteZonedInt32(r.ArdPostDate, 8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-POST-DATE: %w", err)
 	}
 
-	if err = w.WriteZonedInt32(a.ArdInvoice.AriDueDate, 8, codec.SignUnsigned); err != nil {
+	if err = w.WriteZonedInt32(r.ArdInvoice.AriDueDate, 8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARI-DUE-DATE: %w", err)
 	}
 
-	if err = w.WritePackedInt64(a.ArdInvoice.AriAmount, 11, codec.Signed); err != nil {
+	if err = w.WritePackedInt64(r.ArdInvoice.AriAmount, 11, codec.Signed); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARI-AMOUNT: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdInvoice.AriTerms, 4); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdInvoice.AriTerms, 4); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARI-TERMS: %w", err)
 	}
 
-	if err = w.WritePackedInt32(a.ArdInvoice.AriTaxAmount, 9, codec.Signed); err != nil {
+	if err = w.WritePackedInt32(r.ArdInvoice.AriTaxAmount, 9, codec.Signed); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARI-TAX-AMOUNT: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdInvoice.AriPoNumber, 17); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdInvoice.AriPoNumber, 17); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARI-PO-NUMBER: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdOperator, 6); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdOperator, 6); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-OPERATOR: %w", err)
 	}
 
 	switch {
-	case a.filler[0] == nil:
+	case r.filler[0] == nil:
 		if err = w.WriteBytes(zeroFill[:7]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing 7 zero bytes for an item the copybook gives no data-name and this record carries none for: %w", err)
 		}
-	case len(a.filler[0]) != 7:
-		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 7 bytes the copybook gives no data-name is %d", len(a.filler[0]))
+	case len(r.filler[0]) != 7:
+		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 7 bytes the copybook gives no data-name is %d", len(r.filler[0]))
 	default:
-		if err = w.WriteBytes(a.filler[0]); err != nil {
+		if err = w.WriteBytes(r.filler[0]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing the 7 bytes of an item the copybook gives no data-name: %w", err)
 		}
 	}
@@ -514,62 +514,62 @@ func (a *ArtInvoiceRec) MarshalCOBOL(w *codec.Writer) error {
 	return nil
 }
 
-// UnmarshalCOBOL reads one ART-DETAIL-REC out of r, in the order docs/ir/SPEC.md
+// UnmarshalCOBOL reads one ART-DETAIL-REC out of r0, in the order docs/ir/SPEC.md
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
+// It is codec's Unmarshaler. The Encoding is r0's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 //
-// The binary width staircase is the one of the five r may not replace: every
-// offset here was computed under Encoding's, and r's is refused where it is
+// The binary width staircase is the one of the five r0 may not replace: every
+// offset here was computed under Encoding's, and r0's is refused where it is
 // another, before any item is read.
-func (a *ArtPaymentRec) UnmarshalCOBOL(r *codec.Reader) error {
+func (r *ArtPaymentRec) UnmarshalCOBOL(r0 *codec.Reader) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
-	// staircase, so r's encoding is refused where it carries another.
-	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+	// staircase, so r0's encoding is refused where it carries another.
+	if err = refuseStaircase(r0.Encoding().Binary); err != nil {
 		return err
 	}
 
-	if a.ArdRecType, err = r.ReadAlphanumeric(1); err != nil {
+	if r.ArdRecType, err = r0.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-REC-TYPE: %w", err)
 	}
 
-	if a.ArdCustomer, err = r.ReadAlphanumeric(8); err != nil {
+	if r.ArdCustomer, err = r0.ReadAlphanumeric(8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-CUSTOMER: %w", err)
 	}
 
-	if a.ArdDocument, err = r.ReadAlphanumeric(10); err != nil {
+	if r.ArdDocument, err = r0.ReadAlphanumeric(10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-DOCUMENT: %w", err)
 	}
 
-	if a.ArdPostDate, err = r.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
+	if r.ArdPostDate, err = r0.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-POST-DATE: %w", err)
 	}
 
-	if a.ArdPayment.ArpMethod, err = r.ReadAlphanumeric(2); err != nil {
+	if r.ArdPayment.ArpMethod, err = r0.ReadAlphanumeric(2); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARP-METHOD: %w", err)
 	}
 
-	if a.ArdPayment.ArpAmount, err = r.ReadZonedInt64(11, codec.SignLeadingSeparate); err != nil {
+	if r.ArdPayment.ArpAmount, err = r0.ReadZonedInt64(11, codec.SignLeadingSeparate); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARP-AMOUNT: %w", err)
 	}
 
-	if a.ArdPayment.ArpCheckNo, err = r.ReadAlphanumeric(10); err != nil {
+	if r.ArdPayment.ArpCheckNo, err = r0.ReadAlphanumeric(10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARP-CHECK-NO: %w", err)
 	}
 
-	if a.slack[0], err = r.ReadBytes(16); err != nil {
+	if r.slack[0], err = r0.ReadBytes(16); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading the 16 bytes no item of it covers: %w", err)
 	}
 
-	if a.ArdOperator, err = r.ReadAlphanumeric(6); err != nil {
+	if r.ArdOperator, err = r0.ReadAlphanumeric(6); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-OPERATOR: %w", err)
 	}
 
-	if a.filler[0], err = r.ReadBytes(7); err != nil {
+	if r.filler[0], err = r0.ReadBytes(7); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading the 7 bytes of an item the copybook gives no data-name: %w", err)
 	}
 
@@ -591,7 +591,7 @@ func (a *ArtPaymentRec) UnmarshalCOBOL(r *codec.Reader) error {
 // The binary width staircase is not the caller's either: every offset here was
 // computed under Encoding's, and w's is refused where it is another, before
 // any item is written.
-func (a *ArtPaymentRec) MarshalCOBOL(w *codec.Writer) error {
+func (r *ArtPaymentRec) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
@@ -600,60 +600,60 @@ func (a *ArtPaymentRec) MarshalCOBOL(w *codec.Writer) error {
 		return err
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdRecType, 1); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdRecType, 1); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-REC-TYPE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdCustomer, 8); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdCustomer, 8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-CUSTOMER: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdDocument, 10); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdDocument, 10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-DOCUMENT: %w", err)
 	}
 
-	if err = w.WriteZonedInt32(a.ArdPostDate, 8, codec.SignUnsigned); err != nil {
+	if err = w.WriteZonedInt32(r.ArdPostDate, 8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-POST-DATE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdPayment.ArpMethod, 2); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdPayment.ArpMethod, 2); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARP-METHOD: %w", err)
 	}
 
-	if err = w.WriteZonedInt64(a.ArdPayment.ArpAmount, 11, codec.SignLeadingSeparate); err != nil {
+	if err = w.WriteZonedInt64(r.ArdPayment.ArpAmount, 11, codec.SignLeadingSeparate); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARP-AMOUNT: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdPayment.ArpCheckNo, 10); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdPayment.ArpCheckNo, 10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARP-CHECK-NO: %w", err)
 	}
 
 	switch {
-	case a.slack[0] == nil:
+	case r.slack[0] == nil:
 		if err = w.WriteBytes(zeroFill[:16]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing 16 zero bytes for slack this record carries none for: %w", err)
 		}
-	case len(a.slack[0]) != 16:
-		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 16 bytes is %d", len(a.slack[0]))
+	case len(r.slack[0]) != 16:
+		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for a slack node of 16 bytes is %d", len(r.slack[0]))
 	default:
-		if err = w.WriteBytes(a.slack[0]); err != nil {
+		if err = w.WriteBytes(r.slack[0]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing the 16 bytes no item of it covers: %w", err)
 		}
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdOperator, 6); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdOperator, 6); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-OPERATOR: %w", err)
 	}
 
 	switch {
-	case a.filler[0] == nil:
+	case r.filler[0] == nil:
 		if err = w.WriteBytes(zeroFill[:7]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing 7 zero bytes for an item the copybook gives no data-name and this record carries none for: %w", err)
 		}
-	case len(a.filler[0]) != 7:
-		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 7 bytes the copybook gives no data-name is %d", len(a.filler[0]))
+	case len(r.filler[0]) != 7:
+		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 7 bytes the copybook gives no data-name is %d", len(r.filler[0]))
 	default:
-		if err = w.WriteBytes(a.filler[0]); err != nil {
+		if err = w.WriteBytes(r.filler[0]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing the 7 bytes of an item the copybook gives no data-name: %w", err)
 		}
 	}
@@ -661,62 +661,62 @@ func (a *ArtPaymentRec) MarshalCOBOL(w *codec.Writer) error {
 	return nil
 }
 
-// UnmarshalCOBOL reads one ART-DETAIL-REC out of r, in the order docs/ir/SPEC.md
+// UnmarshalCOBOL reads one ART-DETAIL-REC out of r0, in the order docs/ir/SPEC.md
 // resolved its items, and retains the bytes of every slack node it carries and
 // of every item the copybook gives no data-name.
 //
-// It is codec's Unmarshaler. The Encoding is r's: the five axes are properties
+// It is codec's Unmarshaler. The Encoding is r0's: the five axes are properties
 // of the file in hand, and Encoding is what this descriptor resolved.
 //
-// The binary width staircase is the one of the five r may not replace: every
-// offset here was computed under Encoding's, and r's is refused where it is
+// The binary width staircase is the one of the five r0 may not replace: every
+// offset here was computed under Encoding's, and r0's is refused where it is
 // another, before any item is read.
-func (a *ArtAdjustmentRec) UnmarshalCOBOL(r *codec.Reader) error {
+func (r *ArtAdjustmentRec) UnmarshalCOBOL(r0 *codec.Reader) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
-	// staircase, so r's encoding is refused where it carries another.
-	if err = refuseStaircase(r.Encoding().Binary); err != nil {
+	// staircase, so r0's encoding is refused where it carries another.
+	if err = refuseStaircase(r0.Encoding().Binary); err != nil {
 		return err
 	}
 
-	if a.ArdRecType, err = r.ReadAlphanumeric(1); err != nil {
+	if r.ArdRecType, err = r0.ReadAlphanumeric(1); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-REC-TYPE: %w", err)
 	}
 
-	if a.ArdCustomer, err = r.ReadAlphanumeric(8); err != nil {
+	if r.ArdCustomer, err = r0.ReadAlphanumeric(8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-CUSTOMER: %w", err)
 	}
 
-	if a.ArdDocument, err = r.ReadAlphanumeric(10); err != nil {
+	if r.ArdDocument, err = r0.ReadAlphanumeric(10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-DOCUMENT: %w", err)
 	}
 
-	if a.ArdPostDate, err = r.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
+	if r.ArdPostDate, err = r0.ReadZonedInt32(8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-POST-DATE: %w", err)
 	}
 
-	if a.ArdAdjustment.AraReason, err = r.ReadAlphanumeric(3); err != nil {
+	if r.ArdAdjustment.AraReason, err = r0.ReadAlphanumeric(3); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARA-REASON: %w", err)
 	}
 
-	if a.ArdAdjustment.AraAmount, err = r.ReadZonedInt64(11, codec.SignTrailingSeparate); err != nil {
+	if r.ArdAdjustment.AraAmount, err = r0.ReadZonedInt64(11, codec.SignTrailingSeparate); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARA-AMOUNT: %w", err)
 	}
 
-	if a.ArdAdjustment.AraApprover, err = r.ReadAlphanumeric(8); err != nil {
+	if r.ArdAdjustment.AraApprover, err = r0.ReadAlphanumeric(8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARA-APPROVER: %w", err)
 	}
 
-	if a.ArdAdjustment.AraNote, err = r.ReadAlphanumeric(17); err != nil {
+	if r.ArdAdjustment.AraNote, err = r0.ReadAlphanumeric(17); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARA-NOTE: %w", err)
 	}
 
-	if a.ArdOperator, err = r.ReadAlphanumeric(6); err != nil {
+	if r.ArdOperator, err = r0.ReadAlphanumeric(6); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading ARD-OPERATOR: %w", err)
 	}
 
-	if a.filler[0], err = r.ReadBytes(7); err != nil {
+	if r.filler[0], err = r0.ReadBytes(7); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: reading the 7 bytes of an item the copybook gives no data-name: %w", err)
 	}
 
@@ -738,7 +738,7 @@ func (a *ArtAdjustmentRec) UnmarshalCOBOL(r *codec.Reader) error {
 // The binary width staircase is not the caller's either: every offset here was
 // computed under Encoding's, and w's is refused where it is another, before
 // any item is written.
-func (a *ArtAdjustmentRec) MarshalCOBOL(w *codec.Writer) error {
+func (r *ArtAdjustmentRec) MarshalCOBOL(w *codec.Writer) error {
 	var err error
 
 	// Every offset below was computed under the descriptor's binary width
@@ -747,51 +747,51 @@ func (a *ArtAdjustmentRec) MarshalCOBOL(w *codec.Writer) error {
 		return err
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdRecType, 1); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdRecType, 1); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-REC-TYPE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdCustomer, 8); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdCustomer, 8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-CUSTOMER: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdDocument, 10); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdDocument, 10); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-DOCUMENT: %w", err)
 	}
 
-	if err = w.WriteZonedInt32(a.ArdPostDate, 8, codec.SignUnsigned); err != nil {
+	if err = w.WriteZonedInt32(r.ArdPostDate, 8, codec.SignUnsigned); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-POST-DATE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdAdjustment.AraReason, 3); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdAdjustment.AraReason, 3); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARA-REASON: %w", err)
 	}
 
-	if err = w.WriteZonedInt64(a.ArdAdjustment.AraAmount, 11, codec.SignTrailingSeparate); err != nil {
+	if err = w.WriteZonedInt64(r.ArdAdjustment.AraAmount, 11, codec.SignTrailingSeparate); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARA-AMOUNT: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdAdjustment.AraApprover, 8); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdAdjustment.AraApprover, 8); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARA-APPROVER: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdAdjustment.AraNote, 17); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdAdjustment.AraNote, 17); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARA-NOTE: %w", err)
 	}
 
-	if err = w.WriteAlphanumeric(a.ArdOperator, 6); err != nil {
+	if err = w.WriteAlphanumeric(r.ArdOperator, 6); err != nil {
 		return fmt.Errorf("ART-DETAIL-REC: writing ARD-OPERATOR: %w", err)
 	}
 
 	switch {
-	case a.filler[0] == nil:
+	case r.filler[0] == nil:
 		if err = w.WriteBytes(zeroFill[:7]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing 7 zero bytes for an item the copybook gives no data-name and this record carries none for: %w", err)
 		}
-	case len(a.filler[0]) != 7:
-		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 7 bytes the copybook gives no data-name is %d", len(a.filler[0]))
+	case len(r.filler[0]) != 7:
+		return fmt.Errorf("ART-DETAIL-REC: a writer reports a retained run rather than truncating or padding it, and the run for an item of 7 bytes the copybook gives no data-name is %d", len(r.filler[0]))
 	default:
-		if err = w.WriteBytes(a.filler[0]); err != nil {
+		if err = w.WriteBytes(r.filler[0]); err != nil {
 			return fmt.Errorf("ART-DETAIL-REC: writing the 7 bytes of an item the copybook gives no data-name: %w", err)
 		}
 	}

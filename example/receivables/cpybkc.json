@@ -6,7 +6,7 @@
       "out": "receivables",
       "options": {
         "package_name": "receivables",
-        "receiver": "a",
+        "receiver": "r",
         "import_path": "github.com/Zaba505/cpybkc/example/receivables/receivables"
       }
     },

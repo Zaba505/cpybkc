@@ -46,7 +46,7 @@ them:
 |---|---|---|
 | `package_name` | yes | The Go package the generated files declare. It must be a Go identifier that is neither a keyword, the blank identifier, nor `init`. |
 | `import_path` | yes, where the descriptor carries a record | The Go import path the generated package will answer to once it has been merged. |
-| `receiver` | no | The identifier the decode and encode methods declare their receiver under. It must be an unexported Go identifier that is not a blank. Defaults to `x`. |
+| `receiver` | no | The identifier the decode and encode methods declare their receiver under. It must be an unexported Go identifier that is neither a blank nor predeclared (`len`, `nil`, `error`, …). Defaults to `x`. |
 
 An option this generator does not recognise is an **error**, not something
 ignored — as is a `package_name` given twice, or one that is not a package name.
@@ -86,6 +86,39 @@ one letter, the same letter on every method of a type. Deriving it would give
 one package a different receiver per type, which is the one shape the convention
 rules out. It is required to be unexported, and that is what keeps it clear of
 every identifier munged from a copybook name, all of which are exported.
+
+Fields are not the only names in scope inside a generated method, though. The
+generator declares its own there as well: the method's parameter (`r` for the
+`codec.Reader` it decodes from, `w` for the `codec.Writer` it encodes into), the
+packages the file imports (`codec`, `fmt`, `bytes`, `binary`), the locals the
+body declares (`err`, `n`, `lits`, the numbered `i0`, `k0`, `count1` …) and the
+package-level helpers it calls (`fresh`, `resized`, `refuseStaircase`,
+`zeroFill`). Which of them a method reaches depends on the layout.
+
+**The generator moves its own names out of the receiver's way**, rather than
+refusing a receiver that would shadow one. `r` and `w` are the letters a shop
+picks for a record decoder, and exactly the ones the methods' parameters are
+spelled; refusing them would refuse the receiver the option most often exists
+to set. So once the package is composed, every name a method reaches that is
+spelled like the receiver is renamed — at its declaration and at every use — to
+the receiver's spelling followed by the lowest number nothing in the package
+carries. With `receiver=r`, the decode method reads:
+
+```go
+// UnmarshalCOBOL reads one ORDER-RECORD out of r0, in the order …
+func (r *OrderRecord) UnmarshalCOBOL(r0 *codec.Reader) error {
+```
+
+A parameter is named in its method's prose, so the prose moves with it. An
+import has no declaration to rename, so it gains an alias in the file whose
+methods it would have been shadowed in: `receiver=codec` imports
+`codec0 "github.com/Zaba505/cobol-go/codec"` in `codec.go` and nowhere else.
+
+The one kind of name that cannot move is a **predeclared** identifier — `len`
+has no other spelling — so every predeclared identifier is refused as a
+receiver, including the ones no generated method uses today. That keeps the
+rule independent of the layout: a receiver either works for every layout or is
+refused, when the options are parsed, for every layout.
 
 Renaming an item is **not** an option here. A rename is a property of one item
 of one copybook, it names its target fully qualified, and it is written in the
