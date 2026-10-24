@@ -76,54 +76,76 @@
 000760       88  STATUS-LOWER VALUE IS low-values 'Z'.                  KITCHEN
 000770     05  STATUS-NUMBER PIC S99.                                   KITCHEN
 000780       88  STATUS-NEGATIVE VALUE -99 THRU -1.                     KITCHEN
-000790* OCCURS: fixed, a range, DEPENDING ON, keys and an index.        KITCHEN
-000800     05  TABLE-COUNT PIC 9(2).                                    KITCHEN
-000810     05  FIXED-TABLE OCCURS 3 TIMES.                              KITCHEN
-000820       10  FIXED-CELL PIC X.                                      KITCHEN
-000830     05  BARE-TABLE OCCURS 2.                                     KITCHEN
-000840       10  BARE-CELL PIC X.                                       KITCHEN
-000850     05  RANGE-TABLE OCCURS 1 TO 10 TIMES DEPENDING ON TABLE-COUNTKITCHEN
-000860             ASCENDING KEY IS RANGE-KEY DESCENDING RANGE-ALT      KITCHEN
-000870             ASCENDING KEY RANGE-OTHER INDEXED BY RANGE-IX.       KITCHEN
-000880       10  RANGE-KEY PIC X.                                       KITCHEN
-000890       10  RANGE-ALT PIC X.                                       KITCHEN
-000900       10  RANGE-OTHER PIC X.                                     KITCHEN
-000910     05  DEPENDS-TABLE OCCURS 0 TO 5 DEPENDING TABLE-COUNT        KITCHEN
-000920             INDEXED DEPENDS-IX.                                  KITCHEN
-000930       10  DEPENDS-CELL PIC X.                                    KITCHEN
-000940* SIGN, SYNCHRONIZED, JUSTIFIED, BLANK WHEN ZERO.                 KITCHEN
-000950     05  SIGNS.                                                   KITCHEN
-000960       10  SIGN-LEADING PIC S9 SIGN LEADING.                      KITCHEN
-000970       10  SIGN-TRAILING PIC S9 SIGN IS TRAILING.                 KITCHEN
-000980       10  SIGN-LEADING-SEP PIC S9 SIGN LEADING SEPARATE.         KITCHEN
-000990       10  SIGN-TRAILING-SEP PIC S9 SIGN TRAILING SEPARATE        KITCHEN
-001000           CHARACTER.                                             KITCHEN
-001010       10  SIGN-LOWER PIC S9 sign is leading separate character.  KITCHEN
-001020     05  SYNCS.                                                   KITCHEN
-001030       10  SYNC-BARE PIC S9(4) COMP SYNC.                         KITCHEN
-001040       10  SYNC-LEFT PIC S9(4) COMP SYNCHRONIZED LEFT.            KITCHEN
-001050       10  SYNC-RIGHT PIC S9(4) COMP SYNC RIGHT.                  KITCHEN
-001060       10  SYNC-LOWER PIC S9(4) COMP sync left.                   KITCHEN
-001070     05  JUSTS.                                                   KITCHEN
-001080       10  JUST-BARE PIC X(4) JUST.                               KITCHEN
-001090       10  JUST-RIGHT PIC X(4) JUSTIFIED RIGHT.                   KITCHEN
-001100       10  BLANK-WHEN PIC 9(4) BLANK WHEN ZERO.                   KITCHEN
-001110       10  BLANK-BARE PIC 9(4) BLANK ZERO.                        KITCHEN
-001120* REDEFINES, a PICTURE spelled both ways, and clauses duplicated  KITCHEN
-001130* and reordered.                                                  KITCHEN
-001140     05  ORIGINAL PICTURE IS X(4).                                KITCHEN
-001150     05  REDEFINER REDEFINES ORIGINAL PIC 9(4).                   KITCHEN
-001160     05  DUPLICATED PIC X PIC X(2) USAGE DISPLAY DISPLAY.         KITCHEN
-001170     05  REORDERED VALUE 'A' JUST PIC X GLOBAL.                   KITCHEN
-001180     05  GROUP-REORDERED EXTERNAL REDEFINES ORIGINAL GLOBAL.      KITCHEN
-001190       10  GROUP-CELL PIC X(4).                                   KITCHEN
-001200* 66: a single name and a range, and one named FILLER.            KITCHEN
-001210 66  SINK-ONE RENAMES ORIGINAL.                                   KITCHEN
-001220 66  SINK-RANGE RENAMES LEVELS THRU STATUS-CODE.                  KITCHEN
-001230 66  SINK-THROUGH RENAMES ORIGINAL THROUGH REDEFINER.             KITCHEN
-001240 66  FILLER RENAMES ORIGINAL.                                     KITCHEN
-001250* 77 with a condition-name.                                       KITCHEN
-001260 77  STANDALONE PIC 9.                                            KITCHEN
-001270     88  STANDALONE-ON VALUE 1.                                   KITCHEN
-001280     88  STANDALONE-OFF VALUE 0.                                  KITCHEN
-001290*
+000790* Prefixed literals of every kind, ALL literals, VALUES ARE, and  KITCHEN
+000800* words that begin with a digit (Zaba505/cobol-go#145, #150-#152).KITCHEN
+000810     05  PREFIXED.                                                KITCHEN
+000820       10  P-HEX PIC X(2) VALUE X'C1C2'.                          KITCHEN
+000830       10  P-HEX-LOWER PIC X VALUE x'c1'.                         KITCHEN
+000840       10  P-HEX-QUOT PIC X VALUE X"C1".                          KITCHEN
+000850       10  P-NATIONAL PIC X(4) VALUE N'AB'.                       KITCHEN
+000860       10  P-NULL PIC X(3) VALUE Z'AB'.                           KITCHEN
+000870       10  P-HEX-NUMERIC PIC 9(3) VALUE H'FF'.                    KITCHEN
+000880       10  P-OCTAL PIC 9(2) VALUE O'17'.                          KITCHEN
+000890       10  P-BOOLEAN PIC X(2) VALUE B'10'.                        KITCHEN
+000900       10  P-ALL PIC X(4) VALUE ALL '*'.                          KITCHEN
+000910       10  P-ALL-HEX PIC X(4) VALUE ALL X'FF'.                    KITCHEN
+000920       10  P-ALL-FIGURATIVE PIC X(4) VALUE ALL SPACES.            KITCHEN
+000930     05  PREFIXED-CODE PIC X.                                     KITCHEN
+000940       88  PREFIXED-LOW VALUE X'00' THRU X'0F' N'A'.              KITCHEN
+000950       88  PREFIXED-STARS VALUE ALL '*' ALL zeroes.               KITCHEN
+000960       88  PREFIXED-ARE VALUES ARE 'A' 'B'.                       KITCHEN
+000970       88  PREFIXED-IS VALUE IS 'C'.                              KITCHEN
+000980     05  1ST-FIELD PIC X.                                         KITCHEN
+000990       88  1ST-ON VALUE '1'.                                      KITCHEN
+001000     05  2000-TOTAL PIC 9(4) VALUE ZERO.                          KITCHEN
+001010* OCCURS: fixed, a range, DEPENDING ON, keys and an index.        KITCHEN
+001020     05  TABLE-COUNT PIC 9(2).                                    KITCHEN
+001030     05  FIXED-TABLE OCCURS 3 TIMES.                              KITCHEN
+001040       10  FIXED-CELL PIC X.                                      KITCHEN
+001050     05  BARE-TABLE OCCURS 2.                                     KITCHEN
+001060       10  BARE-CELL PIC X.                                       KITCHEN
+001070     05  RANGE-TABLE OCCURS 1 TO 10 TIMES DEPENDING ON TABLE-COUNTKITCHEN
+001080             ASCENDING KEY IS RANGE-KEY DESCENDING RANGE-ALT      KITCHEN
+001090             ASCENDING KEY RANGE-OTHER INDEXED BY RANGE-IX.       KITCHEN
+001100       10  RANGE-KEY PIC X.                                       KITCHEN
+001110       10  RANGE-ALT PIC X.                                       KITCHEN
+001120       10  RANGE-OTHER PIC X.                                     KITCHEN
+001130     05  DEPENDS-TABLE OCCURS 0 TO 5 DEPENDING TABLE-COUNT        KITCHEN
+001140             INDEXED DEPENDS-IX.                                  KITCHEN
+001150       10  DEPENDS-CELL PIC X.                                    KITCHEN
+001160* SIGN, SYNCHRONIZED, JUSTIFIED, BLANK WHEN ZERO.                 KITCHEN
+001170     05  SIGNS.                                                   KITCHEN
+001180       10  SIGN-LEADING PIC S9 SIGN LEADING.                      KITCHEN
+001190       10  SIGN-TRAILING PIC S9 SIGN IS TRAILING.                 KITCHEN
+001200       10  SIGN-LEADING-SEP PIC S9 SIGN LEADING SEPARATE.         KITCHEN
+001210       10  SIGN-TRAILING-SEP PIC S9 SIGN TRAILING SEPARATE        KITCHEN
+001220           CHARACTER.                                             KITCHEN
+001230       10  SIGN-LOWER PIC S9 sign is leading separate character.  KITCHEN
+001240     05  SYNCS.                                                   KITCHEN
+001250       10  SYNC-BARE PIC S9(4) COMP SYNC.                         KITCHEN
+001260       10  SYNC-LEFT PIC S9(4) COMP SYNCHRONIZED LEFT.            KITCHEN
+001270       10  SYNC-RIGHT PIC S9(4) COMP SYNC RIGHT.                  KITCHEN
+001280       10  SYNC-LOWER PIC S9(4) COMP sync left.                   KITCHEN
+001290     05  JUSTS.                                                   KITCHEN
+001300       10  JUST-BARE PIC X(4) JUST.                               KITCHEN
+001310       10  JUST-RIGHT PIC X(4) JUSTIFIED RIGHT.                   KITCHEN
+001320       10  BLANK-WHEN PIC 9(4) BLANK WHEN ZERO.                   KITCHEN
+001330       10  BLANK-BARE PIC 9(4) BLANK ZERO.                        KITCHEN
+001340* REDEFINES, a PICTURE spelled both ways, and clauses duplicated  KITCHEN
+001350* and reordered.                                                  KITCHEN
+001360     05  ORIGINAL PICTURE IS X(4).                                KITCHEN
+001370     05  REDEFINER REDEFINES ORIGINAL PIC 9(4).                   KITCHEN
+001380     05  DUPLICATED PIC X PIC X(2) USAGE DISPLAY DISPLAY.         KITCHEN
+001390     05  REORDERED VALUE 'A' JUST PIC X GLOBAL.                   KITCHEN
+001400     05  GROUP-REORDERED EXTERNAL REDEFINES ORIGINAL GLOBAL.      KITCHEN
+001410       10  GROUP-CELL PIC X(4).                                   KITCHEN
+001420* 66: a single name and a range, and one named FILLER.            KITCHEN
+001430 66  SINK-ONE RENAMES ORIGINAL.                                   KITCHEN
+001440 66  SINK-RANGE RENAMES LEVELS THRU STATUS-CODE.                  KITCHEN
+001450 66  SINK-THROUGH RENAMES ORIGINAL THROUGH REDEFINER.             KITCHEN
+001460 66  FILLER RENAMES ORIGINAL.                                     KITCHEN
+001470* 77 with a condition-name.                                       KITCHEN
+001480 77  STANDALONE PIC 9.                                            KITCHEN
+001490     88  STANDALONE-ON VALUE 1.                                   KITCHEN
+001500     88  STANDALONE-OFF VALUE 0.                                  KITCHEN
+001510*

@@ -1531,13 +1531,12 @@ transcribed — never whether every record could be named.
   cannot be parsed, reported in the shapes [What a `COPY` fault looks
   like](#what-a-copy-fault-looks-like) gives, at the copybook as typed. A
   copybook that writes `COPY` and whose members are all given converts as its
-  expanded entries, and is refused or not on the same terms as any other. A copybook conversion refuses,
-  for a condition-name the pinned `cobol-go` misreads ([A condition-name
-  cobol-go misreads is refused, not
-  transcribed](../layout/SPEC.md#a-condition-name-cobol-go-misreads-is-refused-not-transcribed)),
-  is one that cannot be transcribed, and is refused the same way. Every such
-  copybook is reported, not only the first, and each diagnostic names it as
-  typed.
+  expanded entries, and is refused or not on the same terms as any other. A
+  copybook holding a prefixed literal, an `ALL` literal or `VALUES ARE` is not
+  refused: each is [transcribed as `cobol-go` reads
+  it](../layout/SPEC.md#a-prefixed-literal-an-all-literal-and-values-are-are-transcribed-as-cobol-go-reads-them)
+  (#423). Every refused copybook is reported, not only the first, and each
+  diagnostic names it as typed.
 - **The read-back.** Before writing, `init` **MUST** read each definitions file
   back, from the bytes it is about to write, and require its entries to equal
   the copybook's — the [judge's

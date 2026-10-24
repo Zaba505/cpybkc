@@ -207,21 +207,25 @@ func TestTheWriterRefusesWhatItDoesNotKnow(t *testing.T) {
 	}
 }
 
-// TestConversionRefusesAConditionNameCobolGoMisreads holds the writer to
-// docs/layout/SPEC.md's "A condition-name cobol-go misreads is refused, not
-// transcribed": each of the three constructs is refused, naming the entry and
-// the `cobol-go` story that lifts it, and a word and a literal the copybook
-// wrote apart are transcribed as the two values they are.
-func TestConversionRefusesAConditionNameCobolGoMisreads(t *testing.T) {
+// TestConversionTranscribesWhatCobolGoOnceMisread holds the writer to
+// docs/layout/SPEC.md's "A prefixed literal, an ALL literal and VALUES ARE are
+// transcribed as cobol-go reads them": the three constructs the pin before
+// Zaba505/cobol-go#145, #150 and #152 misread in a condition-name's VALUE
+// list, and conversion refused, are transcribed as the values they are, and a
+// word and a literal the copybook wrote apart are still the two values they
+// are.
+func TestConversionTranscribesWhatCobolGoOnceMisread(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name, condition, story string
+		name, condition, want string
 	}{
-		{"a prefixed literal", "88 IS-NUL VALUE X'00'.", "Zaba505/cobol-go#140"},
-		{"a national literal in a range", "88 IS-NAT VALUE 'A' THRU N'Z'.", "Zaba505/cobol-go#140"},
-		{"an ALL literal", "88 IS-STARS VALUE ALL '*'.", "Zaba505/cobol-go#142"},
-		{"VALUES ARE", "88 IS-AB VALUES ARE 'A' 'B'.", "Zaba505/cobol-go#135"},
+		{"a prefixed literal", "88 IS-NUL VALUE X'00'.", `(entry 88 IS-NUL (value "X'00'"))`},
+		{"a national literal in a range", "88 IS-NAT VALUE 'A' THRU N'Z'.", `(entry 88 IS-NAT (value (through "'A'" "N'Z'")))`},
+		{"a prefix written in lower case", "88 IS-HEX VALUE x'c1'.", `(entry 88 IS-HEX (value "X'c1'"))`},
+		{"an ALL literal", "88 IS-STARS VALUE ALL '*'.", `(entry 88 IS-STARS (value (all "'*'")))`},
+		{"an ALL figurative constant", "88 IS-BLANK VALUE ALL SPACES.", `(entry 88 IS-BLANK (value (all SPACES)))`},
+		{"VALUES ARE", "88 IS-AB VALUES ARE 'A' 'B'.", `(entry 88 IS-AB (value "'A'" "'B'"))`},
 	}
 
 	for _, test := range tests {
@@ -230,19 +234,9 @@ func TestConversionRefusesAConditionNameCobolGoMisreads(t *testing.T) {
 
 			entries := parseFree(t, "01 REC.\n   05 CODE PIC X.\n      "+test.condition+"\n")
 
-			err := definitions.Write(&bytes.Buffer{}, entries, definitions.FileDepth)
-
-			var misread *definitions.MisreadValueError
-			if !errors.As(err, &misread) {
-				t.Fatalf("Write returned %v, want a MisreadValueError", err)
-			}
-
-			if misread.Story != test.story {
-				t.Errorf("the refusal names %s, want %s", misread.Story, test.story)
-			}
-
-			if message := err.Error(); !strings.Contains(message, test.story) || !strings.Contains(message, strings.Fields(test.condition)[1]) {
-				t.Errorf("the refusal reads %q, want it to name the entry and %s", message, test.story)
+			want := "(entry 01 REC)\n  (entry 05 CODE (pic \"X\"))\n    " + test.want + "\n"
+			if got := write(t, entries, definitions.FileDepth); got != want {
+				t.Errorf("wrote\n%s\nwant\n%s", got, want)
 			}
 		})
 	}

@@ -29,7 +29,8 @@ import (
 // judge: a usage, a sign position or a direction it does not know, a literal
 // where a data-name belongs. A literal text is classified the way `cobol-go`
 // classifies the token — a [cobol.StringLiteral] when [cobol.Tokenize] reads it
-// as a string, a [cobol.NumericLiteral] otherwise. `FILLER` is [cobol.Filler]
+// as a string, of the kind its prefix names, and a [cobol.NumericLiteral]
+// otherwise; an `(all …)` is a [cobol.AllLiteral] around what it holds. `FILLER` is [cobol.Filler]
 // at levels other than 66 and 88 and a name at those two, as docs/layout/SPEC.md
 // states.
 //
@@ -168,13 +169,15 @@ func valueSpec(operand Operand) cobol.ValueSpec {
 	return cobol.ValueSpec{From: valueOperand(operand)}
 }
 
-// valueOperand builds a literal or a word.
+// valueOperand builds a literal, a word or an ALL literal.
 func valueOperand(operand Operand) cobol.Type {
 	switch o := operand.(type) {
 	case Text:
 		return literal(o)
 	case DataName:
 		return toWord(o)
+	case All:
+		return &cobol.AllLiteral{Pos: pos(o.Pos), Literal: valueOperand(o.Repeated)}
 	default:
 		// A range inside a range, which Read does not build. It is built as the
 		// word its position names so the judge, rather than a panic, refuses it.
@@ -197,17 +200,48 @@ func operandWord(operand Operand) *cobol.Word {
 }
 
 // literal classifies a literal text by the first token [cobol.Tokenize] reads
-// in it.
+// in it. A string token is a [cobol.StringLiteral] of the kind its prefix names
+// — none, for an alphanumeric literal — holding its delimited body, which is
+// how `cobol-go` holds the literal it parses out of the same text.
 func literal(text Text) cobol.Type {
 	for token, err := range cobol.Tokenize(strings.NewReader(text.Value)) {
 		if err == nil && token.Type == cobol.TokenString {
-			return &cobol.StringLiteral{Pos: pos(text.Pos), Value: text.Value}
+			kind, body := prefixed(text.Value)
+
+			return &cobol.StringLiteral{Pos: pos(text.Pos), Kind: kind, Value: body}
 		}
 
 		break
 	}
 
 	return numeric(text)
+}
+
+// literalKinds are the kinds a prefix may name, which [cobol.LiteralKind.Prefix]
+// spells.
+var literalKinds = []cobol.LiteralKind{
+	cobol.LiteralHexadecimal,
+	cobol.LiteralHexadecimalNumeric,
+	cobol.LiteralOctalNumeric,
+	cobol.LiteralNational,
+	cobol.LiteralNullTerminated,
+	cobol.LiteralBoolean,
+}
+
+// prefixed splits a string token into the kind its prefix names and its
+// delimited body. A prefix is case-insensitive, as `cobol-go` reads one, and
+// a token opening at its delimiter has none.
+func prefixed(token string) (cobol.LiteralKind, string) {
+	for _, kind := range literalKinds {
+		prefix := kind.Prefix()
+		if len(token) > len(prefix) && strings.EqualFold(token[:len(prefix)], prefix) {
+			if delimiter := token[len(prefix)]; delimiter == '\'' || delimiter == '"' {
+				return kind, token[len(prefix):]
+			}
+		}
+	}
+
+	return cobol.LiteralAlphanumeric, token
 }
 
 // numeric builds a numeric literal.

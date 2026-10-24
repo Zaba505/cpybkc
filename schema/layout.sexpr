@@ -282,7 +282,7 @@
 
 ;; A COBOL word: a symbol in the case the copybook wrote it, or `(word "...")`
 ;; where `sexpr-go` would read the spelling as something other than that symbol
-;; — today only `nil`. It is the sort of every layout position that names a
+;; — `nil`, and a word that begins with a digit, such as `1ST-FIELD`. It is the sort of every layout position that names a
 ;; COBOL item too: an item reference's path, a source's top-level name, an
 ;; arm's alternative and a `take-alternative`'s. That a `word` is needless
 ;; around a spelling that reads as a symbol cannot be said here, and is the
@@ -292,14 +292,25 @@
 (form word (in data-name)
   (argument spelling text exactly-one))
 
-;; A COBOL literal token, delimiters included: "'A'", "-12.50", "50". The sort
-;; is not `literal`, which is the discriminator literal's. That the text holds
-;; exactly one COBOL token is the entry reader's, because the token is COBOL's.
+;; A COBOL literal token, delimiters included: "'A'", "-12.50", "50", and a
+;; prefixed literal with its prefix, "X'00'". The sort is not `literal`, which
+;; is the discriminator literal's. That the text holds exactly one COBOL token
+;; is the entry reader's, because the token is COBOL's.
 (sort cobol-literal text)
 
-;; What a value, or either end of a range, may be: literal text or a word.
-;; Which of the two a position takes is `cobol-go`'s to judge.
-(sort cobol-operand cobol-literal data-name)
+;; What a value, or either end of a range, may be: literal text, a word, or an
+;; ALL literal. Which of them a position takes is `cobol-go`'s to judge.
+(sort cobol-operand cobol-literal data-name (form all))
+
+;; (all <repeated>) — COBOL's ALL literal: the literal or figurative constant
+;; it holds, repeated to fill the item. ALL is a form rather than a word beside
+;; its operand, because a word and a literal side by side are two values. That
+;; ALL precedes a nonnumeric literal or a figurative constant, and nothing
+;; else, is `cobol-go`'s to judge.
+(form all (in cobol-operand)
+  (argument repeated repeatable exactly-one))
+
+(sort repeatable cobol-literal data-name)
 
 ;; `through` is one form wherever it appears: a range of values, and the range
 ;; a RENAMES names.

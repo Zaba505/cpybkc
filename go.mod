@@ -23,29 +23,34 @@ require google.golang.org/protobuf v1.36.12
 // about, and this is a dependency of the module `go install` builds the CLI
 // from.
 //
-// This commit is the one that gave `codec.Encoding` its fifth axis: the binary
-// width staircase a COMP item was compiled under (Zaba505/cobol-go#132). Before
-// it, `codec` implemented 2/4/8/16 and nothing else, while `copybook` had
-// already been computing widths under whichever staircase the caller's
-// `Dialect` named — so the two agreed only because both of this repository's
-// entry points hand `copybook` a hardcoded `IBMEnterprise()`. The axis is
-// **required** and `Encoding.Validate` refuses the zero value, which is what
-// turns that latent disagreement into a refusal a test can see rather than a
-// record read at the wrong offsets.
+// This commit is the one that gave every position cobol-go reports from
+// expanded `COPY` text the library text it is in and the chain of `COPY`
+// statements that reached it (Zaba505/cobol-go#153). Before it, a `cobol.Pos`
+// was a line and a column and nothing else, so an entry a member contributed
+// carried a position in a file nothing named; #423 needs that provenance to
+// point a fault inside a member into the member, which docs/cli/SPEC.md's
+// "Where a `COPY` member is found" requires.
 //
-// What this repository got from the move is therefore the ability to say where
-// its binary widths came from, and #293 is where it says it: the staircase the
-// descriptor was resolved under is carried across the IR as
-// `Encoding.binary_size` and read back out at the generator, so a file resolved
-// under one staircase can no longer be read under another. The move also brings
-// `Reader.ResetStream` (Zaba505/cobol-go#131) and case-insensitive data-name
-// matching (Zaba505/cobol-go#130); neither changed anything here.
+// The move also brings what landed in cobol-go between that and the commit
+// before it, the one that gave `codec.Encoding` its binary width staircase
+// (Zaba505/cobol-go#132), which #293 carries across the IR as
+// `Encoding.binary_size`. Four of them change what a copybook reads as, and the
+// Definitions notation takes each up in the same change: `VALUES ARE` read with
+// `ARE` as noise (Zaba505/cobol-go#145), a prefixed literal such as `X'00'`
+// read as one token (Zaba505/cobol-go#150), a word that begins with a digit
+// read as a word (Zaba505/cobol-go#151), and `ALL` read with the literal it
+// repeats (Zaba505/cobol-go#152). The rest are used where they replace
+// something this repository restated: one method for an error's position
+// (Zaba505/cobol-go#147), the printer's entry depths (Zaba505/cobol-go#148) and
+// its entry check (Zaba505/cobol-go#149), with the reference format the printer
+// writes stated (Zaba505/cobol-go#146). The byte domain of an item
+// (Zaba505/cobol-go#144) changes nothing here.
 //
 // A definitions file transcribes this commit's data-description grammar clause
 // for clause, so a bump that adds or reshapes a clause trips the guard in
 // internal/definitions, and CONTRIBUTING.md's "Bumping the cobol-go pin" says
 // what the same change has to extend before it goes green.
-require github.com/Zaba505/cobol-go v0.0.0-20260819200647-d75f1875ab37
+require github.com/Zaba505/cobol-go v0.0.0-20261024041309-28b9286a090c
 
 // The grammar underneath the layout format. docs/layout/SPEC.md delegates the
 // lexis and the parse of a layout file to it — what a symbol is, where a number

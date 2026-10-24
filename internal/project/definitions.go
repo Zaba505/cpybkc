@@ -159,12 +159,9 @@ func split(err error) []error {
 // `cobol-go`'s errors carry a line and a column and no file, because
 // `cobol.Pos` names none; the entries were built with the positions of the
 // forms they came from, so the line and the column are those of the file or
-// the layout the forms are in, which is source's File. Each error type that
-// carries a position is named, and found with [errors.As], because nothing in
-// `cobol-go` lets a position be asked for generically yet
-// (Zaba505/cobol-go#137). Any other error has no position to point at, and is
-// reported at the record's `definitions` source instead, with `cobol-go`'s
-// message as a note.
+// the layout the forms are in, which is source's File. An error without a
+// position has none to point at, and is reported at the record's
+// `definitions` source instead, with `cobol-go`'s message as a note.
 func buildFault(source resolve.Source, err error) *DefinitionsBuildError {
 	fault := &DefinitionsBuildError{Source: source, Err: err}
 
@@ -175,39 +172,18 @@ func buildFault(source resolve.Source, err error) *DefinitionsBuildError {
 	return fault
 }
 
-// cobolPos is the position a `cobol-go` build or layout error carries, for the
-// types that carry one.
+// cobolPos is the position a `cobol-go` error carries, for any error that
+// carries one: every one `cobol-go` returns with a source position implements
+// [cobol.Positioned] (Zaba505/cobol-go#147), so a build or layout error a later
+// pin adds is found here the day it appears rather than falling through a list
+// of named types nobody extended.
 func cobolPos(err error) (cobol.Pos, bool) {
-	for _, as := range []func(error) (cobol.Pos, bool){
-		positioned[copybook.LevelError](func(e copybook.LevelError) cobol.Pos { return e.Pos }),
-		positioned[copybook.LevelSequenceError](func(e copybook.LevelSequenceError) cobol.Pos { return e.Pos }),
-		positioned[copybook.RenamesError](func(e copybook.RenamesError) cobol.Pos { return e.Pos }),
-		positioned[copybook.PictureError](func(e copybook.PictureError) cobol.Pos { return e.Pos }),
-		positioned[copybook.UsageError](func(e copybook.UsageError) cobol.Pos { return e.Pos }),
-		positioned[copybook.LayoutError](func(e copybook.LayoutError) cobol.Pos { return e.Pos }),
-		positioned[copybook.OccursError](func(e copybook.OccursError) cobol.Pos { return e.Pos }),
-		positioned[copybook.RedefinesError](func(e copybook.RedefinesError) cobol.Pos { return e.Pos }),
-		positioned[copybook.OccurrenceError](func(e copybook.OccurrenceError) cobol.Pos { return e.Pos }),
-		positioned[copybook.DependingError](func(e copybook.DependingError) cobol.Pos { return e.Pos }),
-	} {
-		if pos, ok := as(err); ok {
-			return pos, true
-		}
+	var positioned cobol.Positioned
+	if !errors.As(err, &positioned) {
+		return cobol.Pos{}, false
 	}
 
-	return cobol.Pos{}, false
-}
-
-// positioned finds an error of type T in err and reads its position.
-func positioned[T error](pos func(T) cobol.Pos) func(error) (cobol.Pos, bool) {
-	return func(err error) (cobol.Pos, bool) {
-		var found T
-		if !errors.As(err, &found) {
-			return cobol.Pos{}, false
-		}
-
-		return pos(found), true
-	}
+	return positioned.Position(), true
 }
 
 // fileFaults is every fault reported inside definitions files and blocks, by

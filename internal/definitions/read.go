@@ -377,8 +377,9 @@ func (r *reader) renamed(node layout.Node) (Operand, bool) {
 	return r.operand(node, true)
 }
 
-// operand reads literal text, a data-name or, where ranged is true, a
-// `(through <from> <to>)` whose ends are themselves text or data-names.
+// operand reads literal text, a data-name, an `(all <operand>)` or, where
+// ranged is true, a `(through <from> <to>)` whose ends are themselves any of
+// the first three.
 func (r *reader) operand(node layout.Node, ranged bool) (Operand, bool) {
 	switch node := node.(type) {
 	case layout.Text:
@@ -396,9 +397,35 @@ func (r *reader) operand(node layout.Node, ranged bool) (Operand, bool) {
 
 			return Through{Pos: node.Pos, From: from, To: to}, fromOK && toOK
 		}
+
+		if node.Tag == "all" {
+			return r.all(node)
+		}
 	}
 
 	return r.dataName(node)
+}
+
+// all reads `(all <operand>)`: literal text or a data-name, the one ALL
+// repeats. A second `all` or a range inside one is the schema's to refuse, and
+// whether `ALL` may precede what it holds is `cobol-go`'s.
+func (r *reader) all(form layout.Form) (Operand, bool) {
+	if len(form.Elements) != 1 {
+		r.unchecked(form, "an (all <operand>) form of one argument")
+
+		return nil, false
+	}
+
+	switch repeated := form.Elements[0].(type) {
+	case layout.Text:
+		text, ok := r.text(repeated, KindLiteral)
+
+		return All{Pos: form.Pos, Repeated: text}, ok
+	default:
+		name, ok := r.dataName(repeated)
+
+		return All{Pos: form.Pos, Repeated: name}, ok
+	}
 }
 
 // dataName reads a COBOL word: a symbol, or `(word "<spelling>")` where the
@@ -534,7 +561,17 @@ func oneToken(text string, kind TextKind) string {
 		return ""
 	case kind == KindBound && token.Type == cobol.TokenNumber:
 		return ""
-	case kind == KindLiteral && (token.Type == cobol.TokenString || token.Type == cobol.TokenNumber):
+	case kind == KindLiteral && token.Type == cobol.TokenString:
+		// A prefix is case-insensitive to `cobol-go`, and kept by it as a kind
+		// rather than as text, so it has one spelling here: the upper case
+		// its printer writes and the converter therefore writes.
+		if literalKind, _ := prefixed(text); literalKind != cobol.LiteralAlphanumeric && !strings.HasPrefix(text, literalKind.Prefix()) {
+			return fmt.Sprintf("its prefix is written %s, as cobol-go prints it, and not %s",
+				literalKind.Prefix(), text[:len(literalKind.Prefix())])
+		}
+
+		return ""
+	case kind == KindLiteral && token.Type == cobol.TokenNumber:
 		return ""
 	case token.Type == cobol.TokenIdentifier:
 		return "it reads as a COBOL word, which an entry body writes as a data-name rather than as text"

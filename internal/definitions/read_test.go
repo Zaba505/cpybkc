@@ -299,10 +299,17 @@ func TestAReaderFaultReadsTheSameInAFileAndInABlock(t *testing.T) {
 			fault:   new(*definitions.LiteralTextError),
 		},
 		{
-			name:    "a prefixed literal",
-			entry:   `(entry 88 A-LOW (value "X'00'"))`,
-			at:      `"X'00'"`,
-			message: `the text "X'00'" is not exactly one COBOL literal: it reads as 2 tokens`,
+			name:    "a prefixed literal its kind does not admit",
+			entry:   `(entry 88 A-LOW (value "X'0'"))`,
+			at:      `"X'0'"`,
+			message: `the text "X'0'" is not exactly one COBOL literal: cobol.Tokenize refuses it`,
+			fault:   new(*definitions.LiteralTextError),
+		},
+		{
+			name:    "a prefix written in lower case",
+			entry:   `(entry 88 A-LOW (value "x'00'"))`,
+			at:      `"x'00'"`,
+			message: `the text "x'00'" is not exactly one COBOL literal: its prefix is written X, as cobol-go prints it, and not x`,
 			fault:   new(*definitions.LiteralTextError),
 		},
 		{

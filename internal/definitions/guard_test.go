@@ -32,6 +32,7 @@ var procedureOnly = []string{"AddressOf", "FunctionReference", "Identifier"}
 // a change to the shape of any of them is a change to what the notation has to
 // say.
 var fingerprinted = []string{
+	"AllLiteral",
 	"DataDescriptionEntry",
 	"Fragment",
 	"NumericLiteral",
@@ -46,7 +47,8 @@ var fingerprinted = []string{
 // derived so that a pin bump reshaping any of them fails here until someone has
 // reviewed the notation against it, which CONTRIBUTING's "Bumping the cobol-go
 // pin" requires in the same change.
-const fingerprint = `BlankWhenZeroClause{Pos Pos}
+const fingerprint = `AllLiteral{Pos Pos; Literal Type}
+BlankWhenZeroClause{Pos Pos}
 DataDescriptionEntry{Pos Pos; Comments []*Comment; Level int; Name *Word; Filler bool; Clauses []DataClause}
 ExternalClause{Pos Pos}
 Fragment{Entries []*DataDescriptionEntry; Trailing []*Comment}
@@ -59,7 +61,7 @@ PictureClause{Pos Pos; Picture string}
 RedefinesClause{Pos Pos; Name *Word}
 RenamesClause{Pos Pos; From *Word; Through *Word}
 SignClause{Pos Pos; Position string; Separate bool}
-StringLiteral{Pos Pos; Value string}
+StringLiteral{Pos Pos; Kind LiteralKind; Value string}
 SynchronizedClause{Pos Pos; Direction string}
 UsageClause{Pos Pos; Usage string}
 ValueClause{Pos Pos; Values []ValueSpec}

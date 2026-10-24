@@ -61,7 +61,7 @@ type Keyword struct {
 }
 
 // Operand is what a `value`, a `renames` or either end of a `through` holds:
-// [Text], a [DataName], or, where a range is admitted, a [Through].
+// [Text], a [DataName], an [All], or, where a range is admitted, a [Through].
 type Operand interface {
 	// Position is where the operand was written.
 	Position() layout.Pos
@@ -76,8 +76,22 @@ type Through struct {
 	From, To Operand
 }
 
+// All is `(all <operand>)`: COBOL's ALL literal, the literal or figurative
+// constant it holds repeated to fill the item. What it holds is literal text
+// or a data-name, as `cobol-go` holds an ALL literal around a string literal
+// or around a figurative constant's word; which of those
+// `ALL` may precede — a nonnumeric literal, or a figurative constant other
+// than ALL — is `cobol-go`'s to judge.
+type All struct {
+	Pos      layout.Pos
+	Repeated Operand
+}
+
 // Position implements [Operand].
 func (t Text) Position() layout.Pos { return t.Pos }
+
+// Position implements [Operand].
+func (a All) Position() layout.Pos { return a.Pos }
 
 // Position implements [Operand].
 func (d DataName) Position() layout.Pos { return d.Pos }
@@ -88,6 +102,7 @@ func (t Through) Position() layout.Pos { return t.Pos }
 func (Text) operand()     {}
 func (DataName) operand() {}
 func (Through) operand()  {}
+func (All) operand()      {}
 
 // Clause is one clause of an entry: one of the twelve forms
 // docs/layout/SPEC.md's "An entry, and one form per clause" gives, one per

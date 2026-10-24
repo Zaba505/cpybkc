@@ -1614,7 +1614,7 @@ pins has exactly one spelling: one form per clause kind, twelve of them.
 | `RedefinesClause` | `REDEFINES` | `(redefines PST-DEBIT)` |
 | `PictureClause` | `PICTURE`, `PIC` | `(pic "S9(7)V99")` |
 | `UsageClause` | `USAGE`, or a usage written alone | `(usage COMP-3)` |
-| `ValueClause` | `VALUE`, `VALUES` | `(value "'A'" (through "'C'" "'F'") SPACE)` |
+| `ValueClause` | `VALUE`, `VALUES` | `(value "'A'" (through "'C'" "'F'") SPACE "X'00'" (all "'*'"))` |
 | `OccursClause` | `OCCURS` | `(occurs "0" (to "50") (depending-on PST-COUNT) (key ASCENDING PST-KEY) (indexed-by PST-IX))` |
 | `SignClause` | `SIGN` | `(sign LEADING)`, `(sign TRAILING SEPARATE)` |
 | `SynchronizedClause` | `SYNCHRONIZED`, `SYNC` | `(synchronized)`, `(synchronized LEFT)` |
@@ -1631,19 +1631,44 @@ tag (`depending-on`, `indexed-by`, `blank-when-zero`); and `PIC` and `PICTURE`,
 `SYNC` and `SYNCHRONIZED`, `JUST` and `JUSTIFIED`, `THRU` and `THROUGH`, `VALUE`
 and `VALUES` are one clause apiece in its parse. So each clause has one form,
 and two generators transcribing one copybook write one text. `ARE` after
-`VALUES` is the one noise word the pinned `cobol-go` does not read as noise, and
-[A condition-name cobol-go misreads is refused, not
-transcribed](#a-condition-name-cobol-go-misreads-is-refused-not-transcribed) is
-what follows.
+`VALUES` is a noise word like the rest: the pinned `cobol-go` reads it as one
+(Zaba505/cobol-go#145), and [A prefixed literal, an ALL literal and VALUES ARE
+are transcribed as cobol-go reads
+them](#a-prefixed-literal-an-all-literal-and-values-are-are-transcribed-as-cobol-go-reads-them)
+says what that replaced.
 
 `through` is one form wherever it appears: `(through <from> <to>)`, a range in a
 `value` and the range a `renames` names. Which operands it may hold in which
 position — literals in a condition-name's range, data-names in a `RENAMES` — is
 `cobol-go`'s to judge, not a second rule here.
 
-A `value` holds one or more operands, each literal text, a data-name, or a
-`through`. That an ordinary item carries one value and a condition-name may
-carry several is `cobol-go`'s too.
+A `value` holds one or more operands, each literal text, a data-name, an
+`all`, or a `through`. That an ordinary item carries one value and a
+condition-name may carry several is `cobol-go`'s too.
+
+`all` is COBOL's `ALL` literal, one form wherever it appears:
+
+```
+(all <repeated>)
+```
+
+| Argument | Arity | Value |
+|---|---|---|
+| `<repeated>` | 1 | the literal `ALL` repeats, as [literal text](#the-leaves-a-level-a-data-name-and-literal-text), or the figurative constant it repeats, as a data-name |
+
+`VALUE ALL '*'` is `(value (all "'*'"))`, `VALUE ALL X'FF'` is `(value (all
+"X'FF'"))` and `VALUE ALL SPACES` is `(value (all SPACES))`; an `all` may be
+either end of a `through` as it may be any other value. It is a form rather
+than the word `ALL` written beside its operand, because a word and a literal
+side by side in a `value` are two values — `(value ALL "'*'")` is a
+condition-name with the two values `ALL` and `'*'`, which is the misreading
+the pin before Zaba505/cobol-go#152 made — and it is not text, because `ALL
+'*'` is two COBOL tokens and a text holds exactly one. `cobol-go` holds the
+construct the same way, as one node around the literal or the figurative
+constant (`AllLiteral`). Which of those `ALL` may precede — a nonnumeric
+literal of any kind, or a figurative constant other than `ALL` — is
+`cobol-go`'s to judge, so `(all "5")` and `(all "H'FF'")` are entries the judge
+refuses rather than forms this document forbids.
 
 An `occurs` holds its count, then its phrases — `to`, `depending-on`, any number
 of `key`, and `indexed-by` — in that order, which is the order `cobol-go` holds
@@ -1668,17 +1693,30 @@ in the case the copybook wrote it. It is written
 ```
 
 only where `sexpr-go` would read the spelling as something other than that
-symbol, which today means only `nil`: `sexpr-go` reads `nil`, in lower case,
-as its empty value, and every other COBOL word `cobol-go` reads is a symbol to
-it. A `word` around a spelling that reads as a symbol is a diagnostic, so that
-every data-name has one spelling.
+symbol, which today means two kinds of word. One is `nil`: `sexpr-go` reads
+`nil`, in lower case, as its empty value. The other is every word that begins
+with a digit, such as `1ST-FIELD` or `1000-INIT`, which `cobol-go` reads as
+words (Zaba505/cobol-go#151) and `sexpr-go` begins reading as a number; such a
+word is written `(word "1ST-FIELD")`. Every other COBOL word `cobol-go` reads
+is a symbol to it. A `word` around a spelling that reads as a symbol is a
+diagnostic, so that every data-name has one spelling.
 
 **Every COBOL literal token, PICTURE string and OCCURS bound is text** holding
 exactly that token as COBOL writes it, delimiters included: `"'A'"`, `"-12.50"`,
 `"S9(7)V99"`, `"50"`. The token is the lexeme `cobol-go` holds — a literal a
 fixed-format copybook continued across lines is the one token `cobol-go` joined
 it into — and a text holding anything other than exactly one COBOL token is a
-diagnostic. A COBOL numeric literal is text rather than a `sexpr-go` number
+diagnostic.
+
+A **prefixed literal** is one token (Zaba505/cobol-go#150), so it is text like
+any other literal, its prefix included: `"X'00'"`, `"N'AB'"`, `"Z'ABC'"`,
+`"H'FF'"`, `"O'17'"`, `"B'101'"`. The prefix is written in upper case.
+`cobol-go` reads a prefix without regard to case and keeps it as the literal's
+kind rather than as text, so the case a copybook wrote it in is not in the
+parse, and the upper case is the one `cobol-go`'s printer writes; a text whose
+prefix is in lower case is a diagnostic, so that every literal has one
+spelling. The body after the prefix is the token's as written, delimiters and
+digits alike: `X'c1'` is `"X'c1'"`. A COBOL numeric literal is text rather than a `sexpr-go` number
 because the token is COBOL's: `cobol-go` keeps its lexeme raw, sign and trailing
 zeros included, and a number read by `sexpr-go`'s rules would be a second lexis
 deciding what the copybook wrote.
@@ -1737,7 +1775,10 @@ the `DataDescriptionEntry` cpybkc built from it with `cobol.Print`, and reading
 the result back in free format with `cobol.Parse(WithFragment())`, gives back
 that entry, with positions and comments cleared. This holds in a definitions
 file and in a block alike, and it is the whole of what an entry has to satisfy
-beyond its shape (#401).
+beyond its shape (#401). `cobol-go` states the same rule as
+`cobol.CheckEntries` (Zaba505/cobol-go#149), with free format the one reference
+format its printer writes (Zaba505/cobol-go#146), and cpybkc applies it through
+that function, one entry at a time, so that the rule has one implementation.
 
 That rule makes `cobol-go`'s parser the judge without making this document a
 second grammar. An entry `cobol-go` would not read back as itself — an 88
@@ -1762,8 +1803,9 @@ writes:
 - the level, the name and each clause separated by single spaces;
 - levels as two digits.
 
-The depth is the one `cobol-go`'s printer gives an entry, spelled out here so
-that a second implementation can write it without reading that printer:
+The depth is the one `cobol-go`'s printer gives an entry, which it exports as
+`cobol.EntryDepths` (Zaba505/cobol-go#148), spelled out here so that a second
+implementation can write it without reading that printer:
 
 - an entry at levels 01–49 is as deep as the number of entries enclosing it,
   counted by level numbers alone — a 01–49 entry encloses the entries after it
@@ -1814,48 +1856,45 @@ at least one entry — the member map being the layout's `copy-member` forms for
 a run and `init`'s `--copy-member` flags for a conversion, handed to [one
 resolver](../cli/SPEC.md#where-a-copy-member-is-found) (#407). Every such
 copybook converts to an entry body that `cobol-go` reads back as the same
-entries (#401), with the one exception the next section states and argues. A
+entries (#401). A
 copybook that writes `COPY` is among them, and converts as its expanded
 entries: what `cobol-go` read, with each member's entries where its `COPY`
 stood, and nothing of the `COPY` statement itself.
 What the pinned `cobol-go` does not read at all is [out of
 scope](#what-the-pinned-cobol-go-does-not-read), with its reasons.
 
-### A condition-name cobol-go misreads is refused, not transcribed
+### A prefixed literal, an ALL literal and VALUES ARE are transcribed as cobol-go reads them
 
-Most constructs the pinned `cobol-go` cannot read are refused through the parse
-failure, and so never reach a transcription. A condition-name's `VALUE` list is
-the exception. There the pinned `cobol-go` reads `X'00'`, `N'A'` and `ALL '*'`
-each as two values, a word and a literal, and reads `VALUES ARE 'A' 'B'` as
-three, with `ARE` the first; `copybook.Build` accepts all four. A transcription
-of what `cobol-go` read would be `(value X "'00'")` and
-`(value ARE "'A'" "'B'")`.
+The pin before #423 misread three constructs in a condition-name's `VALUE`
+list, and this section required conversion to refuse them. It read `X'00'`,
+`N'A'` and `ALL '*'` each as two values, a word and a literal, and read `VALUES
+ARE 'A' 'B'` as three, with `ARE` the first; `copybook.Build` accepted all
+four, so a transcription of what it read would have been `(value X "'00'")` and
+`(value ARE "'A'" "'B'")`, stating a misreading as the copybook's own in a file
+never re-read from its copybook.
 
-Conversion **MUST NOT** write such an entry. Where a copybook writes a
-condition-name's `VALUE` list with a prefixed literal, an `ALL` literal or the
-phrase `VALUES ARE`, conversion refuses that copybook, naming the entry and the
-`cobol-go` story that reads the construct: Zaba505/cobol-go#140 for a prefixed
-literal, #142 for `ALL`, #135 for `VALUES ARE`. It writes no definitions file
-for it. `init` writes nothing when any copybook it was given is refused this
-way — its output is whole or not at all, and the refusal fails the run naming
-the copybook — as [`init`'s streams and exit
-codes](../cli/SPEC.md#inits-streams-and-exit-codes) states (#403).
+The pin #423 moved to reads each of them: a prefixed literal as one token
+(Zaba505/cobol-go#150), `ALL` and what follows it as one value
+(Zaba505/cobol-go#152), and `ARE` as the noise word it is
+(Zaba505/cobol-go#145). So conversion **MUST** transcribe them as it reads
+them, in a condition-name's list as in every other position, and refuses none
+of them:
 
-Reason: a transcription is the one place the misreading would outlive the fix.
-A copybook is re-read at every pin, so the day `cobol-go` reads `X'00'` as one
-literal, every record bound to that copybook reads it so. A definitions file is
-checked-in text that is never re-read from its copybook — that is what it is
-for — and `(value X "'00'")` would go on stating, as the copybook's own, a
-reading `cobol-go` has been fixed to stop making. Nothing would then tell it
-apart from a value list an adopter wrote by hand, and an entry body printing
-`VALUE X '00'`, with its space, is one `cobol-go` will rightly go on reading as
-two values. Refusing keeps the rule a reader can predict: conversion carries no
-prefixed literal, no `ALL` literal and no `VALUES ARE` until `cobol-go` reads
-them, in this position as in every other, and the refusal says which story
-lifts it. An entry body cannot write one either, since `"X'00'"` is two tokens
-to the pinned `cobol-go` and so not literal text. Condition-names reach no
-descriptor today, so a record bound to the copybook itself loses nothing a run
-emits in the meantime.
+| COBOL | Written |
+|---|---|
+| `88 IS-NUL VALUE X'00'.` | `(entry 88 IS-NUL (value "X'00'"))` |
+| `88 IS-NAT VALUE 'A' THRU N'Z'.` | `(entry 88 IS-NAT (value (through "'A'" "N'Z'")))` |
+| `88 IS-STARS VALUE ALL '*'.` | `(entry 88 IS-STARS (value (all "'*'")))` |
+| `88 IS-AB VALUES ARE 'A' 'B'.` | `(entry 88 IS-AB (value "'A'" "'B'"))` |
+
+Reason: the refusal existed because a transcription is the one place a
+misreading would outlive its fix, and with the fix pinned there is no
+misreading left to outlive anything. Refusing the constructs now would be
+refusing copybooks `cobol-go` reads correctly — a copybook bound to a record
+directly would resolve, while `init` refused to convert the same file — and
+the refusal named `cobol-go` stories that are closed. A word and a literal a
+copybook writes apart, `VALUE X '00'`, are still the two values they are, and
+are transcribed as `(value X "'00'")`.
 
 ### Where the rest of it lands
 
@@ -3222,33 +3261,20 @@ them name items the record's description declared and nothing it did not.
 
 ### What the pinned cobol-go does not read
 
-Three constructs a real copybook may hold are not read by the `cobol-go` cpybkc
-pins, and so are in no copybook [cpybkc can read
-today](#what-a-transcription-leaves-out) and in no entry body. Most positions
-refuse them through the parse failure; a condition-name's `VALUE` list does not,
-and [A condition-name cobol-go misreads is refused, not
-transcribed](#a-condition-name-cobol-go-misreads-is-refused-not-transcribed) is
-the rule there.
+A construct the `cobol-go` cpybkc pins does not read is in no copybook [cpybkc
+can read today](#what-a-transcription-leaves-out) and in no entry body: the
+parse fails, and the copybook is refused through that failure wherever it is
+read. None is listed here today.
 
-**Prefixed literals**, such as `X'00'` and `N'AB'` (Zaba505/cobol-go#140).
-
-Reason: the pinned tokenizer reads the prefix as a word and the rest as a
-second literal. Until it reads one token, there is no token for literal text to
-hold, and writing the two it reads would transcribe a misreading.
-
-**`ALL` literals**, such as `ALL '*'` (Zaba505/cobol-go#142).
-
-Reason: the same — the pinned parser reads `ALL` as a word beside its literal,
-and a transcription can only be as right as the parse it transcribes.
-
-**Words that begin with a digit**, such as `1000-INIT` or `1ST-FIELD`
-(Zaba505/cobol-go#141).
-
-Reason: the pinned tokenizer does not read them as words. Each also begins like
-a `sexpr-go` number, so when `cobol-go` does read them, the [leaf
-rules](#the-leaves-a-level-a-data-name-and-literal-text) will have a second
-spelling `sexpr-go` reads as something other than a symbol, and `(word …)` is
-already the form that holds one.
+Three were, until #423 moved the pin: **prefixed literals** such as `X'00'` and
+`N'AB'` (Zaba505/cobol-go#140, landed as #150), **`ALL` literals** such as
+`ALL '*'` (Zaba505/cobol-go#142, landed as #152), and **words that begin with
+a digit**, such as `1000-INIT` or `1ST-FIELD` (Zaba505/cobol-go#141, landed as
+#151). Each now reads, converts and has one spelling in an entry body: a
+prefixed literal is [literal text](#the-leaves-a-level-a-data-name-and-literal-text)
+with its prefix, an `ALL` literal is [`(all …)`](#an-entry-and-one-form-per-clause),
+and a word that begins with a digit is a data-name written `(word "…")`,
+because `sexpr-go` reads such a spelling as something other than a symbol.
 
 ### The S-expression grammar
 
