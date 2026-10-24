@@ -53,7 +53,7 @@ type CompanionEmitIrOpts struct {
 	// because a manifest's own paths are relative to the directory holding it and
 	// a manifest arriving on a stream is in no directory.
 	//
-	Manifest string // companion (../../../daggerverse/cpybkc/main.go:1026:2)
+	Manifest string // companion (../../../daggerverse/cpybkc/main.go:1053:2)
 	//
 	// The encoding the descriptor is written in: `binary`, the canonical protobuf
 	// wire encoding a generator is handed, or `json`, the normalized rendering a
@@ -70,7 +70,7 @@ type CompanionEmitIrOpts struct {
 	// contract out here is one that drifts, and this one would drift the day a
 	// third encoding landed.
 	//
-	Format string // companion (../../../daggerverse/cpybkc/main.go:1042:2)
+	Format string // companion (../../../daggerverse/cpybkc/main.go:1069:2)
 }
 
 // EmitIr writes the run's resolved descriptor and hands back the file:
@@ -115,7 +115,7 @@ type CompanionEmitIrOpts struct {
 // emission and the format is its argument, so there is no call that names a
 // format without asking for one, and there is nothing left for the module to
 // check.
-func (r *Companion) EmitIr(source *Directory, opts ...CompanionEmitIrOpts) *File { // companion (../../../daggerverse/cpybkc/main.go:1001:1)
+func (r *Companion) EmitIr(source *Directory, opts ...CompanionEmitIrOpts) *File { // companion (../../../daggerverse/cpybkc/main.go:1028:1)
 	assertNotNil("source", source)
 	q := r.query.Select("emitIr")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -265,11 +265,42 @@ func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpyb
 	}
 }
 
+// CompanionInitOpts contains options for Companion.Init
+type CompanionInitOpts struct {
+	//
+	// Where a member a copybook's COPY names is read from, as the CLI's
+	// --copy-member writes it: the member as the COPY writes it — STDHDR,
+	// 'stdhdr', or STDHDR OF PAYLIB — then = and a path relative to the root of
+	// source. Repeat it once per member; it is needed only for a copybook that
+	// writes COPY, which is then transcribed as its expansion, each member's
+	// entries where its COPY stood (docs/cli/SPEC.md, "Where the members come
+	// from").
+	//
+	// A member is not a copybook this transcribes: it gets no definitions file
+	// of its own in the directory handed back, and one no COPY names is noted
+	// rather than refused. Each value is passed through as given, so every
+	// refusal — a value with no = outside a literal, an empty or malformed
+	// member, an empty path, the path "-", two values naming one member — is the
+	// CLI's usage error, naming the value as typed.
+	//
+	// The comma boundary --copybook's documentation states holds here too: a
+	// value holding a comma has to be passed through Run instead.
+	//
+	CopyMember []string // companion (../../../daggerverse/cpybkc/main.go:961:2)
+}
+
 // Init transcribes copybooks into definitions files and scaffolds a layout over
 // them, and hands back the directory holding both:
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  init --source . --copybook posting.cpy --out ledger.sexpr export --path .
+//
+// A copybook composed with COPY names where each member is read from, once per
+// member, as the CLI's --copy-member does:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  init --source . --copybook cpy/order-detail.cpy \
+//	  --copy-member STDHDR=cpy/stdhdr.cpy --out orders.sexpr export --path .
 //
 // It is the first thing an adopter runs, before there is a manifest, a layout or
 // a generator to speak of, and it is the run that made the case for mapping
@@ -319,9 +350,15 @@ func (r *Companion) Image() *Container { // companion (../../../daggerverse/cpyb
 // `--out -`, which the old File could not express and which Run used to carry,
 // is refused by the CLI now (#408), so there is no stream spelling of this run
 // left for Run to keep.
-func (r *Companion) Init(source *Directory, copybook []string, out string) *Directory { // companion (../../../daggerverse/cpybkc/main.go:887:1)
+func (r *Companion) Init(source *Directory, copybook []string, out string, opts ...CompanionInitOpts) *Directory { // companion (../../../daggerverse/cpybkc/main.go:894:1)
 	assertNotNil("source", source)
 	q := r.query.Select("init")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `copyMember` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CopyMember) {
+			q = q.Arg("copyMember", opts[i].CopyMember)
+		}
+	}
 	q = q.Arg("source", source)
 	q = q.Arg("copybook", copybook)
 	q = q.Arg("out", out)
@@ -341,7 +378,7 @@ type CompanionRunOpts struct {
 	// contact nothing. With no source the container is the image as it was
 	// resolved, and cpybkc runs in whatever directory the image left it in.
 	//
-	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:1163:2)
+	Source *Directory // companion (../../../daggerverse/cpybkc/main.go:1190:2)
 }
 
 // Run is the fallback: cpybkc invoked with an argument vector this module has no
@@ -387,7 +424,7 @@ type CompanionRunOpts struct {
 // unrecognised flag is, whether a flag may repeat and what a usage error exits
 // with are all docs/cli/SPEC.md's, and the exec's failure carries them back
 // verbatim.
-func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:1150:1)
+func (r *Companion) Run(args []string, opts ...CompanionRunOpts) *Container { // companion (../../../daggerverse/cpybkc/main.go:1177:1)
 	q := r.query.Select("run")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `source` optional argument

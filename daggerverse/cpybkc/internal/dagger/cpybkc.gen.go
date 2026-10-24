@@ -259,11 +259,40 @@ func (r *Cpybkc) Image() *Container {
 	}
 }
 
+// CpybkcInitOpts contains options for Cpybkc.Init
+type CpybkcInitOpts struct {
+	// Where a member a copybook's COPY names is read from, as the CLI's
+	// --copy-member writes it: the member as the COPY writes it — STDHDR,
+	// 'stdhdr', or STDHDR OF PAYLIB — then = and a path relative to the root of
+	// source. Repeat it once per member; it is needed only for a copybook that
+	// writes COPY, which is then transcribed as its expansion, each member's
+	// entries where its COPY stood (docs/cli/SPEC.md, "Where the members come
+	// from").
+	//
+	// A member is not a copybook this transcribes: it gets no definitions file
+	// of its own in the directory handed back, and one no COPY names is noted
+	// rather than refused. Each value is passed through as given, so every
+	// refusal — a value with no = outside a literal, an empty or malformed
+	// member, an empty path, the path "-", two values naming one member — is the
+	// CLI's usage error, naming the value as typed.
+	//
+	// The comma boundary --copybook's documentation states holds here too: a
+	// value holding a comma has to be passed through Run instead.
+	CopyMember []string
+}
+
 // Init transcribes copybooks into definitions files and scaffolds a layout over
 // them, and hands back the directory holding both:
 //
 //	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
 //	  init --source . --copybook posting.cpy --out ledger.sexpr export --path .
+//
+// A copybook composed with COPY names where each member is read from, once per
+// member, as the CLI's --copy-member does:
+//
+//	dagger call -m github.com/Zaba505/cpybkc/daggerverse/cpybkc \
+//	  init --source . --copybook cpy/order-detail.cpy \
+//	  --copy-member STDHDR=cpy/stdhdr.cpy --out orders.sexpr export --path .
 //
 // It is the first thing an adopter runs, before there is a manifest, a layout or
 // a generator to speak of, and it is the run that made the case for mapping
@@ -313,9 +342,15 @@ func (r *Cpybkc) Image() *Container {
 // `--out -`, which the old File could not express and which Run used to carry,
 // is refused by the CLI now (#408), so there is no stream spelling of this run
 // left for Run to keep.
-func (r *Cpybkc) Init(source *Directory, copybook []string, out string) *Directory {
+func (r *Cpybkc) Init(source *Directory, copybook []string, out string, opts ...CpybkcInitOpts) *Directory {
 	assertNotNil("source", source)
 	q := r.query.Select("init")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `copyMember` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CopyMember) {
+			q = q.Arg("copyMember", opts[i].CopyMember)
+		}
+	}
 	q = q.Arg("source", source)
 	q = q.Arg("copybook", copybook)
 	q = q.Arg("out", out)
