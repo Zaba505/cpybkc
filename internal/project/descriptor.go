@@ -54,7 +54,7 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 	// **layout**, not to the manifest. That is what makes a layout portable: a layout and the
 	// copybooks it names travel together, so a project vendoring somebody
 	// else's layout does not have to rewrite the paths inside it.
-	bound, err := bind(filepath.Dir(path), read.records, read.judged)
+	bound, err := bind(filepath.Dir(path), read.records, read.judged, read.copyMembers)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +143,7 @@ func entriesOnly(file *layout.File, body []string) (layout.Pos, bool) {
 type layers struct {
 	records        []layoutmodel.Record
 	blocks         []layoutmodel.Block
+	copyMembers    []layoutmodel.CopyMember
 	profile        *layoutmodel.Profile
 	framing        *layoutmodel.Framing
 	discrimination *layoutmodel.Discrimination
@@ -157,7 +158,7 @@ type layers struct {
 // readLayers reads every layer of a parsed layout, and judges every
 // `definitions-block` in it.
 //
-// All eight are read whatever the ones before them said, and the faults are
+// All nine are read whatever the ones before them said, and the faults are
 // reported together. The layers vary independently — docs/layout/SPEC.md's
 // "Five layers rather than one schema" is that argument — so a layout with a
 // misspelled charset and an unsequenced record is wrong in two layers at once,
@@ -173,6 +174,9 @@ func readLayers(file *layout.File) (*layers, error) {
 	faults.Fail(err)
 
 	read.blocks, err = layoutmodel.ReadBlocks(file)
+	faults.Fail(err)
+
+	read.copyMembers, err = layoutmodel.ReadCopyMembers(file)
 	faults.Fail(err)
 
 	read.profile, err = layoutmodel.ReadProfile(file)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Zaba505/cobol-go/copybook"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
@@ -47,8 +48,17 @@ type Source struct {
 	Spelling string
 
 	// File is the file every position in the description is in, and what a
-	// span into it names.
+	// span into it names — every position of the description's own, that is.
+	// A position in text a copybook's `COPY` brought in is in the member's
+	// file, which Members names.
 	File string
+
+	// Members is the resolver the copybook was expanded through, or nil for a
+	// source that copies nothing: a definitions file or a block, whose entries
+	// are already expanded, or a copybook read with no member map. A span into
+	// an item a member contributed points into the member and carries the chain
+	// of `COPY` statements that reached it ([copymember.Resolver.Span]).
+	Members *copymember.Resolver
 }
 
 // CopybookAt is the source of a record bound to the copybook at path, as the
@@ -78,7 +88,16 @@ func (s Source) String() string {
 // A field with no line — a node this package introduced stands for none — is
 // the file alone, which diag renders as the file rather than as a line zero
 // nothing can jump to.
+//
+// A field a member contributed is in the member's file, named as its
+// `copy-member` form spells it, at the line and column it has there, with one
+// [diag.Span.Via] per `COPY` statement that reached it, innermost first
+// (docs/cli/SPEC.md, "What a `COPY` fault looks like").
 func (s Source) Span(field *copybook.Field) diag.Span {
+	if field != nil && s.Members != nil {
+		return s.Members.Span(s.File, field.Pos)
+	}
+
 	span := diag.Span{File: s.File}
 	if field != nil {
 		span.Line, span.Column = field.Pos.Line, field.Pos.Column

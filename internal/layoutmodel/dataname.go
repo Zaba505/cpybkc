@@ -21,7 +21,8 @@ const tagWord = "word"
 //
 // A data-name is a symbol, in the case the copybook wrote it, or
 // `(word "<spelling>")` where `sexpr-go` would read the spelling as something
-// other than that symbol — today only `nil`, which it reads as its empty value.
+// other than that symbol: `nil`, which it reads as its empty value, and a word
+// that begins with a digit, which it begins reading as a number.
 // The name returned is the spelling either way, so `(word "nil")` is the name
 // `nil` and nothing downstream can tell how it was written. Its position is the
 // symbol, or the `word` form.

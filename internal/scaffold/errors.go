@@ -86,9 +86,9 @@ func (e *NoEntryError) Diagnostic() diag.Diagnostic {
 }
 
 // TranscriptionError is a copybook that parsed and built and still cannot be
-// written as a definitions file — today, a condition-name whose VALUE list the
-// pinned `cobol-go` misreads (docs/layout/SPEC.md, "A condition-name cobol-go
-// misreads is refused, not transcribed").
+// written as a definitions file: one holding a node the writer has no form
+// for, which no entry `cobol-go`'s parser builds holds at the pinned commit, so
+// that a clause a later pin adds is refused rather than dropped.
 //
 // It is the copybook's to report rather than the writer's, because the writer
 // knows the line and column it refused and not the file: a position in a

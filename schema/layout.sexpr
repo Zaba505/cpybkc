@@ -245,6 +245,23 @@
   (argument target rename-target exactly-one)
   (argument name text exactly-one))
 
+;; (copy-member <member> "<path>") says which file a member a copybook's COPY
+;; names is, relative to the layout. The member is written as the COPY names
+;; it: a text-name, or (of <text-name> <library-name>) for COPY <text-name> OF
+;; <library-name> and its IN spelling. Each name is spelled as a data-name is,
+;; and a literal text-name by its content. That no two forms name one member,
+;; and that some COPY reaches every form, relate two forms or need a copybook
+;; and are the layout reader's and `resolve`'s.
+(form copy-member (in top-level) (arity zero-or-more) (layer record-definitions)
+  (argument member copied-member exactly-one)
+  (argument path text exactly-one))
+
+(sort copied-member data-name (form of))
+
+(form of (in copied-member)
+  (argument text-name data-name exactly-one)
+  (argument library-name data-name exactly-one))
+
 (form copybook-reading (in top-level) (arity at-most-one) (layer record-definitions)
   (child occurs-depending-on exactly-one))
 

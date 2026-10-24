@@ -340,6 +340,7 @@ diagnostic naming the tag and its position.
 | `copybook-reading` | 0..1 | record definitions |
 | `rename` | 0..n | record definitions |
 | `definitions-block` | 0..n | record definitions |
+| `copy-member` | 0..n | record definitions |
 | `discriminate` | one per `record` | discrimination |
 | `discriminate-variant` | one per variant | discrimination |
 | `schedule-variant` | one per variant | discrimination |
@@ -361,9 +362,10 @@ name is not repeated — the `record` form already stated it.
 
 Each name in the path is a COBOL name, so it is a
 [data-name](#the-leaves-a-level-a-data-name-and-literal-text): a symbol in the
-case the copybook wrote it, or `(word "nil")` for the one spelling the grammar
-would read as something else (#404). The record name before them is the
-layout's own identifier and stays a symbol.
+case the copybook wrote it, or `(word "…")` for a spelling the grammar would
+read as something else — `nil` (#404), or a word that begins with a digit
+(#423). The record name before them is the layout's own identifier and stays a
+symbol.
 
 A reference names an item and not an occurrence of one. Where the path passes
 through an item that repeats, or ends at one, what the reference means depends
