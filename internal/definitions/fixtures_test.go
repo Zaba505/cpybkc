@@ -15,6 +15,10 @@ import (
 
 	cobol "github.com/Zaba505/cobol-go"
 	"github.com/Zaba505/cobol-go/copybook"
+
+	"github.com/Zaba505/cpybkc/internal/copymember"
+	"github.com/Zaba505/cpybkc/internal/layout"
+	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 )
 
 // repositoryRoot is the module root, from this package's directory.
@@ -109,7 +113,70 @@ func fixtures(t *testing.T) []fixture {
 		t.Fatalf("parse the kitchen sink: %v", err)
 	}
 
-	return append(all, fixture{Name: kitchenSink, Entries: sink})
+	all = append(all, fixture{Name: kitchenSink, Entries: sink})
+
+	return append(all, composedFixtures(t)...)
+}
+
+// composedProject is the project whose copybooks compose with COPY: a shared
+// header member, a per-type body member, a COPY nested in it and a COPY … OF a
+// library, every member found where the layout's copy-member forms say.
+const composedProject = "testdata/composed"
+
+// composedFixtures are the composed project's copybooks, each parsed as a run
+// reads it: expanded through the one resolver over its layout's copy-member
+// forms, so that the entries are the expansion a definitions file holds.
+func composedFixtures(t *testing.T) []fixture {
+	t.Helper()
+
+	dir := filepath.Join(repositoryRoot, composedProject)
+	path := filepath.Join(dir, "orders.sexpr")
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the composed layout: %v", err)
+	}
+
+	file, err := layout.Parse(path, bytes.NewReader(src))
+	if err != nil {
+		t.Fatalf("parsing the composed layout: %v", err)
+	}
+
+	members, err := layoutmodel.ReadCopyMembers(file)
+	if err != nil {
+		t.Fatalf("reading the composed layout's copy members: %v", err)
+	}
+
+	forms := make([]copymember.Form, 0, len(members))
+	for _, member := range members {
+		forms = append(forms, copymember.Form{Member: member.Member, Path: member.Path, File: filepath.Join(dir, filepath.FromSlash(member.Path))})
+	}
+
+	resolver := copymember.New(forms)
+
+	var composed []fixture
+
+	for _, copybook := range []string{"cpy/order-header.cpy", "cpy/order-detail.cpy"} {
+		src, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(copybook)))
+		if err != nil {
+			t.Fatalf("reading %s: %v", copybook, err)
+		}
+
+		parsed, err := cobol.Parse(bytes.NewReader(src), cobol.WithFragment(), cobol.WithSourceFormat(cobol.FixedFormat), cobol.WithCopyBooks(resolver))
+		if err != nil {
+			t.Fatalf("parsing %s through its layout's members: %v", copybook, err)
+		}
+
+		composed = append(composed, fixture{Name: composedProject + "/" + copybook, Entries: parsed.Fragment.Entries})
+	}
+
+	for i, member := range members {
+		if !resolver.Reached(i) {
+			t.Fatalf("no COPY reaches %s; the composed fixture no longer covers it", member.Member)
+		}
+	}
+
+	return composed
 }
 
 // readable parses a copybook and reports whether it is one cpybkc can read.

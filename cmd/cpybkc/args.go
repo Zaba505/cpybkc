@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/emit"
 	scaffolding "github.com/Zaba505/cpybkc/internal/scaffold"
 )
@@ -19,7 +20,7 @@ import (
 // The whole argument vector docs/cli/SPEC.md fixes, and nothing else:
 //
 //	cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-//	cpybkc init --copybook <path> … --out <layout>
+//	cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <layout>
 //	cpybkc --version
 //	cpybkc --help
 //
@@ -31,7 +32,8 @@ import (
 // The two sets are disjoint in the flags that name an **input**, and that is
 // what makes a flag written under the wrong action a fault this parser can
 // report as such rather than as an unrecognised one: --manifest, --emit-ir and
-// --emit-ir-format are the default action's, --copybook and --out are `init`'s,
+// --emit-ir-format are the default action's, --copybook, --copy-member and --out
+// are `init`'s,
 // and each is a real flag of this program in the wrong place.
 //
 // Every spelling here is a literal, including the two
@@ -47,6 +49,7 @@ const (
 	emitIRFlag       = "--emit-ir"
 	emitIRFormatFlag = "--emit-ir-format"
 	copybookFlag     = "--copybook"
+	copyMemberFlag   = "--copy-member"
 	outFlag          = "--out"
 	versionFlag      = "--version"
 	helpFlag         = "--help"
@@ -157,6 +160,12 @@ type invocation struct {
 	// so a path cpybkc rewrote on the adopter's behalf would be one they cannot
 	// find in what they typed.
 	copybooks []string
+
+	// copyMembers are the members --copy-member named, in the order they were
+	// given, each with the value as it was typed: a member and the path of its
+	// file, which is resolved against the working directory and written as
+	// typed into every diagnostic about it.
+	copyMembers []copyMember
 
 	// out is the path --out names the layout at. The definitions files go
 	// beside it, in the directory it names; it is never [standardOutput].
@@ -351,12 +360,13 @@ func vector(subcommand string, args []string) (invocation, error) {
 		// most parsers default to, and it makes a line that names one file
 		// twice a line that reads the file it also names as something else.
 		//
-		// --copybook is the one flag that repeats, and it is not an exception to
-		// that reasoning: its occurrences are a list rather than one value
-		// stated several times, so nothing the person wrote is discarded. What
-		// the rule was for survives there too, in [setCopybook], which refuses
-		// two occurrences carrying equal values.
-		if seen[name] && name != copybookFlag {
+		// --copybook and --copy-member are the two flags that repeat, and they
+		// are not an exception to that reasoning: their occurrences are a list
+		// rather than one value stated several times, so nothing the person
+		// wrote is discarded. What the rule was for survives there too, in
+		// [setCopybook] and [setCopyMember], which refuse two occurrences
+		// naming one thing.
+		if seen[name] && name != copybookFlag && name != copyMemberFlag {
 			return invocation{}, usagef("%s appears more than once, and each flag appears at most once", name)
 		}
 
@@ -393,6 +403,8 @@ func set(inv *invocation, name, value string) error {
 		return setManifest(inv, value)
 	case copybookFlag:
 		return setCopybook(inv, value)
+	case copyMemberFlag:
+		return setCopyMember(inv, value)
 	case outFlag:
 		return setOut(inv, value)
 	case emitIRFlag:
@@ -585,6 +597,41 @@ func setCopybook(inv *invocation, value string) error {
 	return nil
 }
 
+// copyMember is one --copy-member occurrence: the value as typed, and what it
+// says.
+type copyMember struct {
+	value  string
+	member copymember.Member
+	path   string
+}
+
+// setCopyMember applies one --copy-member occurrence.
+//
+// docs/cli/SPEC.md, "Where the members come from": the value is a member as a
+// `COPY` writes it, `=`, and the path of the file holding it, split at the
+// first `=` outside a literal ([copymember.ParseValue]). A value with no such
+// `=`, an empty or malformed member, an empty path and the path `-` are usage
+// errors, each decidable from the vector before anything is opened and each
+// naming the value as typed; so are two values whose members a `COPY` cannot
+// tell apart, naming both, because one `COPY` would have two files to read.
+func setCopyMember(inv *invocation, value string) error {
+	member, path, err := copymember.ParseValue(value)
+	if err != nil {
+		return usagef("%s %q names no member and file: %v", copyMemberFlag, value, err)
+	}
+
+	for _, given := range inv.copyMembers {
+		if given.member.Same(member) {
+			return usagef("%s %q and %s %q name one member, and a COPY of it would have two files to read",
+				copyMemberFlag, given.value, copyMemberFlag, value)
+		}
+	}
+
+	inv.copyMembers = append(inv.copyMembers, copyMember{value: value, member: member, path: path})
+
+	return nil
+}
+
 // flagOwner is which action each flag belongs to, and it is the whole of that
 // question: whether a flag is accepted, and what it is refused as when it is
 // not, are both read from here.
@@ -606,6 +653,7 @@ var flagOwner = map[string]string{
 	emitIRFlag:       defaultAction,
 	emitIRFormatFlag: defaultAction,
 	copybookFlag:     initSubcommand,
+	copyMemberFlag:   initSubcommand,
 	outFlag:          initSubcommand,
 }
 

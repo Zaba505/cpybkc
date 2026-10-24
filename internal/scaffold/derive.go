@@ -7,13 +7,16 @@ package scaffold
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	cobol "github.com/Zaba505/cobol-go"
 	"github.com/Zaba505/cobol-go/copybook"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/definitions"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
@@ -178,6 +181,18 @@ func reading() layoutmodel.Reading { return layoutmodel.ReadingUnstated }
 // record it is about and nothing else. A copybook every 01-level of which was
 // noted contributes no record form, and a note says so.
 //
+// Every copybook is expanded through one resolver over members, the
+// `--copy-member` flags ([copymember.Resolver]), exactly as a run expands one
+// through its layout's `copy-member` forms: a copybook that writes `COPY` is
+// transcribed as its expanded entries, and read back against that expansion. A
+// member is not a copybook this converts — it gets no definitions file of its
+// own and derives no record. A `COPY` naming a member none gives, a member file
+// that cannot be opened and a `COPY` cycle are a copybook that cannot be
+// parsed. A member no `COPY` names is noted, and the note is owed whether or not
+// the run succeeds, since a misspelled member reads as one beside the refusal
+// its `COPY` then produces: on failure the notes are on the error, through
+// [Noted].
+//
 // A copybook no record derives from — one holding only 77-levels, no named
 // 01-level, or one every combination of which was noted — is still transcribed,
 // and a note says no record was derived from it. Whether the run succeeds is
@@ -193,7 +208,7 @@ func reading() layoutmodel.Reading { return layoutmodel.ReadingUnstated }
 // the definitions file of the copybook that could not be read is one whose
 // layout is short and whose incompleteness reads exactly like the
 // incompleteness that is deliberate.
-func Derive(books []Copybook) (*Scaffold, error) {
+func Derive(books []Copybook, members ...copymember.Form) (*Scaffold, error) {
 	// A scaffold over no copybooks is not an empty scaffold: there is no
 	// copybook to have noted anything about, and so nothing to say why it holds
 	// no record. The command line already refuses this as a usage error —
@@ -217,9 +232,24 @@ func Derive(books []Copybook) (*Scaffold, error) {
 		}
 	}
 
+	// Two members a COPY cannot tell apart, which the command line refuses as a
+	// usage error and this refuses for the same reason a pair of definitions
+	// files is refused above.
+	for i, member := range members {
+		for _, other := range members[:i] {
+			if other.Member.Same(member.Member) {
+				faults.Fail(&MemberTwiceError{First: other, Second: member})
+
+				break
+			}
+		}
+	}
+
 	if faults.Failed() {
 		return nil, faults.Err()
 	}
+
+	resolver := copymember.New(members)
 
 	// Every 01-level is read before any record is written, because whether a
 	// record name collides is a property of the whole set of copybooks: the
@@ -231,14 +261,14 @@ func Derive(books []Copybook) (*Scaffold, error) {
 	files := make([]File, 0, len(books))
 
 	for _, book := range books {
-		entries, items, err := readCopybook(book)
+		entries, items, err := readCopybook(book, resolver)
 		if err != nil {
 			faults.Fail(err)
 
 			continue
 		}
 
-		text, err := transcribe(book, entries)
+		text, err := transcribe(book, entries, resolver)
 		if err != nil {
 			faults.Fail(err)
 
@@ -253,14 +283,78 @@ func Derive(books []Copybook) (*Scaffold, error) {
 		files = append(files, File{Name: DefinitionsName(book.Path), Bytes: text})
 	}
 
+	notes := unnamedMembers(resolver, faults.Failed())
+
 	if faults.Failed() {
-		return nil, faults.Err()
+		if len(notes) == 0 {
+			return nil, faults.Err()
+		}
+
+		return nil, &refusal{notes: notes, err: faults.Err()}
 	}
 
-	s := &Scaffold{files: files}
+	s := &Scaffold{files: files, notes: notes}
 	s.take(read, levels)
 
 	return s, nil
+}
+
+// unnamedMembers are the notes owed about members no `COPY` named: one per
+// `--copy-member`, naming the value as it was typed.
+//
+// refused says that some copybook could not be read through. `cobol-go`
+// expands a `COPY` as it reads, so a parse that stopped never reached the
+// `COPY` statements after the fault, and a member only those name was not
+// named by any `COPY` that was read — which is all the note can say then. It
+// says exactly that rather than nothing, because the note is most useful
+// beside a refused `COPY`: a misspelled member reads as one there.
+func unnamedMembers(resolver *copymember.Resolver, refused bool) []string {
+	var notes []string
+
+	for i, form := range resolver.Forms() {
+		if resolver.Reached(i) {
+			continue
+		}
+
+		note := fmt.Sprintf("--copy-member %s: no COPY in any copybook names %s, so %s was not read",
+			form.Typed(), form.Member, form.Path)
+		if refused {
+			note = fmt.Sprintf("--copy-member %s: no COPY read before a copybook was refused names %s, "+
+				"so %s was not read; a COPY after the refusal may still name it", form.Typed(), form.Member, form.Path)
+		}
+
+		notes = append(notes, note)
+	}
+
+	return notes
+}
+
+// Noted is an error [Derive] returned carrying the notes the run owes beside
+// it: a refusal leaves no scaffold to read them from, and the note about a
+// member no `COPY` named is most useful exactly when a `COPY` was refused.
+type Noted interface {
+	error
+
+	// Notes are the lines owed, in the order a scaffold would hold them.
+	Notes() []string
+}
+
+// refusal is a failed derivation and its notes. It unwraps to the faults it
+// carries, so that every one of them is reported as it would be on its own.
+type refusal struct {
+	notes []string
+	err   error
+}
+
+func (r *refusal) Error() string   { return r.err.Error() }
+func (r *refusal) Notes() []string { return slices.Clone(r.notes) }
+
+func (r *refusal) Unwrap() []error {
+	if joined, ok := r.err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
+	}
+
+	return []error{r.err}
 }
 
 // readCopybook parses one copybook and returns its entries, which are what its
@@ -273,18 +367,20 @@ func Derive(books []Copybook) (*Scaffold, error) {
 // nothing else derives no record, which is a note rather than a refusal — its
 // definitions file is still written whole. A copybook declaring no entry at all
 // has nothing to transcribe, and that is a refusal.
-func readCopybook(book Copybook) ([]*cobol.DataDescriptionEntry, []*copybook.Field, error) {
+func readCopybook(book Copybook, members *copymember.Resolver) ([]*cobol.DataDescriptionEntry, []*copybook.Field, error) {
 	// Fixed format, which is what a copybook out of a mainframe library is
 	// written in and what every other reader in this repository assumes.
 	// Nothing states a reference format, and `init` is handed a file rather
-	// than a project, so there is nowhere else the answer could come from.
+	// than a project, so there is nowhere else the answer could come from. A
+	// member is read in the reference format of the copybook copying it.
 	file, err := cobol.Parse(
 		bytes.NewReader(book.Source),
 		cobol.WithFragment(),
 		cobol.WithSourceFormat(cobol.FixedFormat),
+		cobol.WithCopyBooks(members),
 	)
 	if err != nil {
-		return nil, nil, &SourceError{Path: book.Path, Err: err}
+		return nil, nil, sourceFault(book, members, err)
 	}
 
 	if file.Fragment == nil || len(file.Fragment.Entries) == 0 {
@@ -295,7 +391,7 @@ func readCopybook(book Copybook) ([]*cobol.DataDescriptionEntry, []*copybook.Fie
 
 	items, err := copybook.Build(entries)
 	if err != nil {
-		return nil, nil, &SourceError{Path: book.Path, Err: err}
+		return nil, nil, sourceFault(book, members, err)
 	}
 
 	records := make([]*copybook.Field, 0, len(items))
@@ -307,6 +403,46 @@ func readCopybook(book Copybook) ([]*cobol.DataDescriptionEntry, []*copybook.Fie
 	}
 
 	return entries, records, nil
+}
+
+// sourceFault is a copybook `cobol-go` could not parse or build, as a
+// diagnostic: a `COPY` fault in the shape docs/cli/SPEC.md's "What a `COPY`
+// fault looks like" gives it, and any other fault as a [SourceError], pointing
+// into the member where `cobol-go` raised it inside one.
+func sourceFault(book Copybook, members *copymember.Resolver, err error) error {
+	if fault, ok := copymember.FaultOf(err); ok {
+		if fault.Unreadable != nil {
+			return &MissingMemberError{
+				At:       members.Span(book.Path, fault.At),
+				Form:     fault.Unreadable.Form,
+				LookedIn: absolute(fault.Unreadable.Form.File),
+				Err:      fault.Unreadable.Err,
+			}
+		}
+
+		return members.Diagnose(book.Path, fault, copymember.CommandLine)
+	}
+
+	fault := &SourceError{Path: book.Path, Err: err}
+
+	var positioned cobol.Positioned
+	if errors.As(err, &positioned) && positioned.Position().Text != nil {
+		at := members.Span(book.Path, positioned.Position())
+		fault.In = &at
+	}
+
+	return fault
+}
+
+// absolute is path made absolute, for a diagnostic saying where a file was
+// looked for, or path itself where the working directory cannot be read.
+func absolute(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+
+	return abs
 }
 
 // level is one named 01-level, read: what it would derive, and what the run

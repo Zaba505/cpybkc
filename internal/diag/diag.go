@@ -40,6 +40,35 @@ type Span struct {
 	// for: the first span is where the fault is and the message says what, and
 	// every one after it has to say why it is being shown.
 	Note string
+
+	// Via are the places that brought this one into the file a diagnostic is
+	// about, innermost first: one per `COPY` statement that reached a member
+	// a span points into, each at that statement with a note saying which
+	// member it copied (docs/cli/SPEC.md, "What a `COPY` fault looks like").
+	// Each is rendered as a continuation line of its own straight after this
+	// span's, so that a reader can tell which expansion of a member the place
+	// is in. A span into a file the run opened directly has none.
+	//
+	// It is a pointer so that a Span stays a comparable value: a span with no
+	// chain compares as it always has.
+	Via *Chain
+}
+
+// Chain is the `COPY` statements that reached a member, innermost first, as a
+// [Span.Via] carries them.
+type Chain struct {
+	// Spans are the statements, each with a note.
+	Spans []Span
+}
+
+// Chained is the spans of the span's [Span.Via], or none where it has no chain:
+// the continuation lines a renderer writes straight after the span's own.
+func (s Span) Chained() []Span {
+	if s.Via == nil {
+		return nil
+	}
+
+	return s.Via.Spans
 }
 
 // Stated reports whether the span names anywhere at all.
@@ -109,21 +138,34 @@ func (d Diagnostic) String() string {
 
 	b.WriteString(d.Message)
 
+	for _, via := range d.Spans[0].Chained() {
+		continuation(&b, via)
+	}
+
 	for _, span := range d.Spans[1:] {
-		b.WriteString("\n  ")
+		continuation(&b, span)
 
-		if span.Stated() {
-			b.WriteString(span.String())
-
-			if span.Note != "" {
-				b.WriteString(": ")
-			}
+		for _, via := range span.Chained() {
+			continuation(&b, via)
 		}
-
-		b.WriteString(span.Note)
 	}
 
 	return b.String()
+}
+
+// continuation writes one continuation line: the span, and its note.
+func continuation(b *strings.Builder, span Span) {
+	b.WriteString("\n  ")
+
+	if span.Stated() {
+		b.WriteString(span.String())
+
+		if span.Note != "" {
+			b.WriteString(": ")
+		}
+	}
+
+	b.WriteString(span.Note)
 }
 
 // Error is an error that carries a diagnostic.

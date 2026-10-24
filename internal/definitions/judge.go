@@ -6,6 +6,7 @@
 package definitions
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -55,17 +56,43 @@ func Judge(entries []Entry) ([]*cobol.DataDescriptionEntry, error) {
 
 // judge applies the validity rule to one entry, and returns the refusal, with
 // no position yet, or nil when it is admitted.
+//
+// The rule is `cobol-go`'s own [cobol.CheckEntries] (Zaba505/cobol-go#149),
+// which prints an entry exactly as [cobol.Print] does and re-reads it with
+// [cobol.Parse] in free format, the one reference format the printer writes
+// (Zaba505/cobol-go#146). It is asked about one entry at a time, so that every
+// refused entry is reported at itself; what it says is put in this package's
+// words — which of the printer and the parser refused it, or what the entry
+// read back as — so that a refusal quotes the COBOL it judged.
 func judge(entry *cobol.DataDescriptionEntry) *InadmissibleEntryError {
-	printed, err := printEntries(entry)
-	if err != nil {
-		return &InadmissibleEntryError{Reason: fmt.Sprintf("cobol.Print refuses it: %v", err)}
+	err := cobol.CheckEntries([]*cobol.DataDescriptionEntry{entry})
+	if err == nil {
+		return nil
 	}
 
-	quoted := strings.TrimSpace(printed)
+	var check cobol.EntryCheckError
+	if !errors.As(err, &check) {
+		return &InadmissibleEntryError{Reason: fmt.Sprintf("cobol.CheckEntries refuses it: %v", err)}
+	}
 
+	quoted := strings.TrimSpace(check.Printed)
+
+	switch {
+	case check.Printed == "":
+		return &InadmissibleEntryError{Reason: fmt.Sprintf("cobol.Print refuses it: %v", check.Err)}
+	case errors.Is(check.Err, cobol.ErrEntryChanged):
+		return &InadmissibleEntryError{Printed: quoted, Reason: readBack(check.Printed)}
+	default:
+		return &InadmissibleEntryError{Printed: quoted, Reason: fmt.Sprintf("cobol.Parse refuses it: %v", check.Err)}
+	}
+}
+
+// readBack says what `cobol-go` read in place of the entry it was shown, from
+// the text it printed for it.
+func readBack(printed string) string {
 	file, err := cobol.Parse(strings.NewReader(printed), cobol.WithFragment())
 	if err != nil {
-		return &InadmissibleEntryError{Printed: quoted, Reason: fmt.Sprintf("cobol.Parse refuses it: %v", err)}
+		return "which cobol-go reads back as a different entry"
 	}
 
 	var read []*cobol.DataDescriptionEntry
@@ -73,17 +100,6 @@ func judge(entry *cobol.DataDescriptionEntry) *InadmissibleEntryError {
 		read = file.Fragment.Entries
 	}
 
-	want := Cleared(entry)
-
-	if len(read) == 1 && reflect.DeepEqual(Cleared(read[0]), want) {
-		return nil
-	}
-
-	return &InadmissibleEntryError{Printed: quoted, Reason: readBack(read)}
-}
-
-// readBack says what `cobol-go` read in place of the entry it was shown.
-func readBack(read []*cobol.DataDescriptionEntry) string {
 	if len(read) != 1 {
 		reprinted, err := printEntries(read...)
 		if err != nil || len(read) == 0 {

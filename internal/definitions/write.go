@@ -39,15 +39,12 @@ const indentUnit = "  "
 //
 // Every clause kind and every operand kind `cobol-go` can hold in an entry is
 // one Write knows, by an exhaustive type switch; a node it does not know is an
-// [UnknownNodeError] rather than a clause dropped from the transcription. An
-// entry the pinned `cobol-go` misreads is refused with a [MisreadValueError],
-// as SPEC.md's "A condition-name cobol-go misreads is refused, not transcribed"
-// requires. Either way nothing is written: the body is built in full before any
-// of it reaches w, so a refused copybook leaves no partial definitions file.
+// [UnknownNodeError] rather than a clause dropped from the transcription, and
+// nothing is written: the body is built in full before any of it reaches w, so
+// a refused copybook leaves no partial definitions file.
 //
 // The output is a function of entries and depth alone. Positions and comments
-// are not read, except to recognise a prefixed literal, whose word and literal
-// are told apart from two values only by touching.
+// are not read.
 func Write(w io.Writer, entries []*cobol.DataDescriptionEntry, depth int) error {
 	if depth < 0 {
 		return fmt.Errorf("an entry body is written at depth %d, and a depth is never negative", depth)
@@ -55,7 +52,10 @@ func Write(w io.Writer, entries []*cobol.DataDescriptionEntry, depth int) error 
 
 	var out bytes.Buffer
 
-	depths := entryDepths(entries)
+	// The depth is the printer's own, by docs/layout/SPEC.md's depth rule:
+	// `cobol-go` exports the function its printer indents by, so the writer
+	// and the printer cannot disagree about where an entry sits.
+	depths := cobol.EntryDepths(entries)
 
 	for i, entry := range entries {
 		line, err := entryText(entry)
@@ -75,49 +75,6 @@ func Write(w io.Writer, entries []*cobol.DataDescriptionEntry, depth int) error 
 	return err
 }
 
-// entryDepths is each entry's depth by docs/layout/SPEC.md's depth rule, which
-// is the one `cobol-go`'s printer indents by:
-//
-//   - an entry at levels 01–49 is as deep as the number of entries enclosing
-//     it, counted by level numbers alone;
-//   - 66 and 77 are at depth 0;
-//   - an 88 is one deeper than the nearest entry before it that is not an 88.
-//
-// It is restated rather than called because the printer does not export it
-// (Zaba505/cobol-go#138); TestTheDepthIsThePrinters holds the two equal over
-// every fixture.
-func entryDepths(entries []*cobol.DataDescriptionEntry) []int {
-	depths := make([]int, len(entries))
-
-	var open []int // the levels of the 01–49 entries still enclosing
-
-	parent := 0 // the depth of the nearest entry that is not an 88
-
-	for i, entry := range entries {
-		if entry == nil {
-			continue
-		}
-
-		switch entry.Level {
-		case 88:
-			depths[i] = parent + 1
-		case 66, 77:
-			depths[i] = 0
-			parent = 0
-		default:
-			for len(open) > 0 && open[len(open)-1] >= entry.Level {
-				open = open[:len(open)-1]
-			}
-
-			depths[i] = len(open)
-			open = append(open, entry.Level)
-			parent = depths[i]
-		}
-	}
-
-	return depths
-}
-
 // entryText is one entry's form, without its indentation.
 func entryText(entry *cobol.DataDescriptionEntry) (string, error) {
 	if entry == nil {
@@ -126,10 +83,6 @@ func entryText(entry *cobol.DataDescriptionEntry) (string, error) {
 
 	name, err := entryName(entry)
 	if err != nil {
-		return "", err
-	}
-
-	if err := misread(entry); err != nil {
 		return "", err
 	}
 
@@ -290,15 +243,32 @@ func valueSpecText(entry *cobol.DataDescriptionEntry, spec cobol.ValueSpec) (str
 }
 
 // operandText is one VALUE operand. The switch is exhaustive over the value
-// kinds of the pinned `cobol-go`: a literal is text and a word is a data-name,
-// and an [cobol.Identifier], a [cobol.FunctionReference] or an
-// [cobol.AddressOf] — which a procedure-division operand may be, and which no
-// data-description entry the parser builds holds — is an [UnknownNodeError].
+// kinds of the pinned `cobol-go`: a literal is text, a word is a data-name, an
+// ALL literal is `(all <operand>)` around the literal or the figurative
+// constant it repeats, and an [cobol.Identifier], a [cobol.FunctionReference]
+// or an [cobol.AddressOf] — which a procedure-division operand may be, and
+// which no data-description entry the parser builds holds — is an
+// [UnknownNodeError].
+//
+// A literal's text is the token as COBOL writes it: a prefixed literal's
+// prefix, then its delimited body. `cobol-go` holds the two apart — the kind
+// in [cobol.StringLiteral.Kind] and the body, delimiters included, in Value —
+// and does not keep the case the prefix was written in, so the prefix is
+// written as its printer writes it, in upper case.
 func operandText(entry *cobol.DataDescriptionEntry, operand cobol.Type) (string, error) {
 	switch o := operand.(type) {
 	case *cobol.StringLiteral:
 		if o != nil {
-			return text(o.Value), nil
+			return text(o.Kind.Prefix() + o.Value), nil
+		}
+	case *cobol.AllLiteral:
+		if o != nil && o.Literal != nil {
+			repeated, err := operandText(entry, o.Literal)
+			if err != nil {
+				return "", err
+			}
+
+			return form("all", repeated), nil
 		}
 	case *cobol.NumericLiteral:
 		if o != nil {
@@ -386,68 +356,4 @@ func text(value string) string {
 	_ = sexpr.Print(&out, &sexpr.File{Nodes: []sexpr.Node{sexpr.String{Value: value}}})
 
 	return strings.TrimSuffix(out.String(), "\n")
-}
-
-// misread reports a condition-name whose VALUE list the pinned `cobol-go`
-// reads as other values than the copybook wrote, which docs/layout/SPEC.md's
-// "A condition-name cobol-go misreads is refused, not transcribed" requires
-// conversion to refuse:
-//
-//   - a prefixed literal, `X'00'` or `N'A'`, which it reads as a word and a
-//     literal that touch;
-//   - an `ALL` literal, which it reads as the word ALL and the literal after it;
-//   - `VALUES ARE`, which it reads with ARE as the first value.
-//
-// Only a condition-name's list is affected. An ordinary item's VALUE takes one
-// operand, so the same text there is a parse failure and never reaches this.
-func misread(entry *cobol.DataDescriptionEntry) error {
-	if entry.Level != 88 {
-		return nil
-	}
-
-	for _, clause := range entry.Clauses {
-		value, ok := clause.(*cobol.ValueClause)
-		if !ok || value == nil {
-			continue
-		}
-
-		var operands []cobol.Type
-
-		for _, spec := range value.Values {
-			operands = append(operands, spec.From)
-			if spec.Through != nil {
-				operands = append(operands, spec.Through)
-			}
-		}
-
-		for i, operand := range operands {
-			w, ok := operand.(*cobol.Word)
-			if !ok || w == nil {
-				continue
-			}
-
-			switch {
-			case i == 0 && strings.EqualFold(w.Value, "ARE"):
-				return &MisreadValueError{Entry: entry, Word: w, Construct: "VALUES ARE", Story: "Zaba505/cobol-go#135"}
-			case i+1 < len(operands) && strings.EqualFold(w.Value, "ALL"):
-				return &MisreadValueError{Entry: entry, Word: w, Construct: "an ALL literal", Story: "Zaba505/cobol-go#142"}
-			case i+1 < len(operands) && touches(w, operands[i+1]):
-				return &MisreadValueError{Entry: entry, Word: w, Construct: "a prefixed literal", Story: "Zaba505/cobol-go#140"}
-			}
-		}
-	}
-
-	return nil
-}
-
-// touches reports whether a literal starts where a word ends, on its line —
-// which is what tells `X'00'`, one prefixed literal, from `X '00'`, a word and a
-// literal the copybook wrote as two.
-func touches(w *cobol.Word, next cobol.Type) bool {
-	literal, ok := next.(*cobol.StringLiteral)
-	if !ok || literal == nil {
-		return false
-	}
-
-	return literal.Pos.Line == w.Pos.Line && literal.Pos.Column == w.Pos.Column+len(w.Value)
 }

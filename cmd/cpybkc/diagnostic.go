@@ -112,9 +112,19 @@ func reportDiagnostic(w io.Writer, d diag.Diagnostic) {
 
 	diagnostic(w, severityError, head)
 
+	if len(d.Spans) > 0 {
+		for _, via := range d.Spans[0].Chained() {
+			continuation(w, via)
+		}
+	}
+
 	if len(d.Spans) > 1 {
 		for _, span := range d.Spans[1:] {
 			continuation(w, span)
+
+			for _, via := range span.Chained() {
+				continuation(w, via)
+			}
 		}
 	}
 

@@ -6,7 +6,7 @@
 // Command cpybkc is the executable a person runs.
 //
 //	cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-//	cpybkc init --copybook <path> … --out <dest>
+//	cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <dest>
 //	cpybkc --version
 //	cpybkc --help
 //

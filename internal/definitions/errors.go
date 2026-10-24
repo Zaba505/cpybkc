@@ -225,39 +225,6 @@ func (e *UnknownNodeError) Diagnostic() diag.Diagnostic {
 	return d
 }
 
-// MisreadValueError is a condition-name whose VALUE list the pinned `cobol-go`
-// misreads, which conversion refuses rather than transcribing
-// (docs/layout/SPEC.md, "A condition-name cobol-go misreads is refused, not
-// transcribed").
-type MisreadValueError struct {
-	// Entry is the condition-name.
-	Entry *cobol.DataDescriptionEntry
-
-	// Word is the word `cobol-go` read as a value of its own: the prefix, ALL,
-	// or ARE.
-	Word *cobol.Word
-
-	// Construct names what the copybook wrote.
-	Construct string
-
-	// Story is the `cobol-go` story that reads it, which lifts the refusal.
-	Story string
-}
-
-// Error implements the error interface.
-func (e *MisreadValueError) Error() string { return e.Diagnostic().String() }
-
-// Diagnostic is what the error says, and where: at the word, in the copybook.
-func (e *MisreadValueError) Diagnostic() diag.Diagnostic {
-	return diag.Diagnostic{
-		Message: fmt.Sprintf(
-			"%s writes %s in its VALUE list, which the pinned cobol-go reads as other values than it holds, so it is not converted until %s",
-			entryLabel(e.Entry), e.Construct, e.Story,
-		),
-		Spans: []diag.Span{{Line: e.Word.Pos.Line, Column: e.Word.Pos.Column}},
-	}
-}
-
 // entryLabel names an entry in a message: its level and its name.
 func entryLabel(entry *cobol.DataDescriptionEntry) string {
 	switch {

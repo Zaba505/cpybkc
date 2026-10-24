@@ -165,7 +165,7 @@ func TestADefinitionsFileThatDoesNotReadBackAsItsCopybookIsRefused(t *testing.T)
 		t.Fatalf("writing the definitions file: %v", err)
 	}
 
-	if err := readBack(b, entries, text.Bytes()); err != nil {
+	if err := readBack(b, entries, text.Bytes(), nil); err != nil {
 		t.Fatalf("the faithful transcription did not read back:\n%s", diag.Render(err))
 	}
 
@@ -176,7 +176,7 @@ func TestADefinitionsFileThatDoesNotReadBackAsItsCopybookIsRefused(t *testing.T)
 		t.Fatalf("the test's tampering found nothing to change in\n%s", text.Bytes())
 	}
 
-	err = readBack(b, entries, tampered)
+	err = readBack(b, entries, tampered, nil)
 
 	var mismatch *ReadBackError
 	if !errors.As(err, &mismatch) {
@@ -193,39 +193,81 @@ func TestADefinitionsFileThatDoesNotReadBackAsItsCopybookIsRefused(t *testing.T)
 	// A file that loses an entry is refused too, naming the counts.
 	short := bytes.Join(bytes.Split(text.Bytes(), []byte("\n"))[:2], []byte("\n"))
 
-	if err := readBack(b, entries, short); !errors.As(err, &mismatch) {
+	if err := readBack(b, entries, short, nil); !errors.As(err, &mismatch) {
 		t.Fatalf("a file short an entry gave %v, want a definitions file that did not read back", err)
 	} else if rendered := diag.Render(err); !strings.Contains(rendered, "holds 2 entries and the copybook declares 3") {
 		t.Errorf("the diagnostic does not say how the file is short:\n%s", rendered)
 	}
 }
 
-// docs/layout/SPEC.md, "A condition-name cobol-go misreads is refused, not
-// transcribed": a copybook the writer refuses is one that cannot be
-// transcribed, which fails the run naming the copybook as typed and the place
-// in it.
+// A copybook the writer refuses is one that cannot be transcribed, which fails
+// the run naming the copybook as typed and the place in it. Since
+// Zaba505/cobol-go#145, #150 and #152 no copybook `cobol-go` parses holds an
+// entry the writer has no form for, so the refusal is reached here with an
+// entry built by hand: a VALUE holding a procedure-division operand, which no
+// data-description entry the parser builds holds.
 func TestACopybookTheWriterRefusesFailsTheRunAtItsPlaceInTheCopybook(t *testing.T) {
 	t.Parallel()
 
-	const misread = `       01  CODE-RECORD.
-           05  CDE-TYPE             PIC X.
-               88  CDE-KNOWN        VALUES ARE 'A' 'B'.
-`
+	entries := []*cobol.DataDescriptionEntry{
+		{Pos: cobol.Pos{Line: 1, Column: 8}, Level: 1, Name: &cobol.Word{Value: "CODE-RECORD"}},
+		{
+			Pos:   cobol.Pos{Line: 3, Column: 12},
+			Level: 5,
+			Name:  &cobol.Word{Value: "CDE-TYPE"},
+			Clauses: []cobol.DataClause{
+				&cobol.PictureClause{Picture: "X"},
+				&cobol.ValueClause{Values: []cobol.ValueSpec{{From: &cobol.Identifier{Name: &cobol.Word{Value: "OTHER"}}}}},
+			},
+		},
+	}
 
-	_, err := Derive([]Copybook{book("header.cpy", header), book("cpy/code.cpy", misread)})
+	_, err := transcribe(book("cpy/code.cpy", ""), entries, nil)
 
 	var refused *TranscriptionError
 	if !errors.As(err, &refused) {
 		t.Fatalf("the fault is %v, want a copybook that cannot be transcribed", err)
 	}
 
-	var cause *definitions.MisreadValueError
+	var cause *definitions.UnknownNodeError
 	if !errors.As(err, &cause) {
 		t.Errorf("the fault does not carry the writer's refusal: %v", err)
 	}
 
 	if rendered := diag.Render(err); !strings.HasPrefix(rendered, "cpy/code.cpy:3:") {
 		t.Errorf("the diagnostic does not lead with the copybook as typed and the line:\n%s", rendered)
+	}
+}
+
+// docs/layout/SPEC.md, "A prefixed literal, an ALL literal and VALUES ARE are
+// transcribed as cobol-go reads them": a condition-name the pin before
+// Zaba505/cobol-go#145, #150 and #152 misread, which conversion refused and
+// failed the run over, converts as the values it holds.
+func TestACopybookCobolGoOnceMisreadConvertsAsItReads(t *testing.T) {
+	t.Parallel()
+
+	const once = `       01  CODE-RECORD.
+           05  CDE-TYPE             PIC X.
+               88  CDE-KNOWN        VALUES ARE 'A' 'B'.
+               88  CDE-NUL          VALUE X'00'.
+               88  CDE-STARS        VALUE ALL '*'.
+`
+
+	s, err := Derive([]Copybook{book("cpy/code.cpy", once)})
+	if err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+
+	got := string(s.Definitions()[0].Bytes)
+
+	for _, want := range []string{
+		`(entry 88 CDE-KNOWN (value "'A'" "'B'"))`,
+		`(entry 88 CDE-NUL (value "X'00'"))`,
+		`(entry 88 CDE-STARS (value (all "'*'")))`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the definitions file does not hold %s:\n%s", want, got)
+		}
 	}
 }
 

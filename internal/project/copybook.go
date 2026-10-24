@@ -7,12 +7,14 @@ package project
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"slices"
 
 	cobol "github.com/Zaba505/cobol-go"
 	"github.com/Zaba505/cobol-go/copybook"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
@@ -47,6 +49,18 @@ type bindings struct {
 	// that one found again by a second record names that record beside the
 	// first instead of being reported twice.
 	reported fileFaults
+
+	// members is the one resolver every copybook the layout names is expanded
+	// through, built from the layout's `copy-member` forms.
+	members *copymember.Resolver
+
+	// forms are those forms, in the order the layout writes them, which is the
+	// resolver's order too.
+	forms []layoutmodel.CopyMember
+
+	// copyFaults is every `COPY` fault reported so far, by what it renders as,
+	// so that a member file two copybooks copy is reported missing once.
+	copyFaults map[string]bool
 
 	// bound is the bindings in the order the layout defines them.
 	bound []binding
@@ -102,8 +116,24 @@ type source struct {
 // out of the block's entries and looks its top-level item up exactly as it
 // would in a file or a copybook. A record naming a block whose entries were
 // refused binds nothing and says nothing more.
-func bind(dir string, records []layoutmodel.Record, blocks judged) (*bindings, error) {
-	b := &bindings{dir: dir, byName: make(map[string]binding, len(records)), reported: make(fileFaults)}
+//
+// Every copybook is expanded through one resolver over the layout's
+// `copy-member` forms ([copymember.Resolver]), so that a member name means one
+// file throughout the run and each member file is read once. Once every record
+// is bound, a form no `COPY` reached is reported at its member — unless some
+// copybook could not be read, since the members it would have copied are then
+// unknown, and reporting them unreached would be a fault this program invented.
+func bind(dir string, records []layoutmodel.Record, blocks judged, members []layoutmodel.CopyMember) (*bindings, error) {
+	b := &bindings{
+		dir:        dir,
+		byName:     make(map[string]binding, len(records)),
+		reported:   make(fileFaults),
+		members:    memberMap(dir, members),
+		forms:      members,
+		copyFaults: make(map[string]bool),
+	}
+
+	unread := false
 
 	copybooks := make(map[string]source)
 	files := make(map[string]described)
@@ -153,11 +183,13 @@ func bind(dir string, records []layoutmodel.Record, blocks judged) (*bindings, e
 
 			file, already := copybooks[path]
 			if !already {
-				file = readCopybook(path)
+				file = readCopybook(path, b.members)
 				copybooks[path] = file
 			}
 
 			if file.err != nil {
+				unread = true
+
 				b.unreadable(record, path, file)
 
 				continue
@@ -168,13 +200,17 @@ func bind(dir string, records []layoutmodel.Record, blocks judged) (*bindings, e
 				continue
 			}
 
-			bound = binding{Record: record, Source: resolve.CopybookAt(record.Path), Item: item}
+			bound = binding{Record: record, Source: b.copybookAt(record.Path), Item: item}
 		default:
 			continue
 		}
 
 		b.bound = append(b.bound, bound)
 		b.byName[record.Name] = bound
+	}
+
+	if !unread {
+		b.unreached(members)
 	}
 
 	if b.Failed() {
@@ -253,8 +289,9 @@ func (b *bindings) built(record layoutmodel.Record, source resolve.Source, entri
 	return b.declared(record, source, items)
 }
 
-// readCopybook opens one copybook and parses it.
-func readCopybook(path string) source {
+// readCopybook opens one copybook and parses it, expanding every `COPY` in it
+// through members.
+func readCopybook(path string, members *copymember.Resolver) source {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return source{err: err, missing: true}
@@ -262,8 +299,14 @@ func readCopybook(path string) source {
 
 	// Fixed format, and see the package comment for why: nothing states a
 	// reference format, and this is the one a copybook out of a mainframe
-	// library is written in.
-	file, err := cobol.Parse(bytes.NewReader(src), cobol.WithFragment(), cobol.WithSourceFormat(cobol.FixedFormat))
+	// library is written in. A member is read in the reference format of the
+	// copybook copying it, which `cobol-go` does without being told.
+	file, err := cobol.Parse(
+		bytes.NewReader(src),
+		cobol.WithFragment(),
+		cobol.WithSourceFormat(cobol.FixedFormat),
+		cobol.WithCopyBooks(members),
+	)
 	if err != nil {
 		return source{err: err}
 	}
@@ -297,7 +340,95 @@ func (b *bindings) unreadable(record layoutmodel.Record, path string, file sourc
 		return
 	}
 
-	b.Fail(&CopybookSourceError{Pos: span(record.Source), Path: record.Path, Err: file.err})
+	if fault, ok := copymember.FaultOf(file.err); ok {
+		b.copyFault(record, fault)
+
+		return
+	}
+
+	b.Fail(&CopybookSourceError{Pos: span(record.Source), Path: record.Path, Err: file.err, In: b.memberSpan(record.Path, file.err)})
+}
+
+// copyFault reports a `COPY` fault in the copybook a record names, in the
+// shape docs/cli/SPEC.md's "What a `COPY` fault looks like" gives it.
+//
+// It is a fault in the files and not in the line of the layout naming them, so
+// it is reported once however many records name the copybook, and a member
+// file two copybooks copy is reported missing once.
+func (b *bindings) copyFault(record layoutmodel.Record, fault copymember.Fault) {
+	err := b.members.Diagnose(record.Path, fault, copymember.Layout)
+
+	if fault.Unreadable != nil {
+		form := b.formOf(fault.Unreadable.Form)
+		err = &MissingCopyMemberError{
+			Pos:      span(form.PathPos),
+			Path:     form.Path,
+			LookedIn: absolute(fault.Unreadable.Form.File),
+			Err:      fault.Unreadable.Err,
+		}
+	}
+
+	if rendered := err.Error(); !b.copyFaults[rendered] {
+		b.copyFaults[rendered] = true
+		b.Fail(err)
+	}
+}
+
+// formOf is the layout's `copy-member` form a resolver form was built from.
+func (b *bindings) formOf(form copymember.Form) layoutmodel.CopyMember {
+	for _, member := range b.forms {
+		if member.Member == form.Member && member.Path == form.Path {
+			return member
+		}
+	}
+
+	return layoutmodel.CopyMember{Member: form.Member, Path: form.Path}
+}
+
+// memberSpan is where in a member a `cobol-go` fault is, for a fault raised
+// inside text a `COPY` brought in, and nil for one in the copybook's own text:
+// docs/cli/SPEC.md requires the first to point into the member, and the second
+// is reported as it always was.
+func (b *bindings) memberSpan(path string, err error) *diag.Span {
+	var positioned cobol.Positioned
+	if !errors.As(err, &positioned) || positioned.Position().Text == nil {
+		return nil
+	}
+
+	at := b.members.Span(path, positioned.Position())
+
+	return &at
+}
+
+// unreached reports every `copy-member` form no `COPY` reached, at its member.
+func (b *bindings) unreached(members []layoutmodel.CopyMember) {
+	for i, member := range members {
+		if b.members.Reached(i) {
+			continue
+		}
+
+		b.Fail(&UnreachedCopyMemberError{Pos: span(member.MemberPos), Member: member.Member})
+	}
+}
+
+// copybookAt is the source of a record bound to the copybook at path, as the
+// layout spells it, expanded through the run's resolver.
+func (b *bindings) copybookAt(path string) resolve.Source {
+	source := resolve.CopybookAt(path)
+	source.Members = b.members
+
+	return source
+}
+
+// memberMap is the run's one resolver over the layout's `copy-member` forms,
+// each path resolved against the layout's directory.
+func memberMap(dir string, members []layoutmodel.CopyMember) *copymember.Resolver {
+	forms := make([]copymember.Form, 0, len(members))
+	for _, member := range members {
+		forms = append(forms, copymember.Form{Member: member.Member, Path: member.Path, File: at(dir, member.Path)})
+	}
+
+	return copymember.New(forms)
 }
 
 // item builds this record's own tree out of a parsed copybook and finds the
@@ -305,12 +436,12 @@ func (b *bindings) unreadable(record layoutmodel.Record, path string, file sourc
 func (b *bindings) item(record layoutmodel.Record, fragment *cobol.Fragment) *copybook.Field {
 	items, err := copybook.Build(fragment.Entries)
 	if err != nil {
-		b.Fail(&CopybookSourceError{Pos: span(record.Source), Path: record.Path, Err: err})
+		b.Fail(&CopybookSourceError{Pos: span(record.Source), Path: record.Path, Err: err, In: b.memberSpan(record.Path, err)})
 
 		return nil
 	}
 
-	return b.declared(record, resolve.CopybookAt(record.Path), items)
+	return b.declared(record, b.copybookAt(record.Path), items)
 }
 
 // declared is the top-level item of items the record names, or nil with the

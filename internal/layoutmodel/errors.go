@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layout"
 )
@@ -2071,6 +2072,57 @@ func (e *DuplicateBlockError) Diagnostic() diag.Diagnostic {
 			{File: e.First.File, Line: e.First.Line, Column: e.First.Column, Note: "it is defined first here"},
 		},
 	}
+}
+
+// DuplicateCopyMemberError is two `copy-member` forms naming one member, under
+// the matching a `COPY` is matched with.
+//
+// It carries two spans, the second form's member and the first's, as a block
+// defined twice does: either is a good statement on its own, and one `COPY`
+// would have two files to read.
+type DuplicateCopyMemberError struct {
+	// Pos is the second form's member.
+	Pos layout.Pos
+
+	// First is the first form's member.
+	First layout.Pos
+
+	// Member is the member, as the second form names it.
+	Member copymember.Member
+}
+
+// Error implements the error interface.
+func (e *DuplicateCopyMemberError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *DuplicateCopyMemberError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("the copy member %s is named twice; a COPY of it would have two files to read", e.Member),
+		Spans: []diag.Span{
+			{File: e.Pos.File, Line: e.Pos.Line, Column: e.Pos.Column},
+			{File: e.First.File, Line: e.First.Line, Column: e.First.Column, Note: "it is named first here"},
+		},
+	}
+}
+
+// CopyMemberFormError is a `copy-member` form that is not `(copy-member
+// <member> "<path>")`, or a member that is not a data-name or `(of
+// <text-name> <library-name>)`. The schema check refuses every one of these
+// first; this is the backstop for a caller that never ran it.
+type CopyMemberFormError struct {
+	// Pos is what is wrong.
+	Pos layout.Pos
+
+	// Found names what was written.
+	Found string
+}
+
+// Error implements the error interface.
+func (e *CopyMemberFormError) Error() string {
+	return fmt.Sprintf(
+		"%s: a copy member is written (copy-member <member> \"<path>\"), its member a data-name or (of <text-name> <library-name>), and this has %s",
+		e.Pos, e.Found,
+	)
 }
 
 // AlternativeFormError is an `alternative` child that is not `(alternative

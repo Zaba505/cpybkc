@@ -8,11 +8,13 @@ package project
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 
 	"github.com/Zaba505/cobol-go/copybook"
 
+	"github.com/Zaba505/cpybkc/internal/copymember"
 	"github.com/Zaba505/cpybkc/internal/diag"
 	"github.com/Zaba505/cpybkc/internal/layoutmodel"
 	"github.com/Zaba505/cpybkc/internal/resolve"
@@ -124,21 +126,132 @@ type CopybookSourceError struct {
 
 	// Err is what reading it failed with.
 	Err error
+
+	// In is where in a member the fault is, for one `cobol-go` raised inside
+	// text a `COPY` brought in, with the chain of `COPY` statements that
+	// reached it; nil for a fault in the copybook's own text.
+	In *diag.Span
 }
 
 // Error implements the error interface.
 func (e *CopybookSourceError) Error() string { return e.Diagnostic().String() }
 
 // Diagnostic is what the error says, and where.
+//
+// A fault inside a member points into the member, at the line and column it
+// has there, and names the member as its `copy-member` form spells it, with
+// one more continuation line per `COPY` statement that reached it, innermost
+// first (docs/cli/SPEC.md, "What a `COPY` fault looks like"): a line and a
+// column alone, in `cobol-go`'s message, would be read as a place in the
+// copybook the layout names, which says something else there.
 func (e *CopybookSourceError) Diagnostic() diag.Diagnostic {
+	cause := diag.Span{Note: e.Err.Error()}
+	if e.In != nil {
+		cause = *e.In
+		cause.Note = e.Err.Error()
+	}
+
 	return diag.Diagnostic{
 		Message: fmt.Sprintf("the copybook %s could not be read", strconv.Quote(e.Path)),
-		Spans:   []diag.Span{e.Pos, {Note: e.Err.Error()}},
+		Spans:   []diag.Span{e.Pos, cause},
 	}
 }
 
 // Unwrap gives up the reading failure.
 func (e *CopybookSourceError) Unwrap() error { return e.Err }
+
+// MissingCopyMemberError is a member file a `copy-member` form names that cannot
+// be opened, in the shape docs/cli/SPEC.md's "Finding the inputs" gives every
+// missing file: the path as the form spells it, the span at that path in the
+// layout, and where it was looked for on a continuation line naming no place.
+type MissingCopyMemberError struct {
+	// Pos is the form's path, in the layout.
+	Pos diag.Span
+
+	// Path is the path as the form spells it.
+	Path string
+
+	// LookedIn is the absolute path cpybkc opened.
+	LookedIn string
+
+	// Err is what opening it failed with.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *MissingCopyMemberError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+//
+// A file that is there and cannot be read — a directory, a file without
+// permission, a failed read — is said to be that, with what reading it said,
+// rather than missing: a reader told a file is missing goes and finds it where
+// the message says it is not.
+func (e *MissingCopyMemberError) Diagnostic() diag.Diagnostic {
+	if e.Err != nil && !errors.Is(e.Err, fs.ErrNotExist) {
+		return diag.Diagnostic{
+			Message: "the copy member at " + e.Path + " could not be read",
+			Spans:   []diag.Span{e.Pos, {Note: "looked for " + e.LookedIn}, {Note: e.Err.Error()}},
+		}
+	}
+
+	return diag.Diagnostic{
+		Message: "no copy member at " + e.Path,
+		Spans:   []diag.Span{e.Pos, {Note: "looked for " + e.LookedIn}},
+	}
+}
+
+// MemberFaultError is a fault `cobol-go` found laying out an entry a member
+// contributed to a record bound to a copybook. It points into the member, at
+// the entry's line and column there, with one continuation line per `COPY`
+// that reached it (docs/cli/SPEC.md, "What a `COPY` fault looks like"): a line
+// and a column alone would be read as a place in the copybook the layout
+// names, which says something else there. A fault in the copybook's own text
+// is reported as `cobol-go` wrote it, as it always has been.
+type MemberFaultError struct {
+	// At is the entry, in the member.
+	At diag.Span
+
+	// Err is what `cobol-go` said.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *MemberFaultError) Error() string { return e.Diagnostic().String() }
+
+// Unwrap gives up `cobol-go`'s fault.
+func (e *MemberFaultError) Unwrap() error { return e.Err }
+
+// Diagnostic is what the error says, and where.
+func (e *MemberFaultError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{Message: e.Err.Error(), Spans: []diag.Span{e.At}}
+}
+
+// Unwrap gives up the open failure.
+func (e *MissingCopyMemberError) Unwrap() error { return e.Err }
+
+// UnreachedCopyMemberError is a `copy-member` form no `COPY` reaches, reported
+// at its member (docs/layout/SPEC.md, "A `COPY` member is found where the
+// layout says"): a member map entry nothing reads is more often a misspelled
+// member than one kept for later. Its file is not opened.
+type UnreachedCopyMemberError struct {
+	// Pos is the form's member.
+	Pos diag.Span
+
+	// Member is the member.
+	Member copymember.Member
+}
+
+// Error implements the error interface.
+func (e *UnreachedCopyMemberError) Error() string { return e.Diagnostic().String() }
+
+// Diagnostic is what the error says, and where.
+func (e *UnreachedCopyMemberError) Diagnostic() diag.Diagnostic {
+	return diag.Diagnostic{
+		Message: fmt.Sprintf("no COPY in a copybook a record names reaches the copy member %s", e.Member),
+		Spans:   []diag.Span{e.Pos},
+	}
+}
 
 // UnknownItemError is an item reference naming an item its copybook does not
 // declare.

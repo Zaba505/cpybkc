@@ -54,7 +54,7 @@ func resolveDescriptor(dir string, m *manifest.Manifest) (*irpb.Descriptor, erro
 	// **layout**, not to the manifest. That is what makes a layout portable: a layout and the
 	// copybooks it names travel together, so a project vendoring somebody
 	// else's layout does not have to rewrite the paths inside it.
-	bound, err := bind(filepath.Dir(path), read.records, read.judged)
+	bound, err := bind(filepath.Dir(path), read.records, read.judged, read.copyMembers)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +143,7 @@ func entriesOnly(file *layout.File, body []string) (layout.Pos, bool) {
 type layers struct {
 	records        []layoutmodel.Record
 	blocks         []layoutmodel.Block
+	copyMembers    []layoutmodel.CopyMember
 	profile        *layoutmodel.Profile
 	framing        *layoutmodel.Framing
 	discrimination *layoutmodel.Discrimination
@@ -157,7 +158,7 @@ type layers struct {
 // readLayers reads every layer of a parsed layout, and judges every
 // `definitions-block` in it.
 //
-// All eight are read whatever the ones before them said, and the faults are
+// All nine are read whatever the ones before them said, and the faults are
 // reported together. The layers vary independently — docs/layout/SPEC.md's
 // "Five layers rather than one schema" is that argument — so a layout with a
 // misspelled charset and an unsequenced record is wrong in two layers at once,
@@ -173,6 +174,9 @@ func readLayers(file *layout.File) (*layers, error) {
 	faults.Fail(err)
 
 	read.blocks, err = layoutmodel.ReadBlocks(file)
+	faults.Fail(err)
+
+	read.copyMembers, err = layoutmodel.ReadCopyMembers(file)
 	faults.Fail(err)
 
 	read.profile, err = layoutmodel.ReadProfile(file)
@@ -323,7 +327,9 @@ func (l *layers) resolve(
 // fault inside an entry body is held to.
 func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
 	if kind := bound.Source.Kind; kind != layoutmodel.DefinitionsFileSource && kind != layoutmodel.DefinitionsBlockSource {
-		faults.Fail(err)
+		for _, fault := range split(err) {
+			faults.Fail(memberFault(bound.Source, fault))
+		}
 
 		return
 	}
@@ -338,6 +344,22 @@ func (b *bindings) resolveFault(faults *diag.List, bound binding, err error) {
 		b.reported.report(faults, bound.Source, buildFault(bound.Source, fault),
 			Naming{Record: bound.Record.Name, Pos: span(bound.Record.Source)})
 	}
+}
+
+// memberFault is a fault about a copybook-bound record pointed into the member
+// it is in, where `cobol-go` raised it at an entry a `COPY` brought in, and the
+// fault itself otherwise.
+func memberFault(source resolve.Source, fault error) error {
+	if _, ok := fault.(diag.Error); ok || source.Members == nil {
+		return fault
+	}
+
+	pos, ok := cobolPos(fault)
+	if !ok || pos.Text == nil {
+		return fault
+	}
+
+	return &MemberFaultError{At: source.Members.Span(source.File, pos), Err: fault}
 }
 
 // alternatives resolves each `record` form's `alternative` children to the

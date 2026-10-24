@@ -176,7 +176,7 @@ always was.
 
 ```
 cpybkc [--manifest <path>] [--emit-ir <dest> [--emit-ir-format <format>]]
-cpybkc init --copybook <path> … --out <path>
+cpybkc init --copybook <path> … [--copy-member <member>=<path> …] --out <path>
 cpybkc --version
 cpybkc --help
 ```
@@ -194,9 +194,9 @@ That is the whole surface (#147, #183). The default action's flags are these:
 With no subcommand named, cpybkc **MUST NOT** accept a flag this table does not
 list, and an unrecognised flag **MUST** be a usage error naming it. There is no
 `--include`, no `--jobs`, no `--verbose` and no `--config`; each is refused with
-its reason in [Out of Scope](#out-of-scope). `--copybook` and `--out` are
-[`init`'s](#the-vector-init-takes) and are usage errors here, named the same
-way.
+its reason in [Out of Scope](#out-of-scope). `--copybook`, `--copy-member` and
+`--out` are [`init`'s](#the-vector-init-takes) and are usage errors here, named
+the same way.
 
 `init`'s own flags are in [The vector `init` takes](#the-vector-init-takes). No
 flag that names an **input** belongs to both sets, so a flag on a line is either
@@ -573,20 +573,15 @@ error: orders.sexpr:22:9: ORDER-DETAIL declares no item STD-TYPE
 A span into the copybook that wrote the `COPY`, at the position the entry has
 in the member, would point at a line that says something else.
 
-**This needs member provenance from `cobol-go`, which it does not have.** The
-pinned `cobol-go` reports a copied entry's position as "a position within the
-copybook" — the member — but a `cobol.Pos` is a line and a column and nothing
-else, so neither the entry nor its position says *which* member, and a
-`CopyBookNotFoundError` or `CopyBookCycleError` raised inside a member carries
-the position of a `COPY` in an unnamed file the same way. The change needed,
-for the owner to file in Zaba505/cobol-go, is **member provenance**: every
-position `cobol-go` reports from an expanded source — each entry's, each
-clause's, and each error's, `copybook.Build`'s and `NewLayout`'s included —
-says which library text it is in, by the text-name and library the resolver
-was asked for, and the chain of `COPY` statements that reached it; and it is a
-position in that text as written, not as a `REPLACING` phrase left it. Until
-it lands, the implementing change (#423) cannot meet the rule above and is
-blocked on it.
+**This rests on member provenance from `cobol-go`** (Zaba505/cobol-go#153). A
+`cobol.Pos` from expanded text names the library text it is in — by the
+text-name and library the resolver was asked for — and the chain of `COPY`
+statements that reached it, and it is a position in that text as written, not
+as a `REPLACING` phrase left it; every positioned error, `copybook.Build`'s
+and `NewLayout`'s included, carries the same. That is what lets a span name
+the member's file as its `copy-member` form spells it, at the entry's own line
+and column there, with one continuation line per `COPY`. #423 moved the pin to
+it.
 
 ## Emitting the IR
 
@@ -1531,13 +1526,12 @@ transcribed — never whether every record could be named.
   cannot be parsed, reported in the shapes [What a `COPY` fault looks
   like](#what-a-copy-fault-looks-like) gives, at the copybook as typed. A
   copybook that writes `COPY` and whose members are all given converts as its
-  expanded entries, and is refused or not on the same terms as any other. A copybook conversion refuses,
-  for a condition-name the pinned `cobol-go` misreads ([A condition-name
-  cobol-go misreads is refused, not
-  transcribed](../layout/SPEC.md#a-condition-name-cobol-go-misreads-is-refused-not-transcribed)),
-  is one that cannot be transcribed, and is refused the same way. Every such
-  copybook is reported, not only the first, and each diagnostic names it as
-  typed.
+  expanded entries, and is refused or not on the same terms as any other. A
+  copybook holding a prefixed literal, an `ALL` literal or `VALUES ARE` is not
+  refused: each is [transcribed as `cobol-go` reads
+  it](../layout/SPEC.md#a-prefixed-literal-an-all-literal-and-values-are-are-transcribed-as-cobol-go-reads-them)
+  (#423). Every refused copybook is reported, not only the first, and each
+  diagnostic names it as typed.
 - **The read-back.** Before writing, `init` **MUST** read each definitions file
   back, from the bytes it is about to write, and require its entries to equal
   the copybook's — the [judge's

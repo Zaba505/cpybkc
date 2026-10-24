@@ -1977,9 +1977,10 @@ passing, because no fixture would use the new production, and the first
 copybook that did would convert without it.
 
 A bump can also change what an *existing* production reads as, with no type
-changing at all. Zaba505/cobol-go#135 is the one on the horizon: today `VALUES
-ARE` reads `ARE` as a condition value, which conversion refuses, and once it is
-fixed a copybook refused before converts on the new pin. The round trip over
+changing at all. Zaba505/cobol-go#145 was one: before it `VALUES ARE` read
+`ARE` as a condition value, which conversion refused, and the pin #423 moved to
+reads it as the noise word it is, so a copybook refused before converts on the
+new pin. The round trip over
 every copybook the repository holds is what notices a reading that moved under
 a tracked copybook; one that moves only under an adopter's is the release
 notes' to state.

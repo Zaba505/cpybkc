@@ -36,6 +36,13 @@ const initSubcommand = "init"
 // and the repetition is what a list argument on the module becomes here.
 const copybookFlag = "--copybook"
 
+// copyMemberFlag names one member a copybook's `COPY` names and the file
+// holding it, written `<member>=<path>` (docs/cli/SPEC.md, "Where the members
+// come from"). It is the other flag that repeats — once per member — and the
+// repetition is what a list argument on the module becomes here, as it is for
+// [copybookFlag].
+const copyMemberFlag = "--copy-member"
+
 // outFlag names the layout a scaffolding run writes, with a definitions file per
 // copybook beside it. It has no default in the CLI and none here: the caller of
 // [Init] supplies the directory, because where the files land inside the
@@ -94,13 +101,24 @@ func Generate(manifest string) ([]string, error) {
 
 // Init is the vector for a scaffolding run over copybooks in a project mounted
 // at the container's working directory, with the layout written to dir under
-// the name layout and a definitions file per copybook beside it.
+// the name layout and a definitions file per copybook beside it, and with each
+// member a copybook's `COPY` names read from where a copy-member value says.
 //
-// The subcommand leads and every copybook is a flag of its own, which is the
-// whole shape of `cpybkc init --copybook <path> … --out <layout>`. The order the
-// copybooks were given is kept, because it is not decoration: the scaffold holds
-// one record per 01-level in the order the copybooks were read, so reordering
-// the vector would reorder somebody's layout.
+// The subcommand leads and every copybook and every member is a flag of its
+// own, which is the whole shape of `cpybkc init --copybook <path> …
+// [--copy-member <member>=<path> …] --out <layout>`. The order the copybooks
+// were given is kept, because it is not decoration: the scaffold holds one
+// record per 01-level in the order the copybooks were read, so reordering the
+// vector would reorder somebody's layout. The members keep theirs too, which
+// decides nothing — a member map is not ordered — but is what the caller wrote.
+//
+// A copy-member value is passed through exactly as given. Splitting it at the
+// first `=` outside a literal, reading the member as a `COPY` writes it, and
+// refusing a value with no `=`, an empty or malformed member, an empty path, the
+// path "-" and two values naming one member are all the CLI's usage errors,
+// naming the value as typed (docs/cli/SPEC.md, "Where the members come from");
+// a second reading of that grammar here is one that could disagree with it. The
+// path in it resolves against the mounted project's root, as a copybook's does.
 //
 // A copybook is a path the CLI resolves against its working directory — the
 // mounted project's root — and writes, as it was typed, into the header of the
@@ -135,7 +153,7 @@ func Generate(manifest string) ([]string, error) {
 // entitled to revise. A value naming a directory, or one that cannot be opened,
 // is a status 1 that needs a look at the filesystem — a better diagnostic than
 // anything guessable from out here.
-func Init(copybooks []string, dir, layout string) ([]string, error) {
+func Init(copybooks, copyMembers []string, dir, layout string) ([]string, error) {
 	if len(copybooks) == 0 {
 		return nil, fmt.Errorf(
 			"%s reads the copybooks it is given and this run names none: a scaffold is derived from the 01-levels "+
@@ -165,11 +183,15 @@ func Init(copybooks []string, dir, layout string) ([]string, error) {
 			layout)
 	}
 
-	args := make([]string, 0, 2*len(copybooks)+3)
+	args := make([]string, 0, 2*len(copybooks)+2*len(copyMembers)+3)
 	args = append(args, initSubcommand)
 
 	for _, copybook := range copybooks {
 		args = append(args, copybookFlag, copybook)
+	}
+
+	for _, member := range copyMembers {
+		args = append(args, copyMemberFlag, member)
 	}
 
 	return append(args, outFlag, strings.TrimSuffix(dir, "/")+"/"+layout), nil

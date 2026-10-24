@@ -1,0 +1,16 @@
+;; A file of orders whose two record types share a header, composed with COPY:
+;; each record type's copybook copies the shared header, and the detail's body
+;; copies the general-ledger library's trailer. Every member is found where a
+;; copy-member form says, relative to this layout.
+(encoding
+  (charset cp037) (sign-convention ebcdic)
+  (byte-order big-endian) (float-format ieee-754))
+(framing (recfm V))
+(copy-member STDHDR "cpy/stdhdr.cpy")
+(copy-member ORDDTL "cpy/orddtl.cpy")
+(copy-member (of STDTRL GLLIB) "cpy/gllib/stdtrl.cpy")
+(record ORDER-HEADER (copybook "cpy/order-header.cpy" ORDER-HEADER-REC))
+(record ORDER-DETAIL (copybook "cpy/order-detail.cpy" ORDER-DETAIL-REC))
+(discriminate ORDER-HEADER (equals (item ORDER-HEADER STD-HEADER STD-REC-TYPE) "H"))
+(discriminate ORDER-DETAIL (equals (item ORDER-DETAIL STD-HEADER STD-REC-TYPE) "D"))
+(sequence (* (seq ORDER-HEADER (* ORDER-DETAIL))))

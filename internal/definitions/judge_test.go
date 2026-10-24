@@ -73,6 +73,14 @@ func TestTheJudgeRefuses(t *testing.T) {
 			printed: "88 IS-A PIC X VALUE 'A'.",
 			reason:  "cobol.Parse refuses it",
 		},
+		"ALL before a numeric literal": {
+			entry:  `(entry 05 CODE (pic "9") (value (all "5")))`,
+			reason: "cobol.Print refuses it",
+		},
+		"ALL before a hexadecimal numeric literal": {
+			entry:  `(entry 05 CODE (pic "9") (value (all "H'FF'")))`,
+			reason: "cobol.Print refuses it",
+		},
 		"two literals in an ordinary item's value": {
 			entry:   `(entry 05 CODE (pic "X") (value "'A'" "'B'"))`,
 			printed: "05 CODE PIC X VALUE 'A' 'B'.",

@@ -229,6 +229,13 @@ var companionCoverage = map[string]string{
 	"--copybook": "Init",
 	"--out":      "Init",
 
+	// The member map a copybook composed with COPY is expanded through (#423),
+	// onto the same function and in the same commit that added the flag. It is
+	// Init's copy-member argument, a list passed through value by value: the
+	// member grammar and every refusal of it are the CLI's, so the module holds
+	// no second reading of either.
+	"--copy-member": "Init",
+
 	// The emitting run's two flags, curated onto one function (#251) exactly as
 	// `init`'s were, and off Run in the same commit this table's entries were
 	// written in. What they were doing on Run is worth keeping legible, because
@@ -763,6 +770,38 @@ var exampleInitVector = []string{
 	"--out", exampleInitDir + "/" + scaffoldName,
 }
 
+// composedInitDir is the project whose copybooks compose with COPY (#423): a
+// shared header member, a per-type body member, a COPY nested in it and a COPY
+// … OF a library. [Cpybkc.checkInit] runs the second of its comparisons over
+// it, because the worked example writes no COPY and so says nothing about
+// whether Init carries the member map to the CLI.
+const composedInitDir = "testdata/composed"
+
+// composedCopybooks are the copybooks in [composedInitDir], and composedMembers
+// the --copy-member values naming every member they copy, as a person would type
+// them. Written down rather than read out of the layout for
+// [exampleCopybooks]'s reason.
+var (
+	composedCopybooks = []string{"cpy/order-header.cpy", "cpy/order-detail.cpy"}
+	composedMembers   = []string{
+		"STDHDR=cpy/stdhdr.cpy",
+		"ORDDTL=cpy/orddtl.cpy",
+		"STDTRL OF GLLIB=cpy/gllib/stdtrl.cpy",
+	}
+)
+
+// composedInitVector is the hand-typed escape-hatch spelling of the composed
+// scaffolding run, for [exampleInitVector]'s reason.
+var composedInitVector = []string{
+	"init",
+	"--copybook", "cpy/order-header.cpy",
+	"--copybook", "cpy/order-detail.cpy",
+	"--copy-member", "STDHDR=cpy/stdhdr.cpy",
+	"--copy-member", "ORDDTL=cpy/orddtl.cpy",
+	"--copy-member", "STDTRL OF GLLIB=cpy/gllib/stdtrl.cpy",
+	"--out", exampleInitDir + "/" + scaffoldName,
+}
+
 // exampleEmitIRRuns are the emissions [Cpybkc.checkEmitIR] compares: each is the
 // format the curated function is asked for, beside the hand-typed escape-hatch
 // vector for the same run.
@@ -1025,7 +1064,9 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 }
 
 // checkInit requires the curated scaffolding function and the hand-typed escape
-// hatch to be the same run, over [companionExampleDir]'s copybooks.
+// hatch to be the same run, over [companionExampleDir]'s copybooks and over
+// [composedInitDir]'s, whose COPY statements reach the CLI's member map only
+// through Init's copy-member argument.
 //
 // # What is asserted, and why it is not what a scaffold should contain
 //
@@ -1074,26 +1115,61 @@ func (m *Cpybkc) CompanionModule(ctx context.Context) error {
 // wrote — without a mode or an owner deciding the outcome.
 func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error {
 	bare := m.companion(platform)
-	example := m.Source.Directory(companionExampleDir)
+
+	for _, run := range []struct {
+		dir       string
+		copybooks []string
+		members   []string
+		vector    []string
+		at        string
+	}{
+		{dir: companionExampleDir, copybooks: exampleCopybooks, vector: exampleInitVector, at: "/companion-module/init"},
+		{
+			dir:       composedInitDir,
+			copybooks: composedCopybooks,
+			members:   composedMembers,
+			vector:    composedInitVector,
+			at:        "/companion-module/init-composed",
+		},
+	} {
+		if err := m.checkInitOver(ctx, bare, run.dir, run.copybooks, run.members, run.vector, run.at); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkInitOver is one of [Cpybkc.checkInit]'s comparisons: the curated call
+// over dir's copybooks, with members as its copy-member argument, against the
+// hand-typed vector over the same project, compared as trees mounted at at.
+func (m *Cpybkc) checkInitOver(
+	ctx context.Context,
+	bare *dagger.Companion,
+	dir string,
+	copybooks, members, vector []string,
+	at string,
+) error {
+	project := m.Source.Directory(dir)
 
 	// The files the hand-typed run is expected to have written: the layout,
 	// and the definitions file each copybook's final path element names. They
 	// are named here rather than globbed out of the container, so that a file
 	// the run failed to write is a file this cannot read back, and the failure
-	// says which.
+	// says which. A member is not among them: it gets no definitions file of
+	// its own.
 	written := []string{scaffoldName}
-	for _, copybook := range exampleCopybooks {
-		written = append(written, copybook+".sexpr")
+	for _, copybook := range copybooks {
+		written = append(written, path.Base(copybook)+".sexpr")
 	}
 
 	// "did not succeed" rather than "did not reach the CLI", because both are
 	// reachable from here: run may fail to reach the CLI at all, and the CLI may
 	// be reached and exit non-zero — which is what a typo in the hand-maintained
-	// [exampleInitVector] looks like. The wrapped error says which.
-	ran, err := bare.Run(exampleInitVector, dagger.CompanionRunOpts{Source: example}).Sync(ctx)
+	// vector looks like. The wrapped error says which.
+	ran, err := bare.Run(vector, dagger.CompanionRunOpts{Source: project}).Sync(ctx)
 	if err != nil {
-		return fmt.Errorf("run --args=init,… over %s/'s copybooks did not succeed: %w",
-			companionExampleDir, err)
+		return fmt.Errorf("run --args=init,… over %s/'s copybooks did not succeed: %w", dir, err)
 	}
 
 	typed := dag.Directory()
@@ -1101,14 +1177,14 @@ func (m *Cpybkc) checkInit(ctx context.Context, platform dagger.Platform) error 
 		typed = typed.WithFile(name, ran.File(exampleInitDir+"/"+name))
 	}
 
-	curated := bare.Init(example, exampleCopybooks, scaffoldName)
+	curated := bare.Init(project, copybooks, scaffoldName, dagger.CompanionInitOpts{CopyMember: members})
 
-	if err := m.diffTrees(ctx, typed, curated, "/companion-module/init"); err != nil {
+	if err := m.diffTrees(ctx, typed, curated, at); err != nil {
 		return fmt.Errorf(
 			"init over %s/'s copybooks did not hand back the files `run --args=init,…` writes over the same "+
 				"copybooks (or did not get that far — the wrapped error says which): the curated function and the "+
 				"escape hatch are the same run spelled two ways, so a difference is one of them being wrong: %w",
-			companionExampleDir, err)
+			dir, err)
 	}
 
 	return nil
